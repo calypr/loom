@@ -1,0 +1,285 @@
+FOR p IN Patient
+  FILTER p.project == @project
+  FILTER @auth_resource_path == null OR p.auth_resource_path == @auth_resource_path
+  SORT p._key
+
+  LET patient = p.payload
+  LET patient_ids = patient.identifier ? patient.identifier : []
+  LET patient_exts = patient.extension ? patient.extension : []
+  LET case_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_id") RETURN id.value)
+  LET case_submitter_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_submitter_id") RETURN id.value)
+  LET race = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-race") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+  LET ethnicity = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-ethnicity") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+  LET birth_sex = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-birthsex") RETURN ext.valueCode ? ext.valueCode : ext.valueString)
+  LET patient_age = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "Patient-age") RETURN ext.valueQuantity ? ext.valueQuantity.value : null)
+  LET patient_study_ref = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "part-of-study") && ext.valueReference RETURN ext.valueReference.reference)
+
+  LET patient_neighbors = (
+    FOR neighbor, edge IN 1..1 INBOUND p fhir_edge
+      FILTER edge.project == @project
+      FILTER edge.label == "subject_Patient"
+      RETURN neighbor
+  )
+  LET specimens = (
+    FOR neighbor IN patient_neighbors
+      FILTER neighbor.resourceType == "Specimen"
+      SORT neighbor._key
+      RETURN neighbor
+  )
+  LET specimen_types = UNIQUE(
+    FOR specimen IN specimens
+      LET payload = specimen.payload
+      LET coding = payload.type && payload.type.coding && LENGTH(payload.type.coding) > 0 ? payload.type.coding[0] : null
+      FILTER coding != null
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET preservation_methods = UNIQUE(FLATTEN(
+    FOR specimen IN specimens
+      LET payload = specimen.payload
+      RETURN (
+        FOR processing IN payload.processing ? payload.processing : []
+          FOR coding IN processing.method && processing.method.coding ? processing.method.coding : []
+            FILTER CONTAINS(coding.system ? coding.system : "", "preservation_method")
+            RETURN coding.display ? coding.display : coding.code
+      )
+  ))
+
+  LET groups = UNIQUE(
+    FOR specimen IN specimens
+      FOR group, edge IN 1..1 INBOUND specimen fhir_edge
+        FILTER edge.project == @project
+        FILTER edge.label == "member_entity_Specimen"
+        FILTER group.resourceType == "Group"
+        RETURN group
+  )
+  LET direct_files = (
+    FOR specimen IN specimens
+      FOR doc, edge IN 1..1 INBOUND specimen fhir_edge
+        FILTER edge.project == @project
+        FILTER edge.label == "subject_Specimen"
+        FILTER doc.resourceType == "DocumentReference"
+        RETURN doc
+  )
+  LET grouped_files = (
+    FOR group IN groups
+      FOR doc, edge IN 1..1 INBOUND group fhir_edge
+        FILTER edge.project == @project
+        FILTER edge.label == "subject_Group"
+        FILTER doc.resourceType == "DocumentReference"
+        RETURN doc
+  )
+  LET patient_files = (
+    FOR neighbor IN patient_neighbors
+      FILTER neighbor.resourceType == "DocumentReference"
+      RETURN neighbor
+  )
+  LET files = UNIQUE(APPEND(APPEND(direct_files, grouped_files), patient_files))
+
+  LET file_summaries = (
+    FOR doc_ref IN files
+      LET doc = doc_ref.payload
+      LET doc_ids = doc.identifier ? doc.identifier : []
+      LET content = LENGTH(doc.content ? doc.content : []) > 0 ? doc.content[0] : {}
+      LET attachment = content.attachment ? content.attachment : {}
+      LET type_codings = doc.type && doc.type.coding ? doc.type.coding : []
+      LET category_codings = FLATTEN(
+        FOR category IN doc.category ? doc.category : []
+          RETURN category.coding ? category.coding : []
+      )
+      LET file_id = FIRST(FOR id IN doc_ids FILTER CONTAINS(id.system ? id.system : "", "file_id") RETURN id.value)
+      LET data_format = FIRST(FOR coding IN type_codings RETURN coding.display ? coding.display : coding.code)
+      LET data_category = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_category") RETURN coding.display ? coding.display : coding.code)
+      LET data_type = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_type") RETURN coding.display ? coding.display : coding.code)
+      LET experimental_strategy = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "experimental_strategy") RETURN coding.display ? coding.display : coding.code)
+      LET workflow_type = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "workflow_type") RETURN coding.display ? coding.display : coding.code)
+      LET platform = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "platform") RETURN coding.display ? coding.display : coding.code)
+      LET access = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "access") RETURN coding.display ? coding.display : coding.code)
+      RETURN {
+        file_did: doc.id,
+        file_id: file_id,
+        file_name: attachment.title,
+        file_url: attachment.url,
+        file_size: attachment.size,
+        data_category: data_category,
+        data_type: data_type,
+        data_format: data_format,
+        experimental_strategy: experimental_strategy,
+        workflow_type: workflow_type,
+        platform: platform,
+        access: access,
+        is_snv: data_category == "Simple Nucleotide Variation",
+        is_annotated_somatic: data_category == "Simple Nucleotide Variation" && data_type == "Annotated Somatic Mutation",
+        is_raw_somatic: data_category == "Simple Nucleotide Variation" && data_type == "Raw Simple Somatic Mutation",
+        is_expression: data_category == "Transcriptome Profiling" && data_type == "Gene Expression Quantification",
+        is_fusion: data_type == "Transcript Fusion",
+        is_cnv: data_category == "Copy Number Variation",
+        is_methylation: data_category == "DNA Methylation",
+        is_slide: data_type == "Slide Image",
+        is_aligned_reads: data_type == "Aligned Reads",
+        is_clinical: data_category == "Clinical",
+        is_wxs: experimental_strategy == "WXS",
+        is_wgs: experimental_strategy == "WGS",
+        is_rnaseq: experimental_strategy == "RNA-Seq"
+      }
+  )
+
+  LET file_rollup = MERGE(
+    FOR file IN file_summaries
+      COLLECT AGGREGATE
+        file_count = SUM(1),
+        snv_file_count = SUM(file.is_snv ? 1 : 0),
+        annotated_somatic_file_count = SUM(file.is_annotated_somatic ? 1 : 0),
+        raw_somatic_file_count = SUM(file.is_raw_somatic ? 1 : 0),
+        expression_file_count = SUM(file.is_expression ? 1 : 0),
+        fusion_file_count = SUM(file.is_fusion ? 1 : 0),
+        cnv_file_count = SUM(file.is_cnv ? 1 : 0),
+        methylation_file_count = SUM(file.is_methylation ? 1 : 0),
+        slide_file_count = SUM(file.is_slide ? 1 : 0),
+        aligned_read_file_count = SUM(file.is_aligned_reads ? 1 : 0),
+        clinical_file_count = SUM(file.is_clinical ? 1 : 0),
+        has_wxs_count = SUM(file.is_wxs ? 1 : 0),
+        has_wgs_count = SUM(file.is_wgs ? 1 : 0),
+        has_rnaseq_count = SUM(file.is_rnaseq ? 1 : 0)
+      RETURN {
+        file_count: file_count,
+        snv_file_count: snv_file_count,
+        annotated_somatic_file_count: annotated_somatic_file_count,
+        raw_somatic_file_count: raw_somatic_file_count,
+        expression_file_count: expression_file_count,
+        fusion_file_count: fusion_file_count,
+        cnv_file_count: cnv_file_count,
+        methylation_file_count: methylation_file_count,
+        slide_file_count: slide_file_count,
+        aligned_read_file_count: aligned_read_file_count,
+        clinical_file_count: clinical_file_count,
+        has_snv: snv_file_count > 0,
+        has_expression: expression_file_count > 0,
+        has_fusion: fusion_file_count > 0,
+        has_cnv: cnv_file_count > 0,
+        has_methylation: methylation_file_count > 0,
+        has_slide: slide_file_count > 0,
+        has_wxs: has_wxs_count > 0,
+        has_wgs: has_wgs_count > 0,
+        has_rnaseq: has_rnaseq_count > 0
+      }
+  )
+  LET data_categories = UNIQUE(FOR f IN file_summaries FILTER f.data_category != null RETURN f.data_category)
+  LET data_types = UNIQUE(FOR f IN file_summaries FILTER f.data_type != null RETURN f.data_type)
+  LET experimental_strategies = UNIQUE(FOR f IN file_summaries FILTER f.experimental_strategy != null RETURN f.experimental_strategy)
+  LET workflow_types = UNIQUE(FOR f IN file_summaries FILTER f.workflow_type != null RETURN f.workflow_type)
+  LET representative_snv_files = SLICE(FOR f IN file_summaries FILTER f.is_snv RETURN f, 0, 5)
+  LET representative_expression_files = SLICE(FOR f IN file_summaries FILTER f.is_expression RETURN f, 0, 5)
+  LET representative_cnv_files = SLICE(FOR f IN file_summaries FILTER f.is_cnv RETURN f, 0, 5)
+  LET representative_methylation_files = SLICE(FOR f IN file_summaries FILTER f.is_methylation RETURN f, 0, 5)
+  LET representative_slide_files = SLICE(FOR f IN file_summaries FILTER f.is_slide RETURN f, 0, 5)
+
+  LET conditions = (
+    FOR neighbor IN patient_neighbors
+      FILTER neighbor.resourceType == "Condition"
+      SORT neighbor._key
+      RETURN neighbor.payload
+  )
+  LET primary_condition = FIRST(conditions)
+  LET primary_condition_ids = primary_condition ? primary_condition.identifier ? primary_condition.identifier : [] : []
+  LET primary_condition_codings = primary_condition && primary_condition.code && primary_condition.code.coding ? primary_condition.code.coding : []
+  LET primary_diagnosis_preferred = FIRST(
+    FOR coding IN primary_condition_codings
+      FILTER CONTAINS(coding.system ? coding.system : "", "primary_diagnosis")
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET primary_diagnosis = primary_diagnosis_preferred ? primary_diagnosis_preferred : FIRST(
+    FOR coding IN primary_condition_codings
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET diagnosis_id = FIRST(FOR id IN primary_condition_ids FILTER CONTAINS(id.system ? id.system : "", "diagnosis_id") RETURN id.value)
+  LET diagnosis_body_site = FIRST(
+    FOR body_site IN primary_condition ? primary_condition.bodySite ? primary_condition.bodySite : [] : []
+      FOR coding IN body_site.coding ? body_site.coding : []
+        RETURN coding.display ? coding.display : coding.code
+  )
+
+  LET research_subject_payload = FIRST(
+    FOR neighbor IN patient_neighbors
+      FILTER neighbor.resourceType == "ResearchSubject"
+      SORT neighbor._key
+      RETURN neighbor.payload
+  )
+  LET study_ref = research_subject_payload && research_subject_payload.study ? research_subject_payload.study.reference : patient_study_ref
+  LET study_parts = study_ref ? SPLIT(study_ref, "/") : []
+  LET study_id = LENGTH(study_parts) == 2 ? study_parts[1] : null
+  LET study = study_id ? DOCUMENT(CONCAT("ResearchStudy/", study_id)) : null
+  LET study_payload = study ? study.payload : null
+  LET study_ids = study_payload ? study_payload.identifier ? study_payload.identifier : [] : []
+
+  LET treatments = (
+    FOR neighbor IN patient_neighbors
+      FILTER neighbor.resourceType == "MedicationAdministration"
+      RETURN neighbor.payload
+  )
+  LET treatment_categories = UNIQUE(FLATTEN(
+    FOR treatment IN treatments
+      RETURN (
+        FOR category IN treatment.category ? treatment.category : []
+          FOR coding IN category.coding ? category.coding : []
+            RETURN coding.display ? coding.display : coding.code
+      )
+  ))
+
+  RETURN {
+    _key: p._key,
+    project: p.project,
+    recipe: "gdc_case_assay_matrix",
+    case_fhir_id: patient.id,
+    case_id: case_id,
+    case_submitter_id: case_submitter_id,
+    gender: patient.gender,
+    deceased: patient.deceasedBoolean,
+    birth_sex: birth_sex,
+    race: race,
+    ethnicity: ethnicity,
+    patient_age: patient_age,
+    diagnosis_count: LENGTH(conditions),
+    diagnosis_id: diagnosis_id,
+    primary_diagnosis: primary_diagnosis,
+    diagnosis_body_site: diagnosis_body_site,
+    research_subject_id: research_subject_payload ? research_subject_payload.id : null,
+    research_subject_status: research_subject_payload ? research_subject_payload.status : null,
+    study_id: study_payload ? study_payload.id : null,
+    study_identifier: FIRST(FOR id IN study_ids RETURN id.value),
+    study_name: study_payload ? study_payload.name : null,
+    study_title: study_payload ? study_payload.title : null,
+    specimen_count: LENGTH(specimens),
+    specimen_types: specimen_types,
+    preservation_methods: preservation_methods,
+    file_count: file_rollup.file_count ? file_rollup.file_count : 0,
+    data_categories: data_categories,
+    data_types: data_types,
+    experimental_strategies: experimental_strategies,
+    workflow_types: workflow_types,
+    has_snv: file_rollup.has_snv ? file_rollup.has_snv : false,
+    snv_file_count: file_rollup.snv_file_count ? file_rollup.snv_file_count : 0,
+    annotated_somatic_file_count: file_rollup.annotated_somatic_file_count ? file_rollup.annotated_somatic_file_count : 0,
+    raw_somatic_file_count: file_rollup.raw_somatic_file_count ? file_rollup.raw_somatic_file_count : 0,
+    has_wxs: file_rollup.has_wxs ? file_rollup.has_wxs : false,
+    has_wgs: file_rollup.has_wgs ? file_rollup.has_wgs : false,
+    has_rnaseq: file_rollup.has_rnaseq ? file_rollup.has_rnaseq : false,
+    has_expression: file_rollup.has_expression ? file_rollup.has_expression : false,
+    expression_file_count: file_rollup.expression_file_count ? file_rollup.expression_file_count : 0,
+    has_fusion: file_rollup.has_fusion ? file_rollup.has_fusion : false,
+    fusion_file_count: file_rollup.fusion_file_count ? file_rollup.fusion_file_count : 0,
+    has_cnv: file_rollup.has_cnv ? file_rollup.has_cnv : false,
+    cnv_file_count: file_rollup.cnv_file_count ? file_rollup.cnv_file_count : 0,
+    has_methylation: file_rollup.has_methylation ? file_rollup.has_methylation : false,
+    methylation_file_count: file_rollup.methylation_file_count ? file_rollup.methylation_file_count : 0,
+    has_slide: file_rollup.has_slide ? file_rollup.has_slide : false,
+    slide_file_count: file_rollup.slide_file_count ? file_rollup.slide_file_count : 0,
+    aligned_read_file_count: file_rollup.aligned_read_file_count ? file_rollup.aligned_read_file_count : 0,
+    clinical_file_count: file_rollup.clinical_file_count ? file_rollup.clinical_file_count : 0,
+    treatment_count: LENGTH(treatments),
+    treatment_categories: treatment_categories,
+    representative_snv_files: representative_snv_files,
+    representative_expression_files: representative_expression_files,
+    representative_cnv_files: representative_cnv_files,
+    representative_methylation_files: representative_methylation_files,
+    representative_slide_files: representative_slide_files
+  }

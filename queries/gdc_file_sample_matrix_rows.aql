@@ -1,0 +1,193 @@
+FOR d IN DocumentReference
+  FILTER @project == null OR d.project == @project
+  FILTER @auth_resource_path == null OR d.auth_resource_path == @auth_resource_path
+  FILTER @lower_key == null OR d._key >= @lower_key
+  FILTER @upper_key == null OR d._key < @upper_key
+  FILTER @after_key == null OR d._key > @after_key
+  SORT d._key
+  LIMIT @page_size
+
+  LET doc = d.payload
+  LET doc_ids = doc.identifier ? doc.identifier : []
+  LET doc_content = LENGTH(doc.content ? doc.content : []) > 0 ? doc.content[0] : {}
+  LET attachment = doc_content.attachment ? doc_content.attachment : {}
+  LET doc_category_codings = FLATTEN(
+    FOR category IN doc.category ? doc.category : []
+      RETURN category.coding ? category.coding : []
+  )
+  LET doc_type_codings = doc.type && doc.type.coding ? doc.type.coding : []
+  LET file_id = FIRST(FOR id IN doc_ids FILTER CONTAINS(id.system ? id.system : "", "file_id") RETURN id.value)
+  LET file_submitter_id = FIRST(FOR id IN doc_ids FILTER CONTAINS(id.system ? id.system : "", "submitter_id") RETURN id.value)
+  LET data_format = FIRST(FOR coding IN doc_type_codings RETURN coding.display ? coding.display : coding.code)
+  LET data_category = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_category") RETURN coding.display ? coding.display : coding.code)
+  LET data_type = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_type") RETURN coding.display ? coding.display : coding.code)
+  LET experimental_strategy = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "experimental_strategy") RETURN coding.display ? coding.display : coding.code)
+  LET platform = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "platform") RETURN coding.display ? coding.display : coding.code)
+  LET workflow_type = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "workflow_type") RETURN coding.display ? coding.display : coding.code)
+  LET access = FIRST(FOR coding IN doc_category_codings FILTER CONTAINS(coding.system ? coding.system : "", "access") RETURN coding.display ? coding.display : coding.code)
+
+  LET subject_ref = doc.subject ? doc.subject.reference : null
+  LET subject_parts = subject_ref ? SPLIT(subject_ref, "/") : []
+  LET subject_type = LENGTH(subject_parts) == 2 ? subject_parts[0] : null
+  LET subject_id = LENGTH(subject_parts) == 2 ? subject_parts[1] : null
+  LET subject_doc = subject_type && subject_id ? DOCUMENT(CONCAT(subject_type, "/", d.project, "::", subject_id)) : null
+
+  LET group_payload = subject_doc && subject_doc.payload.resourceType == "Group" ? subject_doc.payload : null
+  LET group_ids = group_payload ? group_payload.identifier ? group_payload.identifier : [] : []
+  LET group_members = group_payload ? group_payload.member ? group_payload.member : [] : []
+  LET group_member_refs = (
+    FOR member IN group_members
+      FILTER member.entity && member.entity.reference
+      RETURN member.entity.reference
+  )
+  LET direct_specimen_refs = subject_type == "Specimen" ? [subject_ref] : []
+  LET specimen_refs = LENGTH(group_member_refs) > 0 ? group_member_refs : direct_specimen_refs
+  LET specimen_member_indexes = LENGTH(specimen_refs) == 0 ? [-1] : 0..(LENGTH(specimen_refs) - 1)
+
+  FOR specimen_member_index IN specimen_member_indexes
+    LET specimen_ref = specimen_member_index < 0 ? null : specimen_refs[specimen_member_index]
+    LET specimen_parts = specimen_ref ? SPLIT(specimen_ref, "/") : []
+    LET specimen_id = LENGTH(specimen_parts) == 2 ? specimen_parts[1] : null
+    LET specimen = specimen_id ? DOCUMENT(CONCAT("Specimen/", d.project, "::", specimen_id)) : null
+    LET specimen_payload = specimen ? specimen.payload : null
+    LET specimen_ids = specimen_payload ? specimen_payload.identifier ? specimen_payload.identifier : [] : []
+    LET specimen_type = specimen_payload && specimen_payload.type && specimen_payload.type.coding && LENGTH(specimen_payload.type.coding) > 0
+      ? (specimen_payload.type.coding[0].display ? specimen_payload.type.coding[0].display : specimen_payload.type.coding[0].code)
+      : null
+    LET specimen_processing_codings = specimen_payload ? FLATTEN(
+      FOR processing IN specimen_payload.processing ? specimen_payload.processing : []
+        RETURN processing.method && processing.method.coding ? processing.method.coding : []
+    ) : []
+    LET preservation_method = FIRST(
+      FOR coding IN specimen_processing_codings
+        FILTER CONTAINS(coding.system ? coding.system : "", "preservation_method")
+        RETURN coding.display ? coding.display : coding.code
+    )
+    LET specimen_parent_refs = specimen_payload ? (
+      FOR parent IN specimen_payload.parent ? specimen_payload.parent : []
+        FILTER parent.reference != null
+        RETURN parent.reference
+    ) : []
+    LET patient_ref = specimen_payload && specimen_payload.subject ? specimen_payload.subject.reference : (subject_type == "Patient" ? subject_ref : null)
+    LET patient_parts = patient_ref ? SPLIT(patient_ref, "/") : []
+    LET patient_id = LENGTH(patient_parts) == 2 ? patient_parts[1] : null
+    LET patient = patient_id ? DOCUMENT(CONCAT("Patient/", d.project, "::", patient_id)) : null
+    LET patient_payload = patient ? patient.payload : null
+    LET patient_ids = patient_payload ? patient_payload.identifier ? patient_payload.identifier : [] : []
+    LET patient_exts = patient_payload ? patient_payload.extension ? patient_payload.extension : [] : []
+    LET case_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_id") RETURN id.value)
+    LET case_submitter_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_submitter_id") RETURN id.value)
+    LET race = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-race") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+    LET ethnicity = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-ethnicity") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+    LET birth_sex = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-birthsex") RETURN ext.valueCode ? ext.valueCode : ext.valueString)
+    LET patient_study_ref = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "part-of-study") && ext.valueReference RETURN ext.valueReference.reference)
+
+    LET condition = patient_ref ? FIRST(
+      FOR c IN Condition
+        FILTER c.project == d.project
+        FILTER c.payload.subject.reference == patient_ref
+        SORT c._key
+        LIMIT 1
+        RETURN c.payload
+    ) : null
+    LET condition_ids = condition ? condition.identifier ? condition.identifier : [] : []
+    LET condition_code_codings = condition && condition.code && condition.code.coding ? condition.code.coding : []
+    LET primary_diagnosis_preferred = FIRST(
+      FOR coding IN condition_code_codings
+        FILTER CONTAINS(coding.system ? coding.system : "", "primary_diagnosis")
+        RETURN coding.display ? coding.display : coding.code
+    )
+    LET primary_diagnosis = primary_diagnosis_preferred ? primary_diagnosis_preferred : FIRST(
+      FOR coding IN condition_code_codings
+        RETURN coding.display ? coding.display : coding.code
+    )
+    LET diagnosis_id = FIRST(FOR id IN condition_ids FILTER CONTAINS(id.system ? id.system : "", "diagnosis_id") RETURN id.value)
+    LET diagnosis_body_site = FIRST(
+      FOR body_site IN condition ? condition.bodySite ? condition.bodySite : [] : []
+        FOR coding IN body_site.coding ? body_site.coding : []
+          RETURN coding.display ? coding.display : coding.code
+    )
+    LET onset_age = condition && condition.onsetAge ? condition.onsetAge.value : null
+
+    LET research_subject = patient_ref ? FIRST(
+      FOR rs IN ResearchSubject
+        FILTER rs.project == d.project
+        FILTER rs.payload.subject.reference == patient_ref
+        SORT rs._key
+        LIMIT 1
+        RETURN rs.payload
+    ) : null
+    LET study_ref = research_subject && research_subject.study ? research_subject.study.reference : patient_study_ref
+    LET study_parts = study_ref ? SPLIT(study_ref, "/") : []
+    LET study_id = LENGTH(study_parts) == 2 ? study_parts[1] : null
+    LET study = study_id ? DOCUMENT(CONCAT("ResearchStudy/", d.project, "::", study_id)) : null
+    LET study_payload = study ? study.payload : null
+    LET study_ids = study_payload ? study_payload.identifier ? study_payload.identifier : [] : []
+    LET study_identifier = FIRST(FOR id IN study_ids RETURN id.value)
+
+    LET treatments = patient_ref ? (
+      FOR ma IN MedicationAdministration
+        FILTER ma.project == d.project
+        FILTER ma.payload.subject.reference == patient_ref
+        RETURN ma.payload
+    ) : []
+    LET treatment_categories = UNIQUE(FLATTEN(
+      FOR treatment IN treatments
+        RETURN (
+          FOR category IN treatment.category ? treatment.category : []
+            FOR coding IN category.coding ? category.coding : []
+              RETURN coding.display ? coding.display : coding.code
+        )
+    ))
+
+    RETURN {
+      page_key: d._key,
+      _key: CONCAT(d._key, "::", specimen_id ? specimen_id : "no_specimen"),
+      project: d.project,
+      recipe: "gdc_file_sample_matrix",
+      file_did: doc.id,
+      file_id: file_id,
+      file_submitter_id: file_submitter_id,
+      file_name: attachment.title,
+      file_url: attachment.url,
+      file_size: attachment.size,
+      file_hash: attachment.hash,
+      file_status: doc.status,
+      file_date: doc.date,
+      data_category: data_category,
+      data_type: data_type,
+      data_format: data_format,
+      experimental_strategy: experimental_strategy,
+      platform: platform,
+      workflow_type: workflow_type,
+      access: access,
+      group_id: group_payload ? group_payload.id : null,
+      group_identifier: FIRST(FOR id IN group_ids RETURN id.value),
+      group_member_count: LENGTH(specimen_refs),
+      group_member_index: specimen_member_index < 0 ? null : specimen_member_index,
+      specimen_id: specimen_payload ? specimen_payload.id : null,
+      specimen_submitter_id: FIRST(FOR id IN specimen_ids RETURN id.value),
+      specimen_type: specimen_type,
+      preservation_method: preservation_method,
+      specimen_parent_refs: specimen_parent_refs,
+      case_fhir_id: patient_payload ? patient_payload.id : null,
+      case_id: case_id,
+      case_submitter_id: case_submitter_id,
+      gender: patient_payload ? patient_payload.gender : null,
+      deceased: patient_payload ? patient_payload.deceasedBoolean : null,
+      birth_sex: birth_sex,
+      race: race,
+      ethnicity: ethnicity,
+      diagnosis_id: diagnosis_id,
+      primary_diagnosis: primary_diagnosis,
+      diagnosis_body_site: diagnosis_body_site,
+      onset_age: onset_age,
+      research_subject_id: research_subject ? research_subject.id : null,
+      research_subject_status: research_subject ? research_subject.status : null,
+      study_id: study_payload ? study_payload.id : null,
+      study_identifier: study_identifier,
+      study_name: study_payload ? study_payload.name : null,
+      study_title: study_payload ? study_payload.title : null,
+      treatment_count: LENGTH(treatments),
+      treatment_categories: treatment_categories
+    }

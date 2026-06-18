@@ -1,0 +1,30 @@
+LET page = (
+  FOR d IN @@collection
+    FILTER @lower_key == null OR d._key >= @lower_key
+    FILTER @upper_key == null OR d._key < @upper_key
+    FILTER @after_key == null OR d._key > @after_key
+    SORT d._key
+    LIMIT @page_size
+    RETURN d
+)
+LET inserted = (
+  FOR d IN page
+    FOR member IN d.payload.member ? d.payload.member : []
+      LET ref = member.entity ? member.entity.reference : null
+      FILTER ref != null
+      LET parts = SPLIT(ref, "/")
+      FILTER LENGTH(parts) == 2
+      INSERT {
+        _key: CONCAT(@collection, "-", d._key, "-member-", parts[0], "-", parts[1]),
+        _from: d._id,
+        _to: CONCAT(parts[0], "/", d.project, "::", parts[1]),
+        project: d.project,
+        reference_path: "member"
+      } INTO member_ref OPTIONS { overwriteMode: "replace" }
+      RETURN 1
+)
+RETURN {
+  docs: LENGTH(page),
+  edges: LENGTH(inserted),
+  last_key: LENGTH(page) > 0 ? LAST(page)._key : null
+}

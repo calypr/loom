@@ -1,0 +1,29 @@
+LET page = (
+  FOR d IN @@collection
+    FILTER @lower_key == null OR d._key >= @lower_key
+    FILTER @upper_key == null OR d._key < @upper_key
+    FILTER @after_key == null OR d._key > @after_key
+    SORT d._key
+    LIMIT @page_size
+    RETURN d
+)
+LET inserted = (
+  FOR d IN page
+    LET ref = d.payload.subject.reference
+    FILTER ref != null
+    LET parts = SPLIT(ref, "/")
+    FILTER LENGTH(parts) == 2
+    INSERT {
+      _key: CONCAT(@collection, "-", d._key, "-subject-", parts[0], "-", parts[1]),
+      _from: d._id,
+      _to: CONCAT(parts[0], "/", d.project, "::", parts[1]),
+      project: d.project,
+      reference_path: "subject"
+    } INTO subject_ref OPTIONS { overwriteMode: "replace" }
+    RETURN 1
+)
+RETURN {
+  docs: LENGTH(page),
+  edges: LENGTH(inserted),
+  last_key: LENGTH(page) > 0 ? LAST(page)._key : null
+}

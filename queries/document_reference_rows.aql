@@ -1,0 +1,200 @@
+FOR d IN DocumentReference
+  FILTER @project == null OR d.project == @project
+  FILTER @auth_resource_path == null OR d.auth_resource_path == @auth_resource_path
+  FILTER @lower_key == null OR d._key >= @lower_key
+  FILTER @upper_key == null OR d._key < @upper_key
+  FILTER @after_key == null OR d._key > @after_key
+  SORT d._key
+  LIMIT @page_size
+  LET doc = d.payload
+
+  LET raw_subject = FIRST(
+    FOR v, e IN 1..1 OUTBOUND d subject_ref
+      FILTER e.reference_path == "subject"
+      RETURN v
+  )
+
+  LET raw_subject_of_subject = raw_subject ? FIRST(
+    FOR v, e IN 1..1 OUTBOUND raw_subject subject_ref
+      FILTER e.reference_path == "subject"
+      RETURN v
+  ) : null
+
+  LET direct_subject_payload = raw_subject ? raw_subject.payload : null
+  LET subject_of_subject_payload = raw_subject_of_subject ? raw_subject_of_subject.payload : null
+
+  LET doc_identifier = LENGTH(doc.identifier ? doc.identifier : []) > 0
+    ? doc.identifier[0].value
+    : null
+
+  LET doc_attachment = LENGTH(doc.content ? doc.content : []) > 0 && doc.content[0].attachment
+    ? doc.content[0].attachment
+    : {}
+
+  LET based_on_entries = doc.basedOn ? doc.basedOn : []
+  LET based_on_values = LENGTH(based_on_entries) == 0
+    ? {}
+    : MERGE(
+        FOR i IN 0..(LENGTH(based_on_entries) - 1)
+          LET entry = based_on_entries[i]
+          FILTER entry.reference != null
+          RETURN { [CONCAT("basedOn_", TO_STRING(i))]: entry.reference }
+      )
+
+  LET direct_subject_flat = direct_subject_payload ? MERGE(
+    {
+      [CONCAT(LOWER(direct_subject_payload.resourceType), "_id")]: direct_subject_payload.id,
+      [CONCAT(LOWER(direct_subject_payload.resourceType), "_resourceType")]: direct_subject_payload.resourceType,
+      [CONCAT(LOWER(direct_subject_payload.resourceType), "_identifier")]:
+        LENGTH(direct_subject_payload.identifier ? direct_subject_payload.identifier : []) > 0
+          ? direct_subject_payload.identifier[0].value
+          : null
+    },
+    direct_subject_payload.resourceType == "Patient"
+      ? {
+          patient_gender: direct_subject_payload.gender,
+          patient_birthDate: direct_subject_payload.birthDate,
+          patient_family_name: direct_subject_payload.name[0].family,
+          patient_given_name: direct_subject_payload.name[0].given[0]
+        }
+      : {},
+    direct_subject_payload.resourceType == "Specimen"
+      ? {
+          specimen_status: direct_subject_payload.status,
+          specimen_type: direct_subject_payload.type.coding[0].display,
+          specimen_parent: LENGTH(direct_subject_payload.parent ? direct_subject_payload.parent : []) > 0
+            ? CONCAT_SEPARATOR(",", FOR parent_ref IN direct_subject_payload.parent RETURN LAST(SPLIT(parent_ref.reference, "/")))
+            : null
+        }
+      : {}
+  ) : {}
+
+  LET subject_of_subject_flat = subject_of_subject_payload ? MERGE(
+    {
+      [CONCAT(LOWER(subject_of_subject_payload.resourceType), "_id")]: subject_of_subject_payload.id,
+      [CONCAT(LOWER(subject_of_subject_payload.resourceType), "_resourceType")]: subject_of_subject_payload.resourceType,
+      [CONCAT(LOWER(subject_of_subject_payload.resourceType), "_identifier")]:
+        LENGTH(subject_of_subject_payload.identifier ? subject_of_subject_payload.identifier : []) > 0
+          ? subject_of_subject_payload.identifier[0].value
+          : null
+    },
+    subject_of_subject_payload.resourceType == "Patient"
+      ? {
+          patient_gender: subject_of_subject_payload.gender,
+          patient_birthDate: subject_of_subject_payload.birthDate,
+          patient_family_name: subject_of_subject_payload.name[0].family,
+          patient_given_name: subject_of_subject_payload.name[0].given[0]
+        }
+      : {}
+  ) : {}
+
+  LET observation_value_docs = (
+    FOR obs, e IN 1..1 INBOUND d focus_ref
+      LET payload = obs.payload
+      LET raw_top_level_key = payload.code && payload.code.text ? payload.code.text : "value"
+      LET top_level_key_clean = REGEX_REPLACE(raw_top_level_key, "[^A-Za-z0-9_]+", "_")
+      LET top_level_key = top_level_key_clean == ""
+        ? "_"
+        : (REGEX_TEST(top_level_key_clean, "^[0-9]") ? CONCAT("_", top_level_key_clean) : top_level_key_clean)
+      LET top_level_value = (
+        payload.valueQuantity ? CONCAT(TO_STRING(payload.valueQuantity.value), payload.valueQuantity.unit ? CONCAT(" ", payload.valueQuantity.unit) : "") :
+        payload.valueCodeableConcept ? CONCAT_SEPARATOR(" ", FOR coding IN payload.valueCodeableConcept.coding ? payload.valueCodeableConcept.coding : [] RETURN coding.display ? coding.display : coding.code) :
+        payload.valueCoding ? payload.valueCoding.display :
+        payload.valueString ? payload.valueString :
+        payload.valueCode ? payload.valueCode :
+        payload.valueBoolean != null ? TO_STRING(payload.valueBoolean) :
+        payload.valueInteger != null ? TO_STRING(payload.valueInteger) :
+        payload.valueRange ? CONCAT(
+          TO_STRING(payload.valueRange.low.value),
+          " - ",
+          TO_STRING(payload.valueRange.high.value),
+          payload.valueRange.low.unit ? CONCAT(" ", payload.valueRange.low.unit) : ""
+        ) :
+        payload.valueRatio ? CONCAT(
+          TO_STRING(payload.valueRatio.numerator.value),
+          payload.valueRatio.numerator.unit ? CONCAT(" ", payload.valueRatio.numerator.unit) : "",
+          "/",
+          TO_STRING(payload.valueRatio.denominator.value),
+          payload.valueRatio.denominator.unit ? CONCAT(" ", payload.valueRatio.denominator.unit) : ""
+        ) :
+        payload.valueSampledData ? payload.valueSampledData.data :
+        payload.valueTime ? payload.valueTime :
+        payload.valueDateTime ? payload.valueDateTime :
+        payload.valuePeriod ? CONCAT(payload.valuePeriod.start, " to ", payload.valuePeriod.end) :
+        payload.valueUrl ? payload.valueUrl :
+        payload.valueDate ? payload.valueDate :
+        payload.valueCount ? payload.valueCount.value :
+        null
+      )
+      LET component_values = MERGE(
+        FOR component IN payload.component ? payload.component : []
+          LET raw_component_key = component.code && component.code.text ? component.code.text : "component"
+          LET component_key_clean = REGEX_REPLACE(raw_component_key, "[^A-Za-z0-9_]+", "_")
+          LET component_key = component_key_clean == ""
+            ? "_"
+            : (REGEX_TEST(component_key_clean, "^[0-9]") ? CONCAT("_", component_key_clean) : component_key_clean)
+          LET component_value = (
+            component.valueQuantity ? CONCAT(TO_STRING(component.valueQuantity.value), component.valueQuantity.unit ? CONCAT(" ", component.valueQuantity.unit) : "") :
+            component.valueCodeableConcept ? CONCAT_SEPARATOR(" ", FOR coding IN component.valueCodeableConcept.coding ? component.valueCodeableConcept.coding : [] RETURN coding.display ? coding.display : coding.code) :
+            component.valueCoding ? component.valueCoding.display :
+            component.valueString ? component.valueString :
+            component.valueCode ? component.valueCode :
+            component.valueBoolean != null ? TO_STRING(component.valueBoolean) :
+            component.valueInteger != null ? TO_STRING(component.valueInteger) :
+            component.valueRange ? CONCAT(
+              TO_STRING(component.valueRange.low.value),
+              " - ",
+              TO_STRING(component.valueRange.high.value),
+              component.valueRange.low.unit ? CONCAT(" ", component.valueRange.low.unit) : ""
+            ) :
+            component.valueRatio ? CONCAT(
+              TO_STRING(component.valueRatio.numerator.value),
+              component.valueRatio.numerator.unit ? CONCAT(" ", component.valueRatio.numerator.unit) : "",
+              "/",
+              TO_STRING(component.valueRatio.denominator.value),
+              component.valueRatio.denominator.unit ? CONCAT(" ", component.valueRatio.denominator.unit) : ""
+            ) :
+            component.valueSampledData ? component.valueSampledData.data :
+            component.valueTime ? component.valueTime :
+            component.valueDateTime ? component.valueDateTime :
+            component.valuePeriod ? CONCAT(component.valuePeriod.start, " to ", component.valuePeriod.end) :
+            component.valueUrl ? component.valueUrl :
+            component.valueDate ? component.valueDate :
+            component.valueCount ? component.valueCount.value :
+            null
+          )
+          FILTER component_value != null
+          RETURN { [component_key]: component_value }
+      )
+      RETURN MERGE(
+        top_level_value != null ? { [top_level_key]: top_level_value } : {},
+        payload.code && payload.code.text ? { observation_code: payload.code.text } : {},
+        component_values
+      )
+  )
+
+  LET row = MERGE(
+    {
+      page_key: d._key,
+      _key: d._key,
+      project: d.project,
+      recipe: "flattened_document_reference",
+      id: doc.id,
+      resourceType: doc.resourceType,
+      identifier: doc_identifier,
+      status: doc.status,
+      docStatus: doc.docStatus,
+      description: doc.description,
+      date: doc.date,
+      url: doc_attachment.url,
+      title: doc_attachment.title,
+      size: doc_attachment.size,
+      hash: doc_attachment.hash
+    },
+    based_on_values,
+    direct_subject_flat,
+    subject_of_subject_flat,
+    LENGTH(observation_value_docs) > 0 ? MERGE(observation_value_docs) : {}
+  )
+
+  RETURN row

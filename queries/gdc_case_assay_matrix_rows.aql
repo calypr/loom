@@ -1,0 +1,270 @@
+FOR p IN Patient
+  FILTER @lower_key == null OR p._key >= @lower_key
+  FILTER @upper_key == null OR p._key < @upper_key
+  FILTER @after_key == null OR p._key > @after_key
+  SORT p._key
+  LIMIT @page_size
+
+  LET patient = p.payload
+  LET patient_ref = CONCAT("Patient/", patient.id)
+  LET patient_ids = patient.identifier ? patient.identifier : []
+  LET patient_exts = patient.extension ? patient.extension : []
+  LET case_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_id") RETURN id.value)
+  LET case_submitter_id = FIRST(FOR id IN patient_ids FILTER CONTAINS(id.system ? id.system : "", "case_submitter_id") RETURN id.value)
+  LET race = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-race") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+  LET ethnicity = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-ethnicity") RETURN ext.valueString ? ext.valueString : ext.valueCode)
+  LET birth_sex = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "us-core-birthsex") RETURN ext.valueCode ? ext.valueCode : ext.valueString)
+  LET patient_age = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "Patient-age") RETURN ext.valueQuantity ? ext.valueQuantity.value : null)
+  LET patient_study_ref = FIRST(FOR ext IN patient_exts FILTER CONTAINS(ext.url ? ext.url : "", "part-of-study") && ext.valueReference RETURN ext.valueReference.reference)
+
+  LET specimens = (
+    FOR specimen IN 1..1 INBOUND p subject_ref
+      FILTER specimen.resourceType == "Specimen"
+      SORT specimen._key
+      RETURN specimen
+  )
+  LET specimen_refs = (
+    FOR specimen IN specimens
+      RETURN CONCAT("Specimen/", specimen.payload.id)
+  )
+  LET specimen_types = UNIQUE(
+    FOR specimen IN specimens
+      LET payload = specimen.payload
+      LET coding = payload.type && payload.type.coding && LENGTH(payload.type.coding) > 0 ? payload.type.coding[0] : null
+      FILTER coding != null
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET preservation_methods = UNIQUE(FLATTEN(
+    FOR specimen IN specimens
+      LET payload = specimen.payload
+      RETURN (
+        FOR processing IN payload.processing ? payload.processing : []
+          FOR coding IN processing.method && processing.method.coding ? processing.method.coding : []
+            FILTER CONTAINS(coding.system ? coding.system : "", "preservation_method")
+            RETURN coding.display ? coding.display : coding.code
+      )
+  ))
+
+  LET groups = UNIQUE(
+    FOR specimen IN specimens
+      FOR group IN 1..1 INBOUND specimen member_ref
+        FILTER group.resourceType == "Group"
+        RETURN group
+  )
+  LET direct_files = (
+    FOR specimen IN specimens
+      FOR doc IN 1..1 INBOUND specimen subject_ref
+        FILTER doc.resourceType == "DocumentReference"
+        RETURN doc
+  )
+  LET grouped_files = (
+    FOR group IN groups
+      FOR doc IN 1..1 INBOUND group subject_ref
+        FILTER doc.resourceType == "DocumentReference"
+        RETURN doc
+  )
+  LET patient_files = (
+    FOR doc IN 1..1 INBOUND p subject_ref
+      FILTER doc.resourceType == "DocumentReference"
+      RETURN doc
+  )
+  LET files = UNIQUE(APPEND(APPEND(direct_files, grouped_files), patient_files))
+
+  LET file_summaries = (
+    FOR doc_ref IN files
+      LET doc = doc_ref.payload
+      LET doc_ids = doc.identifier ? doc.identifier : []
+      LET content = LENGTH(doc.content ? doc.content : []) > 0 ? doc.content[0] : {}
+      LET attachment = content.attachment ? content.attachment : {}
+      LET type_codings = doc.type && doc.type.coding ? doc.type.coding : []
+      LET category_codings = FLATTEN(
+        FOR category IN doc.category ? doc.category : []
+          RETURN category.coding ? category.coding : []
+      )
+      LET file_id = FIRST(FOR id IN doc_ids FILTER CONTAINS(id.system ? id.system : "", "file_id") RETURN id.value)
+      LET data_format = FIRST(FOR coding IN type_codings RETURN coding.display ? coding.display : coding.code)
+      LET data_category = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_category") RETURN coding.display ? coding.display : coding.code)
+      LET data_type = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "data_type") RETURN coding.display ? coding.display : coding.code)
+      LET experimental_strategy = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "experimental_strategy") RETURN coding.display ? coding.display : coding.code)
+      LET workflow_type = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "workflow_type") RETURN coding.display ? coding.display : coding.code)
+      LET platform = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "platform") RETURN coding.display ? coding.display : coding.code)
+      LET access = FIRST(FOR coding IN category_codings FILTER CONTAINS(coding.system ? coding.system : "", "access") RETURN coding.display ? coding.display : coding.code)
+      RETURN {
+        file_did: doc.id,
+        file_id: file_id,
+        file_name: attachment.title,
+        file_url: attachment.url,
+        file_size: attachment.size,
+        data_category: data_category,
+        data_type: data_type,
+        data_format: data_format,
+        experimental_strategy: experimental_strategy,
+        workflow_type: workflow_type,
+        platform: platform,
+        access: access
+      }
+  )
+
+  LET snv_files = (
+    FOR f IN file_summaries
+      FILTER f.data_category == "Simple Nucleotide Variation"
+      RETURN f
+  )
+  LET annotated_somatic_files = (
+    FOR f IN snv_files
+      FILTER f.data_type == "Annotated Somatic Mutation"
+      RETURN f
+  )
+  LET raw_somatic_files = (
+    FOR f IN snv_files
+      FILTER f.data_type == "Raw Simple Somatic Mutation"
+      RETURN f
+  )
+  LET expression_files = (
+    FOR f IN file_summaries
+      FILTER f.data_category == "Transcriptome Profiling"
+      FILTER f.data_type == "Gene Expression Quantification"
+      RETURN f
+  )
+  LET fusion_files = (
+    FOR f IN file_summaries
+      FILTER f.data_type == "Transcript Fusion"
+      RETURN f
+  )
+  LET cnv_files = (
+    FOR f IN file_summaries
+      FILTER f.data_category == "Copy Number Variation"
+      RETURN f
+  )
+  LET methylation_files = (
+    FOR f IN file_summaries
+      FILTER f.data_category == "DNA Methylation"
+      RETURN f
+  )
+  LET slide_files = (
+    FOR f IN file_summaries
+      FILTER f.data_type == "Slide Image"
+      RETURN f
+  )
+  LET aligned_read_files = (
+    FOR f IN file_summaries
+      FILTER f.data_type == "Aligned Reads"
+      RETURN f
+  )
+  LET clinical_files = (
+    FOR f IN file_summaries
+      FILTER f.data_category == "Clinical"
+      RETURN f
+  )
+
+  LET conditions = (
+    FOR c IN 1..1 INBOUND p subject_ref
+      FILTER c.resourceType == "Condition"
+      SORT c._key
+      RETURN c.payload
+  )
+  LET primary_condition = FIRST(conditions)
+  LET primary_condition_ids = primary_condition ? primary_condition.identifier ? primary_condition.identifier : [] : []
+  LET primary_condition_codings = primary_condition && primary_condition.code && primary_condition.code.coding ? primary_condition.code.coding : []
+  LET primary_diagnosis_preferred = FIRST(
+    FOR coding IN primary_condition_codings
+      FILTER CONTAINS(coding.system ? coding.system : "", "primary_diagnosis")
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET primary_diagnosis = primary_diagnosis_preferred ? primary_diagnosis_preferred : FIRST(
+    FOR coding IN primary_condition_codings
+      RETURN coding.display ? coding.display : coding.code
+  )
+  LET diagnosis_id = FIRST(FOR id IN primary_condition_ids FILTER CONTAINS(id.system ? id.system : "", "diagnosis_id") RETURN id.value)
+  LET diagnosis_body_site = FIRST(
+    FOR body_site IN primary_condition ? primary_condition.bodySite ? primary_condition.bodySite : [] : []
+      FOR coding IN body_site.coding ? body_site.coding : []
+        RETURN coding.display ? coding.display : coding.code
+  )
+
+  LET research_subject = FIRST(
+    FOR rs IN 1..1 INBOUND p subject_ref
+      FILTER rs.resourceType == "ResearchSubject"
+      SORT rs._key
+      RETURN rs.payload
+  )
+  LET study_ref = research_subject && research_subject.study ? research_subject.study.reference : patient_study_ref
+  LET study_parts = study_ref ? SPLIT(study_ref, "/") : []
+  LET study_id = LENGTH(study_parts) == 2 ? study_parts[1] : null
+  LET study = study_id ? DOCUMENT(CONCAT("ResearchStudy/", p.project, "::", study_id)) : null
+  LET study_payload = study ? study.payload : null
+  LET study_ids = study_payload ? study_payload.identifier ? study_payload.identifier : [] : []
+
+  LET treatments = (
+    FOR ma IN 1..1 INBOUND p subject_ref
+      FILTER ma.resourceType == "MedicationAdministration"
+      RETURN ma.payload
+  )
+  LET treatment_categories = UNIQUE(FLATTEN(
+    FOR treatment IN treatments
+      RETURN (
+        FOR category IN treatment.category ? treatment.category : []
+          FOR coding IN category.coding ? category.coding : []
+            RETURN coding.display ? coding.display : coding.code
+      )
+  ))
+
+  RETURN {
+    page_key: p._key,
+    _key: p._key,
+    project: p.project,
+    recipe: "gdc_case_assay_matrix",
+    case_fhir_id: patient.id,
+    case_id: case_id,
+    case_submitter_id: case_submitter_id,
+    gender: patient.gender,
+    deceased: patient.deceasedBoolean,
+    birth_sex: birth_sex,
+    race: race,
+    ethnicity: ethnicity,
+    patient_age: patient_age,
+    diagnosis_count: LENGTH(conditions),
+    diagnosis_id: diagnosis_id,
+    primary_diagnosis: primary_diagnosis,
+    diagnosis_body_site: diagnosis_body_site,
+    research_subject_id: research_subject ? research_subject.id : null,
+    research_subject_status: research_subject ? research_subject.status : null,
+    study_id: study_payload ? study_payload.id : null,
+    study_identifier: FIRST(FOR id IN study_ids RETURN id.value),
+    study_name: study_payload ? study_payload.name : null,
+    study_title: study_payload ? study_payload.title : null,
+    specimen_count: LENGTH(specimens),
+    specimen_types: specimen_types,
+    preservation_methods: preservation_methods,
+    file_count: LENGTH(file_summaries),
+    data_categories: UNIQUE(FOR f IN file_summaries FILTER f.data_category != null RETURN f.data_category),
+    data_types: UNIQUE(FOR f IN file_summaries FILTER f.data_type != null RETURN f.data_type),
+    experimental_strategies: UNIQUE(FOR f IN file_summaries FILTER f.experimental_strategy != null RETURN f.experimental_strategy),
+    workflow_types: UNIQUE(FOR f IN file_summaries FILTER f.workflow_type != null RETURN f.workflow_type),
+    has_snv: LENGTH(snv_files) > 0,
+    snv_file_count: LENGTH(snv_files),
+    annotated_somatic_file_count: LENGTH(annotated_somatic_files),
+    raw_somatic_file_count: LENGTH(raw_somatic_files),
+    has_wxs: LENGTH(FOR f IN file_summaries FILTER f.experimental_strategy == "WXS" RETURN 1) > 0,
+    has_wgs: LENGTH(FOR f IN file_summaries FILTER f.experimental_strategy == "WGS" RETURN 1) > 0,
+    has_rnaseq: LENGTH(FOR f IN file_summaries FILTER f.experimental_strategy == "RNA-Seq" RETURN 1) > 0,
+    has_expression: LENGTH(expression_files) > 0,
+    expression_file_count: LENGTH(expression_files),
+    has_fusion: LENGTH(fusion_files) > 0,
+    fusion_file_count: LENGTH(fusion_files),
+    has_cnv: LENGTH(cnv_files) > 0,
+    cnv_file_count: LENGTH(cnv_files),
+    has_methylation: LENGTH(methylation_files) > 0,
+    methylation_file_count: LENGTH(methylation_files),
+    has_slide: LENGTH(slide_files) > 0,
+    slide_file_count: LENGTH(slide_files),
+    aligned_read_file_count: LENGTH(aligned_read_files),
+    clinical_file_count: LENGTH(clinical_files),
+    treatment_count: LENGTH(treatments),
+    treatment_categories: treatment_categories,
+    representative_snv_files: SLICE(snv_files, 0, 5),
+    representative_expression_files: SLICE(expression_files, 0, 5),
+    representative_cnv_files: SLICE(cnv_files, 0, 5),
+    representative_methylation_files: SLICE(methylation_files, 0, 5),
+    representative_slide_files: SLICE(slide_files, 0, 5)
+  }
