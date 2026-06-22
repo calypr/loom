@@ -1,4 +1,4 @@
-package proto
+package catalog
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"arangodb-proto/internal/dbio"
 	"arangodb-proto/internal/store"
 
 	"github.com/bytedance/sonic"
@@ -30,6 +31,7 @@ const (
 type FieldCatalogDocument struct {
 	Key               string   `json:"_key"`
 	Project           string   `json:"project"`
+	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
 	ResourceType      string   `json:"resource_type"`
 	Path              string   `json:"path"`
 	Kind              string   `json:"kind"`
@@ -43,15 +45,17 @@ type FieldCatalogDocument struct {
 }
 
 type PopulatedFieldOptions struct {
-	ConnectionOptions
-	Project      string
-	ResourceType string
-	PivotOnly    bool
-	CursorBatch  int
+	dbio.ConnectionOptions
+	Project           string
+	AuthResourcePaths []string
+	ResourceType      string
+	PivotOnly         bool
+	CursorBatch       int
 }
 
 type PopulatedField struct {
 	Project           string   `json:"project"`
+	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
 	ResourceType      string   `json:"resource_type"`
 	Path              string   `json:"path"`
 	Kind              string   `json:"kind"`
@@ -67,11 +71,13 @@ type PopulatedField struct {
 const populatedFieldsAQL = `
 FOR d IN fhir_field_catalog
   FILTER d.project == @project
+  FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
   FILTER @resource_type == null OR d.resource_type == @resource_type
   FILTER @pivot_only == false OR d.pivot_candidate == true
   SORT d.resource_type, d.doc_count DESC, d.path
   RETURN {
     project: d.project,
+    auth_resource_path: d.auth_resource_path,
     resource_type: d.resource_type,
     path: d.path,
     kind: d.kind,
@@ -100,16 +106,40 @@ SELECT
   pivot_columns
 FROM fhir_field_catalog
 WHERE project = $project
+  AND ($auth_resource_paths_unrestricted = true OR auth_resource_path INSIDE $auth_resource_paths)
   AND ($resource_type = "" OR resource_type = $resource_type)
   AND ($pivot_only = false OR pivot_candidate = true)
 ORDER BY resource_type ASC, doc_count DESC, path ASC;
 `
 
-type fieldCatalogProfiler struct {
-	project      string
-	resourceType string
-	shapeCache   *shapePlanCache
-	stats        map[string]*fieldCatalogStats
+const populatedFieldsPostgresSQL = `
+SELECT
+  project,
+  auth_resource_path,
+  resource_type,
+  path,
+  kind,
+  doc_count,
+  sample_count,
+  COALESCE(distinct_values, ARRAY[]::text[]) AS distinct_values,
+  distinct_truncated,
+  pivot_candidate,
+  pivot_kind,
+  COALESCE(pivot_columns, ARRAY[]::text[]) AS pivot_columns
+FROM fhir_field_catalog
+WHERE project = @project
+  AND (@auth_resource_paths_unrestricted = true OR auth_resource_path = ANY(@auth_resource_paths))
+  AND (NULLIF(@resource_type, '') IS NULL OR resource_type = @resource_type)
+  AND (@pivot_only = false OR pivot_candidate = true)
+ORDER BY resource_type ASC, doc_count DESC, path ASC;
+`
+
+type Profiler struct {
+	project          string
+	authResourcePath string
+	resourceType     string
+	shapeCache       *ShapePlanCache
+	stats            map[string]*fieldCatalogStats
 }
 
 type fieldCatalogStats struct {
@@ -125,7 +155,7 @@ type fieldCatalogStats struct {
 	pivotColumnSet    map[string]struct{}
 }
 
-type shapePlanCache struct {
+type ShapePlanCache struct {
 	mu    sync.RWMutex
 	plans map[string]*shapePlan
 }
@@ -147,20 +177,21 @@ type pathStep struct {
 	iterateArray bool
 }
 
-func newShapePlanCache() *shapePlanCache {
-	return &shapePlanCache{plans: make(map[string]*shapePlan)}
+func NewShapePlanCache() *ShapePlanCache {
+	return &ShapePlanCache{plans: make(map[string]*shapePlan)}
 }
 
-func newFieldCatalogProfiler(project, resourceType string, cache *shapePlanCache) *fieldCatalogProfiler {
-	return &fieldCatalogProfiler{
-		project:      project,
-		resourceType: resourceType,
-		shapeCache:   cache,
-		stats:        make(map[string]*fieldCatalogStats),
+func NewProfiler(project, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
+	return &Profiler{
+		project:          project,
+		authResourcePath: authResourcePath,
+		resourceType:     resourceType,
+		shapeCache:       cache,
+		stats:            make(map[string]*fieldCatalogStats),
 	}
 }
 
-func (p *fieldCatalogProfiler) ObservePayload(payload map[string]any, timings map[string]float64) {
+func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) {
 	if payload == nil {
 		return
 	}
@@ -201,7 +232,7 @@ func (p *fieldCatalogProfiler) ObservePayload(payload map[string]any, timings ma
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 
-func (p *fieldCatalogProfiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
+func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	if stat, ok := p.stats[field.Path]; ok {
 		return stat
 	}
@@ -249,7 +280,7 @@ func (s *fieldCatalogStats) addPivotColumn(value string) {
 	s.pivotColumns = append(s.pivotColumns, value)
 }
 
-func (p *fieldCatalogProfiler) Merge(other *fieldCatalogProfiler) {
+func (p *Profiler) Merge(other *Profiler) {
 	for path, otherStat := range other.stats {
 		stat, ok := p.stats[path]
 		if !ok {
@@ -274,7 +305,7 @@ func (p *fieldCatalogProfiler) Merge(other *fieldCatalogProfiler) {
 	}
 }
 
-func (p *fieldCatalogProfiler) Documents() []FieldCatalogDocument {
+func (p *Profiler) Documents() []FieldCatalogDocument {
 	out := make([]FieldCatalogDocument, 0, len(p.stats))
 	paths := make([]string, 0, len(p.stats))
 	for path := range p.stats {
@@ -288,8 +319,9 @@ func (p *fieldCatalogProfiler) Documents() []FieldCatalogDocument {
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
 		out = append(out, FieldCatalogDocument{
-			Key:               fieldCatalogKey(p.project, p.resourceType, stat.path),
+			Key:               fieldCatalogKey(p.project, p.authResourcePath, p.resourceType, stat.path),
 			Project:           p.project,
+			AuthResourcePath:  p.authResourcePath,
 			ResourceType:      p.resourceType,
 			Path:              stat.path,
 			Kind:              stat.kind,
@@ -305,11 +337,11 @@ func (p *fieldCatalogProfiler) Documents() []FieldCatalogDocument {
 	return out
 }
 
-func fieldCatalogKey(project, resourceType, path string) string {
-	return sanitizeCollectionKey(project + "::" + resourceType + "::" + path)
+func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {
+	return sanitizeCollectionKey(project + "::" + authResourcePath + "::" + resourceType + "::" + path)
 }
 
-func (c *shapePlanCache) getOrBuild(fingerprint string, payload map[string]any) *shapePlan {
+func (c *ShapePlanCache) getOrBuild(fingerprint string, payload map[string]any) *shapePlan {
 	c.mu.RLock()
 	plan, ok := c.plans[fingerprint]
 	c.mu.RUnlock()
@@ -326,7 +358,7 @@ func (c *shapePlanCache) getOrBuild(fingerprint string, payload map[string]any) 
 	return plan
 }
 
-func (c *shapePlanCache) planCount() int {
+func (c *ShapePlanCache) planCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.plans)
@@ -597,7 +629,7 @@ func shapeFingerprintForValue(value any) string {
 	}
 }
 
-func writeFieldCatalog(ctx context.Context, client store.Backend, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func WriteFieldCatalog(ctx context.Context, client store.Backend, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -618,7 +650,7 @@ func writeFieldCatalog(ctx context.Context, client store.Backend, collection str
 			end = len(rawDocs)
 		}
 		insertStart := time.Now()
-		if err := insertRawDocuments(ctx, client, collection, rawDocs[i:end], overwrite, writeAPI); err != nil {
+		if err := client.InsertBatchRaw(ctx, collection, rawDocs[i:end], overwrite, writeAPI); err != nil {
 			return err
 		}
 		timings["field_catalog_insert"] += time.Since(insertStart).Seconds()
@@ -651,29 +683,35 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
-	client, err := openBackend(ctx, opts.ConnectionOptions)
+	client, err := dbio.OpenBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return nil, err
 	}
 
 	start := time.Now()
-	Emit("go_discovery_start", map[string]any{
-		"database":          opts.Database,
-		"project":           opts.Project,
-		"resource_type":     opts.ResourceType,
-		"pivot_only":        opts.PivotOnly,
-		"cursor_batch_size": opts.CursorBatch,
-		"query":             "populated_fields",
+	emit("go_discovery_start", map[string]any{
+		"database":            opts.Database,
+		"project":             opts.Project,
+		"resource_type":       opts.ResourceType,
+		"pivot_only":          opts.PivotOnly,
+		"auth_resource_paths": opts.AuthResourcePaths,
+		"cursor_batch_size":   opts.CursorBatch,
+		"query":               "populated_fields",
 	})
 
 	query := populatedFieldsAQL
 	bindVars := map[string]any{
-		"project":    opts.Project,
-		"pivot_only": opts.PivotOnly,
+		"project":                          opts.Project,
+		"pivot_only":                       opts.PivotOnly,
+		"auth_resource_paths":              cloneStrings(opts.AuthResourcePaths),
+		"auth_resource_paths_unrestricted": opts.AuthResourcePaths == nil,
 	}
-	switch backendName(opts.Backend) {
-	case backendSurreal:
+	switch dbio.BackendName(opts.Backend) {
+	case dbio.BackendSurreal:
 		query = populatedFieldsSurrealQL
+		bindVars["resource_type"] = opts.ResourceType
+	case dbio.BackendPostgres:
+		query = populatedFieldsPostgresSQL
 		bindVars["resource_type"] = opts.ResourceType
 	default:
 		if opts.ResourceType != "" {
@@ -687,6 +725,7 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 	err = client.QueryRows(ctx, query, opts.CursorBatch, bindVars, func(row map[string]any) error {
 		results = append(results, PopulatedField{
 			Project:           stringValue(row["project"]),
+			AuthResourcePath:  stringValue(row["auth_resource_path"]),
 			ResourceType:      stringValue(row["resource_type"]),
 			Path:              stringValue(row["path"]),
 			Kind:              stringValue(row["kind"]),
@@ -704,13 +743,14 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 		return nil, err
 	}
 
-	Emit("go_discovery_complete", map[string]any{
-		"database":      opts.Database,
-		"project":       opts.Project,
-		"resource_type": opts.ResourceType,
-		"pivot_only":    opts.PivotOnly,
-		"rows":          len(results),
-		"seconds":       SecondsSince(start),
+	emit("go_discovery_complete", map[string]any{
+		"database":            opts.Database,
+		"project":             opts.Project,
+		"resource_type":       opts.ResourceType,
+		"pivot_only":          opts.PivotOnly,
+		"auth_resource_paths": opts.AuthResourcePaths,
+		"rows":                len(results),
+		"seconds":             secondsSince(start),
 	})
 	return results, nil
 }

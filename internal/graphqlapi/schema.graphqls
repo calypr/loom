@@ -1,0 +1,141 @@
+type Query {
+  dataframeBuilderIntrospection(
+    input: DataframeBuilderIntrospectionInput!
+  ): DataframeBuilderIntrospection!
+}
+
+scalar JSON
+
+type Mutation {
+  runFhirDataframe(
+    input: FhirDataframeInput!
+    mode: DataframeRunMode! = EXPORT
+    previewLimit: Int = 25
+  ): FhirDataframeRunResult!
+}
+
+input DataframeBuilderIntrospectionInput {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]
+  includePivotOnlyFields: Boolean = true
+}
+
+type DataframeBuilderIntrospection {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]!
+  root: DataframeResourceHints!
+  relatedResources: [DataframeRelatedResourceHints!]!
+  traversals: [DataframeTraversalHint!]!
+  fields: [DataframeFieldHint!]!
+  pivotFields: [DataframeFieldHint!]!
+}
+
+type DataframeResourceHints {
+  resourceType: String!
+  fields: [DataframeFieldHint!]!
+  pivotFields: [DataframeFieldHint!]!
+  traversals: [DataframeTraversalHint!]!
+}
+
+type DataframeRelatedResourceHints {
+  viaLabel: String!
+  edgeCount: Int!
+  target: DataframeResourceHints!
+}
+
+type DataframeTraversalHint {
+  fromType: String!
+  label: String!
+  toType: String!
+  edgeCount: Int!
+}
+
+type DataframeFieldHint {
+  resourceType: String!
+  path: String!
+  selector: String!
+  kind: String!
+  docCount: Int!
+  sampleCount: Int!
+  distinctValues: [String!]!
+  distinctTruncated: Boolean!
+  pivotCandidate: Boolean!
+  pivotKind: String
+  pivotColumns: [String!]!
+}
+
+enum FhirPivotKind {
+  CODEABLE_CONCEPT_DISPLAY_VALUE
+}
+
+enum DataframeRunMode {
+  PREVIEW
+  EXPORT
+}
+
+input FhirFieldSelectInput {
+  name: String!
+  fhirPath: String!
+  selectionHint: String
+  valueMode: FhirValueMode! = AUTO
+}
+
+enum FhirValueMode {
+  AUTO
+  FIRST
+  ALL
+  DISTINCT
+}
+
+input FhirPivotInput {
+  name: String!
+  fhirPath: String!
+  pivotKind: FhirPivotKind = CODEABLE_CONCEPT_DISPLAY_VALUE
+  selectedColumns: [String!]!
+  valuePath: String
+}
+
+input FhirTraversalStepInput {
+  edgeLabel: String!
+  toResourceType: String!
+  alias: String!
+  fields: [FhirFieldSelectInput!]! = []
+  pivots: [FhirPivotInput!] = []
+  traverse: [FhirTraversalStepInput!] = []
+}
+
+input FhirDataframeInput {
+  project: String!
+  authResourcePath: String
+  authResourcePaths: [String!]
+  rootResourceType: String!
+  rootFields: [FhirFieldSelectInput!]
+  rootPivots: [FhirPivotInput!]
+  traverse: [FhirTraversalStepInput!]
+  limit: Int
+  cursor: String
+}
+
+type FhirDataframePreview {
+  columns: [String!]!
+  rows: [FhirDataframeRow!]!
+  rowCount: Int!
+}
+
+type FhirDataframeRow {
+  data: JSON!
+}
+
+type FhirDataframeExportHandle {
+  exportId: String!
+  status: String!
+  format: String!
+}
+
+type FhirDataframeRunResult {
+  mode: DataframeRunMode!
+  preview: FhirDataframePreview
+  export: FhirDataframeExportHandle
+}

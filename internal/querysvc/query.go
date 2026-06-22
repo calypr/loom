@@ -1,16 +1,17 @@
-package proto
+package querysvc
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
+
+	"arangodb-proto/internal/dbio"
 )
 
 type QueryOptions struct {
-	ConnectionOptions
+	dbio.ConnectionOptions
 	QueryFile        string
 	Output           string
 	Index            string
@@ -21,6 +22,11 @@ type QueryOptions struct {
 	ProgressEvery    int
 	MaxRows          int
 	Bulk             bool
+}
+
+type ExecuteQueryOptions struct {
+	dbio.ConnectionOptions
+	BatchSize int
 }
 
 func Query(ctx context.Context, opts QueryOptions) (int, error) {
@@ -34,10 +40,6 @@ func Query(ctx context.Context, opts QueryOptions) (int, error) {
 		opts.QueryFile = DefaultCaseAssayQueryPathForBackend(opts.Backend)
 	}
 	queryBytes, err := os.ReadFile(opts.QueryFile)
-	if err != nil {
-		return 0, err
-	}
-	client, err := openBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return 0, err
 	}
@@ -56,45 +58,70 @@ func Query(ctx context.Context, opts QueryOptions) (int, error) {
 
 	start := time.Now()
 	rows := 0
-	Emit("go_query_start", map[string]any{
+	emit("go_query_start", map[string]any{
 		"query":              opts.QueryFile,
 		"output":             opts.Output,
 		"bulk":               opts.Bulk,
 		"cursor_batch_size":  opts.BatchSize,
 		"auth_resource_path": opts.AuthResourcePath,
 	})
-	switch backendName(opts.Backend) {
-	case backendSurreal:
-		bindVars := map[string]interface{}{
-			"project":            opts.Project,
-			"max_rows":           opts.MaxRows,
-			"patient_key":        opts.PatientKey,
-			"auth_resource_path": opts.AuthResourcePath,
-		}
-		err = client.QueryRows(ctx, string(queryBytes), opts.BatchSize, bindVars, func(row map[string]any) error {
-			return visitQueryRow(writer, opts, row, &rows, start)
-		})
-	default:
-		bindVars := map[string]interface{}{
-			"project": opts.Project,
-		}
-		if opts.AuthResourcePath != "" {
-			bindVars["auth_resource_path"] = opts.AuthResourcePath
-		} else {
-			bindVars["auth_resource_path"] = nil
-		}
-		err = client.QueryRows(ctx, string(queryBytes), opts.BatchSize, bindVars, func(row map[string]any) error {
-			return visitQueryRow(writer, opts, row, &rows, start)
-		})
-	}
+	bindVars := queryBindVars(opts)
+	err = ExecuteQueryRows(ctx, ExecuteQueryOptions{
+		ConnectionOptions: opts.ConnectionOptions,
+		BatchSize:         opts.BatchSize,
+	}, string(queryBytes), bindVars, func(row map[string]any) error {
+		return visitQueryRow(writer, opts, row, &rows, start)
+	})
 	if _, ok := err.(stopQuery); ok {
 		err = nil
 	}
 	if err != nil {
 		return rows, err
 	}
-	Emit("go_query_complete", map[string]any{"rows": rows, "seconds": SecondsSince(start), "output": opts.Output})
+	emit("go_query_complete", map[string]any{"rows": rows, "seconds": secondsSince(start), "output": opts.Output})
 	return rows, nil
+}
+
+func ExecuteQueryRows(ctx context.Context, opts ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+	if opts.BatchSize <= 0 {
+		opts.BatchSize = 1000
+	}
+	client, err := openBackend(ctx, opts.ConnectionOptions)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	return client.QueryRows(ctx, query, opts.BatchSize, bindVars, func(row map[string]any) error {
+		return visit(row)
+	})
+}
+
+func queryBindVars(opts QueryOptions) map[string]any {
+	switch dbio.BackendName(opts.Backend) {
+	case dbio.BackendSurreal, dbio.BackendPostgres:
+		return map[string]any{
+			"project":            opts.Project,
+			"max_rows":           opts.MaxRows,
+			"patient_key":        opts.PatientKey,
+			"auth_resource_path": opts.AuthResourcePath,
+		}
+	default:
+		authPaths := []string(nil)
+		if opts.AuthResourcePath != "" {
+			authPaths = []string{opts.AuthResourcePath}
+		}
+		bindVars := map[string]any{
+			"project":                          opts.Project,
+			"auth_resource_paths":              authPaths,
+			"auth_resource_paths_unrestricted": authPaths == nil,
+		}
+		if opts.AuthResourcePath != "" {
+			bindVars["auth_resource_path"] = opts.AuthResourcePath
+		} else {
+			bindVars["auth_resource_path"] = nil
+		}
+		return bindVars
+	}
 }
 
 func visitQueryRow(writer *bufio.Writer, opts QueryOptions, row map[string]any, rows *int, start time.Time) error {
@@ -119,7 +146,7 @@ func visitQueryRow(writer *bufio.Writer, opts QueryOptions, row map[string]any, 
 		return err
 	}
 	if *rows%opts.ProgressEvery == 0 {
-		Emit("go_query_progress", map[string]any{"rows": *rows, "seconds": SecondsSince(start)})
+		emit("go_query_progress", map[string]any{"rows": *rows, "seconds": secondsSince(start)})
 	}
 	return nil
 }
@@ -128,28 +155,16 @@ type stopQuery struct{}
 
 func (stopQuery) Error() string { return "stop query" }
 
-func writeJSONLine(writer *bufio.Writer, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	if _, err := writer.Write(data); err != nil {
-		return err
-	}
-	if err := writer.WriteByte('\n'); err != nil {
-		return err
-	}
-	return nil
-}
-
 func DefaultCaseAssayQueryPath() string {
-	return DefaultCaseAssayQueryPathForBackend(backendArango)
+	return DefaultCaseAssayQueryPathForBackend(dbio.BackendArango)
 }
 
 func DefaultCaseAssayQueryPathForBackend(backend string) string {
-	switch backendName(backend) {
-	case backendSurreal:
-		return "queries_surreal/gdc_case_assay_matrix_surreal_rows.surql"
+	switch dbio.BackendName(backend) {
+	case dbio.BackendPostgres:
+		return "experimental/queries/postgres/gdc_case_assay_matrix_postgres_rows.sql"
+	case dbio.BackendSurreal:
+		return "experimental/queries/surreal/gdc_case_assay_matrix_surreal_rows.surql"
 	default:
 		return "queries/gdc_case_assay_matrix_arango_rows.aql"
 	}

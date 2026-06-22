@@ -1,4 +1,4 @@
-package proto
+package catalog
 
 import (
 	"slices"
@@ -6,8 +6,8 @@ import (
 )
 
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
-	cache := newShapePlanCache()
-	profiler := newFieldCatalogProfiler("TEST", "Observation", cache)
+	cache := NewShapePlanCache()
+	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
 	timings := map[string]float64{}
 	payload := map[string]any{
 		"identifier": []any{
@@ -34,6 +34,9 @@ func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 
 	profiler.ObservePayload(payload, timings)
 	docs := profiler.Documents()
+	if len(docs) == 0 || docs[0].AuthResourcePath != "pathA" {
+		t.Fatalf("expected auth_resource_path on catalog docs: %+v", docs)
+	}
 	paths := make([]string, 0, len(docs))
 	for _, doc := range docs {
 		paths = append(paths, doc.Path)
@@ -55,8 +58,8 @@ func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 }
 
 func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
-	cache := newShapePlanCache()
-	profiler := newFieldCatalogProfiler("TEST", "Patient", cache)
+	cache := NewShapePlanCache()
+	profiler := NewProfiler("TEST", "pathA", "Patient", cache)
 	timings := map[string]float64{}
 
 	first := map[string]any{
@@ -90,8 +93,8 @@ func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
 }
 
 func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
-	cache := newShapePlanCache()
-	profiler := newFieldCatalogProfiler("TEST", "Observation", cache)
+	cache := NewShapePlanCache()
+	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
 	timings := map[string]float64{}
 
 	payload := map[string]any{

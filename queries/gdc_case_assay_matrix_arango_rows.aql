@@ -1,6 +1,6 @@
 FOR p IN Patient
   FILTER p.project == @project
-  FILTER @auth_resource_path == null OR p.auth_resource_path == @auth_resource_path
+  FILTER @auth_resource_paths_unrestricted == true OR p.auth_resource_path IN @auth_resource_paths
   SORT p._key
 
   LET patient = p.payload

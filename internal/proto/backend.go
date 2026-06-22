@@ -3,52 +3,35 @@ package proto
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
+	"arangodb-proto/internal/catalog"
+	"arangodb-proto/internal/dbio"
 	"arangodb-proto/internal/store"
-	arangostore "arangodb-proto/internal/store/arango"
-	surrealstore "arangodb-proto/internal/store/surreal"
 )
 
 const EdgeCollection = "fhir_edge"
 const PatientFileRollupCollection = "patient_file_rollup"
+const ScalarIndexCollection = "fhir_scalar_index"
+
+type ConnectionOptions = dbio.ConnectionOptions
 
 const (
-	backendArango  = "arango"
-	backendSurreal = "surreal"
+	backendArango   = dbio.BackendArango
+	backendPostgres = dbio.BackendPostgres
+	backendSurreal  = dbio.BackendSurreal
 )
 
-type ConnectionOptions struct {
-	Backend   string
-	URL       string
-	Namespace string
-	Database  string
-	Username  string
-	Password  string
-	AuthToken string
-}
-
-func backendName(name string) string {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if name == "" {
-		return backendArango
-	}
-	return name
-}
+func backendName(name string) string { return dbio.BackendName(name) }
 
 func openBackend(ctx context.Context, opts ConnectionOptions) (store.Backend, error) {
-	switch backendName(opts.Backend) {
-	case backendArango:
-		return arangostore.Open(ctx, opts.URL, opts.Database)
-	case backendSurreal:
-		return surrealstore.Open(ctx, opts.URL, opts.Namespace, opts.Database, opts.Username, opts.Password, opts.AuthToken)
-	default:
-		return nil, fmt.Errorf("unsupported backend %q", opts.Backend)
-	}
+	return dbio.OpenBackend(ctx, opts)
 }
 
 func bootstrapSpec(resourceTypes []string, truncate bool) store.BootstrapSpec {
+	return bootstrapSpecWithReporter(resourceTypes, truncate, nil)
+}
+
+func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) store.BootstrapSpec {
 	collections := make([]store.CollectionSpec, 0, len(resourceTypes)+3)
 	for _, name := range resourceTypes {
 		indexes := [][]string{{"project"}, {"id"}, {"project", "id"}, {"project", "auth_resource_path"}}
@@ -76,11 +59,13 @@ func bootstrapSpec(resourceTypes []string, truncate bool) store.BootstrapSpec {
 			},
 		},
 		store.CollectionSpec{
-			Name:     FieldCatalogCollection,
+			Name:     catalog.FieldCatalogCollection,
 			Truncate: truncate,
 			Indexes: [][]string{
 				{"project", "resource_type"},
+				{"project", "auth_resource_path", "resource_type"},
 				{"project", "resource_type", "path"},
+				{"project", "auth_resource_path", "resource_type", "path"},
 				{"project", "resource_type", "pivot_candidate"},
 			},
 		},
@@ -96,19 +81,23 @@ func bootstrapSpec(resourceTypes []string, truncate bool) store.BootstrapSpec {
 	return store.BootstrapSpec{
 		Collections: collections,
 		Reporter: func(event string, fields map[string]any) {
-			Emit(event, fields)
+			emitEvent(reporter, event, fields)
 		},
 	}
 }
 
 func helperBootstrapSpec(collections []store.CollectionSpec, truncate bool) store.BootstrapSpec {
+	return helperBootstrapSpecWithReporter(collections, truncate, nil)
+}
+
+func helperBootstrapSpecWithReporter(collections []store.CollectionSpec, truncate bool, reporter EventSink) store.BootstrapSpec {
 	for i := range collections {
 		collections[i].Truncate = truncate
 	}
 	return store.BootstrapSpec{
 		Collections: collections,
 		Reporter: func(event string, fields map[string]any) {
-			Emit(event, fields)
+			emitEvent(reporter, event, fields)
 		},
 	}
 }

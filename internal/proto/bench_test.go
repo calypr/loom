@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"arangodb-proto/internal/catalog"
 	"arangodb-proto/internal/fhir"
 
 	jsgarango "github.com/bmeg/jsonschemagraph/arango"
@@ -215,8 +216,8 @@ func BenchmarkFieldCatalogProfiling(b *testing.B) {
 	}
 
 	b.Run("WithShapeCache", func(b *testing.B) {
-		cache := newShapePlanCache()
-		profiler := newFieldCatalogProfiler("BENCHMARK", "Observation", cache)
+		cache := catalog.NewShapePlanCache()
+		profiler := catalog.NewProfiler("BENCHMARK", "pathA", "Observation", cache)
 		timings := map[string]float64{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -232,8 +233,8 @@ func BenchmarkFieldCatalogProfiling(b *testing.B) {
 		timings := map[string]float64{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			cache := newShapePlanCache()
-			profiler := newFieldCatalogProfiler("BENCHMARK", "Observation", cache)
+			cache := catalog.NewShapePlanCache()
+			profiler := catalog.NewProfiler("BENCHMARK", "pathA", "Observation", cache)
 			var payload map[string]any
 			if err := sonic.ConfigFastest.Unmarshal(lines[i%len(lines)], &payload); err != nil {
 				b.Fatalf("decode payload: %v", err)

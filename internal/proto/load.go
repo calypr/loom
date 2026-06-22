@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"arangodb-proto/internal/catalog"
 
 	"github.com/bmeg/jsonschema/v6"
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -28,6 +32,7 @@ type LoadOptions struct {
 	FailFast         bool
 	UseGeneric       bool
 	WriteAPI         string
+	EventSink        EventSink
 }
 
 type LoadSummary struct {
@@ -64,7 +69,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	for _, file := range files {
 		resourceTypes = append(resourceTypes, ResourceTypeFromPath(file))
 	}
-	Emit("go_backend_connect_start", map[string]any{
+	emitEvent(opts.EventSink, "go_backend_connect_start", map[string]any{
 		"backend":   backendName(opts.Backend),
 		"url":       opts.URL,
 		"database":  opts.Database,
@@ -76,20 +81,20 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		return LoadSummary{}, err
 	}
 	defer client.Close(ctx)
-	Emit("go_backend_connect_complete", map[string]any{
+	emitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":   backendName(opts.Backend),
 		"url":       opts.URL,
 		"database":  opts.Database,
 		"namespace": opts.Namespace,
 		"seconds":   time.Since(connectStart).Seconds(),
 	})
-	Emit("go_bootstrap_start", map[string]any{
+	emitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
 		"database":  opts.Database,
 		"resources": len(resourceTypes),
 		"truncate":  opts.Truncate,
 	})
 	bootstrapStart := time.Now()
-	if err := client.Bootstrap(ctx, bootstrapSpec(resourceTypes, opts.Truncate)); err != nil {
+	if err := client.Bootstrap(ctx, bootstrapSpecWithReporter(resourceTypes, opts.Truncate, opts.EventSink)); err != nil {
 		return LoadSummary{}, err
 	}
 	schema, err := graph.Load(opts.Schema)
@@ -111,14 +116,14 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 			return summary, err
 		}
 		fileStart := time.Now()
-		Emit("go_load_file_start", map[string]any{"file": file, "resource": resourceType})
+		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 		var rowBuilder RowBuilder
 		if opts.UseGeneric {
 			rowBuilder = NewGenericRowBuilder(opts.Project, class, schema, extraArgs)
 		} else {
 			rowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 		}
-		shapeCache := newShapePlanCache()
+		shapeCache := catalog.NewShapePlanCache()
 
 		// 1. Channel definitions
 		linesChan := make(chan string, 10000)
@@ -168,7 +173,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		numWorkers := 8
 		var workersWG sync.WaitGroup
 		workerTimingsChan := make(chan map[string]float64, numWorkers)
-		workerCatalogsChan := make(chan *fieldCatalogProfiler, numWorkers)
+		workerCatalogsChan := make(chan *catalog.Profiler, numWorkers)
 
 		var fileRows int64
 		var fileVertices int64
@@ -184,7 +189,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 			go func() {
 				defer workersWG.Done()
 				localTimings := make(map[string]float64)
-				localCatalog := newFieldCatalogProfiler(opts.Project, resourceType, shapeCache)
+				localCatalog := catalog.NewProfiler(opts.Project, opts.AuthResourcePath, resourceType, shapeCache)
 				lineCounter := 0
 				vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 				edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
@@ -282,7 +287,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 
 						currentRows := atomic.AddInt64(&fileRows, 1)
 						if currentRows%int64(opts.ProgressEvery) == 0 {
-							Emit("go_load_progress", map[string]any{
+							emitEvent(opts.EventSink, "go_load_progress", map[string]any{
 								"file":              filepath.Base(file),
 								"resource":          resourceType,
 								"file_rows":         currentRows,
@@ -386,7 +391,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 
 		fileVertexBatches := 0
 		fileEdgeBatches := 0
-		mergedCatalog := newFieldCatalogProfiler(opts.Project, resourceType, newShapePlanCache())
+		mergedCatalog := catalog.NewProfiler(opts.Project, opts.AuthResourcePath, resourceType, catalog.NewShapePlanCache())
 
 		// Aggregate timings from workers
 		for workerTimings := range workerTimingsChan {
@@ -415,11 +420,11 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		summary.BatchCounts["edge_insert"] += fileEdgeBatches
 
 		overwrite := !opts.Truncate
-		if err := writeFieldCatalog(ctx, client, FieldCatalogCollection, mergedCatalog.Documents(), opts.BatchSize, overwrite, opts.WriteAPI, summary.StageSeconds); err != nil {
+		if err := catalog.WriteFieldCatalog(ctx, client, catalog.FieldCatalogCollection, mergedCatalog.Documents(), opts.BatchSize, overwrite, opts.WriteAPI, summary.StageSeconds); err != nil {
 			return summary, err
 		}
 
-		Emit("go_load_file_complete", map[string]any{
+		emitEvent(opts.EventSink, "go_load_file_complete", map[string]any{
 			"file":          filepath.Base(file),
 			"resource":      resourceType,
 			"file_rows":     fileRows,
@@ -429,7 +434,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		})
 	}
 
-	Emit("go_load_complete", map[string]any{
+	emitEvent(opts.EventSink, "go_load_complete", map[string]any{
 		"files":             summary.Files,
 		"vertices_inserted": summary.VerticesInserted,
 		"edges_inserted":    summary.EdgesInserted,
@@ -452,4 +457,42 @@ func graphExtraArgs(authResourcePath string) map[string]any {
 	return map[string]any{
 		"auth_resource_path": authResourcePath,
 	}
+}
+
+func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceType string, reader io.Reader, compressed bool) (LoadSummary, error) {
+	dir, err := os.MkdirTemp("", "arango-fhir-single-resource-*")
+	if err != nil {
+		return LoadSummary{}, err
+	}
+	defer os.RemoveAll(dir)
+
+	name := resourceType + ".ndjson"
+	if compressed {
+		name += ".gz"
+	}
+	target := filepath.Join(dir, name)
+	f, err := os.Create(target)
+	if err != nil {
+		return LoadSummary{}, err
+	}
+	if _, err := io.Copy(f, reader); err != nil {
+		f.Close()
+		return LoadSummary{}, err
+	}
+	if err := f.Close(); err != nil {
+		return LoadSummary{}, err
+	}
+
+	singleOpts := opts
+	singleOpts.MetaDir = dir
+	return Load(ctx, singleOpts)
+}
+
+func LoadSingleResourceFile(ctx context.Context, opts LoadOptions, resourceType, path string) (LoadSummary, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return LoadSummary{}, err
+	}
+	defer file.Close()
+	return LoadSingleResourceReader(ctx, opts, resourceType, file, strings.HasSuffix(path, ".gz"))
 }

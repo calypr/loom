@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,11 +57,16 @@ type TemplatePointers struct {
 }
 
 func main() {
-	schemaPath := "/Users/peterkor/Desktop/BMEG/iceberg/schemas/graph/graph-fhir.json"
-	outputDir := "/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/fhir"
+	fs := flag.NewFlagSet("generate", flag.ExitOnError)
+	schemaPath := fs.String("schema", "schemas/graph-fhir.json", "Path to graph-fhir JSON schema")
+	outputDir := fs.String("out-dir", "internal/fhir", "Directory for generated FHIR Go code")
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(2)
+	}
 
-	fmt.Printf("Reading schema from %s...\n", schemaPath)
-	data, err := os.ReadFile(schemaPath)
+	fmt.Printf("Reading schema from %s...\n", *schemaPath)
+	data, err := os.ReadFile(*schemaPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading schema: %v\n", err)
 		os.Exit(1)
@@ -72,25 +78,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(*outputDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating output directory: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 1. Generate model.go
-	if err := generateModel(&schema, filepath.Join(outputDir, "model.go")); err != nil {
+	if err := generateModel(&schema, filepath.Join(*outputDir, "model.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating model.go: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 2. Generate validate.go
-	if err := generateValidate(&schema, filepath.Join(outputDir, "validate.go")); err != nil {
+	if err := generateValidate(&schema, filepath.Join(*outputDir, "validate.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating validate.go: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 3. Generate extract.go
-	if err := generateExtract(&schema, filepath.Join(outputDir, "extract.go")); err != nil {
+	if err := generateExtract(&schema, filepath.Join(*outputDir, "extract.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating extract.go: %v\n", err)
 		os.Exit(1)
 	}

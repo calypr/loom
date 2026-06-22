@@ -1,14 +1,16 @@
-package proto
+package experimental
 
 import (
 	"context"
 	"os"
 	"strings"
 	"time"
+
+	"arangodb-proto/internal/proto"
 )
 
 type BenchmarkOptions struct {
-	ConnectionOptions
+	proto.ConnectionOptions
 	Schema           string
 	MetaDir          string
 	Project          string
@@ -33,7 +35,7 @@ type BenchmarkSummary struct {
 	WriterCount        int                `json:"writer_count"`
 	BootstrapMode      string             `json:"bootstrap_mode"`
 	WriteAPI           string             `json:"write_api,omitempty"`
-	Load               LoadSummary        `json:"load"`
+	Load               proto.LoadSummary  `json:"load"`
 	LoadSeconds        float64            `json:"load_seconds"`
 	PrepareSeconds     float64            `json:"prepare_seconds,omitempty"`
 	DataframeSupported bool               `json:"dataframe_supported"`
@@ -49,13 +51,13 @@ type BenchmarkSummary struct {
 
 func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, error) {
 	if opts.QueryFile == "" {
-		opts.QueryFile = DefaultCaseAssayQueryPathForBackend(opts.Backend)
+		opts.QueryFile = proto.DefaultCaseAssayQueryPathForBackend(opts.Backend)
 	}
 	if opts.DatasetName == "" {
 		opts.DatasetName = opts.MetaDir
 	}
 	summary := BenchmarkSummary{
-		Backend:       backendName(opts.Backend),
+		Backend:       benchmarkBackendName(opts.Backend),
 		Transport:     benchmarkTransport(opts.URL),
 		DatasetName:   opts.DatasetName,
 		Project:       opts.Project,
@@ -68,8 +70,8 @@ func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, er
 	}
 
 	loadStart := time.Now()
-	loadSummary, err := Load(ctx, LoadOptions{
-		ConnectionOptions: ConnectionOptions{
+	loadSummary, err := proto.Load(ctx, proto.LoadOptions{
+		ConnectionOptions: proto.ConnectionOptions{
 			Backend:   opts.Backend,
 			URL:       opts.URL,
 			Namespace: opts.Namespace,
@@ -94,10 +96,10 @@ func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, er
 	summary.Load = loadSummary
 	summary.LoadSeconds = time.Since(loadStart).Seconds()
 	summary.StageSeconds = loadSummary.StageSeconds
-	if backendName(opts.Backend) == backendSurreal {
+	if benchmarkBackendName(opts.Backend) == "surreal" || benchmarkBackendName(opts.Backend) == "postgres" {
 		prepareStart := time.Now()
-		_, err := PrepareGDCCaseAssayMatrix(ctx, PrepareCaseAssayOptions{
-			ConnectionOptions: ConnectionOptions{
+		_, err := proto.PrepareGDCCaseAssayMatrix(ctx, proto.PrepareCaseAssayOptions{
+			ConnectionOptions: proto.ConnectionOptions{
 				Backend:   opts.Backend,
 				URL:       opts.URL,
 				Namespace: opts.Namespace,
@@ -136,8 +138,8 @@ func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, er
 	}
 
 	queryStart := time.Now()
-	rows, err := Query(ctx, QueryOptions{
-		ConnectionOptions: ConnectionOptions{
+	rows, err := proto.Query(ctx, proto.QueryOptions{
+		ConnectionOptions: proto.ConnectionOptions{
 			Backend:   opts.Backend,
 			URL:       opts.URL,
 			Namespace: opts.Namespace,
@@ -148,7 +150,7 @@ func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, er
 		},
 		QueryFile:        opts.QueryFile,
 		Output:           outputPath,
-		Index:            DefaultBulkIndex(),
+		Index:            proto.DefaultBulkIndex(),
 		Project:          opts.Project,
 		AuthResourcePath: opts.AuthResourcePath,
 		BatchSize:        opts.CursorBatchSize,
@@ -166,6 +168,14 @@ func Benchmark(ctx context.Context, opts BenchmarkOptions) (BenchmarkSummary, er
 	summary.DataframeSeconds = time.Since(queryStart).Seconds()
 	summary.Comparable = true
 	return summary, nil
+}
+
+func benchmarkBackendName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return "arango"
+	}
+	return name
 }
 
 func benchmarkTransport(rawURL string) string {

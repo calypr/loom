@@ -1,4 +1,4 @@
-package proto
+package querysvc
 
 import (
 	"context"
@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"arangodb-proto/internal/dbio"
 	"arangodb-proto/internal/store"
 )
 
 type PrepareCaseAssayOptions struct {
-	ConnectionOptions
+	dbio.ConnectionOptions
 	Project          string
 	AuthResourcePath string
 	BatchSize        int
@@ -46,8 +47,8 @@ type specimenMeta struct {
 }
 
 func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions) (PrepareCaseAssaySummary, error) {
-	if backendName(opts.Backend) != backendSurreal {
-		return PrepareCaseAssaySummary{}, fmt.Errorf("prepare-gdc-case-assay-matrix currently supports only the surreal backend")
+	if dbio.BackendName(opts.Backend) != dbio.BackendSurreal && dbio.BackendName(opts.Backend) != dbio.BackendPostgres {
+		return PrepareCaseAssaySummary{}, fmt.Errorf("prepare-gdc-case-assay-matrix currently supports only the surreal and postgres backends")
 	}
 	if opts.BatchSize <= 0 {
 		opts.BatchSize = 1000
@@ -64,47 +65,48 @@ func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions
 
 	spec := helperBootstrapSpec([]store.CollectionSpec{
 		{
-			Name:    PatientFileRollupCollection,
+			Name:    patientFileRollupCollection,
 			Indexes: [][]string{{"project", "patient_key"}, {"project", "auth_resource_path", "patient_key"}},
 		},
 	}, opts.Truncate)
 
 	start := time.Now()
-	Emit("go_prepare_start", map[string]any{
+	emit("go_prepare_start", map[string]any{
 		"project":            opts.Project,
 		"auth_resource_path": opts.AuthResourcePath,
-		"collection":         PatientFileRollupCollection,
+		"collection":         patientFileRollupCollection,
 		"truncate":           opts.Truncate,
 	})
 	if err := client.Bootstrap(ctx, spec); err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
 
-	patientAuth, patientOrder, err := queryPatientsForPrepare(ctx, client, opts.Project, opts.AuthResourcePath)
+	backend := dbio.BackendName(opts.Backend)
+	patientAuth, patientOrder, err := queryPatientsForPrepare(ctx, client, backend, opts.Project, opts.AuthResourcePath)
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	specimenMetadata, err := querySpecimenMetadata(ctx, client, opts.Project)
+	specimenMetadata, err := querySpecimenMetadata(ctx, client, backend, opts.Project)
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	patientSpecimens, err := queryEdgeMap(ctx, client, opts.Project, "subject_Patient", "Specimen", "Patient")
+	patientSpecimens, err := queryEdgeMap(ctx, client, backend, opts.Project, "subject_Patient", "Specimen", "Patient")
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	patientFileKeys, err := queryEdgeMap(ctx, client, opts.Project, "subject_Patient", "DocumentReference", "Patient")
+	patientFileKeys, err := queryEdgeMap(ctx, client, backend, opts.Project, "subject_Patient", "DocumentReference", "Patient")
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	specimenGroups, err := queryEdgeMap(ctx, client, opts.Project, "member_entity_Specimen", "Group", "Specimen")
+	specimenGroups, err := queryEdgeMap(ctx, client, backend, opts.Project, "member_entity_Specimen", "Group", "Specimen")
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	specimenFiles, err := queryEdgeMap(ctx, client, opts.Project, "subject_Specimen", "DocumentReference", "Specimen")
+	specimenFiles, err := queryEdgeMap(ctx, client, backend, opts.Project, "subject_Specimen", "DocumentReference", "Specimen")
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
-	groupFiles, err := queryEdgeMap(ctx, client, opts.Project, "subject_Group", "DocumentReference", "Group")
+	groupFiles, err := queryEdgeMap(ctx, client, backend, opts.Project, "subject_Group", "DocumentReference", "Group")
 	if err != nil {
 		return PrepareCaseAssaySummary{}, err
 	}
@@ -117,7 +119,7 @@ func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := insertRawDocuments(ctx, client, PatientFileRollupCollection, batch, overwrite, "import"); err != nil {
+		if err := client.InsertBatchRaw(ctx, patientFileRollupCollection, batch, overwrite, "import"); err != nil {
 			return err
 		}
 		batch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -174,10 +176,10 @@ func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions
 		batch = append(batch, raw)
 		rowsPrepared++
 		if rowsPrepared%opts.ProgressEvery == 0 {
-			Emit("go_prepare_progress", map[string]any{
+			emit("go_prepare_progress", map[string]any{
 				"project":       opts.Project,
 				"rows_prepared": rowsPrepared,
-				"seconds":       SecondsSince(start),
+				"seconds":       secondsSince(start),
 			})
 		}
 		if len(batch) >= opts.BatchSize {
@@ -194,9 +196,9 @@ func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions
 		Project:          opts.Project,
 		AuthResourcePath: opts.AuthResourcePath,
 		RowsPrepared:     rowsPrepared,
-		Seconds:          SecondsSince(start),
+		Seconds:          secondsSince(start),
 	}
-	Emit("go_prepare_complete", map[string]any{
+	emit("go_prepare_complete", map[string]any{
 		"project":       opts.Project,
 		"rows_prepared": rowsPrepared,
 		"seconds":       summary.Seconds,
@@ -204,20 +206,33 @@ func PrepareGDCCaseAssayMatrix(ctx context.Context, opts PrepareCaseAssayOptions
 	return summary, nil
 }
 
-func queryPatientsForPrepare(ctx context.Context, client store.Backend, project, authResourcePath string) (map[string]string, []string, error) {
-	const q = `
+func queryPatientsForPrepare(ctx context.Context, client store.Backend, backend, project, authResourcePath string) (map[string]string, []string, error) {
+	query := `
 SELECT _key, auth_resource_path
 FROM Patient
 WHERE project = $project
   AND ($auth_resource_path = "" OR auth_resource_path = $auth_resource_path)
 ORDER BY _key ASC;
 `
-	authByPatient := make(map[string]string)
-	order := make([]string, 0, 1024)
-	err := client.QueryRows(ctx, q, 1000, map[string]any{
+	bindVars := map[string]any{
 		"project":            project,
 		"auth_resource_path": authResourcePath,
-	}, func(row map[string]any) error {
+	}
+	if backend == dbio.BackendPostgres {
+		query = `
+SELECT
+  split_part(resource_key, '/', 2) AS _key,
+  auth_resource_path
+FROM fhir_resource
+WHERE project = @project
+  AND resource_type = 'Patient'
+  AND (NULLIF(@auth_resource_path, '') IS NULL OR auth_resource_path = @auth_resource_path)
+ORDER BY resource_key ASC;
+`
+	}
+	authByPatient := make(map[string]string)
+	order := make([]string, 0, 1024)
+	err := client.QueryRows(ctx, query, 1000, bindVars, func(row map[string]any) error {
 		key := stringValue(row["_key"])
 		if key == "" {
 			return nil
@@ -229,14 +244,24 @@ ORDER BY _key ASC;
 	return authByPatient, order, err
 }
 
-func querySpecimenMetadata(ctx context.Context, client store.Backend, project string) (map[string]specimenMeta, error) {
-	const q = `
+func querySpecimenMetadata(ctx context.Context, client store.Backend, backend, project string) (map[string]specimenMeta, error) {
+	query := `
 SELECT _key, payload
 FROM Specimen
 WHERE project = $project;
 `
+	if backend == dbio.BackendPostgres {
+		query = `
+SELECT
+  split_part(resource_key, '/', 2) AS _key,
+  body AS payload
+FROM fhir_resource
+WHERE project = @project
+  AND resource_type = 'Specimen';
+`
+	}
 	out := make(map[string]specimenMeta)
-	err := client.QueryRows(ctx, q, 1000, map[string]any{"project": project}, func(row map[string]any) error {
+	err := client.QueryRows(ctx, query, 1000, map[string]any{"project": project}, func(row map[string]any) error {
 		key := stringValue(row["_key"])
 		payload, _ := row["payload"].(map[string]any)
 		out[key] = specimenMeta{
@@ -248,8 +273,8 @@ WHERE project = $project;
 	return out, err
 }
 
-func queryEdgeMap(ctx context.Context, client store.Backend, project, label, fromType, toType string) (map[string]map[string]struct{}, error) {
-	const q = `
+func queryEdgeMap(ctx context.Context, client store.Backend, backend, project, label, fromType, toType string) (map[string]map[string]struct{}, error) {
+	query := `
 SELECT _from, _to
 FROM fhir_edge
 WHERE project = $project
@@ -257,15 +282,32 @@ WHERE project = $project
   AND from_type = $from_type
   AND to_type = $to_type;
 `
-	out := make(map[string]map[string]struct{})
-	err := client.QueryRows(ctx, q, 2000, map[string]any{
+	rowFrom := "_from"
+	rowTo := "_to"
+	bindVars := map[string]any{
 		"project":   project,
 		"label":     label,
 		"from_type": fromType,
 		"to_type":   toType,
-	}, func(row map[string]any) error {
-		fromKey := refKey(stringValue(row["_from"]))
-		toKey := refKey(stringValue(row["_to"]))
+	}
+	if backend == dbio.BackendPostgres {
+		query = `
+SELECT
+  src_key AS _from,
+  dst_key AS _to
+FROM fhir_edge
+WHERE project = @project
+  AND edge_type = @label
+  AND src_type = @from_type
+  AND dst_type = @to_type;
+`
+		rowFrom = "_from"
+		rowTo = "_to"
+	}
+	out := make(map[string]map[string]struct{})
+	err := client.QueryRows(ctx, query, 2000, bindVars, func(row map[string]any) error {
+		fromKey := refKey(stringValue(row[rowFrom]))
+		toKey := refKey(stringValue(row[rowTo]))
 		if fromKey == "" || toKey == "" {
 			return nil
 		}

@@ -2,10 +2,45 @@
 
 Minimal graph database prototype for the `gen3_tracker.meta.dataframer` path.
 
-The primary implementation target is ArangoDB. The repository also contains an
-experimental SurrealDB backend for ingest and dataframe benchmarking. See
+The primary implementation target is ArangoDB. The repository also contains
+experimental SurrealDB and Postgres benchmarking code under [`experimental/`](experimental/).
+See
 [`ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md`](ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md)
 for the technical comparison and recommendation.
+
+## Build and deploy
+
+Repo-local build targets now live in [`Makefile`](Makefile):
+
+```bash
+make generate-fhir
+make graphql-check
+make gqlgen-check
+make build
+make test
+```
+
+`gqlgen-check` is intentionally a contract-validation alias, not a code-generation
+step. The active GraphQL runtime is hand-wired, so the repo tracks GraphQL shape
+through the schema plus focused GraphQL/dataframe tests rather than a generated
+execution layer.
+
+The deployable service image is built from [`Dockerfile`](Dockerfile) and packages:
+
+- `arango-fhir-server`
+- `schemas/graph-fhir.json`
+- `queries/`
+
+Local image build:
+
+```bash
+make docker-build
+```
+
+GitHub Actions now include:
+
+- [`.github/workflows/tests.yaml`](.github/workflows/tests.yaml) for PR test runs
+- [`.github/workflows/build.yaml`](.github/workflows/build.yaml) for branch-tagged Quay image publishing
 
 This prototype intentionally ignores auth and only targets one hardcoded traversal:
 
@@ -14,7 +49,7 @@ This prototype intentionally ignores auth and only targets one hardcoded travers
 - `gdc_case_assay_matrix`
 
 It mirrors the current Python/SQLite logic in
-`/Users/peterkor/Desktop/gen3_util/gen3_tracker/meta/dataframer.py`:
+`gen3_util/gen3_tracker/meta/dataframer.py`:
 
 1. load FHIR NDJSON
 2. store raw resource payloads in Arango collections
@@ -79,7 +114,7 @@ It also creates:
 
 ## Quick start
 
-Start the local benchmark stack:
+Start the local ArangoDB runtime:
 
 ```bash
 cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO
@@ -89,10 +124,21 @@ docker compose up -d
 This brings up:
 
 - ArangoDB on `http://127.0.0.1:8529`
-- SurrealDB on `http://127.0.0.1:8001`
 
-The bundled SurrealDB service uses `surrealkv:/data/fhir_proto.db` for
-file-backed local storage.
+The full prototype benchmark stack lives under
+[`experimental/docker/docker-compose.full.yml`](experimental/docker/docker-compose.full.yml).
+That compose file includes:
+
+- ArangoDB
+- SurrealDB
+- Postgres
+
+Bring it up with:
+
+```bash
+cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO
+docker compose -f experimental/docker/docker-compose.full.yml up -d
+```
 
 Experimental Surreal load benchmark:
 
@@ -276,8 +322,15 @@ Each command prints timing information for:
 
 That should be enough to evaluate whether the current hardcoded dataframer can be abstracted into AQL later.
 
+The multi-backend benchmark harness and alternate-backend query assets now live
+under [`experimental/`](experimental/):
+
+- [`experimental/scripts/benchmark_fair.sh`](experimental/scripts/benchmark_fair.sh)
+- [`experimental/queries/postgres/`](experimental/queries/postgres/)
+- [`experimental/queries/surreal/`](experimental/queries/surreal/)
+
 ## Portability Guide
 
 For the implementation-neutral workload definition used to port and benchmark
 this prototype against other databases, see
-[DATAFRAME_BUILDER_PORTABILITY.md](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/DATAFRAME_BUILDER_PORTABILITY.md).
+[DATAFRAME_BUILDER_PORTABILITY.md](DATAFRAME_BUILDER_PORTABILITY.md).
