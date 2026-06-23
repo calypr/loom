@@ -9,9 +9,8 @@ scalar JSON
 type Mutation {
   runFhirDataframe(
     input: FhirDataframeInput!
-    mode: DataframeRunMode! = EXPORT
-    previewLimit: Int = 25
-  ): FhirDataframeRunResult!
+    limit: Int = 25
+  ): FhirDataframeResult!
 }
 
 input DataframeBuilderIntrospectionInput {
@@ -54,8 +53,10 @@ type DataframeTraversalHint {
 
 type DataframeFieldHint {
   resourceType: String!
+  fieldRef: String!
+  label: String!
   path: String!
-  selector: String!
+  selector: DataframeFieldSelector!
   kind: String!
   docCount: Int!
   sampleCount: Int!
@@ -66,20 +67,46 @@ type DataframeFieldHint {
   pivotColumns: [String!]!
 }
 
+type DataframeFieldSelector {
+  sourcePath: String
+  where: DataframeFieldPredicate
+  valuePath: String!
+}
+
+type DataframeFieldPredicate {
+  path: String!
+  op: FhirFieldPredicateOperation!
+  value: String!
+}
+
 enum FhirPivotKind {
   CODEABLE_CONCEPT_DISPLAY_VALUE
 }
 
-enum DataframeRunMode {
-  PREVIEW
-  EXPORT
-}
-
 input FhirFieldSelectInput {
   name: String!
-  fhirPath: String!
+  fieldRef: String
+  selector: FhirFieldSelectorInput
   selectionHint: String
+  fallbackFieldRefs: [String!]! = []
+  fallbackSelectors: [FhirFieldSelectorInput!]! = []
   valueMode: FhirValueMode! = AUTO
+}
+
+input FhirFieldSelectorInput {
+  sourcePath: String
+  where: FhirFieldPredicateInput
+  valuePath: String!
+}
+
+input FhirFieldPredicateInput {
+  path: String!
+  op: FhirFieldPredicateOperation! = CONTAINS
+  value: String!
+}
+
+enum FhirFieldPredicateOperation {
+  CONTAINS
 }
 
 enum FhirValueMode {
@@ -91,10 +118,39 @@ enum FhirValueMode {
 
 input FhirPivotInput {
   name: String!
-  fhirPath: String!
+  fieldRef: String
+  fhirPath: String
   pivotKind: FhirPivotKind = CODEABLE_CONCEPT_DISPLAY_VALUE
   selectedColumns: [String!]!
+  valueFieldRef: String
   valuePath: String
+}
+
+enum FhirAggregateOperation {
+  COUNT
+  COUNT_DISTINCT
+  EXISTS
+  DISTINCT_VALUES
+}
+
+input FhirAggregateInput {
+  name: String!
+  operation: FhirAggregateOperation!
+  fieldRef: String
+  fhirPath: String
+  predicateFieldRef: String
+  predicatePath: String
+  predicateEquals: String
+  valueMode: FhirValueMode! = AUTO
+}
+
+input FhirRepresentativeSliceInput {
+  name: String!
+  limit: Int!
+  whereFieldRef: String
+  wherePath: String
+  whereEquals: String
+  fields: [FhirFieldSelectInput!]! = []
 }
 
 input FhirTraversalStepInput {
@@ -103,6 +159,8 @@ input FhirTraversalStepInput {
   alias: String!
   fields: [FhirFieldSelectInput!]! = []
   pivots: [FhirPivotInput!] = []
+  aggregates: [FhirAggregateInput!] = []
+  slices: [FhirRepresentativeSliceInput!] = []
   traverse: [FhirTraversalStepInput!] = []
 }
 
@@ -113,12 +171,14 @@ input FhirDataframeInput {
   rootResourceType: String!
   rootFields: [FhirFieldSelectInput!]
   rootPivots: [FhirPivotInput!]
+  rootAggregates: [FhirAggregateInput!]
+  rootSlices: [FhirRepresentativeSliceInput!]
   traverse: [FhirTraversalStepInput!]
   limit: Int
   cursor: String
 }
 
-type FhirDataframePreview {
+type FhirDataframeResult {
   columns: [String!]!
   rows: [FhirDataframeRow!]!
   rowCount: Int!
@@ -126,16 +186,4 @@ type FhirDataframePreview {
 
 type FhirDataframeRow {
   data: JSON!
-}
-
-type FhirDataframeExportHandle {
-  exportId: String!
-  status: String!
-  format: String!
-}
-
-type FhirDataframeRunResult {
-  mode: DataframeRunMode!
-  preview: FhirDataframePreview
-  export: FhirDataframeExportHandle
 }

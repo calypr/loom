@@ -27,17 +27,31 @@ type DataframeBuilderIntrospectionInput struct {
 }
 
 type DataframeFieldHint struct {
-	ResourceType      string   `json:"resourceType"`
-	Path              string   `json:"path"`
-	Selector          string   `json:"selector"`
-	Kind              string   `json:"kind"`
-	DocCount          int      `json:"docCount"`
-	SampleCount       int      `json:"sampleCount"`
-	DistinctValues    []string `json:"distinctValues"`
-	DistinctTruncated bool     `json:"distinctTruncated"`
-	PivotCandidate    bool     `json:"pivotCandidate"`
-	PivotKind         *string  `json:"pivotKind,omitempty"`
-	PivotColumns      []string `json:"pivotColumns"`
+	ResourceType      string                  `json:"resourceType"`
+	FieldRef          string                  `json:"fieldRef"`
+	Label             string                  `json:"label"`
+	Path              string                  `json:"path"`
+	Selector          *DataframeFieldSelector `json:"selector"`
+	Kind              string                  `json:"kind"`
+	DocCount          int                     `json:"docCount"`
+	SampleCount       int                     `json:"sampleCount"`
+	DistinctValues    []string                `json:"distinctValues"`
+	DistinctTruncated bool                    `json:"distinctTruncated"`
+	PivotCandidate    bool                    `json:"pivotCandidate"`
+	PivotKind         *string                 `json:"pivotKind,omitempty"`
+	PivotColumns      []string                `json:"pivotColumns"`
+}
+
+type DataframeFieldPredicate struct {
+	Path  string                      `json:"path"`
+	Op    FhirFieldPredicateOperation `json:"op"`
+	Value string                      `json:"value"`
+}
+
+type DataframeFieldSelector struct {
+	SourcePath *string                  `json:"sourcePath,omitempty"`
+	Where      *DataframeFieldPredicate `json:"where,omitempty"`
+	ValuePath  string                   `json:"valuePath"`
 }
 
 type DataframeRelatedResourceHints struct {
@@ -60,25 +74,32 @@ type DataframeTraversalHint struct {
 	EdgeCount int    `json:"edgeCount"`
 }
 
-type FhirDataframeExportHandle struct {
-	ExportID string `json:"exportId"`
-	Status   string `json:"status"`
-	Format   string `json:"format"`
+type FhirAggregateInput struct {
+	Name              string                 `json:"name"`
+	Operation         FhirAggregateOperation `json:"operation"`
+	FieldRef          *string                `json:"fieldRef,omitempty"`
+	FhirPath          *string                `json:"fhirPath,omitempty"`
+	PredicateFieldRef *string                `json:"predicateFieldRef,omitempty"`
+	PredicatePath     *string                `json:"predicatePath,omitempty"`
+	PredicateEquals   *string                `json:"predicateEquals,omitempty"`
+	ValueMode         FhirValueMode          `json:"valueMode"`
 }
 
 type FhirDataframeInput struct {
-	Project           string                    `json:"project"`
-	AuthResourcePath  *string                   `json:"authResourcePath,omitempty"`
-	AuthResourcePaths []string                  `json:"authResourcePaths,omitempty"`
-	RootResourceType  string                    `json:"rootResourceType"`
-	RootFields        []*FhirFieldSelectInput   `json:"rootFields,omitempty"`
-	RootPivots        []*FhirPivotInput         `json:"rootPivots,omitempty"`
-	Traverse          []*FhirTraversalStepInput `json:"traverse,omitempty"`
-	Limit             *int                      `json:"limit,omitempty"`
-	Cursor            *string                   `json:"cursor,omitempty"`
+	Project           string                          `json:"project"`
+	AuthResourcePath  *string                         `json:"authResourcePath,omitempty"`
+	AuthResourcePaths []string                        `json:"authResourcePaths,omitempty"`
+	RootResourceType  string                          `json:"rootResourceType"`
+	RootFields        []*FhirFieldSelectInput         `json:"rootFields,omitempty"`
+	RootPivots        []*FhirPivotInput               `json:"rootPivots,omitempty"`
+	RootAggregates    []*FhirAggregateInput           `json:"rootAggregates,omitempty"`
+	RootSlices        []*FhirRepresentativeSliceInput `json:"rootSlices,omitempty"`
+	Traverse          []*FhirTraversalStepInput       `json:"traverse,omitempty"`
+	Limit             *int                            `json:"limit,omitempty"`
+	Cursor            *string                         `json:"cursor,omitempty"`
 }
 
-type FhirDataframePreview struct {
+type FhirDataframeResult struct {
 	Columns  []string            `json:"columns"`
 	Rows     []*FhirDataframeRow `json:"rows"`
 	RowCount int                 `json:"rowCount"`
@@ -88,34 +109,56 @@ type FhirDataframeRow struct {
 	Data map[string]interface{} `json:"data"`
 }
 
-type FhirDataframeRunResult struct {
-	Mode    DataframeRunMode           `json:"mode"`
-	Preview *FhirDataframePreview      `json:"preview,omitempty"`
-	Export  *FhirDataframeExportHandle `json:"export,omitempty"`
+type FhirFieldPredicateInput struct {
+	Path  string                      `json:"path"`
+	Op    FhirFieldPredicateOperation `json:"op"`
+	Value string                      `json:"value"`
 }
 
 type FhirFieldSelectInput struct {
-	Name          string        `json:"name"`
-	FhirPath      string        `json:"fhirPath"`
-	SelectionHint *string       `json:"selectionHint,omitempty"`
-	ValueMode     FhirValueMode `json:"valueMode"`
+	Name              string                    `json:"name"`
+	FieldRef          *string                   `json:"fieldRef,omitempty"`
+	Selector          *FhirFieldSelectorInput   `json:"selector,omitempty"`
+	SelectionHint     *string                   `json:"selectionHint,omitempty"`
+	FallbackFieldRefs []string                  `json:"fallbackFieldRefs"`
+	FallbackSelectors []*FhirFieldSelectorInput `json:"fallbackSelectors"`
+	ValueMode         FhirValueMode             `json:"valueMode"`
+}
+
+type FhirFieldSelectorInput struct {
+	SourcePath *string                  `json:"sourcePath,omitempty"`
+	Where      *FhirFieldPredicateInput `json:"where,omitempty"`
+	ValuePath  string                   `json:"valuePath"`
 }
 
 type FhirPivotInput struct {
 	Name            string         `json:"name"`
-	FhirPath        string         `json:"fhirPath"`
+	FieldRef        *string        `json:"fieldRef,omitempty"`
+	FhirPath        *string        `json:"fhirPath,omitempty"`
 	PivotKind       *FhirPivotKind `json:"pivotKind,omitempty"`
 	SelectedColumns []string       `json:"selectedColumns"`
+	ValueFieldRef   *string        `json:"valueFieldRef,omitempty"`
 	ValuePath       *string        `json:"valuePath,omitempty"`
 }
 
+type FhirRepresentativeSliceInput struct {
+	Name          string                  `json:"name"`
+	Limit         int                     `json:"limit"`
+	WhereFieldRef *string                 `json:"whereFieldRef,omitempty"`
+	WherePath     *string                 `json:"wherePath,omitempty"`
+	WhereEquals   *string                 `json:"whereEquals,omitempty"`
+	Fields        []*FhirFieldSelectInput `json:"fields"`
+}
+
 type FhirTraversalStepInput struct {
-	EdgeLabel      string                    `json:"edgeLabel"`
-	ToResourceType string                    `json:"toResourceType"`
-	Alias          string                    `json:"alias"`
-	Fields         []*FhirFieldSelectInput   `json:"fields"`
-	Pivots         []*FhirPivotInput         `json:"pivots,omitempty"`
-	Traverse       []*FhirTraversalStepInput `json:"traverse,omitempty"`
+	EdgeLabel      string                          `json:"edgeLabel"`
+	ToResourceType string                          `json:"toResourceType"`
+	Alias          string                          `json:"alias"`
+	Fields         []*FhirFieldSelectInput         `json:"fields"`
+	Pivots         []*FhirPivotInput               `json:"pivots,omitempty"`
+	Aggregates     []*FhirAggregateInput           `json:"aggregates,omitempty"`
+	Slices         []*FhirRepresentativeSliceInput `json:"slices,omitempty"`
+	Traverse       []*FhirTraversalStepInput       `json:"traverse,omitempty"`
 }
 
 type Mutation struct {
@@ -124,44 +167,87 @@ type Mutation struct {
 type Query struct {
 }
 
-type DataframeRunMode string
+type FhirAggregateOperation string
 
 const (
-	DataframeRunModePreview DataframeRunMode = "PREVIEW"
-	DataframeRunModeExport  DataframeRunMode = "EXPORT"
+	FhirAggregateOperationCount          FhirAggregateOperation = "COUNT"
+	FhirAggregateOperationCountDistinct  FhirAggregateOperation = "COUNT_DISTINCT"
+	FhirAggregateOperationExists         FhirAggregateOperation = "EXISTS"
+	FhirAggregateOperationDistinctValues FhirAggregateOperation = "DISTINCT_VALUES"
 )
 
-var AllDataframeRunMode = []DataframeRunMode{
-	DataframeRunModePreview,
-	DataframeRunModeExport,
+var AllFhirAggregateOperation = []FhirAggregateOperation{
+	FhirAggregateOperationCount,
+	FhirAggregateOperationCountDistinct,
+	FhirAggregateOperationExists,
+	FhirAggregateOperationDistinctValues,
 }
 
-func (e DataframeRunMode) IsValid() bool {
+func (e FhirAggregateOperation) IsValid() bool {
 	switch e {
-	case DataframeRunModePreview, DataframeRunModeExport:
+	case FhirAggregateOperationCount, FhirAggregateOperationCountDistinct, FhirAggregateOperationExists, FhirAggregateOperationDistinctValues:
 		return true
 	}
 	return false
 }
 
-func (e DataframeRunMode) String() string {
+func (e FhirAggregateOperation) String() string {
 	return string(e)
 }
 
-func (e *DataframeRunMode) UnmarshalGQL(v any) error {
+func (e *FhirAggregateOperation) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
 	}
 
-	*e = DataframeRunMode(str)
+	*e = FhirAggregateOperation(str)
 	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid DataframeRunMode", str)
+		return fmt.Errorf("%s is not a valid FhirAggregateOperation", str)
 	}
 	return nil
 }
 
-func (e DataframeRunMode) MarshalGQL(w io.Writer) {
+func (e FhirAggregateOperation) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+type FhirFieldPredicateOperation string
+
+const (
+	FhirFieldPredicateOperationContains FhirFieldPredicateOperation = "CONTAINS"
+)
+
+var AllFhirFieldPredicateOperation = []FhirFieldPredicateOperation{
+	FhirFieldPredicateOperationContains,
+}
+
+func (e FhirFieldPredicateOperation) IsValid() bool {
+	switch e {
+	case FhirFieldPredicateOperationContains:
+		return true
+	}
+	return false
+}
+
+func (e FhirFieldPredicateOperation) String() string {
+	return string(e)
+}
+
+func (e *FhirFieldPredicateOperation) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirFieldPredicateOperation(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFieldPredicateOperation", str)
+	}
+	return nil
+}
+
+func (e FhirFieldPredicateOperation) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 

@@ -12,14 +12,16 @@ const (
 	SetKindClassifyDocumentReference = "CLASSIFY_DOCUMENT_REFERENCE"
 	SetKindLookupStudy               = "LOOKUP_STUDY"
 
-	DerivedOpRawExpr      = "RAW_EXPR"
-	DerivedOpConst        = "CONST"
-	DerivedOpRootField    = "ROOT_FIELD"
-	DerivedOpFirstNonNull = "FIRST_NON_NULL"
-	DerivedOpCount        = "COUNT"
-	DerivedOpCountWhere   = "COUNT_WHERE"
-	DerivedOpAny          = "ANY"
-	DerivedOpUnique       = "UNIQUE"
+	DerivedOpRawExpr       = "RAW_EXPR"
+	DerivedOpConst         = "CONST"
+	DerivedOpRootField     = "ROOT_FIELD"
+	DerivedOpFirstNonNull  = "FIRST_NON_NULL"
+	DerivedOpCount         = "COUNT"
+	DerivedOpCountDistinct = "COUNT_DISTINCT"
+	DerivedOpCountWhere    = "COUNT_WHERE"
+	DerivedOpAny           = "ANY"
+	DerivedOpUnique        = "UNIQUE"
+	DerivedOpPivot         = "PIVOT"
 )
 
 type NamedSet struct {
@@ -41,15 +43,23 @@ type DerivedField struct {
 	Select          string
 	FallbackSelects []string
 	Predicate       string
+	PredicatePath   string
+	PredicateEquals string
+	PivotColumn     string
+	ValuePath       string
 	RawExpr         string
 	ConstValue      any
 }
 
 type RepresentativeSlice struct {
-	Name      string
-	SourceSet string
-	Predicate string
-	Limit     int
+	Name            string
+	SourceSet       string
+	Predicate       string
+	PredicateFieldRef string
+	PredicatePath   string
+	PredicateEquals string
+	Limit           int
+	Fields          []FieldSelect
 }
 
 func usesAdvancedBuilder(builder Builder) bool {
@@ -122,7 +132,7 @@ func validateAdvancedBuilder(builder Builder) error {
 			if field.Select == "" {
 				return fmt.Errorf("derived field %q requires select", field.Name)
 			}
-		case DerivedOpFirstNonNull, DerivedOpUnique:
+		case DerivedOpFirstNonNull, DerivedOpUnique, DerivedOpPivot:
 			if field.Source == "" {
 				return fmt.Errorf("derived field %q requires source", field.Name)
 			}
@@ -137,13 +147,31 @@ func validateAdvancedBuilder(builder Builder) error {
 					return fmt.Errorf("derived field %q invalid fallback select: %w", field.Name, err)
 				}
 			}
+			if strings.ToUpper(strings.TrimSpace(field.Operation)) == DerivedOpPivot && strings.TrimSpace(field.PivotColumn) == "" {
+				return fmt.Errorf("derived field %q requires pivot column", field.Name)
+			}
 		case DerivedOpCount:
 			if field.Source == "" {
 				return fmt.Errorf("derived field %q requires source", field.Name)
 			}
+		case DerivedOpCountDistinct:
+			if field.Source == "" || strings.TrimSpace(field.Select) == "" {
+				return fmt.Errorf("derived field %q requires source and select", field.Name)
+			}
+			if _, err := ParseSelector(field.Select); err != nil {
+				return fmt.Errorf("derived field %q invalid select: %w", field.Name, err)
+			}
 		case DerivedOpCountWhere, DerivedOpAny:
-			if field.Source == "" || strings.TrimSpace(field.Predicate) == "" {
-				return fmt.Errorf("derived field %q requires source and predicate", field.Name)
+			if field.Source == "" {
+				return fmt.Errorf("derived field %q requires source", field.Name)
+			}
+			if strings.TrimSpace(field.Predicate) == "" && strings.TrimSpace(field.PredicatePath) == "" {
+				return fmt.Errorf("derived field %q requires predicate or predicatePath", field.Name)
+			}
+			if strings.TrimSpace(field.PredicatePath) != "" {
+				if _, err := ParseSelector(field.PredicatePath); err != nil {
+					return fmt.Errorf("derived field %q invalid predicatePath: %w", field.Name, err)
+				}
 			}
 		default:
 			return fmt.Errorf("derived field %q uses unsupported operation %q", field.Name, field.Operation)
@@ -164,6 +192,14 @@ func validateAdvancedBuilder(builder Builder) error {
 		}
 		if slice.Limit <= 0 {
 			return fmt.Errorf("representative slice %q requires positive limit", slice.Name)
+		}
+		for _, field := range slice.Fields {
+			if strings.TrimSpace(field.Name) == "" || strings.TrimSpace(field.Select) == "" {
+				return fmt.Errorf("representative slice %q requires fields with name and select", slice.Name)
+			}
+			if _, err := ParseSelector(field.Select); err != nil {
+				return fmt.Errorf("representative slice %q invalid field %q: %w", slice.Name, field.Name, err)
+			}
 		}
 	}
 	return nil

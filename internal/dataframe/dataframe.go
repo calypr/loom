@@ -4,40 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"arangodb-proto/internal/proto"
 	"arangodb-proto/internal/writeapi"
-
-	"github.com/google/uuid"
 )
 
 const (
-	ModePreview = "PREVIEW"
-	ModeExport  = "EXPORT"
-
-	StatusPending   = "pending"
-	StatusRunning   = "running"
-	StatusSucceeded = "succeeded"
-	StatusFailed    = "failed"
-
 	PivotKindCodeableConceptDisplayValue = "CODEABLE_CONCEPT_DISPLAY_VALUE"
-	defaultPreviewLimit                  = 25
-	maxPreviewLimit                      = 100
-	defaultExportFormat                  = "ndjson"
+	defaultRowLimit                      = 25
 )
 
 type Builder struct {
 	Project              string
 	AuthResourcePaths    []string
 	RootResourceType     string
+	PlanHint             *PlanHint
 	Fields               []FieldSelect
 	Pivots               []PivotSelect
+	Aggregates           []AggregateSelect
+	Slices               []RepresentativeSlice
 	Traversals           []TraversalStep
 	Sets                 []NamedSet
 	DerivedFields        []DerivedField
@@ -50,6 +38,8 @@ type TraversalStep struct {
 	Alias                string
 	Fields               []FieldSelect
 	Pivots               []PivotSelect
+	Aggregates           []AggregateSelect
+	Slices               []RepresentativeSlice
 	Traversals           []TraversalStep
 	Sets                 []NamedSet
 	DerivedFields        []DerivedField
@@ -57,55 +47,44 @@ type TraversalStep struct {
 }
 
 type FieldSelect struct {
-	Name   string
-	Select string
+	Name            string
+	FieldRef        string
+	Select          string
+	FallbackFieldRefs []string
+	FallbackSelects []string
+	ValueMode       string
 }
 
 type PivotSelect struct {
 	Name      string
+	FieldRef  string
 	Select    string
 	PivotKind string
 	Columns   []string
+	ValueFieldRef string
+	ValuePath string
+}
+
+type AggregateSelect struct {
+	Name            string
+	Operation       string
+	FieldRef        string
+	Select          string
+	PredicateFieldRef string
+	PredicatePath   string
+	PredicateEquals string
+	ValueMode       string
 }
 
 type RunRequest struct {
 	Builder      Builder
-	Mode         string
-	PreviewLimit int
+	Limit        int
 }
 
-type PreviewResult struct {
+type Result struct {
 	Columns  []string
 	Rows     []map[string]any
 	RowCount int
-}
-
-type ExportHandle struct {
-	ExportID string
-	Status   string
-	Format   string
-}
-
-type RunResult struct {
-	Mode    string
-	Preview *PreviewResult
-	Export  *ExportHandle
-}
-
-type ExportOperation struct {
-	ID                string
-	Status            string
-	Format            string
-	OutputPath        string
-	SubmittedAt       time.Time
-	StartedAt         *time.Time
-	CompletedAt       *time.Time
-	Error             string
-	Project           string
-	RootResourceType  string
-	AuthResourcePaths []string
-	Columns           []string
-	RowCount          int
 }
 
 type ServiceConfig struct {
@@ -113,7 +92,6 @@ type ServiceConfig struct {
 	DiscoverReferences func(context.Context, proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error)
 	DiscoverFields     func(context.Context, proto.PopulatedFieldOptions) ([]proto.PopulatedField, error)
 	ExecuteRows        func(context.Context, proto.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
-	MaxConcurrent      int
 	ScopeResolver      *writeapi.ScopeResolver
 }
 
@@ -123,17 +101,12 @@ type Service struct {
 	discoverFields     func(context.Context, proto.PopulatedFieldOptions) ([]proto.PopulatedField, error)
 	executeRows        func(context.Context, proto.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver      *writeapi.ScopeResolver
-	sem                chan struct{}
-	mu                 sync.RWMutex
-	ops                map[string]*ExportOperation
 }
 
 func NewService(cfg ServiceConfig) *Service {
 	svc := &Service{
 		connOpts:      cfg.ConnectionOptions,
 		scopeResolver: cfg.ScopeResolver,
-		sem:           make(chan struct{}, max(1, cfg.MaxConcurrent)),
-		ops:           make(map[string]*ExportOperation),
 	}
 	if cfg.DiscoverReferences != nil {
 		svc.discoverReferences = cfg.DiscoverReferences
@@ -153,7 +126,7 @@ func NewService(cfg ServiceConfig) *Service {
 	return svc
 }
 
-func (s *Service) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+func (s *Service) Run(ctx context.Context, req RunRequest) (*Result, error) {
 	if protoBackend := strings.ToLower(strings.TrimSpace(s.connOpts.Backend)); protoBackend != "" && protoBackend != "arango" {
 		return nil, fmt.Errorf("runFhirDataframe currently supports only backend \"arango\"")
 	}
@@ -162,42 +135,15 @@ func (s *Service) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	limit := req.PreviewLimit
+	limit := req.Limit
 	if limit <= 0 {
-		limit = defaultPreviewLimit
+		limit = defaultRowLimit
 	}
-	if limit > maxPreviewLimit {
-		limit = maxPreviewLimit
+	compiled, err := Compile(spec, limit)
+	if err != nil {
+		return nil, err
 	}
-
-	switch strings.ToUpper(strings.TrimSpace(req.Mode)) {
-	case "", ModePreview:
-		compiled, err := Compile(spec, limit)
-		if err != nil {
-			return nil, err
-		}
-		preview, err := s.runPreview(ctx, compiled)
-		if err != nil {
-			return nil, err
-		}
-		return &RunResult{Mode: ModePreview, Preview: preview}, nil
-	case ModeExport:
-		compiled, err := Compile(spec, 0)
-		if err != nil {
-			return nil, err
-		}
-		op := s.startExport(compiled)
-		return &RunResult{
-			Mode: ModeExport,
-			Export: &ExportHandle{
-				ExportID: op.ID,
-				Status:   op.Status,
-				Format:   op.Format,
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported mode %q", req.Mode)
-	}
+	return s.runQuery(ctx, compiled)
 }
 
 func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, error) {
@@ -229,8 +175,13 @@ func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, er
 	if err != nil {
 		return Builder{}, err
 	}
-	builder = expanded
-	return builder, nil
+	if planned, matched := lowerGraphQLBuilder(expanded); matched {
+		if err := validateAdvancedBuilder(planned); err != nil {
+			return Builder{}, err
+		}
+		return planned, nil
+	}
+	return expanded, nil
 }
 
 func (s *Service) validateBuilder(ctx context.Context, builder Builder) error {
@@ -254,7 +205,7 @@ func (s *Service) validateBuilder(ctx context.Context, builder Builder) error {
 	if err != nil {
 		return err
 	}
-	if err := validateNodeSelections(builder.Fields, builder.Pivots, rootFields, rootPivots); err != nil {
+	if err := validateNodeSelections(builder.Fields, builder.Pivots, builder.Aggregates, builder.Slices, rootFields, rootPivots); err != nil {
 		return err
 	}
 	for _, step := range builder.Traversals {
@@ -312,7 +263,7 @@ func (s *Service) validateTraversal(ctx context.Context, project string, authRes
 	if err != nil {
 		return err
 	}
-	if err := validateNodeSelections(step.Fields, step.Pivots, fields, pivotFields); err != nil {
+	if err := validateNodeSelections(step.Fields, step.Pivots, step.Aggregates, step.Slices, fields, pivotFields); err != nil {
 		return fmt.Errorf("alias %s: %w", step.Alias, err)
 	}
 	for _, child := range step.Traversals {
@@ -323,7 +274,7 @@ func (s *Service) validateTraversal(ctx context.Context, project string, authRes
 	return nil
 }
 
-func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, discovered []proto.PopulatedField, pivotable []proto.PopulatedField) error {
+func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregates []AggregateSelect, slices []RepresentativeSlice, discovered []proto.PopulatedField, pivotable []proto.PopulatedField) error {
 	seenFields := map[string]struct{}{}
 	for _, field := range fields {
 		if field.Name == "" || field.Select == "" {
@@ -335,6 +286,11 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, discover
 		seenFields[field.Name] = struct{}{}
 		if _, err := ParseSelector(field.Select); err != nil {
 			return fmt.Errorf("invalid selector for field %q: %w", field.Name, err)
+		}
+		for _, fallback := range field.FallbackSelects {
+			if _, err := ParseSelector(fallback); err != nil {
+				return fmt.Errorf("invalid fallback selector for field %q: %w", field.Name, err)
+			}
 		}
 	}
 	seenPivots := map[string]struct{}{}
@@ -366,10 +322,92 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, discover
 			return fmt.Errorf("pivot %q has no available pivot columns", pivot.Name)
 		}
 	}
+	seenAggregates := map[string]struct{}{}
+	for _, agg := range aggregates {
+		if strings.TrimSpace(agg.Name) == "" {
+			return fmt.Errorf("aggregate selections require name")
+		}
+		if _, ok := seenAggregates[agg.Name]; ok {
+			return fmt.Errorf("aggregate name %q is duplicated", agg.Name)
+		}
+		seenAggregates[agg.Name] = struct{}{}
+		switch strings.ToUpper(strings.TrimSpace(agg.Operation)) {
+		case "COUNT", "COUNT_DISTINCT", "EXISTS", "DISTINCT_VALUES":
+		default:
+			return fmt.Errorf("aggregate %q uses unsupported operation %q", agg.Name, agg.Operation)
+		}
+		if strings.TrimSpace(agg.Select) != "" {
+			sel, err := ParseSelector(agg.Select)
+			if err != nil {
+				return fmt.Errorf("invalid aggregate selector for %q: %w", agg.Name, err)
+			}
+			if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
+				return fmt.Errorf("aggregate selector %q is not present in populated fields", agg.Select)
+			}
+		}
+		if strings.TrimSpace(agg.PredicatePath) != "" {
+			sel, err := ParseSelector(agg.PredicatePath)
+			if err != nil {
+				return fmt.Errorf("invalid aggregate predicate selector for %q: %w", agg.Name, err)
+			}
+			if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
+				return fmt.Errorf("aggregate predicate selector %q is not present in populated fields", agg.PredicatePath)
+			}
+		}
+	}
+	seenSlices := map[string]struct{}{}
+	for _, slice := range slices {
+		if strings.TrimSpace(slice.Name) == "" {
+			return fmt.Errorf("representative slices require name")
+		}
+		if _, ok := seenSlices[slice.Name]; ok {
+			return fmt.Errorf("representative slice name %q is duplicated", slice.Name)
+		}
+		seenSlices[slice.Name] = struct{}{}
+		if slice.Limit <= 0 {
+			return fmt.Errorf("representative slice %q requires positive limit", slice.Name)
+		}
+		if strings.TrimSpace(slice.PredicatePath) != "" {
+			sel, err := ParseSelector(slice.PredicatePath)
+			if err != nil {
+				return fmt.Errorf("invalid representative slice predicate for %q: %w", slice.Name, err)
+			}
+			if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
+				return fmt.Errorf("representative slice predicate %q is not present in populated fields", slice.PredicatePath)
+			}
+		}
+		for _, field := range slice.Fields {
+			if strings.TrimSpace(field.Name) == "" || strings.TrimSpace(field.Select) == "" {
+				return fmt.Errorf("representative slice %q requires fields with name and select", slice.Name)
+			}
+			sel, err := ParseSelector(field.Select)
+			if err != nil {
+				return fmt.Errorf("invalid representative slice field for %q: %w", slice.Name, err)
+			}
+			if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
+				return fmt.Errorf("representative slice selector %q is not present in populated fields", field.Select)
+			}
+			for _, fallback := range field.FallbackSelects {
+				fallbackSel, err := ParseSelector(fallback)
+				if err != nil {
+					return fmt.Errorf("invalid representative slice fallback selector for %q: %w", slice.Name, err)
+				}
+				if findFieldByPath(discovered, fallbackSel.CanonicalPath()) == nil {
+					return fmt.Errorf("representative slice fallback selector %q is not present in populated fields", fallback)
+				}
+			}
+		}
+	}
 	for _, field := range fields {
 		sel, _ := ParseSelector(field.Select)
 		if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
 			return fmt.Errorf("selector %q is not present in populated fields", field.Select)
+		}
+		for _, fallback := range field.FallbackSelects {
+			fallbackSel, _ := ParseSelector(fallback)
+			if findFieldByPath(discovered, fallbackSel.CanonicalPath()) == nil {
+				return fmt.Errorf("fallback selector %q is not present in populated fields", fallback)
+			}
 		}
 	}
 	return nil
@@ -443,7 +481,7 @@ func findFieldByPath(fields []proto.PopulatedField, path string) *proto.Populate
 	return nil
 }
 
-func (s *Service) runPreview(ctx context.Context, compiled CompiledQuery) (*PreviewResult, error) {
+func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
 	rows := make([]map[string]any, 0, compiled.Limit)
 	rowCount := 0
 	err := s.executeRows(ctx, proto.ExecuteQueryOptions{
@@ -457,7 +495,7 @@ func (s *Service) runPreview(ctx context.Context, compiled CompiledQuery) (*Prev
 	if err != nil {
 		return nil, err
 	}
-	return &PreviewResult{
+	return &Result{
 		Columns:  append([]string(nil), compiled.Columns...),
 		Rows:     rows,
 		RowCount: rowCount,
@@ -473,80 +511,6 @@ func cloneRow(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func (s *Service) startExport(compiled CompiledQuery) *ExportOperation {
-	now := time.Now().UTC()
-	op := &ExportOperation{
-		ID:                uuid.NewString(),
-		Status:            StatusPending,
-		Format:            defaultExportFormat,
-		SubmittedAt:       now,
-		Project:           compiled.Project,
-		RootResourceType:  compiled.RootResourceType,
-		AuthResourcePaths: append([]string(nil), compiled.AuthResourcePaths...),
-		Columns:           append([]string(nil), compiled.Columns...),
-	}
-	s.mu.Lock()
-	s.ops[op.ID] = op
-	s.mu.Unlock()
-
-	go s.runExport(op, compiled)
-	return op
-}
-
-func (s *Service) runExport(op *ExportOperation, compiled CompiledQuery) {
-	s.sem <- struct{}{}
-	defer func() { <-s.sem }()
-
-	started := time.Now().UTC()
-	s.mu.Lock()
-	op.Status = StatusRunning
-	op.StartedAt = &started
-	s.mu.Unlock()
-
-	tmp, err := os.CreateTemp("", "fhir-dataframe-*.ndjson")
-	if err != nil {
-		s.finishOp(op.ID, err, "", 0)
-		return
-	}
-	defer tmp.Close()
-
-	rows := 0
-	err = s.executeRows(context.Background(), proto.ExecuteQueryOptions{
-		ConnectionOptions: s.connOpts,
-		BatchSize:         1000,
-	}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
-		data, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		if _, err := tmp.Write(data); err != nil {
-			return err
-		}
-		if _, err := tmp.Write([]byte{'\n'}); err != nil {
-			return err
-		}
-		rows++
-		return nil
-	})
-	s.finishOp(op.ID, err, tmp.Name(), rows)
-}
-
-func (s *Service) finishOp(id string, err error, path string, rows int) {
-	completed := time.Now().UTC()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	op := s.ops[id]
-	op.CompletedAt = &completed
-	op.OutputPath = path
-	op.RowCount = rows
-	if err != nil {
-		op.Status = StatusFailed
-		op.Error = err.Error()
-		return
-	}
-	op.Status = StatusSucceeded
 }
 
 func (s *Service) resolveAuthResourcePaths(ctx context.Context, principal *writeapi.Principal, project string, requested []string) ([]string, error) {
@@ -675,6 +639,11 @@ type CompiledQuery struct {
 	Project           string
 	RootResourceType  string
 	AuthResourcePaths []string
+	PlanMode          string
+	PlanProfile       string
+	NamedSetCount     int
+	FileSummaries     bool
+	StudyLookup       bool
 	Query             string
 	BindVars          map[string]any
 	Columns           []string
@@ -694,13 +663,13 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 		},
 	}
 	if limit > 0 {
-		c.bindVars["preview_limit"] = limit
+		c.bindVars["limit"] = limit
 	}
 	rootVar := "root"
 	objectLines := []string{}
 	for _, field := range builder.Fields {
 		sel, _ := ParseSelector(field.Select)
-		expr, err := c.compileRootField(rootVar+".payload", sel)
+		expr, err := c.compileRootFieldSelect(rootVar+".payload", field, sel)
 		if err != nil {
 			return CompiledQuery{}, err
 		}
@@ -715,7 +684,7 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 		}
 		for _, col := range cols {
 			colName := sanitizeColumnName(pivot.Name + "__" + col)
-			expr, err := c.compileRootPivot(rootVar+".payload", sel, col)
+			expr, err := c.compileRootPivot(rootVar+".payload", sel, col, pivot.ValuePath)
 			if err != nil {
 				return CompiledQuery{}, err
 			}
@@ -723,11 +692,27 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 			c.columns = append(c.columns, colName)
 		}
 	}
+	for _, agg := range builder.Aggregates {
+		expr, err := c.compileRootAggregateExpr(rootVar+".payload", agg)
+		if err != nil {
+			return CompiledQuery{}, err
+		}
+		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(agg.Name), expr))
+		c.columns = append(c.columns, agg.Name)
+	}
 	lets := []string{}
 	for _, step := range builder.Traversals {
 		if err := c.compileTraversal(rootVar, false, step, &lets, &objectLines); err != nil {
 			return CompiledQuery{}, err
 		}
+	}
+	for _, slice := range builder.Slices {
+		expr, err := c.compileRootSlice(rootVar, slice)
+		if err != nil {
+			return CompiledQuery{}, err
+		}
+		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(slice.Name), expr))
+		c.columns = append(c.columns, slice.Name)
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("FOR %s IN %s\n", rootVar, builder.RootResourceType))
@@ -735,7 +720,7 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 	sb.WriteString(fmt.Sprintf("  FILTER @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths\n", rootVar))
 	sb.WriteString(fmt.Sprintf("  SORT %s._key\n", rootVar))
 	if limit > 0 {
-		sb.WriteString("  LIMIT @preview_limit\n")
+		sb.WriteString("  LIMIT @limit\n")
 	}
 	for _, let := range lets {
 		sb.WriteString(let)
@@ -757,11 +742,51 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 		Project:           builder.Project,
 		RootResourceType:  builder.RootResourceType,
 		AuthResourcePaths: append([]string(nil), builder.AuthResourcePaths...),
+		PlanMode:          planMode(builder.PlanHint),
+		PlanProfile:       planProfile(builder.PlanHint),
+		NamedSetCount:     planNamedSetCount(builder.PlanHint),
+		FileSummaries:     planFileSummaries(builder.PlanHint),
+		StudyLookup:       planStudyLookup(builder.PlanHint),
 		Query:             sb.String(),
 		BindVars:          c.bindVars,
 		Columns:           append([]string(nil), c.columns...),
 		Limit:             limit,
 	}, nil
+}
+
+func planMode(hint *PlanHint) string {
+	if hint == nil || hint.Mode == "" {
+		return "generic_traversal"
+	}
+	return hint.Mode
+}
+
+func planProfile(hint *PlanHint) string {
+	if hint == nil {
+		return ""
+	}
+	return hint.Profile
+}
+
+func planNamedSetCount(hint *PlanHint) int {
+	if hint == nil {
+		return 0
+	}
+	return hint.NamedSetCount
+}
+
+func planFileSummaries(hint *PlanHint) bool {
+	if hint == nil {
+		return false
+	}
+	return hint.ClassifiedFileSummaries
+}
+
+func planStudyLookup(hint *PlanHint) bool {
+	if hint == nil {
+		return false
+	}
+	return hint.StudyLookup
 }
 
 type compiler struct {
@@ -784,7 +809,7 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 	*lets = append(*lets, let)
 	for _, field := range step.Fields {
 		sel, _ := ParseSelector(field.Select)
-		expr, err := c.compileTraversalField(nodeVar, sel)
+		expr, err := c.compileTraversalFieldSelect(nodeVar, field, sel)
 		if err != nil {
 			return err
 		}
@@ -800,13 +825,31 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 		}
 		for _, col := range cols {
 			colName := sanitizeColumnName(step.Alias + "__" + pivot.Name + "__" + col)
-			expr, err := c.compileTraversalPivot(nodeVar, sel, col)
+			expr, err := c.compileTraversalPivot(nodeVar, sel, col, pivot.ValuePath)
 			if err != nil {
 				return err
 			}
 			*objectLines = append(*objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
 			c.columns = append(c.columns, colName)
 		}
+	}
+	for _, agg := range step.Aggregates {
+		expr, err := c.compileSetAggregateExpr(nodeVar, agg)
+		if err != nil {
+			return err
+		}
+		colName := sanitizeColumnName(step.Alias + "__" + agg.Name)
+		*objectLines = append(*objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
+		c.columns = append(c.columns, colName)
+	}
+	for _, slice := range step.Slices {
+		expr, err := c.compileSetSlice(nodeVar, setModeNode, slice)
+		if err != nil {
+			return err
+		}
+		colName := sanitizeColumnName(step.Alias + "__" + slice.Name)
+		*objectLines = append(*objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
+		c.columns = append(c.columns, colName)
 	}
 	for _, child := range step.Traversals {
 		if err := c.compileTraversal(nodeVar, true, child, lets, objectLines); err != nil {
@@ -816,6 +859,13 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 	return nil
 }
 
+func (c *compiler) compileRootFieldSelect(payloadVar string, field FieldSelect, sel Selector) (string, error) {
+	if len(field.FallbackSelects) > 0 {
+		return c.compileFirstNonNullExpr(payloadVar, append([]string{field.Select}, field.FallbackSelects...)), nil
+	}
+	return c.compileRootField(payloadVar, sel)
+}
+
 func (c *compiler) compileRootField(payloadVar string, sel Selector) (string, error) {
 	if sel.Filter == nil && selectorHasNoArrays(sel) {
 		return compileDirectExpr(payloadVar, sel.Steps), nil
@@ -823,16 +873,28 @@ func (c *compiler) compileRootField(payloadVar string, sel Selector) (string, er
 	return "FIRST" + compileSelectorArrayExpr(payloadVar, sel, c), nil
 }
 
+func (c *compiler) compileTraversalFieldSelect(nodeVar string, field FieldSelect, sel Selector) (string, error) {
+	if len(field.FallbackSelects) > 0 {
+		tmp := DerivedField{
+			Source:          nodeVar,
+			Select:          field.Select,
+			FallbackSelects: field.FallbackSelects,
+		}
+		return c.compileUniqueField("", tmp, map[string]setMode{nodeVar: setModeNode})
+	}
+	return c.compileTraversalField(nodeVar, sel)
+}
+
 func (c *compiler) compileTraversalField(nodeVar string, sel Selector) (string, error) {
 	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compileSelectorArrayExpr("__n.payload", sel, c)), nil
 }
 
-func (c *compiler) compileRootPivot(payloadVar string, sel Selector, column string) (string, error) {
-	return fmt.Sprintf("FIRST(%s)", compilePivotMatchArrayExpr(payloadVar, sel, column, c)), nil
+func (c *compiler) compileRootPivot(payloadVar string, sel Selector, column string, valuePath string) (string, error) {
+	return fmt.Sprintf("FIRST(%s)", compilePivotValueArrayExpr(payloadVar, sel, column, valuePath, c)), nil
 }
 
-func (c *compiler) compileTraversalPivot(nodeVar string, sel Selector, column string) (string, error) {
-	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compilePivotMatchArrayExpr("__n.payload", sel, column, c)), nil
+func (c *compiler) compileTraversalPivot(nodeVar string, sel Selector, column string, valuePath string) (string, error) {
+	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compilePivotValueArrayExpr("__n.payload", sel, column, valuePath, c)), nil
 }
 
 func selectorHasNoArrays(sel Selector) bool {
@@ -920,6 +982,23 @@ func compilePivotMatchArrayExpr(rootVar string, sel Selector, column string, c *
 	colBind := c.newBind("pivot", column)
 	objects := compileObjectArrayExpr(rootVar, sel, c)
 	return fmt.Sprintf("(\n    FOR __obj IN %s\n      LET __match = FIRST(FOR __coding IN (__obj.coding ? __obj.coding : []) FILTER __coding.display == @%s RETURN (__obj.text ? __obj.text : (__coding.display ? __coding.display : __coding.code)))\n      FILTER __match != null\n      RETURN __match\n  )", objects, colBind)
+}
+
+func compilePivotValueArrayExpr(rootVar string, sel Selector, column string, valuePath string, c *compiler) string {
+	colBind := c.newBind("pivot", column)
+	objects := compileObjectArrayExpr(rootVar, sel, c)
+	valueExpr := "__obj.text ? __obj.text : (__coding.display ? __coding.display : __coding.code)"
+	if strings.TrimSpace(valuePath) != "" {
+		valueSel, err := ParseSelector(valuePath)
+		if err == nil {
+			if valueSel.Filter == nil && selectorHasNoArrays(valueSel) {
+				valueExpr = compileDirectExpr("__obj", valueSel.Steps)
+			} else {
+				valueExpr = "FIRST" + compileSelectorArrayExpr("__obj", valueSel, c)
+			}
+		}
+	}
+	return fmt.Sprintf("(\n    FOR __obj IN %s\n      LET __match = FIRST(FOR __coding IN (__obj.coding ? __obj.coding : []) FILTER __coding.display == @%s RETURN %s)\n      FILTER __match != null\n      RETURN __match\n  )", objects, colBind, valueExpr)
 }
 
 func extractFinalExpr(cur string, step SelectorStep) string {

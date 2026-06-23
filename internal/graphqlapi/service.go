@@ -3,8 +3,10 @@ package graphqlapi
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"arangodb-proto/internal/dataframe"
+	"arangodb-proto/internal/graphqlapi/model"
 	"arangodb-proto/internal/proto"
 	"arangodb-proto/internal/writeapi"
 )
@@ -36,17 +38,17 @@ type IntrospectionResponse struct {
 	Project           string
 	RootResourceType  string
 	AuthResourcePaths []string
-	Root             ResourceHintsResponse
-	RelatedResources []RelatedResourceHintsResponse
+	Root              ResourceHintsResponse
+	RelatedResources  []RelatedResourceHintsResponse
 	Traversals        []proto.PopulatedReference
-	Fields            []proto.PopulatedField
-	PivotFields       []proto.PopulatedField
+	Fields            []FieldHintResponse
+	PivotFields       []FieldHintResponse
 }
 
 type ResourceHintsResponse struct {
 	ResourceType string
-	Fields       []proto.PopulatedField
-	PivotFields  []proto.PopulatedField
+	Fields       []FieldHintResponse
+	PivotFields  []FieldHintResponse
 	Traversals   []proto.PopulatedReference
 }
 
@@ -128,8 +130,8 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 		Root:              rootHints,
 		RelatedResources:  relatedHints,
 		Traversals:        normalizeTraversalSlice(rootHints.Traversals),
-		Fields:            normalizeFieldSlice(rootHints.Fields),
-		PivotFields:       normalizeFieldSlice(rootHints.PivotFields),
+		Fields:            rootHints.Fields,
+		PivotFields:       rootHints.PivotFields,
 	}, nil
 }
 
@@ -159,8 +161,8 @@ func (s *Service) buildResourceHints(ctx context.Context, project string, authRe
 	}
 	return ResourceHintsResponse{
 		ResourceType: resourceType,
-		Fields:       normalizeFieldSlice(fields),
-		PivotFields:  normalizeFieldSlice(pivotFields),
+		Fields:       discoveredFieldHints(resourceType, normalizeFieldSlice(fields)),
+		PivotFields:  discoveredFieldHints(resourceType, normalizeFieldSlice(pivotFields)),
 		Traversals:   normalizeTraversalSlice(traversals),
 	}, nil
 }
@@ -212,8 +214,162 @@ func normalizeFieldSlice(in []proto.PopulatedField) []proto.PopulatedField {
 	return in
 }
 
-func (s *Service) RunDataframe(ctx context.Context, req dataframe.RunRequest) (*dataframe.RunResult, error) {
+func (s *Service) RunDataframe(ctx context.Context, req dataframe.RunRequest) (*dataframe.Result, error) {
 	return s.dataframes.Run(ctx, req)
+}
+
+func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, error) {
+	if input.Project == "" {
+		return input, fmt.Errorf("project is required")
+	}
+	if input.RootResourceType == "" {
+		return input, fmt.Errorf("rootResourceType is required")
+	}
+	principal, _ := writeapi.PrincipalFromContext(ctx)
+	resolvedPaths, err := s.resolveAuthResourcePaths(ctx, principal, input.Project, input.AuthResourcePaths)
+	if err != nil {
+		return input, err
+	}
+	if err := authorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
+		return input, err
+	}
+	input.AuthResourcePaths = resolvedPaths
+	if len(input.AuthResourcePaths) == 0 {
+		input.AuthResourcePaths = nil
+	}
+	if err := s.resolveNodeInputRefs(ctx, input.Project, input.AuthResourcePaths, input.RootResourceType, input.RootFields, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
+		return input, err
+	}
+	for _, step := range input.Traverse {
+		if err := s.resolveTraversalInputRefs(ctx, input.Project, input.AuthResourcePaths, step); err != nil {
+			return input, err
+		}
+	}
+	return input, nil
+}
+
+func (s *Service) resolveTraversalInputRefs(ctx context.Context, project string, authResourcePaths []string, step *model.FhirTraversalStepInput) error {
+	if step == nil {
+		return nil
+	}
+	if err := s.resolveNodeInputRefs(ctx, project, authResourcePaths, step.ToResourceType, step.Fields, step.Pivots, step.Aggregates, step.Slices); err != nil {
+		return err
+	}
+	for _, child := range step.Traverse {
+		if err := s.resolveTraversalInputRefs(ctx, project, authResourcePaths, child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) resolveNodeInputRefs(ctx context.Context, project string, authResourcePaths []string, resourceType string, fields []*model.FhirFieldSelectInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
+	discovered, err := s.discoverFields(ctx, proto.PopulatedFieldOptions{
+		ConnectionOptions: s.connOpts,
+		Project:           project,
+		AuthResourcePaths: authResourcePaths,
+		ResourceType:      resourceType,
+	})
+	if err != nil {
+		return err
+	}
+	for _, field := range fields {
+		if field == nil {
+			continue
+		}
+		if strings.TrimSpace(derefString(field.FieldRef)) != "" {
+			selectorText, err := resolveFieldRef(resourceType, discovered, derefString(field.FieldRef))
+			if err != nil {
+				return err
+			}
+			field.Selector = selectorInputFromExpression(selectorText)
+		}
+		if len(field.FallbackFieldRefs) > 0 {
+			fallbacks := make([]*model.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+			for _, ref := range field.FallbackFieldRefs {
+				selectorText, err := resolveFieldRef(resourceType, discovered, ref)
+				if err != nil {
+					return err
+				}
+				fallbacks = append(fallbacks, selectorInputFromExpression(selectorText))
+			}
+			field.FallbackSelectors = fallbacks
+		}
+	}
+	for _, pivot := range pivots {
+		if pivot == nil {
+			continue
+		}
+		if strings.TrimSpace(derefString(pivot.FieldRef)) != "" {
+			selector, err := resolveFieldRef(resourceType, discovered, derefString(pivot.FieldRef))
+			if err != nil {
+				return err
+			}
+			pivot.FhirPath = &selector
+		}
+		if strings.TrimSpace(derefString(pivot.ValueFieldRef)) != "" {
+			selector, err := resolveFieldRef(resourceType, discovered, derefString(pivot.ValueFieldRef))
+			if err != nil {
+				return err
+			}
+			pivot.ValuePath = &selector
+		}
+	}
+	for _, aggregate := range aggregates {
+		if aggregate == nil {
+			continue
+		}
+		if strings.TrimSpace(derefString(aggregate.FieldRef)) != "" {
+			selector, err := resolveFieldRef(resourceType, discovered, derefString(aggregate.FieldRef))
+			if err != nil {
+				return err
+			}
+			aggregate.FhirPath = &selector
+		}
+		if strings.TrimSpace(derefString(aggregate.PredicateFieldRef)) != "" {
+			selector, err := resolveFieldRef(resourceType, discovered, derefString(aggregate.PredicateFieldRef))
+			if err != nil {
+				return err
+			}
+			aggregate.PredicatePath = &selector
+		}
+	}
+	for _, slice := range slices {
+		if slice == nil {
+			continue
+		}
+		if strings.TrimSpace(derefString(slice.WhereFieldRef)) != "" {
+			selector, err := resolveFieldRef(resourceType, discovered, derefString(slice.WhereFieldRef))
+			if err != nil {
+				return err
+			}
+			slice.WherePath = &selector
+		}
+		for _, field := range slice.Fields {
+			if field == nil {
+				continue
+			}
+			if strings.TrimSpace(derefString(field.FieldRef)) != "" {
+				selectorText, err := resolveFieldRef(resourceType, discovered, derefString(field.FieldRef))
+				if err != nil {
+					return err
+				}
+				field.Selector = selectorInputFromExpression(selectorText)
+			}
+			if len(field.FallbackFieldRefs) > 0 {
+				fallbacks := make([]*model.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+				for _, ref := range field.FallbackFieldRefs {
+					selectorText, err := resolveFieldRef(resourceType, discovered, ref)
+					if err != nil {
+						return err
+					}
+					fallbacks = append(fallbacks, selectorInputFromExpression(selectorText))
+				}
+				field.FallbackSelectors = fallbacks
+			}
+		}
+	}
+	return nil
 }
 
 func authorizeProject(principal *writeapi.Principal, project string, ignorePrincipalProjects bool) error {
@@ -257,4 +413,25 @@ func (s *Service) resolveAuthResourcePaths(ctx context.Context, principal *write
 		}
 	}
 	return append([]string(nil), requested...), nil
+}
+
+func selectorInputFromExpression(expression string) *model.FhirFieldSelectorInput {
+	parts := decomposeSelector(expression)
+	var where *model.FhirFieldPredicateInput
+	if parts.Where != nil {
+		where = &model.FhirFieldPredicateInput{
+			Path:  parts.Where.Path,
+			Op:    model.FhirFieldPredicateOperation(parts.Where.Op),
+			Value: parts.Where.Value,
+		}
+	}
+	var sourcePath *string
+	if trimmed := strings.TrimSpace(parts.SourcePath); trimmed != "" {
+		sourcePath = &trimmed
+	}
+	return &model.FhirFieldSelectorInput{
+		SourcePath: sourcePath,
+		Where:      where,
+		ValuePath:  parts.ValuePath,
+	}
 }

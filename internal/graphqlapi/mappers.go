@@ -23,7 +23,7 @@ func traversalHints(in []proto.PopulatedReference) []*model.DataframeTraversalHi
 	return out
 }
 
-func fieldHints(in []proto.PopulatedField) []*model.DataframeFieldHint {
+func fieldHints(in []FieldHintResponse) []*model.DataframeFieldHint {
 	if len(in) == 0 {
 		return []*model.DataframeFieldHint{}
 	}
@@ -34,10 +34,24 @@ func fieldHints(in []proto.PopulatedField) []*model.DataframeFieldHint {
 		if pivotKind != "" {
 			pivotKindPtr = &pivotKind
 		}
+		var predicate *model.DataframeFieldPredicate
+		if item.Selector.Where != nil {
+			predicate = &model.DataframeFieldPredicate{
+				Path:  item.Selector.Where.Path,
+				Op:    model.FhirFieldPredicateOperation(item.Selector.Where.Op),
+				Value: item.Selector.Where.Value,
+			}
+		}
 		out = append(out, &model.DataframeFieldHint{
 			ResourceType:      item.ResourceType,
+			FieldRef:          item.FieldRef,
+			Label:             item.Label,
 			Path:              item.Path,
-			Selector:          item.Path,
+			Selector: &model.DataframeFieldSelector{
+				SourcePath: optionalString(item.Selector.SourcePath),
+				Where:      predicate,
+				ValuePath:  item.Selector.ValuePath,
+			},
 			Kind:              item.Kind,
 			DocCount:          int(item.DocCount),
 			SampleCount:       item.SampleCount,
@@ -119,6 +133,8 @@ func builderFromInput(in model.FhirDataframeInput) dataframe.Builder {
 		RootResourceType:  in.RootResourceType,
 		Fields:            fieldSelectsFromModel(in.RootFields),
 		Pivots:            pivotSelectsFromModel(in.RootPivots),
+		Aggregates:        aggregateSelectsFromModel(in.RootAggregates),
+		Slices:            sliceSelectsFromModel(in.RootSlices),
 		Traversals:        traversalStepsFromModel(in.Traverse),
 	}
 }
@@ -132,7 +148,37 @@ func fieldSelectsFromModel(in []*model.FhirFieldSelectInput) []dataframe.FieldSe
 		if item == nil {
 			continue
 		}
-		out = append(out, dataframe.FieldSelect{Name: item.Name, Select: item.FhirPath})
+		selectText := ""
+		if item.Selector != nil {
+			selectText = composeSelector(
+				derefString(item.Selector.SourcePath),
+				predicatePathFromInput(item.Selector.Where),
+				predicateOpFromInput(item.Selector.Where),
+				predicateValueFromInput(item.Selector.Where),
+				item.Selector.ValuePath,
+			)
+		}
+		fallbackSelectors := make([]string, 0, len(item.FallbackSelectors))
+		for _, fallback := range item.FallbackSelectors {
+			if fallback == nil {
+				continue
+			}
+			fallbackSelectors = append(fallbackSelectors, composeSelector(
+				derefString(fallback.SourcePath),
+				predicatePathFromInput(fallback.Where),
+				predicateOpFromInput(fallback.Where),
+				predicateValueFromInput(fallback.Where),
+				fallback.ValuePath,
+			))
+		}
+		out = append(out, dataframe.FieldSelect{
+			Name:              item.Name,
+			FieldRef:          derefString(item.FieldRef),
+			Select:            selectText,
+			FallbackFieldRefs: cloneStrings(item.FallbackFieldRefs),
+			FallbackSelects:   fallbackSelectors,
+			ValueMode:         item.ValueMode.String(),
+		})
 	}
 	return out
 }
@@ -152,9 +198,57 @@ func pivotSelectsFromModel(in []*model.FhirPivotInput) []dataframe.PivotSelect {
 		}
 		out = append(out, dataframe.PivotSelect{
 			Name:      item.Name,
-			Select:    item.FhirPath,
+			FieldRef:  derefString(item.FieldRef),
+			Select:    derefString(item.FhirPath),
 			PivotKind: pivotKind,
 			Columns:   cloneStrings(item.SelectedColumns),
+			ValueFieldRef: derefString(item.ValueFieldRef),
+			ValuePath: derefString(item.ValuePath),
+		})
+	}
+	return out
+}
+
+func aggregateSelectsFromModel(in []*model.FhirAggregateInput) []dataframe.AggregateSelect {
+	if len(in) == 0 {
+		return []dataframe.AggregateSelect{}
+	}
+	out := make([]dataframe.AggregateSelect, 0, len(in))
+	for _, item := range in {
+		if item == nil {
+			continue
+		}
+		operation := item.Operation.String()
+		out = append(out, dataframe.AggregateSelect{
+			Name:            item.Name,
+			Operation:       operation,
+			FieldRef:        strings.TrimSpace(derefString(item.FieldRef)),
+			Select:          strings.TrimSpace(derefString(item.FhirPath)),
+			PredicateFieldRef: strings.TrimSpace(derefString(item.PredicateFieldRef)),
+			PredicatePath:   strings.TrimSpace(derefString(item.PredicatePath)),
+			PredicateEquals: derefString(item.PredicateEquals),
+			ValueMode:       item.ValueMode.String(),
+		})
+	}
+	return out
+}
+
+func sliceSelectsFromModel(in []*model.FhirRepresentativeSliceInput) []dataframe.RepresentativeSlice {
+	if len(in) == 0 {
+		return []dataframe.RepresentativeSlice{}
+	}
+	out := make([]dataframe.RepresentativeSlice, 0, len(in))
+	for _, item := range in {
+		if item == nil {
+			continue
+		}
+		out = append(out, dataframe.RepresentativeSlice{
+			Name:            item.Name,
+			Limit:           item.Limit,
+			PredicateFieldRef: strings.TrimSpace(derefString(item.WhereFieldRef)),
+			PredicatePath:   strings.TrimSpace(derefString(item.WherePath)),
+			PredicateEquals: derefString(item.WhereEquals),
+			Fields:          fieldSelectsFromModel(item.Fields),
 		})
 	}
 	return out
@@ -175,6 +269,8 @@ func traversalStepsFromModel(in []*model.FhirTraversalStepInput) []dataframe.Tra
 			Alias:          item.Alias,
 			Fields:         fieldSelectsFromModel(item.Fields),
 			Pivots:         pivotSelectsFromModel(item.Pivots),
+			Aggregates:     aggregateSelectsFromModel(item.Aggregates),
+			Slices:         sliceSelectsFromModel(item.Slices),
 			Traversals:     traversalStepsFromModel(item.Traverse),
 		})
 	}
@@ -190,4 +286,33 @@ func derefString(in *string) string {
 
 func derefBool(in *bool) bool {
 	return in != nil && *in
+}
+
+func optionalString(in string) *string {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return nil
+	}
+	return &in
+}
+
+func predicatePathFromInput(in *model.FhirFieldPredicateInput) string {
+	if in == nil {
+		return ""
+	}
+	return in.Path
+}
+
+func predicateOpFromInput(in *model.FhirFieldPredicateInput) string {
+	if in == nil {
+		return ""
+	}
+	return in.Op.String()
+}
+
+func predicateValueFromInput(in *model.FhirFieldPredicateInput) string {
+	if in == nil {
+		return ""
+	}
+	return in.Value
 }

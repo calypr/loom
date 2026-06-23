@@ -24,7 +24,7 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		columns: []string{"_key"},
 	}
 	if limit > 0 {
-		c.bindVars["preview_limit"] = limit
+		c.bindVars["limit"] = limit
 	}
 	setModes := map[string]setMode{}
 	rootVar := "root"
@@ -42,7 +42,7 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 
 	for _, field := range builder.Fields {
 		sel, _ := ParseSelector(field.Select)
-		expr, err := c.compileRootField(rootVar+".payload", sel)
+		expr, err := c.compileRootFieldSelect(rootVar+".payload", field, sel)
 		if err != nil {
 			return CompiledQuery{}, err
 		}
@@ -57,13 +57,21 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		}
 		for _, col := range cols {
 			colName := sanitizeColumnName(pivot.Name + "__" + col)
-			expr, err := c.compileRootPivot(rootVar+".payload", sel, col)
+			expr, err := c.compileRootPivot(rootVar+".payload", sel, col, pivot.ValuePath)
 			if err != nil {
 				return CompiledQuery{}, err
 			}
 			objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
 			c.columns = append(c.columns, colName)
 		}
+	}
+	for _, agg := range builder.Aggregates {
+		expr, err := c.compileRootAggregateExpr(rootVar+".payload", agg)
+		if err != nil {
+			return CompiledQuery{}, err
+		}
+		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(agg.Name), expr))
+		c.columns = append(c.columns, agg.Name)
 	}
 	for _, step := range builder.Traversals {
 		if err := c.compileTraversal(rootVar, false, step, &lets, &objectLines); err != nil {
@@ -86,6 +94,14 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(slice.Name), expr))
 		c.columns = append(c.columns, slice.Name)
 	}
+	for _, slice := range builder.Slices {
+		expr, err := c.compileRootSlice(rootVar, slice)
+		if err != nil {
+			return CompiledQuery{}, err
+		}
+		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(slice.Name), expr))
+		c.columns = append(c.columns, slice.Name)
+	}
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("FOR %s IN %s\n", rootVar, builder.RootResourceType))
@@ -93,7 +109,7 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 	sb.WriteString(fmt.Sprintf("  FILTER @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths\n", rootVar))
 	sb.WriteString(fmt.Sprintf("  SORT %s._key\n", rootVar))
 	if limit > 0 {
-		sb.WriteString("  LIMIT @preview_limit\n")
+		sb.WriteString("  LIMIT @limit\n")
 	}
 	for _, let := range lets {
 		sb.WriteString(let)
@@ -110,6 +126,11 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		Project:           builder.Project,
 		RootResourceType:  builder.RootResourceType,
 		AuthResourcePaths: append([]string(nil), builder.AuthResourcePaths...),
+		PlanMode:          planMode(builder.PlanHint),
+		PlanProfile:       planProfile(builder.PlanHint),
+		NamedSetCount:     planNamedSetCount(builder.PlanHint),
+		FileSummaries:     planFileSummaries(builder.PlanHint),
+		StudyLookup:       planStudyLookup(builder.PlanHint),
 		Query:             sb.String(),
 		BindVars:          c.bindVars,
 		Columns:           append([]string(nil), c.columns...),
@@ -197,14 +218,22 @@ func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes
 		return "FIRST" + compileSelectorArrayExpr(rootVar, sel, c), nil
 	case DerivedOpCount:
 		return fmt.Sprintf("LENGTH(%s)", sanitizeColumnName(field.Source)), nil
+	case DerivedOpCountDistinct:
+		uniqueExpr, err := c.compileUniqueField(rootVar, field, modes)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("LENGTH(%s)", uniqueExpr), nil
 	case DerivedOpCountWhere:
-		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s RETURN 1)", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate)), nil
+		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s RETURN 1)", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate, field.PredicatePath, field.PredicateEquals)), nil
 	case DerivedOpAny:
-		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s LIMIT 1 RETURN 1) > 0", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate)), nil
+		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s LIMIT 1 RETURN 1) > 0", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate, field.PredicatePath, field.PredicateEquals)), nil
 	case DerivedOpFirstNonNull:
 		return c.compileFirstNonNullField(rootVar, field, modes)
 	case DerivedOpUnique:
 		return c.compileUniqueField(rootVar, field, modes)
+	case DerivedOpPivot:
+		return c.compilePivotField(field, modes)
 	default:
 		return "", fmt.Errorf("unsupported derived field operation %q", field.Operation)
 	}
@@ -238,17 +267,41 @@ func (c *compiler) compileUniqueField(rootVar string, field DerivedField, modes 
   ))`, setVar, c.compileSelectorArrayForSelects(setPayloadVar("__item", mode), selects)), nil
 }
 
+func (c *compiler) compilePivotField(field DerivedField, modes map[string]setMode) (string, error) {
+	setVar := sanitizeColumnName(field.Source)
+	mode := modes[field.Source]
+	sel, err := ParseSelector(field.Select)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`UNIQUE(FLATTEN(
+    FOR __item IN %s
+      RETURN %s
+  ))`, setVar, compilePivotValueArrayExpr(setPayloadVar("__item", mode), sel, field.PivotColumn, field.ValuePath, c)), nil
+}
+
 func (c *compiler) compileRepresentativeSlice(slice RepresentativeSlice, modes map[string]setMode) (string, error) {
 	setVar := sanitizeColumnName(slice.SourceSet)
 	mode := modes[slice.SourceSet]
 	filter := "true"
-	if strings.TrimSpace(slice.Predicate) != "" {
-		filter = c.compilePredicateExpr("__item", mode, slice.Predicate)
+	if strings.TrimSpace(slice.Predicate) != "" || strings.TrimSpace(slice.PredicatePath) != "" {
+		filter = c.compilePredicateExpr("__item", mode, slice.Predicate, slice.PredicatePath, slice.PredicateEquals)
 	}
-	return fmt.Sprintf("SLICE(FOR __item IN %s FILTER %s RETURN __item, 0, %d)", setVar, filter, slice.Limit), nil
+	return fmt.Sprintf("SLICE(FOR __item IN %s FILTER %s RETURN %s, 0, %d)", setVar, filter, c.compileSliceProjection("__item", mode, slice.Fields), slice.Limit), nil
 }
 
-func (c *compiler) compilePredicateExpr(itemVar string, mode setMode, predicate string) string {
+func (c *compiler) compilePredicateExpr(itemVar string, mode setMode, predicate string, predicatePath string, predicateEquals string) string {
+	if strings.TrimSpace(predicatePath) != "" {
+		sel, err := ParseSelector(predicatePath)
+		if err == nil {
+			values := compileSelectorArrayExpr(setPayloadVar(itemVar, mode), sel, c)
+			if predicateEquals != "" {
+				bind := c.newBind("predicate_equals", predicateEquals)
+				return fmt.Sprintf("LENGTH(FOR __value IN %s FILTER __value == @%s LIMIT 1 RETURN 1) > 0", values, bind)
+			}
+			return fmt.Sprintf("LENGTH(FOR __value IN %s FILTER __value != null LIMIT 1 RETURN 1) > 0", values)
+		}
+	}
 	predicate = strings.TrimSpace(predicate)
 	if predicate == "" {
 		return "true"
@@ -260,6 +313,156 @@ func (c *compiler) compilePredicateExpr(itemVar string, mode setMode, predicate 
 		}
 	}
 	return itemVar + "." + predicate
+}
+
+func (c *compiler) compileRootAggregateExpr(payloadVar string, agg AggregateSelect) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(agg.Operation)) {
+	case "COUNT":
+		if strings.TrimSpace(agg.PredicatePath) == "" {
+			return "1", nil
+		}
+		filter := c.compileRootPredicateExpr(payloadVar, agg.PredicatePath, agg.PredicateEquals)
+		return fmt.Sprintf("(%s ? 1 : 0)", filter), nil
+	case "COUNT_DISTINCT":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for COUNT_DISTINCT", agg.Name)
+		}
+		values, err := c.compileRootSelectorArray(payloadVar, agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("LENGTH(UNIQUE(%s))", values), nil
+	case "EXISTS":
+		if strings.TrimSpace(agg.PredicatePath) != "" {
+			return c.compileRootPredicateExpr(payloadVar, agg.PredicatePath, agg.PredicateEquals), nil
+		}
+		if strings.TrimSpace(agg.Select) == "" {
+			return "true", nil
+		}
+		values, err := c.compileRootSelectorArray(payloadVar, agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("LENGTH(FOR __value IN %s FILTER __value != null LIMIT 1 RETURN 1) > 0", values), nil
+	case "DISTINCT_VALUES":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for DISTINCT_VALUES", agg.Name)
+		}
+		values, err := c.compileRootSelectorArray(payloadVar, agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("UNIQUE(%s)", values), nil
+	default:
+		return "", fmt.Errorf("unsupported aggregate operation %q", agg.Operation)
+	}
+}
+
+func (c *compiler) compileRootSlice(rootVar string, slice RepresentativeSlice) (string, error) {
+	filter := "true"
+	if strings.TrimSpace(slice.PredicatePath) != "" || strings.TrimSpace(slice.Predicate) != "" {
+		filter = c.compilePredicateExpr("__item", setModeNode, slice.Predicate, slice.PredicatePath, slice.PredicateEquals)
+	}
+	return fmt.Sprintf("SLICE(FOR __item IN [%s] FILTER %s RETURN %s, 0, %d)", rootVar, filter, c.compileSliceProjection("__item", setModeNode, slice.Fields), slice.Limit), nil
+}
+
+func (c *compiler) compileSliceProjection(itemVar string, mode setMode, fields []FieldSelect) string {
+	if len(fields) == 0 {
+		return itemVar
+	}
+	lines := make([]string, 0, len(fields))
+	payloadVar := setPayloadVar(itemVar, mode)
+	for _, field := range fields {
+		sel, err := ParseSelector(field.Select)
+		if err != nil {
+			continue
+		}
+		var expr string
+		if len(field.FallbackSelects) > 0 {
+			expr = c.compileFirstNonNullExpr(payloadVar, append([]string{field.Select}, field.FallbackSelects...))
+		} else if sel.Filter == nil && selectorHasNoArrays(sel) {
+			expr = compileDirectExpr(payloadVar, sel.Steps)
+		} else {
+			expr = "FIRST" + compileSelectorArrayExpr(payloadVar, sel, c)
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", quoteKey(field.Name), expr))
+	}
+	if len(lines) == 0 {
+		return "{}"
+	}
+	return "{ " + strings.Join(lines, ", ") + " }"
+}
+
+func (c *compiler) compileRootPredicateExpr(payloadVar string, predicatePath string, predicateEquals string) string {
+	sel, err := ParseSelector(predicatePath)
+	if err != nil {
+		return "false"
+	}
+	values := compileSelectorArrayExpr(payloadVar, sel, c)
+	if predicateEquals != "" {
+		bind := c.newBind("predicate_equals", predicateEquals)
+		return fmt.Sprintf("LENGTH(FOR __value IN %s FILTER __value == @%s LIMIT 1 RETURN 1) > 0", values, bind)
+	}
+	return fmt.Sprintf("LENGTH(FOR __value IN %s FILTER __value != null LIMIT 1 RETURN 1) > 0", values)
+}
+
+func (c *compiler) compileRootSelectorArray(payloadVar string, selectText string) (string, error) {
+	sel, err := ParseSelector(selectText)
+	if err != nil {
+		return "", err
+	}
+	return compileSelectorArrayExpr(payloadVar, sel, c), nil
+}
+
+func (c *compiler) compileSetAggregateExpr(setVar string, agg AggregateSelect) (string, error) {
+	mode := setModeNode
+	switch strings.ToUpper(strings.TrimSpace(agg.Operation)) {
+	case "COUNT":
+		if strings.TrimSpace(agg.PredicatePath) == "" {
+			return fmt.Sprintf("LENGTH(%s)", setVar), nil
+		}
+		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s RETURN 1)", setVar, c.compilePredicateExpr("__item", mode, "", agg.PredicatePath, agg.PredicateEquals)), nil
+	case "COUNT_DISTINCT":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for COUNT_DISTINCT", agg.Name)
+		}
+		sel, err := ParseSelector(agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("LENGTH(UNIQUE(FLATTEN(FOR __item IN %s RETURN %s)))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+	case "EXISTS":
+		if strings.TrimSpace(agg.PredicatePath) != "" {
+			return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s LIMIT 1 RETURN 1) > 0", setVar, c.compilePredicateExpr("__item", mode, "", agg.PredicatePath, agg.PredicateEquals)), nil
+		}
+		if strings.TrimSpace(agg.Select) == "" {
+			return fmt.Sprintf("LENGTH(%s) > 0", setVar), nil
+		}
+		sel, err := ParseSelector(agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER LENGTH(%s) > 0 LIMIT 1 RETURN 1) > 0", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+	case "DISTINCT_VALUES":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for DISTINCT_VALUES", agg.Name)
+		}
+		sel, err := ParseSelector(agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("UNIQUE(FLATTEN(FOR __item IN %s RETURN %s))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+	default:
+		return "", fmt.Errorf("unsupported aggregate operation %q", agg.Operation)
+	}
+}
+
+func (c *compiler) compileSetSlice(setVar string, mode setMode, slice RepresentativeSlice) (string, error) {
+	filter := "true"
+	if strings.TrimSpace(slice.PredicatePath) != "" || strings.TrimSpace(slice.Predicate) != "" {
+		filter = c.compilePredicateExpr("__item", mode, slice.Predicate, slice.PredicatePath, slice.PredicateEquals)
+	}
+	return fmt.Sprintf("SLICE(FOR __item IN %s FILTER %s RETURN %s, 0, %d)", setVar, filter, c.compileSliceProjection("__item", mode, slice.Fields), slice.Limit), nil
 }
 
 func (c *compiler) compileFirstNonNullExpr(rootVar string, selects []string) string {

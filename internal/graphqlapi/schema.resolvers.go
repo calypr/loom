@@ -11,39 +11,29 @@ import (
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
-func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, mode model.DataframeRunMode, previewLimit *int) (*model.FhirDataframeRunResult, error) {
-	limit := 0
-	if previewLimit != nil {
-		limit = *previewLimit
-	} else if input.Limit != nil {
-		limit = *input.Limit
+func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
+	normalizedInput, err := r.Service.PrepareRunInput(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	rowLimit := 0
+	if limit != nil {
+		rowLimit = *limit
+	} else if normalizedInput.Limit != nil {
+		rowLimit = *normalizedInput.Limit
 	}
 	result, err := r.Service.RunDataframe(ctx, dataframe.RunRequest{
-		Builder:      builderFromInput(input),
-		Mode:         mode.String(),
-		PreviewLimit: limit,
+		Builder: builderFromInput(normalizedInput),
+		Limit:   rowLimit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := &model.FhirDataframeRunResult{
-		Mode: model.DataframeRunMode(result.Mode),
-	}
-	if result.Preview != nil {
-		out.Preview = &model.FhirDataframePreview{
-			Columns:  cloneStrings(result.Preview.Columns),
-			Rows:     graphqlRows(result.Preview.Rows),
-			RowCount: result.Preview.RowCount,
-		}
-	}
-	if result.Export != nil {
-		out.Export = &model.FhirDataframeExportHandle{
-			ExportID: result.Export.ExportID,
-			Status:   result.Export.Status,
-			Format:   result.Export.Format,
-		}
-	}
-	return out, nil
+	return &model.FhirDataframeResult{
+		Columns:  cloneStrings(result.Columns),
+		Rows:     graphqlRows(result.Rows),
+		RowCount: result.RowCount,
+	}, nil
 }
 
 // DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.
@@ -81,19 +71,3 @@ func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *fhirDataframePreviewResolver) Rows(ctx context.Context, obj *model.FhirDataframePreview) (map[string]interface{}, error) {
-	panic(fmt.Errorf("not implemented: Rows - rows"))
-}
-func (r *Resolver) FhirDataframePreview() FhirDataframePreviewResolver {
-	return &fhirDataframePreviewResolver{r}
-}
-type fhirDataframePreviewResolver struct{ *Resolver }
-*/

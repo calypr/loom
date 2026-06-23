@@ -52,7 +52,7 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 	if len(resp.AuthResourcePaths) != 2 || resp.AuthResourcePaths[0] != "pathA" || resp.AuthResourcePaths[1] != "pathB" {
 		t.Fatalf("unexpected auth scope: %#v", resp.AuthResourcePaths)
 	}
-	if len(resp.Traversals) != 1 || len(resp.Fields) != 1 || len(resp.PivotFields) != 1 {
+	if len(resp.Traversals) != 1 || len(resp.Fields) == 0 || len(resp.PivotFields) != 1 {
 		t.Fatalf("unexpected response sizes: %+v", resp)
 	}
 	if resp.Root.ResourceType != "Patient" || len(resp.RelatedResources) != 1 {
@@ -60,6 +60,9 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 	}
 	if resp.RelatedResources[0].ViaLabel != "subject_Patient" || resp.RelatedResources[0].Target.ResourceType != "Specimen" {
 		t.Fatalf("unexpected related resource hint: %+v", resp.RelatedResources[0])
+	}
+	if resp.Fields[0].Selector.ValuePath == "" {
+		t.Fatalf("expected structured selector decomposition: %+v", resp.Fields[0])
 	}
 }
 
