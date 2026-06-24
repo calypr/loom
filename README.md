@@ -117,8 +117,8 @@ It also creates:
 Start the local ArangoDB runtime:
 
 ```bash
-cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO
-docker compose up -d
+cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/experimental
+docker compose up -d arangodb
 ```
 
 This brings up:

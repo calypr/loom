@@ -45,8 +45,10 @@ type DerivedField struct {
 	Predicate       string
 	PredicatePath   string
 	PredicateEquals string
-	PivotColumn     string
-	ValuePath       string
+	PivotColumns    []string
+	PivotFamily     string
+	PivotKeySelect  string
+	PivotValueSelect string
 	RawExpr         string
 	ConstValue      any
 }
@@ -132,7 +134,7 @@ func validateAdvancedBuilder(builder Builder) error {
 			if field.Select == "" {
 				return fmt.Errorf("derived field %q requires select", field.Name)
 			}
-		case DerivedOpFirstNonNull, DerivedOpUnique, DerivedOpPivot:
+		case DerivedOpFirstNonNull, DerivedOpUnique:
 			if field.Source == "" {
 				return fmt.Errorf("derived field %q requires source", field.Name)
 			}
@@ -147,8 +149,18 @@ func validateAdvancedBuilder(builder Builder) error {
 					return fmt.Errorf("derived field %q invalid fallback select: %w", field.Name, err)
 				}
 			}
-			if strings.ToUpper(strings.TrimSpace(field.Operation)) == DerivedOpPivot && strings.TrimSpace(field.PivotColumn) == "" {
-				return fmt.Errorf("derived field %q requires pivot column", field.Name)
+		case DerivedOpPivot:
+			if field.Source == "" {
+				return fmt.Errorf("derived field %q requires source", field.Name)
+			}
+			if strings.TrimSpace(field.PivotKeySelect) == "" || strings.TrimSpace(field.PivotValueSelect) == "" {
+				return fmt.Errorf("derived field %q requires pivot key/value selectors", field.Name)
+			}
+			if _, err := ParseSelector(field.PivotKeySelect); err != nil {
+				return fmt.Errorf("derived field %q invalid pivot key selector: %w", field.Name, err)
+			}
+			if _, err := ParseSelector(field.PivotValueSelect); err != nil {
+				return fmt.Errorf("derived field %q invalid pivot value selector: %w", field.Name, err)
 			}
 		case DerivedOpCount:
 			if field.Source == "" {

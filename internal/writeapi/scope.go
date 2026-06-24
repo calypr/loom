@@ -199,6 +199,19 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project string) (
 	return paths, nil
 }
 
+func (r *ScopeResolver) InvalidateProject(project string) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		r.mu.Lock()
+		r.cache = make(map[string]cachedPaths)
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Lock()
+	delete(r.cache, project)
+	r.mu.Unlock()
+}
+
 type FenceUserAccessClient struct {
 	client *http.Client
 }

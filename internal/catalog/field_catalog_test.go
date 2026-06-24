@@ -3,6 +3,8 @@ package catalog
 import (
 	"slices"
 	"testing"
+
+	"arangodb-proto/internal/fhirschema"
 )
 
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
@@ -125,10 +127,62 @@ func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
 	if found.PivotKind != pivotKindCodeableConcept {
 		t.Fatalf("pivot kind = %q, want %q", found.PivotKind, pivotKindCodeableConcept)
 	}
+	if found.PivotFamily != fhirschema.PivotFamilyCodeableConcept {
+		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirschema.PivotFamilyCodeableConcept)
+	}
+	if found.PivotColumnSelect != "valueCodeableConcept.coding[].display" {
+		t.Fatalf("unexpected column selector: %q", found.PivotColumnSelect)
+	}
+	if found.PivotValueSelect != "valueCodeableConcept.coding[].display" {
+		t.Fatalf("unexpected value selector: %q", found.PivotValueSelect)
+	}
 	if !slices.Contains(found.PivotColumns, "American Joint Committee on Cancer pM0") {
 		t.Fatalf("missing display pivot column in %+v", found.PivotColumns)
 	}
 	if !slices.Contains(found.DistinctValues, "M0") {
 		t.Fatalf("missing text distinct value in %+v", found.DistinctValues)
+	}
+}
+
+func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
+	cache := NewShapePlanCache()
+	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
+	timings := map[string]float64{}
+
+	payload := map[string]any{
+		"code": map[string]any{
+			"coding": []any{
+				map[string]any{
+					"display": "Tumor Purity",
+					"code":    "tumor_purity",
+				},
+			},
+		},
+		"valueQuantity": map[string]any{
+			"value": 0.82,
+			"unit":  "fraction",
+		},
+	}
+
+	profiler.ObservePayload(payload, timings)
+	docs := profiler.Documents()
+	var found FieldCatalogDocument
+	for _, doc := range docs {
+		if doc.Path == "code" {
+			found = doc
+			break
+		}
+	}
+	if found.PivotKind != pivotKindObservation {
+		t.Fatalf("pivot kind = %q, want %q", found.PivotKind, pivotKindObservation)
+	}
+	if found.PivotFamily != fhirschema.PivotFamilyObservationCodeValue {
+		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirschema.PivotFamilyObservationCodeValue)
+	}
+	if found.PivotColumnSelect != "code.coding[].display" {
+		t.Fatalf("unexpected column selector: %q", found.PivotColumnSelect)
+	}
+	if found.PivotValueSelect != "valueQuantity.value" {
+		t.Fatalf("unexpected value selector: %q", found.PivotValueSelect)
 	}
 }

@@ -2,23 +2,27 @@ package graphqlapi
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-func MarshalJSON(v map[string]any) graphql.Marshaler {
-	return graphql.MarshalMap(v)
+func MarshalJSON(v json.RawMessage) graphql.Marshaler {
+	return graphql.WriterFunc(func(w io.Writer) {
+		_, _ = w.Write(v)
+	})
 }
 
-func UnmarshalJSON(v any) (map[string]any, error) {
-	return graphql.UnmarshalMap(v)
+func UnmarshalJSON(v any) (json.RawMessage, error) {
+	return json.Marshal(v)
 }
 
-func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (map[string]any, error) {
-	return graphql.UnmarshalMap(v)
+func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (json.RawMessage, error) {
+	return UnmarshalJSON(v)
 }
 
-func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v map[string]any) graphql.Marshaler {
-	return graphql.MarshalMap(v)
+func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+	return MarshalJSON(v)
 }

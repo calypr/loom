@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,134 +23,14 @@ func TestParseSelector(t *testing.T) {
 	}
 }
 
-func TestCompileIncludesTraversalAndAuthScope(t *testing.T) {
-	compiled, err := Compile(Builder{
-		Project:           "P1",
-		AuthResourcePaths: []string{"pathA"},
-		RootResourceType:  "Patient",
-		Fields: []FieldSelect{
-			{Name: "gender", Select: "gender"},
-			{Name: "case_id", Select: `identifier[].value where system contains "case_id"`},
-		},
-		Traversals: []TraversalStep{
-			{
-				Label:          "subject_Patient",
-				ToResourceType: "Specimen",
-				Alias:          "specimen",
-				Fields: []FieldSelect{
-					{Name: "specimen_type", Select: "type.coding[].display"},
-				},
-			},
-		},
-	}, 25)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(compiled.Query, "FILTER @auth_resource_paths_unrestricted == true OR root.auth_resource_path IN @auth_resource_paths") {
-		t.Fatalf("compiled query missing auth filter:\n%s", compiled.Query)
-	}
-	if !strings.Contains(compiled.Query, "LET specimen_nodes") {
-		t.Fatalf("compiled query missing traversal:\n%s", compiled.Query)
-	}
-	if got := compiled.BindVars["__specimen_label_1"]; got != "subject_Patient" {
-		t.Fatalf("expected traversal bind var, got %#v", compiled.BindVars)
-	}
-	if len(compiled.Columns) != 3 {
-		t.Fatalf("columns = %#v", compiled.Columns)
-	}
-}
-
-func TestCompileSupportsFallbackAggregatesAndSlices(t *testing.T) {
-	compiled, err := Compile(Builder{
+func TestCompileRejectsNonAdvancedBuilder(t *testing.T) {
+	_, err := Compile(Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
-		Fields: []FieldSelect{
-			{Name: "case_id", Select: `identifier[].value where system contains "case_id"`, FallbackSelects: []string{`identifier[].value where system contains "submitter_id"`}},
-		},
-		Traversals: []TraversalStep{
-			{
-				Label:          "subject_Patient",
-				ToResourceType: "Specimen",
-				Alias:          "specimen",
-				Aggregates: []AggregateSelect{
-					{Name: "specimen_count", Operation: "COUNT"},
-					{Name: "specimen_types", Operation: "DISTINCT_VALUES", Select: "type.coding[].display"},
-					{Name: "has_primary_tumor", Operation: "EXISTS", PredicatePath: "type.coding[].display", PredicateEquals: "Primary Tumor"},
-				},
-				Slices: []RepresentativeSlice{
-					{
-						Name:            "sample_slice",
-						Limit:           2,
-						PredicatePath:   "type.coding[].display",
-						PredicateEquals: "Primary Tumor",
-						Fields: []FieldSelect{
-							{Name: "type_display", Select: "type.coding[].display"},
-							{Name: "id", Select: "id"},
-						},
-					},
-				},
-			},
-		},
-	}, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, needle := range []string{
-		`"case_id": FIRST(`,
-		`"specimen__specimen_count": LENGTH(specimen_nodes)`,
-		`"specimen__specimen_types": UNIQUE(FLATTEN(`,
-		`"specimen__has_primary_tumor": LENGTH(FOR __item IN specimen_nodes FILTER`,
-		`"specimen__sample_slice": SLICE(FOR __item IN specimen_nodes FILTER`,
-	} {
-		if !strings.Contains(compiled.Query, needle) {
-			t.Fatalf("compiled query missing %q:\n%s", needle, compiled.Query)
-		}
-	}
-}
-
-func TestCompileCaseAssayRecipe(t *testing.T) {
-	recipeCompiled, err := Compile(buildGDCCaseAssayMatrixAdvancedBuilder("P1", []string{"pathA", "pathB"}), 25)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(recipeCompiled.Query, "LET patient_neighbors") {
-		t.Fatalf("compiled recipe missing case-assay sets:\n%s", recipeCompiled.Query)
-	}
-	if !strings.Contains(recipeCompiled.Query, "LIMIT @limit") {
-		t.Fatalf("compiled recipe missing row limit:\n%s", recipeCompiled.Query)
-	}
-	if got := recipeCompiled.BindVars["auth_resource_paths"]; len(got.([]string)) != 2 {
-		t.Fatalf("unexpected auth path bind vars: %#v", recipeCompiled.BindVars)
-	}
-	if len(recipeCompiled.Columns) < 40 {
-		t.Fatalf("expected case-assay columns, got %d", len(recipeCompiled.Columns))
-	}
-}
-
-func TestCompileAdvancedIncludesNamedSetsAndAggregates(t *testing.T) {
-	compiled, err := Compile(buildGDCCaseAssayMatrixAdvancedBuilder("P1", []string{"pathA"}), 25)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, needle := range []string{
-		"LET patient_neighbors",
-		"LET file_summaries",
-		`"file_count": LENGTH(file_summaries)`,
-		`"representative_snv_files": SLICE`,
-		`"study_id": FIRST(`,
-	} {
-		if !strings.Contains(compiled.Query, needle) {
-			t.Fatalf("compiled query missing %q:\n%s", needle, compiled.Query)
-		}
-	}
-}
-
-func TestCaseAssayRecipeNoLongerUsesRawExpr(t *testing.T) {
-	recipe := buildGDCCaseAssayMatrixAdvancedBuilder("P1", []string{"pathA"})
-	for _, field := range recipe.DerivedFields {
-		if field.Operation == DerivedOpRawExpr {
-			t.Fatalf("unexpected raw expr field still present: %+v", field)
-		}
+		Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
+	}, 25)
+	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
+		t.Fatalf("expected unsupported lowering error, got %v", err)
 	}
 }
 
@@ -181,9 +62,9 @@ func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
 			{Label: "subject_Patient", ToResourceType: "MedicationAdministration", Alias: "treatment", Fields: []FieldSelect{{Name: "status", Select: "status"}}},
 		},
 	}
-	planned, matched := lowerGraphQLBuilder(builder)
-	if !matched {
-		t.Fatal("expected case-assay profile to match")
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("expected case-assay profile to match, got %v", err)
 	}
 	if !usesAdvancedBuilder(planned) {
 		t.Fatal("expected planner to return advanced builder")
@@ -204,7 +85,7 @@ func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
 	}
 }
 
-func TestLowerGraphQLBuilderFallsBackForSimpleTraversal(t *testing.T) {
+func TestLowerGraphQLBuilderRejectsSimpleTraversal(t *testing.T) {
 	builder := Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
@@ -212,15 +93,9 @@ func TestLowerGraphQLBuilderFallsBackForSimpleTraversal(t *testing.T) {
 			{Label: "subject_Patient", ToResourceType: "Specimen", Alias: "specimen"},
 		},
 	}
-	planned, matched := lowerGraphQLBuilder(builder)
-	if matched {
-		t.Fatal("did not expect simple traversal request to match case-assay profile")
-	}
-	if usesAdvancedBuilder(planned) {
-		t.Fatal("expected generic fallback builder to remain non-advanced")
-	}
-	if planned.PlanHint == nil || planned.PlanHint.Mode != "generic_traversal" {
-		t.Fatalf("unexpected fallback plan hint: %#v", planned.PlanHint)
+	_, err := lowerGraphQLBuilder(builder)
+	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
+		t.Fatalf("expected unsupported lowering error, got %v", err)
 	}
 }
 
@@ -246,9 +121,9 @@ func TestLowerGraphQLBuilderMapsSingleDocumentReferenceSelectorToSummary(t *test
 			},
 		},
 	}
-	planned, matched := lowerGraphQLBuilder(builder)
-	if !matched {
-		t.Fatal("expected supported structural lowering")
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("expected supported structural lowering, got %v", err)
 	}
 	if !containsNamedSet(planned.Sets, "document_reference_summary_set") {
 		t.Fatalf("expected summary set, got %#v", planned.Sets)
@@ -258,7 +133,127 @@ func TestLowerGraphQLBuilderMapsSingleDocumentReferenceSelectorToSummary(t *test
 	}
 }
 
-func TestServiceRunQuery(t *testing.T) {
+func TestLowerGraphQLBuilderSupportsExpandedPatientRootFamily(t *testing.T) {
+	builder := Builder{
+		Project:          "P1",
+		RootResourceType: "Patient",
+		Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
+		Traversals: []TraversalStep{
+			{Label: "subject_Patient", ToResourceType: "Observation", Alias: "subject_observation", Fields: []FieldSelect{{Name: "status", Select: "status"}}},
+			{Label: "focus_Patient", ToResourceType: "Observation", Alias: "focus_observation", Fields: []FieldSelect{{Name: "status", Select: "status"}}},
+			{Label: "subject_Patient", ToResourceType: "ImagingStudy", Alias: "imaging_study", Fields: []FieldSelect{{Name: "status", Select: "status"}}},
+			{
+				Label:          "member_entity_Patient",
+				ToResourceType: "Group",
+				Alias:          "patient_group",
+				Traversals: []TraversalStep{
+					{Label: "subject_Group", ToResourceType: "DocumentReference", Alias: "group_file", Fields: []FieldSelect{{Name: "file_name", Select: "content[].attachment.title"}}},
+				},
+			},
+		},
+	}
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("expected expanded patient-root family to lower, got %v", err)
+	}
+	for _, expectedSet := range []string{
+		"patient_subject_observation_set",
+		"patient_focus_observation_set",
+		"patient_imaging_study_set",
+		"patient_group_set",
+		"group_document_reference_set",
+	} {
+		if !containsNamedSet(planned.Sets, expectedSet) {
+			t.Fatalf("expected lowered set %q, got %#v", expectedSet, planned.Sets)
+		}
+	}
+}
+
+func TestCompilePrecomputesPivotMapForDerivedPivots(t *testing.T) {
+	builder := Builder{
+		Project:          "P1",
+		RootResourceType: "Patient",
+		Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
+		Traversals: []TraversalStep{
+			{
+				Label:          "subject_Patient",
+				ToResourceType: "Condition",
+				Alias:          "condition",
+				Aggregates:     []AggregateSelect{{Name: "condition_count", Operation: "COUNT"}},
+			},
+			{
+				Label:          "subject_Patient",
+				ToResourceType: "Observation",
+				Alias:          "observation",
+				Pivots: []PivotSelect{
+					{
+						Name:         "observation_values",
+						ColumnSelect: "code.coding[].display",
+						ValueSelect:  "valueQuantity.value",
+						Columns:      []string{"Tumor Purity", "Adenocarcinoma"},
+					},
+				},
+			},
+		},
+	}
+
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("expected supported lowering, got %v", err)
+	}
+	compiled, err := Compile(planned, 25)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+	if !strings.Contains(compiled.Query, "LET __pivot_map_0 = MERGE(") {
+		t.Fatalf("expected precomputed pivot map, got query:\n%s", compiled.Query)
+	}
+	if !strings.Contains(compiled.Query, `"observation__observation_values": MERGE(`) {
+		t.Fatalf("expected pivot output to be a sparse object column, got query:\n%s", compiled.Query)
+	}
+	if !strings.Contains(compiled.Query, "FILTER LENGTH(__values) > 0") {
+		t.Fatalf("expected pivot query to suppress empty-value keys, got query:\n%s", compiled.Query)
+	}
+	if !strings.Contains(compiled.Query, "RETURN { [__key]: FIRST(__flat_values) }") {
+		t.Fatalf("expected pivot query to emit scalar key/value pairs, got query:\n%s", compiled.Query)
+	}
+	if !strings.Contains(compiled.Query, `FILTER HAS(__pivot_map_0, __key)`) {
+		t.Fatalf("expected pivot projection to keep only requested keys that exist, got query:\n%s", compiled.Query)
+	}
+	if !slices.Contains(compiled.PivotFields, "observation__observation_values") {
+		t.Fatalf("expected derived pivot field to be marked flattenable, got %#v", compiled.PivotFields)
+	}
+}
+
+func TestLowerGraphQLBuilderPreservesUnrestrictedAuthScope(t *testing.T) {
+	builder := Builder{
+		Project:          "P1",
+		RootResourceType: "Patient",
+		Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
+		Traversals: []TraversalStep{
+			{Label: "subject_Patient", ToResourceType: "Condition", Alias: "condition", Aggregates: []AggregateSelect{{Name: "condition_count", Operation: "COUNT"}}},
+			{Label: "subject_Patient", ToResourceType: "Specimen", Alias: "specimen", Aggregates: []AggregateSelect{{Name: "specimen_count", Operation: "COUNT"}}},
+		},
+	}
+
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("expected structural lowering to match, got %v", err)
+	}
+	if planned.AuthResourcePaths != nil {
+		t.Fatalf("expected unrestricted auth scope to stay nil, got %#v", planned.AuthResourcePaths)
+	}
+
+	compiled, err := Compile(planned, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.BindVars["auth_resource_paths_unrestricted"]; got != true {
+		t.Fatalf("expected unrestricted auth bind var to be true, got %#v", got)
+	}
+}
+
+func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
@@ -281,7 +276,7 @@ func TestServiceRunQuery(t *testing.T) {
 		Projects:          []string{"P1"},
 		AuthResourcePaths: []string{"pathA"},
 	})
-	result, err := svc.Run(ctx, RunRequest{
+	_, err := svc.Run(ctx, RunRequest{
 		Builder: Builder{
 			Project:           "P1",
 			RootResourceType:  "Patient",
@@ -295,51 +290,12 @@ func TestServiceRunQuery(t *testing.T) {
 			}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result == nil || result.RowCount != 1 || len(result.Rows) != 1 {
-		t.Fatalf("unexpected dataframe result: %#v", result)
+	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
+		t.Fatalf("expected unsupported lowering error, got %v", err)
 	}
 }
 
 func TestServiceRunCaseAssayRecipe(t *testing.T) {
-	svc := NewService(ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			if !strings.Contains(query, "patient_neighbors") || !strings.Contains(query, "file_summaries") {
-				t.Fatalf("expected case-assay recipe query, got:\n%s", query)
-			}
-			return visit(map[string]any{
-				"_key":                    "p1",
-				"project":                 "P1",
-				"recipe":                  "gdc_case_assay_matrix",
-				"case_id":                 "CASE-1",
-				"specimen_count":          2,
-				"data_categories":         []string{"Clinical"},
-				"experimental_strategies": []string{"WXS"},
-			})
-		},
-	})
-	ctx := writeapi.ContextWithPrincipal(context.Background(), &writeapi.Principal{
-		Projects:          []string{"P1"},
-		AuthResourcePaths: []string{"pathA"},
-	})
-	result, err := svc.Run(ctx, RunRequest{
-		Builder: buildGDCCaseAssayMatrixAdvancedBuilder("P1", []string{"pathA"}),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result == nil || result.RowCount != 1 {
-		t.Fatalf("unexpected dataframe result: %#v", result)
-	}
-	if len(result.Columns) == 0 || result.Columns[0] != "_key" {
-		t.Fatalf("unexpected recipe columns: %#v", result.Columns)
-	}
-}
-
-func TestServiceRunPromotesGraphQLCaseAssayShape(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
@@ -445,7 +401,7 @@ func containsDerivedFieldWithSelect(fields []DerivedField, wantName, wantSelect 
 	return false
 }
 
-func TestServiceRunReturnsRows(t *testing.T) {
+func TestServiceRejectsUnsupportedRootOnlyQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
@@ -458,18 +414,15 @@ func TestServiceRunReturnsRows(t *testing.T) {
 			return visit(map[string]any{"_key": "p1", "gender": "female"})
 		},
 	})
-	result, err := svc.Run(context.Background(), RunRequest{
+	_, err := svc.Run(context.Background(), RunRequest{
 		Builder: Builder{
 			Project:          "P1",
 			RootResourceType: "Patient",
 			Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result == nil || result.RowCount != 1 || len(result.Rows) != 1 {
-		t.Fatalf("unexpected dataframe result: %#v", result)
+	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
+		t.Fatalf("expected unsupported lowering error, got %v", err)
 	}
 }
 

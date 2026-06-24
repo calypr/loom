@@ -44,9 +44,9 @@ func TestServiceLifecycleSuccess(t *testing.T) {
 	}
 
 	op, err := svc.Submit(context.Background(), ImportRequest{
-		Project:         "P1",
-		ResourceType:    "Patient",
-		StagedFilePath:  tmp.Name(),
+		Project:          "P1",
+		ResourceType:     "Patient",
+		StagedFilePath:   tmp.Name(),
 		OriginalFilename: "Patient.ndjson",
 	})
 	if err != nil {
@@ -88,9 +88,9 @@ func TestServiceLifecycleFailure(t *testing.T) {
 	}
 
 	op, err := svc.Submit(context.Background(), ImportRequest{
-		Project:         "P1",
-		ResourceType:    "Patient",
-		StagedFilePath:  tmp.Name(),
+		Project:          "P1",
+		ResourceType:     "Patient",
+		StagedFilePath:   tmp.Name(),
 		OriginalFilename: "Patient.ndjson",
 	})
 	if err != nil {
@@ -103,6 +103,80 @@ func TestServiceLifecycleFailure(t *testing.T) {
 	}
 	if final.Error == "" {
 		t.Fatal("expected error to be recorded")
+	}
+}
+
+func TestServiceSuccessInvalidatesProject(t *testing.T) {
+	tmp, err := os.CreateTemp("", "writeapi-service-*.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	var invalidated []string
+	svc, err := NewService(ServiceConfig{
+		Runner: fakeRunner{summary: proto.LoadSummary{Files: 1, VerticesInserted: 3, EdgesInserted: 5}},
+		OnSuccess: func(project string) {
+			invalidated = append(invalidated, project)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	op, err := svc.Submit(context.Background(), ImportRequest{
+		Project:          "P1",
+		ResourceType:     "Patient",
+		StagedFilePath:   tmp.Name(),
+		OriginalFilename: "Patient.ndjson",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitForStatus(t, svc, op.ID)
+	if final.Status != StatusSucceeded {
+		t.Fatalf("status = %s, want %s", final.Status, StatusSucceeded)
+	}
+	if len(invalidated) != 1 || invalidated[0] != "P1" {
+		t.Fatalf("invalidated = %#v", invalidated)
+	}
+}
+
+func TestServiceFailureDoesNotInvalidateProject(t *testing.T) {
+	tmp, err := os.CreateTemp("", "writeapi-service-*.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	called := false
+	svc, err := NewService(ServiceConfig{
+		Runner: fakeRunner{err: errors.New("boom")},
+		OnSuccess: func(project string) {
+			called = true
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	op, err := svc.Submit(context.Background(), ImportRequest{
+		Project:          "P1",
+		ResourceType:     "Patient",
+		StagedFilePath:   tmp.Name(),
+		OriginalFilename: "Patient.ndjson",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitForStatus(t, svc, op.ID)
+	if final.Status != StatusFailed {
+		t.Fatalf("status = %s, want %s", final.Status, StatusFailed)
+	}
+	if called {
+		t.Fatal("expected no invalidation on failure")
 	}
 }
 

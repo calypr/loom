@@ -3,6 +3,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -27,19 +28,22 @@ type DataframeBuilderIntrospectionInput struct {
 }
 
 type DataframeFieldHint struct {
-	ResourceType      string                  `json:"resourceType"`
-	FieldRef          string                  `json:"fieldRef"`
-	Label             string                  `json:"label"`
-	Path              string                  `json:"path"`
-	Selector          *DataframeFieldSelector `json:"selector"`
-	Kind              string                  `json:"kind"`
-	DocCount          int                     `json:"docCount"`
-	SampleCount       int                     `json:"sampleCount"`
-	DistinctValues    []string                `json:"distinctValues"`
-	DistinctTruncated bool                    `json:"distinctTruncated"`
-	PivotCandidate    bool                    `json:"pivotCandidate"`
-	PivotKind         *string                 `json:"pivotKind,omitempty"`
-	PivotColumns      []string                `json:"pivotColumns"`
+	ResourceType               string                  `json:"resourceType"`
+	FieldRef                   string                  `json:"fieldRef"`
+	Label                      string                  `json:"label"`
+	Path                       string                  `json:"path"`
+	Selector                   *DataframeFieldSelector `json:"selector"`
+	Kind                       string                  `json:"kind"`
+	DocCount                   int                     `json:"docCount"`
+	SampleCount                int                     `json:"sampleCount"`
+	DistinctValues             []string                `json:"distinctValues"`
+	DistinctTruncated          bool                    `json:"distinctTruncated"`
+	PivotCandidate             bool                    `json:"pivotCandidate"`
+	PivotKind                  *string                 `json:"pivotKind,omitempty"`
+	PivotColumns               []string                `json:"pivotColumns"`
+	PivotFamily                *FhirPivotFamily        `json:"pivotFamily,omitempty"`
+	DefaultPivotColumnSelector *DataframeFieldSelector `json:"defaultPivotColumnSelector,omitempty"`
+	DefaultPivotValueSelector  *DataframeFieldSelector `json:"defaultPivotValueSelector,omitempty"`
 }
 
 type DataframeFieldPredicate struct {
@@ -100,13 +104,9 @@ type FhirDataframeInput struct {
 }
 
 type FhirDataframeResult struct {
-	Columns  []string            `json:"columns"`
-	Rows     []*FhirDataframeRow `json:"rows"`
-	RowCount int                 `json:"rowCount"`
-}
-
-type FhirDataframeRow struct {
-	Data map[string]interface{} `json:"data"`
+	Columns  []string        `json:"columns"`
+	Rows     json.RawMessage `json:"rows"`
+	RowCount int             `json:"rowCount"`
 }
 
 type FhirFieldPredicateInput struct {
@@ -132,13 +132,11 @@ type FhirFieldSelectorInput struct {
 }
 
 type FhirPivotInput struct {
-	Name            string         `json:"name"`
-	FieldRef        *string        `json:"fieldRef,omitempty"`
-	FhirPath        *string        `json:"fhirPath,omitempty"`
-	PivotKind       *FhirPivotKind `json:"pivotKind,omitempty"`
-	SelectedColumns []string       `json:"selectedColumns"`
-	ValueFieldRef   *string        `json:"valueFieldRef,omitempty"`
-	ValuePath       *string        `json:"valuePath,omitempty"`
+	Name           string                  `json:"name"`
+	FieldRef       *string                 `json:"fieldRef,omitempty"`
+	ColumnSelector *FhirFieldSelectorInput `json:"columnSelector,omitempty"`
+	ValueSelector  *FhirFieldSelectorInput `json:"valueSelector,omitempty"`
+	Columns        []string                `json:"columns"`
 }
 
 type FhirRepresentativeSliceInput struct {
@@ -251,42 +249,44 @@ func (e FhirFieldPredicateOperation) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
-type FhirPivotKind string
+type FhirPivotFamily string
 
 const (
-	FhirPivotKindCodeableConceptDisplayValue FhirPivotKind = "CODEABLE_CONCEPT_DISPLAY_VALUE"
+	FhirPivotFamilyCodeableConcept      FhirPivotFamily = "CODEABLE_CONCEPT"
+	FhirPivotFamilyObservationCodeValue FhirPivotFamily = "OBSERVATION_CODE_VALUE"
 )
 
-var AllFhirPivotKind = []FhirPivotKind{
-	FhirPivotKindCodeableConceptDisplayValue,
+var AllFhirPivotFamily = []FhirPivotFamily{
+	FhirPivotFamilyCodeableConcept,
+	FhirPivotFamilyObservationCodeValue,
 }
 
-func (e FhirPivotKind) IsValid() bool {
+func (e FhirPivotFamily) IsValid() bool {
 	switch e {
-	case FhirPivotKindCodeableConceptDisplayValue:
+	case FhirPivotFamilyCodeableConcept, FhirPivotFamilyObservationCodeValue:
 		return true
 	}
 	return false
 }
 
-func (e FhirPivotKind) String() string {
+func (e FhirPivotFamily) String() string {
 	return string(e)
 }
 
-func (e *FhirPivotKind) UnmarshalGQL(v any) error {
+func (e *FhirPivotFamily) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
 	}
 
-	*e = FhirPivotKind(str)
+	*e = FhirPivotFamily(str)
 	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirPivotKind", str)
+		return fmt.Errorf("%s is not a valid FhirPivotFamily", str)
 	}
 	return nil
 }
 
-func (e FhirPivotKind) MarshalGQL(w io.Writer) {
+func (e FhirPivotFamily) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 

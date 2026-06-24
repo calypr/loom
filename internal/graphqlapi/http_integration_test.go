@@ -183,24 +183,71 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframe.NewService(dataframe.ServiceConfig{
 		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
 		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
-			return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+			switch opts.ResourceType {
+			case "Patient":
+				return []proto.PopulatedField{
+					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
+					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
+				}, nil
+			case "Condition":
+				return []proto.PopulatedField{
+					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
+				}, nil
+			case "Specimen":
+				return []proto.PopulatedField{
+					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
+				}, nil
+			default:
+				return []proto.PopulatedField{}, nil
+			}
 		},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+			if opts.NodeType == "Patient" {
+				return []proto.PopulatedReference{
+					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
+					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
+				}, nil
+			}
 			return []proto.PopulatedReference{}, nil
 		},
 		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			return visit(map[string]any{"_key": "p1", "gender": "female"})
+			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_condition_set") {
+				t.Fatalf("expected advanced lowered query, got:\n%s", query)
+			}
+			return visit(map[string]any{"_key": "p1", "gender": "female", "condition__condition_count": 1})
 		},
 	})
 	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
 		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
 		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
-			return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+			switch opts.ResourceType {
+			case "Patient":
+				return []proto.PopulatedField{
+					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
+					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
+				}, nil
+			case "Condition":
+				return []proto.PopulatedField{
+					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
+				}, nil
+			case "Specimen":
+				return []proto.PopulatedField{
+					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
+				}, nil
+			default:
+				return []proto.PopulatedField{}, nil
+			}
 		},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+			if opts.NodeType == "Patient" {
+				return []proto.PopulatedReference{
+					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
+					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
+				}, nil
+			}
 			return []proto.PopulatedReference{}, nil
 		},
-		Dataframes:        dfService,
+		Dataframes: dfService,
 	})
 	svc, err := writeapi.NewService(writeapi.ServiceConfig{
 		Runner: fakeRunner{},
@@ -219,7 +266,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows { data } rowCount } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}]}}}`
+	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows rowCount } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}],"traverse":[{"edgeLabel":"subject_Patient","toResourceType":"Condition","alias":"condition","aggregates":[{"name":"condition_count","operation":"COUNT"}]},{"edgeLabel":"subject_Patient","toResourceType":"Specimen","alias":"specimen","aggregates":[{"name":"specimen_count","operation":"COUNT"}]}]}}}`
 	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -235,10 +282,8 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	var payload struct {
 		Data struct {
 			Run struct {
-				Columns  []string `json:"columns"`
-				Rows     []struct {
-					Data map[string]any `json:"data"`
-				} `json:"rows"`
+				Columns []string `json:"columns"`
+				Rows    []map[string]any `json:"rows"`
 				RowCount int `json:"rowCount"`
 			} `json:"runFhirDataframe"`
 		} `json:"data"`
@@ -270,23 +315,32 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{{
-					FromType: "Patient",
-					Label:    "subject_Patient",
-					ToType:   "Specimen",
-					EdgeCount: 2,
-				}}, nil
+				return []proto.PopulatedReference{
+					{
+						FromType:  "Patient",
+						Label:     "subject_Patient",
+						ToType:    "Specimen",
+						EdgeCount: 2,
+					},
+					{
+						FromType:  "Patient",
+						Label:     "subject_Patient",
+						ToType:    "Condition",
+						EdgeCount: 1,
+					},
+				}, nil
 			}
 			return []proto.PopulatedReference{}, nil
 		},
 		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			if !strings.Contains(query, "LET specimen_nodes") || !strings.Contains(query, "__edge.label") {
-				t.Fatalf("expected traversal query, got:\n%s", query)
+			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_specimen_set") {
+				t.Fatalf("expected advanced lowered query, got:\n%s", query)
 			}
 			return visit(map[string]any{
-				"_key":                  "p1",
-				"gender":                "female",
-				"specimen__type_display": "Blood",
+				"_key":                     "p1",
+				"gender":                   "female",
+				"specimen__specimen_count": 1,
+				"specimen__specimen_types": []string{"Blood"},
 			})
 		},
 	})
@@ -298,22 +352,32 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 				return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 			case "Specimen":
 				return []proto.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
+			case "Condition":
+				return []proto.PopulatedField{{ResourceType: "Condition", Path: "id", Kind: "scalar"}}, nil
 			default:
 				return []proto.PopulatedField{}, nil
 			}
 		},
 		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{{
-					FromType: "Patient",
-					Label:    "subject_Patient",
-					ToType:   "Specimen",
-					EdgeCount: 2,
-				}}, nil
+				return []proto.PopulatedReference{
+					{
+						FromType:  "Patient",
+						Label:     "subject_Patient",
+						ToType:    "Specimen",
+						EdgeCount: 2,
+					},
+					{
+						FromType:  "Patient",
+						Label:     "subject_Patient",
+						ToType:    "Condition",
+						EdgeCount: 1,
+					},
+				}, nil
 			}
 			return []proto.PopulatedReference{}, nil
 		},
-		Dataframes:        dfService,
+		Dataframes: dfService,
 	})
 	svc, err := writeapi.NewService(writeapi.ServiceConfig{
 		Runner: fakeRunner{},
@@ -332,7 +396,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows { data } rowCount } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}],"traverse":[{"edgeLabel":"subject_Patient","toResourceType":"Specimen","alias":"specimen","fields":[{"name":"type_display","selector":{"sourcePath":"type[].coding[]","valuePath":"display"},"valueMode":"AUTO"}]}]}}}`
+	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows rowCount } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}],"traverse":[{"edgeLabel":"subject_Patient","toResourceType":"Specimen","alias":"specimen","aggregates":[{"name":"specimen_count","operation":"COUNT"},{"name":"specimen_types","operation":"DISTINCT_VALUES","fhirPath":"type[].coding[].display","valueMode":"AUTO"}]},{"edgeLabel":"subject_Patient","toResourceType":"Condition","alias":"condition","aggregates":[{"name":"condition_count","operation":"COUNT"}]}]}}}`
 	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -348,10 +412,8 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	var payload struct {
 		Data struct {
 			Run struct {
-				Columns  []string `json:"columns"`
-				Rows     []struct {
-					Data map[string]any `json:"data"`
-				} `json:"rows"`
+				Columns []string `json:"columns"`
+				Rows    []map[string]any `json:"rows"`
 				RowCount int `json:"rowCount"`
 			} `json:"runFhirDataframe"`
 		} `json:"data"`

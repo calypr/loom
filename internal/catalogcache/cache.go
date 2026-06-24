@@ -1,0 +1,153 @@
+package catalogcache
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+
+	"arangodb-proto/internal/proto"
+)
+
+type Cache struct {
+	mu         sync.RWMutex
+	fields     map[string][]proto.PopulatedField
+	references map[string][]proto.PopulatedReference
+}
+
+func New() *Cache {
+	return &Cache{
+		fields:     make(map[string][]proto.PopulatedField),
+		references: make(map[string][]proto.PopulatedReference),
+	}
+}
+
+func (c *Cache) DiscoverFields(fn func(context.Context, proto.PopulatedFieldOptions) ([]proto.PopulatedField, error)) func(context.Context, proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+	return func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+		key, err := fieldKey(opts)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.RLock()
+		cached, ok := c.fields[key]
+		c.mu.RUnlock()
+		if ok {
+			return cloneFields(cached), nil
+		}
+		results, err := fn(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.fields[key] = cloneFields(results)
+		c.mu.Unlock()
+		return cloneFields(results), nil
+	}
+}
+
+func (c *Cache) DiscoverReferences(fn func(context.Context, proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error)) func(context.Context, proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+	return func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		key, err := referenceKey(opts)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.RLock()
+		cached, ok := c.references[key]
+		c.mu.RUnlock()
+		if ok {
+			return cloneReferences(cached), nil
+		}
+		results, err := fn(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.references[key] = cloneReferences(results)
+		c.mu.Unlock()
+		return cloneReferences(results), nil
+	}
+}
+
+func (c *Cache) InvalidateProject(project string) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		c.InvalidateAll()
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.fields {
+		if strings.HasPrefix(key, project+"|") {
+			delete(c.fields, key)
+		}
+	}
+	for key := range c.references {
+		if strings.HasPrefix(key, project+"|") {
+			delete(c.references, key)
+		}
+	}
+}
+
+func (c *Cache) InvalidateAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fields = make(map[string][]proto.PopulatedField)
+	c.references = make(map[string][]proto.PopulatedReference)
+}
+
+func fieldKey(opts proto.PopulatedFieldOptions) (string, error) {
+	scope, err := authScopeKey(opts.AuthResourcePaths)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s|%s|%t|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.ResourceType), opts.PivotOnly, scope), nil
+}
+
+func referenceKey(opts proto.PopulatedReferenceOptions) (string, error) {
+	scope, err := authScopeKey(opts.AuthResourcePaths)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.NodeType), strings.TrimSpace(opts.Mode), scope), nil
+}
+
+func authScopeKey(paths []string) (string, error) {
+	if len(paths) == 0 {
+		return "*", nil
+	}
+	normalized := append([]string(nil), paths...)
+	sort.Strings(normalized)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func cloneFields(in []proto.PopulatedField) []proto.PopulatedField {
+	if len(in) == 0 {
+		return []proto.PopulatedField{}
+	}
+	out := make([]proto.PopulatedField, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].DistinctValues != nil {
+			out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
+		}
+		if in[i].PivotColumns != nil {
+			out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
+		}
+	}
+	return out
+}
+
+func cloneReferences(in []proto.PopulatedReference) []proto.PopulatedReference {
+	if len(in) == 0 {
+		return []proto.PopulatedReference{}
+	}
+	out := make([]proto.PopulatedReference, len(in))
+	copy(out, in)
+	return out
+}

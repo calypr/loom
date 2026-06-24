@@ -19,9 +19,11 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		bindVars: map[string]any{
 			"project":                          builder.Project,
 			"auth_resource_paths":              builder.AuthResourcePaths,
-			"auth_resource_paths_unrestricted": builder.AuthResourcePaths == nil,
+			"auth_resource_paths_unrestricted": len(builder.AuthResourcePaths) == 0,
 		},
-		columns: []string{"_key"},
+		columns:     []string{"_key"},
+		pivotFields: []string{},
+		pivotExprs:  map[string]string{},
 	}
 	if limit > 0 {
 		c.bindVars["limit"] = limit
@@ -50,20 +52,16 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		c.columns = append(c.columns, field.Name)
 	}
 	for _, pivot := range builder.Pivots {
-		sel, _ := ParseSelector(pivot.Select)
-		cols := pivot.Columns
-		if len(cols) == 0 {
-			cols = []string{"value"}
+		keySel, _ := ParseSelector(pivot.ColumnSelect)
+		valueSel, _ := ParseSelector(pivot.ValueSelect)
+		colName := sanitizeColumnName(pivot.Name)
+		expr, err := c.compileRootPivot(rootVar+".payload", keySel, valueSel, pivot.Columns)
+		if err != nil {
+			return CompiledQuery{}, err
 		}
-		for _, col := range cols {
-			colName := sanitizeColumnName(pivot.Name + "__" + col)
-			expr, err := c.compileRootPivot(rootVar+".payload", sel, col, pivot.ValuePath)
-			if err != nil {
-				return CompiledQuery{}, err
-			}
-			objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
-			c.columns = append(c.columns, colName)
-		}
+		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
+		c.columns = append(c.columns, colName)
+		c.pivotFields = append(c.pivotFields, colName)
 	}
 	for _, agg := range builder.Aggregates {
 		expr, err := c.compileRootAggregateExpr(rootVar+".payload", agg)
@@ -78,6 +76,14 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 			return CompiledQuery{}, err
 		}
 	}
+	pivotLets, pivotExprs, err := c.compileDerivedPivotMapLets(rootVar, builder.DerivedFields, setModes)
+	if err != nil {
+		return CompiledQuery{}, err
+	}
+	lets = append(lets, pivotLets...)
+	for key, value := range pivotExprs {
+		c.pivotExprs[key] = value
+	}
 	for _, field := range builder.DerivedFields {
 		expr, err := c.compileDerivedField(rootVar, field, setModes)
 		if err != nil {
@@ -85,6 +91,9 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		}
 		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(field.Name), expr))
 		c.columns = append(c.columns, field.Name)
+		if strings.ToUpper(strings.TrimSpace(field.Operation)) == DerivedOpPivot {
+			c.pivotFields = append(c.pivotFields, field.Name)
+		}
 	}
 	for _, slice := range builder.RepresentativeSlices {
 		expr, err := c.compileRepresentativeSlice(slice, setModes)
@@ -134,6 +143,7 @@ func compileAdvanced(builder Builder, limit int) (CompiledQuery, error) {
 		Query:             sb.String(),
 		BindVars:          c.bindVars,
 		Columns:           append([]string(nil), c.columns...),
+		PivotFields:       append([]string(nil), c.pivotFields...),
 		Limit:             limit,
 	}, nil
 }
@@ -194,6 +204,116 @@ func (c *compiler) compileNamedSet(rootVar string, set NamedSet, modes map[strin
 	}
 }
 
+type pivotMapGroup struct {
+	letName     string
+	sourceExpr  string
+	mode        setMode
+	keySelect   string
+	valueSelect string
+	columns     []string
+	columnSet   map[string]struct{}
+	unrestricted bool
+}
+
+func (c *compiler) compileDerivedPivotMapLets(rootVar string, fields []DerivedField, modes map[string]setMode) ([]string, map[string]string, error) {
+	groups := map[string]*pivotMapGroup{}
+	order := make([]string, 0, 8)
+	fieldExprs := make(map[string]string)
+	groupIndex := 0
+
+	for _, field := range fields {
+		if strings.ToUpper(strings.TrimSpace(field.Operation)) != DerivedOpPivot {
+			continue
+		}
+		sourceExpr := ""
+		mode := setModeNode
+		switch strings.TrimSpace(field.Source) {
+		case "", "root":
+			sourceExpr = "[" + rootVar + "]"
+			mode = setModeNode
+		default:
+			sourceExpr = sanitizeColumnName(field.Source)
+			mode = modes[field.Source]
+		}
+		groupKey := strings.Join([]string{sourceExpr, string(mode), field.PivotKeySelect, field.PivotValueSelect}, "|")
+		group, ok := groups[groupKey]
+		if !ok {
+			group = &pivotMapGroup{
+				letName:     fmt.Sprintf("__pivot_map_%d", groupIndex),
+				sourceExpr:  sourceExpr,
+				mode:        mode,
+				keySelect:   field.PivotKeySelect,
+				valueSelect: field.PivotValueSelect,
+				columns:     []string{},
+				columnSet:   map[string]struct{}{},
+			}
+			groupIndex++
+			groups[groupKey] = group
+			order = append(order, groupKey)
+		}
+		if len(field.PivotColumns) == 0 {
+			group.unrestricted = true
+		}
+		for _, col := range field.PivotColumns {
+			if _, ok := group.columnSet[col]; ok {
+				continue
+			}
+			group.columnSet[col] = struct{}{}
+			group.columns = append(group.columns, col)
+		}
+		fieldExprs[field.Name] = c.compilePivotMapProjection(group.letName, field.PivotColumns)
+	}
+
+	lets := make([]string, 0, len(order))
+	for _, key := range order {
+		group := groups[key]
+		keySel, err := ParseSelector(group.keySelect)
+		if err != nil {
+			return nil, nil, err
+		}
+		valueSel, err := ParseSelector(group.valueSelect)
+		if err != nil {
+			return nil, nil, err
+		}
+		payloadVar := setPayloadVar("__item", group.mode)
+		keyExpr := compileSelectorArrayExpr(payloadVar, keySel, c)
+		valueExpr := compileSelectorArrayExpr(payloadVar, valueSel, c)
+		filterLine := ""
+		if !group.unrestricted && len(group.columns) > 0 {
+			colsBind := c.newBind(group.letName+"_cols", append([]string(nil), group.columns...))
+			filterLine = fmt.Sprintf("\n          FILTER POSITION(@%s, __key, true)", colsBind)
+		}
+		let := fmt.Sprintf(`  LET %s = MERGE(
+    FOR __pair IN (
+      FOR __item IN %s
+        LET __keys = UNIQUE(%s)
+        LET __values = %s
+        FILTER LENGTH(__values) > 0
+        FOR __key IN __keys%s
+          RETURN { key: __key, values: __values }
+    )
+      COLLECT __key = __pair.key INTO __group
+      LET __flat_values = UNIQUE(FLATTEN(__group[*].__pair.values))
+      FILTER LENGTH(__flat_values) > 0
+      RETURN { [__key]: FIRST(__flat_values) }
+  )`, group.letName, group.sourceExpr, keyExpr, valueExpr, filterLine)
+		lets = append(lets, let)
+	}
+	return lets, fieldExprs, nil
+}
+
+func (c *compiler) compilePivotMapProjection(mapVar string, columns []string) string {
+	if len(columns) == 0 {
+		return mapVar
+	}
+	colsBind := c.newBind(mapVar+"_projection_cols", append([]string(nil), columns...))
+	return fmt.Sprintf(`MERGE(
+    FOR __key IN @%s
+      FILTER HAS(%s, __key)
+      RETURN { [__key]: %s[__key] }
+  )`, colsBind, mapVar, mapVar)
+}
+
 func (c *compiler) compileTraverseSetSource(source string, sourceIsSet bool, labelBind string, toFilter string) string {
 	if sourceIsSet {
 		return fmt.Sprintf("(FLATTEN(FOR __parent IN %s FOR __node, __edge IN 1..1 INBOUND __parent fhir_edge FILTER __edge.project == @project FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s%s RETURN [__node]))", source, labelBind, toFilter)
@@ -202,6 +322,11 @@ func (c *compiler) compileTraverseSetSource(source string, sourceIsSet bool, lab
 }
 
 func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes map[string]setMode) (string, error) {
+	if strings.ToUpper(strings.TrimSpace(field.Operation)) == DerivedOpPivot {
+		if expr, ok := c.pivotExprs[field.Name]; ok {
+			return expr, nil
+		}
+	}
 	switch strings.ToUpper(strings.TrimSpace(field.Operation)) {
 	case DerivedOpRawExpr:
 		return field.RawExpr, nil
@@ -270,14 +395,15 @@ func (c *compiler) compileUniqueField(rootVar string, field DerivedField, modes 
 func (c *compiler) compilePivotField(field DerivedField, modes map[string]setMode) (string, error) {
 	setVar := sanitizeColumnName(field.Source)
 	mode := modes[field.Source]
-	sel, err := ParseSelector(field.Select)
+	keySel, err := ParseSelector(field.PivotKeySelect)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`UNIQUE(FLATTEN(
-    FOR __item IN %s
-      RETURN %s
-  ))`, setVar, compilePivotValueArrayExpr(setPayloadVar("__item", mode), sel, field.PivotColumn, field.ValuePath, c)), nil
+	valueSel, err := ParseSelector(field.PivotValueSelect)
+	if err != nil {
+		return "", err
+	}
+	return c.compilePivotMapExpr("FOR __item IN "+setVar, setPayloadVar("__item", mode), keySel, valueSel, field.PivotColumns)
 }
 
 func (c *compiler) compileRepresentativeSlice(slice RepresentativeSlice, modes map[string]setMode) (string, error) {

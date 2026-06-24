@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"arangodb-proto/internal/dataframe"
+	"arangodb-proto/internal/fhirschema"
+	"arangodb-proto/internal/fhirsemantics"
 	"arangodb-proto/internal/graphqlapi/model"
 	"arangodb-proto/internal/proto"
 	"arangodb-proto/internal/writeapi"
@@ -301,18 +303,16 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project string, auth
 			continue
 		}
 		if strings.TrimSpace(derefString(pivot.FieldRef)) != "" {
-			selector, err := resolveFieldRef(resourceType, discovered, derefString(pivot.FieldRef))
+			hint, err := resolvePivotFieldRef(resourceType, discovered, derefString(pivot.FieldRef))
 			if err != nil {
 				return err
 			}
-			pivot.FhirPath = &selector
-		}
-		if strings.TrimSpace(derefString(pivot.ValueFieldRef)) != "" {
-			selector, err := resolveFieldRef(resourceType, discovered, derefString(pivot.ValueFieldRef))
-			if err != nil {
-				return err
+			if pivot.ColumnSelector == nil {
+				pivot.ColumnSelector = selectorInputFromExpression(hint.PivotColumnSelect)
 			}
-			pivot.ValuePath = &selector
+			if pivot.ValueSelector == nil {
+				pivot.ValueSelector = selectorInputFromExpression(hint.PivotValueSelect)
+			}
 		}
 	}
 	for _, aggregate := range aggregates {
@@ -370,6 +370,25 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project string, auth
 		}
 	}
 	return nil
+}
+
+func resolvePivotFieldRef(resourceType string, discovered []proto.PopulatedField, fieldRef string) (proto.PopulatedField, error) {
+	fieldRef = strings.TrimSpace(fieldRef)
+	if fieldRef == "" {
+		return proto.PopulatedField{}, fmt.Errorf("fieldRef is required")
+	}
+	if spec, ok := fhirsemantics.ResolveFieldRef(resourceType, fieldRef); ok {
+		base := findFieldByPath(discovered, fhirschema.CanonicalPath(spec.Selector))
+		if base != nil {
+			return *base, nil
+		}
+	}
+	for _, field := range discovered {
+		if defaultFieldRef(resourceType, field.Path) == fieldRef {
+			return field, nil
+		}
+	}
+	return proto.PopulatedField{}, fmt.Errorf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType)
 }
 
 func authorizeProject(principal *writeapi.Principal, project string, ignorePrincipalProjects bool) error {

@@ -4,18 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
+	"arangodb-proto/internal/fhirschema"
 	"arangodb-proto/internal/proto"
 	"arangodb-proto/internal/writeapi"
 )
 
-const (
-	PivotKindCodeableConceptDisplayValue = "CODEABLE_CONCEPT_DISPLAY_VALUE"
-	defaultRowLimit                      = 25
-)
+const defaultRowLimit = 25
 
 type Builder struct {
 	Project              string
@@ -47,38 +43,37 @@ type TraversalStep struct {
 }
 
 type FieldSelect struct {
-	Name            string
-	FieldRef        string
-	Select          string
+	Name              string
+	FieldRef          string
+	Select            string
 	FallbackFieldRefs []string
-	FallbackSelects []string
-	ValueMode       string
+	FallbackSelects   []string
+	ValueMode         string
 }
 
 type PivotSelect struct {
-	Name      string
-	FieldRef  string
-	Select    string
-	PivotKind string
-	Columns   []string
-	ValueFieldRef string
-	ValuePath string
+	Name         string
+	FieldRef     string
+	ColumnSelect string
+	ValueSelect  string
+	Columns      []string
+	PivotFamily  string
 }
 
 type AggregateSelect struct {
-	Name            string
-	Operation       string
-	FieldRef        string
-	Select          string
+	Name              string
+	Operation         string
+	FieldRef          string
+	Select            string
 	PredicateFieldRef string
-	PredicatePath   string
-	PredicateEquals string
-	ValueMode       string
+	PredicatePath     string
+	PredicateEquals   string
+	ValueMode         string
 }
 
 type RunRequest struct {
-	Builder      Builder
-	Limit        int
+	Builder Builder
+	Limit   int
 }
 
 type Result struct {
@@ -162,12 +157,6 @@ func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, er
 		return Builder{}, err
 	}
 	builder.AuthResourcePaths = resolvedPaths
-	if usesAdvancedBuilder(builder) {
-		if err := validateAdvancedBuilder(builder); err != nil {
-			return Builder{}, err
-		}
-		return builder, nil
-	}
 	if err := s.validateBuilder(ctx, builder); err != nil {
 		return Builder{}, err
 	}
@@ -175,13 +164,14 @@ func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, er
 	if err != nil {
 		return Builder{}, err
 	}
-	if planned, matched := lowerGraphQLBuilder(expanded); matched {
-		if err := validateAdvancedBuilder(planned); err != nil {
-			return Builder{}, err
-		}
-		return planned, nil
+	planned, err := lowerGraphQLBuilder(expanded)
+	if err != nil {
+		return Builder{}, err
 	}
-	return expanded, nil
+	if err := validateAdvancedBuilder(planned); err != nil {
+		return Builder{}, err
+	}
+	return planned, nil
 }
 
 func (s *Service) validateBuilder(ctx context.Context, builder Builder) error {
@@ -295,32 +285,33 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregat
 	}
 	seenPivots := map[string]struct{}{}
 	for _, pivot := range pivots {
-		if pivot.Name == "" || pivot.Select == "" {
-			return fmt.Errorf("pivot selections require name and select")
+		if pivot.Name == "" || pivot.ColumnSelect == "" || pivot.ValueSelect == "" {
+			return fmt.Errorf("pivot selections require name, column selector, and value selector")
 		}
 		if _, ok := seenPivots[pivot.Name]; ok {
 			return fmt.Errorf("pivot name %q is duplicated", pivot.Name)
 		}
 		seenPivots[pivot.Name] = struct{}{}
-		sel, err := ParseSelector(pivot.Select)
+		columnSel, err := ParseSelector(pivot.ColumnSelect)
 		if err != nil {
-			return fmt.Errorf("invalid selector for pivot %q: %w", pivot.Name, err)
+			return fmt.Errorf("invalid column selector for pivot %q: %w", pivot.Name, err)
 		}
-		canonical := sel.CanonicalPath()
-		match := findFieldByPath(pivotable, canonical)
+		valueSel, err := ParseSelector(pivot.ValueSelect)
+		if err != nil {
+			return fmt.Errorf("invalid value selector for pivot %q: %w", pivot.Name, err)
+		}
+		pivotSpec, err := fhirschema.ValidatePivotSelectors(resourceTypeFromDiscovered(discovered), selectorSpecFromSelector(columnSel), selectorSpecFromSelector(valueSel))
+		if err != nil {
+			return fmt.Errorf("pivot %q: %w", pivot.Name, err)
+		}
+		match := findFieldByPath(pivotable, pivotRootPath(resourceTypeFromDiscovered(discovered), pivotSpec.Family, columnSel.CanonicalPath()))
 		if match == nil || !match.PivotCandidate {
-			return fmt.Errorf("pivot selector %q is not pivotable", pivot.Select)
-		}
-		kind := strings.ToUpper(strings.TrimSpace(pivot.PivotKind))
-		if kind == "" {
-			kind = PivotKindCodeableConceptDisplayValue
-		}
-		if kind != PivotKindCodeableConceptDisplayValue {
-			return fmt.Errorf("unsupported pivot kind %q", pivot.PivotKind)
+			return fmt.Errorf("pivot selector %q is not pivotable", pivot.ColumnSelect)
 		}
 		if len(pivot.Columns) == 0 && len(match.PivotColumns) == 0 {
 			return fmt.Errorf("pivot %q has no available pivot columns", pivot.Name)
 		}
+		pivot.PivotFamily = pivotSpec.Family
 	}
 	seenAggregates := map[string]struct{}{}
 	for _, agg := range aggregates {
@@ -459,17 +450,72 @@ func fillPivotColumns(in []PivotSelect, discovered []proto.PopulatedField) []Piv
 	}
 	out := make([]PivotSelect, 0, len(in))
 	for _, pivot := range in {
-		if len(pivot.Columns) == 0 {
-			sel, err := ParseSelector(pivot.Select)
-			if err == nil {
-				if item := findFieldByPath(discovered, sel.CanonicalPath()); item != nil {
-					pivot.Columns = cloneStrings(item.PivotColumns)
-				}
+		if strings.TrimSpace(pivot.PivotFamily) == "" {
+			if item := findFieldByPath(discovered, pivotRootPath(resourceTypeFromDiscovered(discovered), pivot.PivotFamily, canonicalColumnSelect(pivot.ColumnSelect))); item != nil {
+				pivot.PivotFamily = item.PivotFamily
 			}
 		}
 		out = append(out, pivot)
 	}
 	return out
+}
+
+func canonicalColumnSelect(expr string) string {
+	sel, err := ParseSelector(expr)
+	if err != nil {
+		return ""
+	}
+	return sel.CanonicalPath()
+}
+
+func pivotRootPath(resourceType string, family string, columnCanonical string) string {
+	if family == fhirschema.PivotFamilyObservationCodeValue || (resourceType == "Observation" && strings.HasPrefix(columnCanonical, "code")) {
+		return "code"
+	}
+	parts := strings.Split(columnCanonical, ".")
+	for i := len(parts); i > 0; i-- {
+		path := strings.Join(parts[:i], ".")
+		if fhirschema.ResolvesToCodeableConcept(resourceType, path) {
+			return path
+		}
+	}
+	return columnCanonical
+}
+
+func resourceTypeFromDiscovered(fields []proto.PopulatedField) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0].ResourceType
+}
+
+func selectorSpecFromSelector(sel Selector) fhirschema.FieldSelectorSpec {
+	sourcePath := ""
+	valuePath := ""
+	if len(sel.Steps) > 0 {
+		last := len(sel.Steps) - 1
+		valuePath = selectorStepText(sel.Steps[last])
+		if last > 0 {
+			parts := make([]string, 0, last)
+			for _, step := range sel.Steps[:last] {
+				parts = append(parts, selectorStepText(step))
+			}
+			sourcePath = strings.Join(parts, ".")
+		}
+	}
+	var where *fhirschema.FieldPredicateSpec
+	if sel.Filter != nil {
+		where = &fhirschema.FieldPredicateSpec{
+			Path:  sel.Filter.Field,
+			Op:    fhirschema.PredicateContains,
+			Value: sel.Filter.Needle,
+		}
+	}
+	return fhirschema.FieldSelectorSpec{
+		SourcePath: sourcePath,
+		Where:      where,
+		ValuePath:  valuePath,
+	}
 }
 
 func findFieldByPath(fields []proto.PopulatedField, path string) *proto.PopulatedField {
@@ -484,11 +530,24 @@ func findFieldByPath(fields []proto.PopulatedField, path string) *proto.Populate
 func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
 	rows := make([]map[string]any, 0, compiled.Limit)
 	rowCount := 0
+	columns := materializedColumns(compiled.Columns, compiled.PivotFields)
+	seenColumns := make(map[string]struct{}, len(columns))
+	for _, col := range columns {
+		seenColumns[col] = struct{}{}
+	}
 	err := s.executeRows(ctx, proto.ExecuteQueryOptions{
 		ConnectionOptions: s.connOpts,
 		BatchSize:         1000,
 	}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
-		rows = append(rows, cloneRow(row))
+		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)
+		for key := range flatRow {
+			if _, ok := seenColumns[key]; ok {
+				continue
+			}
+			seenColumns[key] = struct{}{}
+			columns = append(columns, key)
+		}
+		rows = append(rows, flatRow)
 		rowCount++
 		return nil
 	})
@@ -496,10 +555,46 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 		return nil, err
 	}
 	return &Result{
-		Columns:  append([]string(nil), compiled.Columns...),
+		Columns:  columns,
 		Rows:     rows,
 		RowCount: rowCount,
 	}, nil
+}
+
+func materializedColumns(columns []string, pivotFields []string) []string {
+	if len(columns) == 0 {
+		return []string{}
+	}
+	skip := make(map[string]struct{}, len(pivotFields))
+	for _, field := range pivotFields {
+		skip[field] = struct{}{}
+	}
+	out := make([]string, 0, len(columns))
+	for _, col := range columns {
+		if _, ok := skip[col]; ok {
+			continue
+		}
+		out = append(out, col)
+	}
+	return out
+}
+
+func flattenPivotFields(row map[string]any, pivotFields []string) map[string]any {
+	for _, field := range pivotFields {
+		value, ok := row[field]
+		if !ok {
+			continue
+		}
+		obj, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		delete(row, field)
+		for key, item := range obj {
+			row[sanitizeColumnName(field+"__"+key)] = item
+		}
+	}
+	return row
 }
 
 func cloneRow(in map[string]any) map[string]any {
@@ -556,83 +651,12 @@ func authorizeProject(principal *writeapi.Principal, project string, ignorePrinc
 	return fmt.Errorf("principal is not authorized for project %q", project)
 }
 
-type Selector struct {
-	Steps  []SelectorStep
-	Filter *ContainsFilter
-}
-
-type SelectorStep struct {
-	Field   string
-	Iterate bool
-	Index   *int
-}
-
-type ContainsFilter struct {
-	Field  string
-	Needle string
-}
-
-var containsPattern = regexp.MustCompile(`^([A-Za-z0-9_]+)\s+contains\s+"([^"]*)"$`)
+type Selector = fhirschema.Selector
+type SelectorStep = fhirschema.SelectorStep
+type ContainsFilter = fhirschema.ContainsFilter
 
 func ParseSelector(input string) (Selector, error) {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return Selector{}, fmt.Errorf("selector is required")
-	}
-	var filter *ContainsFilter
-	pathPart := input
-	if before, after, found := strings.Cut(input, " where "); found {
-		pathPart = strings.TrimSpace(before)
-		match := containsPattern.FindStringSubmatch(strings.TrimSpace(after))
-		if len(match) != 3 {
-			return Selector{}, fmt.Errorf("unsupported where clause %q", after)
-		}
-		filter = &ContainsFilter{Field: match[1], Needle: match[2]}
-	}
-	parts := strings.Split(pathPart, ".")
-	steps := make([]SelectorStep, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			return Selector{}, fmt.Errorf("invalid path segment in %q", input)
-		}
-		step := SelectorStep{}
-		switch {
-		case strings.HasSuffix(part, "[]"):
-			step.Field = strings.TrimSuffix(part, "[]")
-			step.Iterate = true
-		case strings.HasSuffix(part, "]") && strings.Contains(part, "["):
-			idxStart := strings.Index(part, "[")
-			step.Field = part[:idxStart]
-			idx, err := strconv.Atoi(strings.TrimSuffix(part[idxStart+1:], "]"))
-			if err != nil {
-				return Selector{}, fmt.Errorf("invalid array index in %q", part)
-			}
-			step.Index = &idx
-		default:
-			step.Field = part
-		}
-		if step.Field == "" {
-			return Selector{}, fmt.Errorf("invalid field in %q", part)
-		}
-		steps = append(steps, step)
-	}
-	return Selector{Steps: steps, Filter: filter}, nil
-}
-
-func (s Selector) CanonicalPath() string {
-	parts := make([]string, 0, len(s.Steps))
-	for _, step := range s.Steps {
-		switch {
-		case step.Iterate:
-			parts = append(parts, step.Field+"[]")
-		case step.Index != nil:
-			parts = append(parts, step.Field+"[]")
-		default:
-			parts = append(parts, step.Field)
-		}
-	}
-	return strings.Join(parts, ".")
+	return fhirschema.ParseSelector(input)
 }
 
 type CompiledQuery struct {
@@ -647,6 +671,7 @@ type CompiledQuery struct {
 	Query             string
 	BindVars          map[string]any
 	Columns           []string
+	PivotFields       []string
 	Limit             int
 }
 
@@ -654,109 +679,12 @@ func Compile(builder Builder, limit int) (CompiledQuery, error) {
 	if usesAdvancedBuilder(builder) {
 		return compileAdvanced(builder, limit)
 	}
-	c := &compiler{
-		builder: builder,
-		bindVars: map[string]any{
-			"project":                          builder.Project,
-			"auth_resource_paths":              builder.AuthResourcePaths,
-			"auth_resource_paths_unrestricted": builder.AuthResourcePaths == nil,
-		},
-	}
-	if limit > 0 {
-		c.bindVars["limit"] = limit
-	}
-	rootVar := "root"
-	objectLines := []string{}
-	for _, field := range builder.Fields {
-		sel, _ := ParseSelector(field.Select)
-		expr, err := c.compileRootFieldSelect(rootVar+".payload", field, sel)
-		if err != nil {
-			return CompiledQuery{}, err
-		}
-		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(field.Name), expr))
-		c.columns = append(c.columns, field.Name)
-	}
-	for _, pivot := range builder.Pivots {
-		sel, _ := ParseSelector(pivot.Select)
-		cols := pivot.Columns
-		if len(cols) == 0 {
-			cols = []string{"value"}
-		}
-		for _, col := range cols {
-			colName := sanitizeColumnName(pivot.Name + "__" + col)
-			expr, err := c.compileRootPivot(rootVar+".payload", sel, col, pivot.ValuePath)
-			if err != nil {
-				return CompiledQuery{}, err
-			}
-			objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
-			c.columns = append(c.columns, colName)
-		}
-	}
-	for _, agg := range builder.Aggregates {
-		expr, err := c.compileRootAggregateExpr(rootVar+".payload", agg)
-		if err != nil {
-			return CompiledQuery{}, err
-		}
-		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(agg.Name), expr))
-		c.columns = append(c.columns, agg.Name)
-	}
-	lets := []string{}
-	for _, step := range builder.Traversals {
-		if err := c.compileTraversal(rootVar, false, step, &lets, &objectLines); err != nil {
-			return CompiledQuery{}, err
-		}
-	}
-	for _, slice := range builder.Slices {
-		expr, err := c.compileRootSlice(rootVar, slice)
-		if err != nil {
-			return CompiledQuery{}, err
-		}
-		objectLines = append(objectLines, fmt.Sprintf("    %s: %s", quoteKey(slice.Name), expr))
-		c.columns = append(c.columns, slice.Name)
-	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("FOR %s IN %s\n", rootVar, builder.RootResourceType))
-	sb.WriteString(fmt.Sprintf("  FILTER %s.project == @project\n", rootVar))
-	sb.WriteString(fmt.Sprintf("  FILTER @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths\n", rootVar))
-	sb.WriteString(fmt.Sprintf("  SORT %s._key\n", rootVar))
-	if limit > 0 {
-		sb.WriteString("  LIMIT @limit\n")
-	}
-	for _, let := range lets {
-		sb.WriteString(let)
-		sb.WriteByte('\n')
-	}
-	sb.WriteString("  RETURN {\n")
-	sb.WriteString(fmt.Sprintf("    %s: %s._key,\n", quoteKey("_key"), rootVar))
-	for i, line := range objectLines {
-		if i == len(objectLines)-1 {
-			sb.WriteString(line)
-			sb.WriteByte('\n')
-		} else {
-			sb.WriteString(line)
-			sb.WriteString(",\n")
-		}
-	}
-	sb.WriteString("  }\n")
-	return CompiledQuery{
-		Project:           builder.Project,
-		RootResourceType:  builder.RootResourceType,
-		AuthResourcePaths: append([]string(nil), builder.AuthResourcePaths...),
-		PlanMode:          planMode(builder.PlanHint),
-		PlanProfile:       planProfile(builder.PlanHint),
-		NamedSetCount:     planNamedSetCount(builder.PlanHint),
-		FileSummaries:     planFileSummaries(builder.PlanHint),
-		StudyLookup:       planStudyLookup(builder.PlanHint),
-		Query:             sb.String(),
-		BindVars:          c.bindVars,
-		Columns:           append([]string(nil), c.columns...),
-		Limit:             limit,
-	}, nil
+	return CompiledQuery{}, fmt.Errorf("unsupported dataframe query shape: request was not lowered into the optimized advanced plan")
 }
 
 func planMode(hint *PlanHint) string {
 	if hint == nil || hint.Mode == "" {
-		return "generic_traversal"
+		return "unsupported"
 	}
 	return hint.Mode
 }
@@ -793,7 +721,9 @@ type compiler struct {
 	builder   Builder
 	bindVars  map[string]any
 	columns   []string
+	pivotFields []string
 	bindCount int
+	pivotExprs map[string]string
 }
 
 func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step TraversalStep, lets *[]string, objectLines *[]string) error {
@@ -818,20 +748,16 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 		c.columns = append(c.columns, colName)
 	}
 	for _, pivot := range step.Pivots {
-		sel, _ := ParseSelector(pivot.Select)
-		cols := pivot.Columns
-		if len(cols) == 0 {
-			cols = []string{"value"}
+		keySel, _ := ParseSelector(pivot.ColumnSelect)
+		valueSel, _ := ParseSelector(pivot.ValueSelect)
+		colName := sanitizeColumnName(step.Alias + "__" + pivot.Name)
+		expr, err := c.compileTraversalPivot(nodeVar, keySel, valueSel, pivot.Columns)
+		if err != nil {
+			return err
 		}
-		for _, col := range cols {
-			colName := sanitizeColumnName(step.Alias + "__" + pivot.Name + "__" + col)
-			expr, err := c.compileTraversalPivot(nodeVar, sel, col, pivot.ValuePath)
-			if err != nil {
-				return err
-			}
-			*objectLines = append(*objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
-			c.columns = append(c.columns, colName)
-		}
+		*objectLines = append(*objectLines, fmt.Sprintf("    %s: %s", quoteKey(colName), expr))
+		c.columns = append(c.columns, colName)
+		c.pivotFields = append(c.pivotFields, colName)
 	}
 	for _, agg := range step.Aggregates {
 		expr, err := c.compileSetAggregateExpr(nodeVar, agg)
@@ -889,12 +815,12 @@ func (c *compiler) compileTraversalField(nodeVar string, sel Selector) (string, 
 	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compileSelectorArrayExpr("__n.payload", sel, c)), nil
 }
 
-func (c *compiler) compileRootPivot(payloadVar string, sel Selector, column string, valuePath string) (string, error) {
-	return fmt.Sprintf("FIRST(%s)", compilePivotValueArrayExpr(payloadVar, sel, column, valuePath, c)), nil
+func (c *compiler) compileRootPivot(payloadVar string, keySel Selector, valueSel Selector, columns []string) (string, error) {
+	return c.compilePivotMapExpr("FOR __item IN ["+payloadVar+"]", "__item", keySel, valueSel, columns)
 }
 
-func (c *compiler) compileTraversalPivot(nodeVar string, sel Selector, column string, valuePath string) (string, error) {
-	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compilePivotValueArrayExpr("__n.payload", sel, column, valuePath, c)), nil
+func (c *compiler) compileTraversalPivot(nodeVar string, keySel Selector, valueSel Selector, columns []string) (string, error) {
+	return c.compilePivotMapExpr("FOR __item IN "+nodeVar, "__item.payload", keySel, valueSel, columns)
 }
 
 func selectorHasNoArrays(sel Selector) bool {
@@ -978,27 +904,28 @@ func compileObjectArrayExpr(rootVar string, sel Selector, c *compiler) string {
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )"
 }
 
-func compilePivotMatchArrayExpr(rootVar string, sel Selector, column string, c *compiler) string {
-	colBind := c.newBind("pivot", column)
-	objects := compileObjectArrayExpr(rootVar, sel, c)
-	return fmt.Sprintf("(\n    FOR __obj IN %s\n      LET __match = FIRST(FOR __coding IN (__obj.coding ? __obj.coding : []) FILTER __coding.display == @%s RETURN (__obj.text ? __obj.text : (__coding.display ? __coding.display : __coding.code)))\n      FILTER __match != null\n      RETURN __match\n  )", objects, colBind)
-}
-
-func compilePivotValueArrayExpr(rootVar string, sel Selector, column string, valuePath string, c *compiler) string {
-	colBind := c.newBind("pivot", column)
-	objects := compileObjectArrayExpr(rootVar, sel, c)
-	valueExpr := "__obj.text ? __obj.text : (__coding.display ? __coding.display : __coding.code)"
-	if strings.TrimSpace(valuePath) != "" {
-		valueSel, err := ParseSelector(valuePath)
-		if err == nil {
-			if valueSel.Filter == nil && selectorHasNoArrays(valueSel) {
-				valueExpr = compileDirectExpr("__obj", valueSel.Steps)
-			} else {
-				valueExpr = "FIRST" + compileSelectorArrayExpr("__obj", valueSel, c)
-			}
-		}
+func (c *compiler) compilePivotMapExpr(itemLoop string, payloadVar string, keySel Selector, valueSel Selector, columns []string) (string, error) {
+	keyExpr := compileSelectorArrayExpr(payloadVar, keySel, c)
+	valueExpr := compileSelectorArrayExpr(payloadVar, valueSel, c)
+	filterLine := ""
+	if len(columns) > 0 {
+		colBind := c.newBind("pivot_cols", append([]string(nil), columns...))
+		filterLine = fmt.Sprintf("\n          FILTER POSITION(@%s, __key, true)", colBind)
 	}
-	return fmt.Sprintf("(\n    FOR __obj IN %s\n      LET __match = FIRST(FOR __coding IN (__obj.coding ? __obj.coding : []) FILTER __coding.display == @%s RETURN %s)\n      FILTER __match != null\n      RETURN __match\n  )", objects, colBind, valueExpr)
+  return fmt.Sprintf(`MERGE(
+    FOR __pair IN (
+      %s
+        LET __keys = UNIQUE(%s)
+        LET __values = %s
+        FILTER LENGTH(__values) > 0
+        FOR __key IN __keys%s
+          RETURN { key: __key, values: __values }
+    )
+      COLLECT __key = __pair.key INTO __group
+      LET __flat_values = UNIQUE(FLATTEN(__group[*].__pair.values))
+      FILTER LENGTH(__flat_values) > 0
+      RETURN { [__key]: FIRST(__flat_values) }
+  )`, itemLoop, keyExpr, valueExpr, filterLine), nil
 }
 
 func extractFinalExpr(cur string, step SelectorStep) string {
@@ -1037,7 +964,21 @@ func quoteKey(key string) string {
 	return string(data)
 }
 
+func selectorStepText(step SelectorStep) string {
+	switch {
+	case step.Iterate:
+		return step.Field + "[]"
+	case step.Index != nil:
+		return fmt.Sprintf("%s[%d]", step.Field, *step.Index)
+	default:
+		return step.Field
+	}
+}
+
 func cloneStrings(in []string) []string {
+	if in == nil {
+		return nil
+	}
 	if len(in) == 0 {
 		return []string{}
 	}

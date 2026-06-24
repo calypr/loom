@@ -7,12 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bytedance/sonic"
-	"github.com/google/uuid"
 	"hash"
 	"strconv"
 	"strings"
 	"sync"
+	"github.com/google/uuid"
+	"github.com/bytedance/sonic"
 )
 
 // EdgeDocument represents an edge in ArangoDB.
@@ -572,7 +572,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	_ = seen
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -620,7 +620,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -668,7 +668,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -716,7 +716,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -764,7 +764,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -812,7 +812,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -860,7 +860,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -908,7 +908,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -956,7 +956,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1004,7 +1004,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1052,7 +1052,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1100,7 +1100,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1148,7 +1148,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1196,7 +1196,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1244,7 +1244,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1292,7 +1292,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1340,7 +1340,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1388,7 +1388,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1436,7 +1436,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1484,7 +1484,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1532,7 +1532,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1580,7 +1580,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -1628,7 +1628,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -2794,7 +2794,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -2842,7 +2842,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -2890,7 +2890,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -2938,7 +2938,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -2986,7 +2986,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3034,7 +3034,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3082,7 +3082,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3130,7 +3130,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3178,7 +3178,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3226,7 +3226,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3274,7 +3274,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3322,7 +3322,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3370,7 +3370,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3418,7 +3418,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3466,7 +3466,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3514,7 +3514,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3562,7 +3562,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3610,7 +3610,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3658,7 +3658,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3706,7 +3706,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3754,7 +3754,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3802,7 +3802,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3850,7 +3850,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Evidence != nil {
 		for _, item_3_x_Evidence := range x.Evidence {
-			if item_3_x_Evidence != nil {
+				if item_3_x_Evidence != nil {
 				if item_3_x_Evidence.Reference != nil {
 					if item_3_x_Evidence.Reference.Reference != nil {
 						refVal := *item_3_x_Evidence.Reference.Reference
@@ -3898,7 +3898,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -3946,7 +3946,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -3994,7 +3994,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -4042,7 +4042,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -4090,7 +4090,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -4138,7 +4138,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -4186,7 +4186,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -4234,7 +4234,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -4282,10 +4282,10 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Stage != nil {
 		for _, item_4_x_Stage := range x.Stage {
-			if item_4_x_Stage != nil {
+				if item_4_x_Stage != nil {
 				if item_4_x_Stage.Assessment != nil {
 					for _, item_2_item_4_x_Stage_Assessment := range item_4_x_Stage.Assessment {
-						if item_2_item_4_x_Stage_Assessment != nil {
+							if item_2_item_4_x_Stage_Assessment != nil {
 							if item_2_item_4_x_Stage_Assessment.Reference != nil {
 								refVal := *item_2_item_4_x_Stage_Assessment.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -4334,10 +4334,10 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Stage != nil {
 		for _, item_4_x_Stage := range x.Stage {
-			if item_4_x_Stage != nil {
+				if item_4_x_Stage != nil {
 				if item_4_x_Stage.Assessment != nil {
 					for _, item_2_item_4_x_Stage_Assessment := range item_4_x_Stage.Assessment {
-						if item_2_item_4_x_Stage_Assessment != nil {
+							if item_2_item_4_x_Stage_Assessment != nil {
 							if item_2_item_4_x_Stage_Assessment.Reference != nil {
 								refVal := *item_2_item_4_x_Stage_Assessment.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -4588,7 +4588,7 @@ func (x *ConditionStage) ExtractEdges(project string) ([]json.RawMessage, error)
 	_ = seen
 	if x.Assessment != nil {
 		for _, item_2_x_Assessment := range x.Assessment {
-			if item_2_x_Assessment != nil {
+				if item_2_x_Assessment != nil {
 				if item_2_x_Assessment.Reference != nil {
 					refVal := *item_2_x_Assessment.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -4634,7 +4634,7 @@ func (x *ConditionStage) ExtractEdges(project string) ([]json.RawMessage, error)
 	}
 	if x.Assessment != nil {
 		for _, item_2_x_Assessment := range x.Assessment {
-			if item_2_x_Assessment != nil {
+				if item_2_x_Assessment != nil {
 				if item_2_x_Assessment.Reference != nil {
 					refVal := *item_2_x_Assessment.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -4875,7 +4875,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	_ = seen
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -4921,7 +4921,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -4967,7 +4967,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5013,7 +5013,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5059,7 +5059,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Result != nil {
 		for _, item_2_x_Result := range x.Result {
-			if item_2_x_Result != nil {
+				if item_2_x_Result != nil {
 				if item_2_x_Result.Reference != nil {
 					refVal := *item_2_x_Result.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5105,7 +5105,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.ResultsInterpreter != nil {
 		for _, item_2_x_ResultsInterpreter := range x.ResultsInterpreter {
-			if item_2_x_ResultsInterpreter != nil {
+				if item_2_x_ResultsInterpreter != nil {
 				if item_2_x_ResultsInterpreter.Reference != nil {
 					refVal := *item_2_x_ResultsInterpreter.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5151,7 +5151,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.ResultsInterpreter != nil {
 		for _, item_2_x_ResultsInterpreter := range x.ResultsInterpreter {
-			if item_2_x_ResultsInterpreter != nil {
+				if item_2_x_ResultsInterpreter != nil {
 				if item_2_x_ResultsInterpreter.Reference != nil {
 					refVal := *item_2_x_ResultsInterpreter.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5197,7 +5197,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.ResultsInterpreter != nil {
 		for _, item_2_x_ResultsInterpreter := range x.ResultsInterpreter {
-			if item_2_x_ResultsInterpreter != nil {
+				if item_2_x_ResultsInterpreter != nil {
 				if item_2_x_ResultsInterpreter.Reference != nil {
 					refVal := *item_2_x_ResultsInterpreter.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5243,7 +5243,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Specimen != nil {
 		for _, item_2_x_Specimen := range x.Specimen {
-			if item_2_x_Specimen != nil {
+				if item_2_x_Specimen != nil {
 				if item_2_x_Specimen.Reference != nil {
 					refVal := *item_2_x_Specimen.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5289,7 +5289,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Study != nil {
 		for _, item_2_x_Study := range x.Study {
-			if item_2_x_Study != nil {
+				if item_2_x_Study != nil {
 				if item_2_x_Study.Reference != nil {
 					refVal := *item_2_x_Study.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -5587,7 +5587,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Media != nil {
 		for _, item_3_x_Media := range x.Media {
-			if item_3_x_Media != nil {
+				if item_3_x_Media != nil {
 				if item_3_x_Media.Link != nil {
 					if item_3_x_Media.Link.Reference != nil {
 						refVal := *item_3_x_Media.Link.Reference
@@ -5635,7 +5635,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -5683,7 +5683,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -5731,7 +5731,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -5779,7 +5779,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -5827,7 +5827,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.SupportingInfo != nil {
 		for _, item_3_x_SupportingInfo := range x.SupportingInfo {
-			if item_3_x_SupportingInfo != nil {
+				if item_3_x_SupportingInfo != nil {
 				if item_3_x_SupportingInfo.Reference != nil {
 					if item_3_x_SupportingInfo.Reference.Reference != nil {
 						refVal := *item_3_x_SupportingInfo.Reference.Reference
@@ -5875,7 +5875,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.SupportingInfo != nil {
 		for _, item_3_x_SupportingInfo := range x.SupportingInfo {
-			if item_3_x_SupportingInfo != nil {
+				if item_3_x_SupportingInfo != nil {
 				if item_3_x_SupportingInfo.Reference != nil {
 					if item_3_x_SupportingInfo.Reference.Reference != nil {
 						refVal := *item_3_x_SupportingInfo.Reference.Reference
@@ -5923,7 +5923,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.SupportingInfo != nil {
 		for _, item_3_x_SupportingInfo := range x.SupportingInfo {
-			if item_3_x_SupportingInfo != nil {
+				if item_3_x_SupportingInfo != nil {
 				if item_3_x_SupportingInfo.Reference != nil {
 					if item_3_x_SupportingInfo.Reference.Reference != nil {
 						refVal := *item_3_x_SupportingInfo.Reference.Reference
@@ -6190,7 +6190,7 @@ func (x *Directory) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.Child != nil {
 		for _, item_2_x_Child := range x.Child {
-			if item_2_x_Child != nil {
+				if item_2_x_Child != nil {
 				if item_2_x_Child.Reference != nil {
 					refVal := *item_2_x_Child.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6220,7 +6220,7 @@ func (x *Directory) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Child != nil {
 		for _, item_2_x_Child := range x.Child {
-			if item_2_x_Child != nil {
+				if item_2_x_Child != nil {
 				if item_2_x_Child.Reference != nil {
 					refVal := *item_2_x_Child.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6284,7 +6284,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	_ = seen
 	if x.Author != nil {
 		for _, item_2_x_Author := range x.Author {
-			if item_2_x_Author != nil {
+				if item_2_x_Author != nil {
 				if item_2_x_Author.Reference != nil {
 					refVal := *item_2_x_Author.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6330,7 +6330,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Author != nil {
 		for _, item_2_x_Author := range x.Author {
-			if item_2_x_Author != nil {
+				if item_2_x_Author != nil {
 				if item_2_x_Author.Reference != nil {
 					refVal := *item_2_x_Author.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6376,7 +6376,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Author != nil {
 		for _, item_2_x_Author := range x.Author {
-			if item_2_x_Author != nil {
+				if item_2_x_Author != nil {
 				if item_2_x_Author.Reference != nil {
 					refVal := *item_2_x_Author.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6422,7 +6422,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Author != nil {
 		for _, item_2_x_Author := range x.Author {
-			if item_2_x_Author != nil {
+				if item_2_x_Author != nil {
 				if item_2_x_Author.Reference != nil {
 					refVal := *item_2_x_Author.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -6468,7 +6468,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -7522,7 +7522,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Attester != nil {
 		for _, item_3_x_Attester := range x.Attester {
-			if item_3_x_Attester != nil {
+				if item_3_x_Attester != nil {
 				if item_3_x_Attester.Party != nil {
 					if item_3_x_Attester.Party.Reference != nil {
 						refVal := *item_3_x_Attester.Party.Reference
@@ -7570,7 +7570,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Attester != nil {
 		for _, item_3_x_Attester := range x.Attester {
-			if item_3_x_Attester != nil {
+				if item_3_x_Attester != nil {
 				if item_3_x_Attester.Party != nil {
 					if item_3_x_Attester.Party.Reference != nil {
 						refVal := *item_3_x_Attester.Party.Reference
@@ -7618,7 +7618,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Attester != nil {
 		for _, item_3_x_Attester := range x.Attester {
-			if item_3_x_Attester != nil {
+				if item_3_x_Attester != nil {
 				if item_3_x_Attester.Party != nil {
 					if item_3_x_Attester.Party.Reference != nil {
 						refVal := *item_3_x_Attester.Party.Reference
@@ -7666,7 +7666,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Attester != nil {
 		for _, item_3_x_Attester := range x.Attester {
-			if item_3_x_Attester != nil {
+				if item_3_x_Attester != nil {
 				if item_3_x_Attester.Party != nil {
 					if item_3_x_Attester.Party.Reference != nil {
 						refVal := *item_3_x_Attester.Party.Reference
@@ -7714,7 +7714,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -7762,7 +7762,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -7810,7 +7810,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -7858,7 +7858,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -7906,7 +7906,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -7954,7 +7954,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8002,7 +8002,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8050,7 +8050,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8098,7 +8098,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8146,7 +8146,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8194,7 +8194,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8242,7 +8242,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8290,7 +8290,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8338,7 +8338,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8386,7 +8386,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8434,7 +8434,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8482,7 +8482,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8530,7 +8530,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8578,7 +8578,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8626,7 +8626,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8674,7 +8674,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8722,7 +8722,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8770,7 +8770,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.BodySite != nil {
 		for _, item_3_x_BodySite := range x.BodySite {
-			if item_3_x_BodySite != nil {
+				if item_3_x_BodySite != nil {
 				if item_3_x_BodySite.Reference != nil {
 					if item_3_x_BodySite.Reference.Reference != nil {
 						refVal := *item_3_x_BodySite.Reference.Reference
@@ -8818,7 +8818,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -8866,7 +8866,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -8914,7 +8914,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -8962,7 +8962,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9010,7 +9010,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9058,7 +9058,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9106,7 +9106,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9154,7 +9154,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9202,7 +9202,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9250,7 +9250,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9298,7 +9298,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9346,7 +9346,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9394,7 +9394,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9442,7 +9442,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9490,7 +9490,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9538,7 +9538,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9586,7 +9586,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9634,7 +9634,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9682,7 +9682,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9730,7 +9730,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9778,7 +9778,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9826,7 +9826,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9874,7 +9874,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Event != nil {
 		for _, item_3_x_Event := range x.Event {
-			if item_3_x_Event != nil {
+				if item_3_x_Event != nil {
 				if item_3_x_Event.Reference != nil {
 					if item_3_x_Event.Reference.Reference != nil {
 						refVal := *item_3_x_Event.Reference.Reference
@@ -9922,7 +9922,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.RelatesTo != nil {
 		for _, item_3_x_RelatesTo := range x.RelatesTo {
-			if item_3_x_RelatesTo != nil {
+				if item_3_x_RelatesTo != nil {
 				if item_3_x_RelatesTo.Target != nil {
 					if item_3_x_RelatesTo.Target.Reference != nil {
 						refVal := *item_3_x_RelatesTo.Target.Reference
@@ -14206,7 +14206,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -14254,7 +14254,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -14302,7 +14302,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -14350,7 +14350,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -14398,7 +14398,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -14446,7 +14446,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -14494,7 +14494,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -14542,7 +14542,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Participant != nil {
 		for _, item_3_x_Participant := range x.Participant {
-			if item_3_x_Participant != nil {
+				if item_3_x_Participant != nil {
 				if item_3_x_Participant.Actor != nil {
 					if item_3_x_Participant.Actor.Reference != nil {
 						refVal := *item_3_x_Participant.Actor.Reference
@@ -14590,7 +14590,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14638,7 +14638,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14686,7 +14686,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14734,7 +14734,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14782,7 +14782,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14830,7 +14830,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14878,7 +14878,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14926,7 +14926,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -14974,7 +14974,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15022,7 +15022,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15070,7 +15070,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15118,7 +15118,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15166,7 +15166,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15214,7 +15214,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15262,7 +15262,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15310,7 +15310,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15358,7 +15358,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15406,7 +15406,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15454,7 +15454,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15502,7 +15502,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15550,7 +15550,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15598,7 +15598,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15646,7 +15646,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -15711,7 +15711,7 @@ func (x *FamilyMemberHistoryCondition) ExtractEdges(project string) ([]json.RawM
 	_ = seen
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -15759,7 +15759,7 @@ func (x *FamilyMemberHistoryCondition) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -15807,7 +15807,7 @@ func (x *FamilyMemberHistoryCondition) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -15855,7 +15855,7 @@ func (x *FamilyMemberHistoryCondition) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -16105,7 +16105,7 @@ func (x *FamilyMemberHistoryProcedure) ExtractEdges(project string) ([]json.RawM
 	_ = seen
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -16153,7 +16153,7 @@ func (x *FamilyMemberHistoryProcedure) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -16201,7 +16201,7 @@ func (x *FamilyMemberHistoryProcedure) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -16249,7 +16249,7 @@ func (x *FamilyMemberHistoryProcedure) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -16440,7 +16440,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16488,7 +16488,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16536,7 +16536,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16584,7 +16584,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16632,7 +16632,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16680,7 +16680,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16728,7 +16728,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16776,7 +16776,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16824,7 +16824,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16872,7 +16872,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16920,7 +16920,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -16968,7 +16968,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17016,7 +17016,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17064,7 +17064,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17112,7 +17112,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17160,7 +17160,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17208,7 +17208,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17256,7 +17256,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17304,7 +17304,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17352,7 +17352,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17400,7 +17400,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17448,7 +17448,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17496,7 +17496,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Characteristic != nil {
 		for _, item_3_x_Characteristic := range x.Characteristic {
-			if item_3_x_Characteristic != nil {
+				if item_3_x_Characteristic != nil {
 				if item_3_x_Characteristic.ValueReference != nil {
 					if item_3_x_Characteristic.ValueReference.Reference != nil {
 						refVal := *item_3_x_Characteristic.ValueReference.Reference
@@ -17544,7 +17544,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -17592,7 +17592,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -17640,7 +17640,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -17688,7 +17688,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -17736,7 +17736,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -17784,7 +17784,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Member != nil {
 		for _, item_3_x_Member := range x.Member {
-			if item_3_x_Member != nil {
+				if item_3_x_Member != nil {
 				if item_3_x_Member.Entity != nil {
 					if item_3_x_Member.Entity.Reference != nil {
 						refVal := *item_3_x_Member.Entity.Reference
@@ -19177,7 +19177,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -19223,7 +19223,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -19437,7 +19437,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -19485,7 +19485,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -19533,7 +19533,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -19581,7 +19581,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -19629,7 +19629,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19677,7 +19677,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19725,7 +19725,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19773,7 +19773,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19821,7 +19821,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19869,7 +19869,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19917,7 +19917,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -19965,7 +19965,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20013,7 +20013,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20061,7 +20061,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20109,7 +20109,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20157,7 +20157,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20205,7 +20205,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20253,7 +20253,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20301,7 +20301,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20349,7 +20349,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20397,7 +20397,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20445,7 +20445,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20493,7 +20493,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20541,7 +20541,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20589,7 +20589,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20637,7 +20637,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20685,7 +20685,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Procedure != nil {
 		for _, item_3_x_Procedure := range x.Procedure {
-			if item_3_x_Procedure != nil {
+				if item_3_x_Procedure != nil {
 				if item_3_x_Procedure.Reference != nil {
 					if item_3_x_Procedure.Reference.Reference != nil {
 						refVal := *item_3_x_Procedure.Reference.Reference
@@ -20733,7 +20733,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -20781,7 +20781,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -20829,7 +20829,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -20877,7 +20877,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -20925,7 +20925,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -20973,7 +20973,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21021,7 +21021,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21069,7 +21069,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21117,7 +21117,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21165,7 +21165,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21213,7 +21213,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21261,7 +21261,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21309,7 +21309,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21357,7 +21357,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21405,7 +21405,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21453,7 +21453,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21501,7 +21501,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21549,7 +21549,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21597,7 +21597,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21645,7 +21645,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21693,7 +21693,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21741,7 +21741,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21789,7 +21789,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -21837,10 +21837,10 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Series != nil {
 		for _, item_4_x_Series := range x.Series {
-			if item_4_x_Series != nil {
+				if item_4_x_Series != nil {
 				if item_4_x_Series.Specimen != nil {
 					for _, item_2_item_4_x_Series_Specimen := range item_4_x_Series.Specimen {
-						if item_2_item_4_x_Series_Specimen != nil {
+							if item_2_item_4_x_Series_Specimen != nil {
 							if item_2_item_4_x_Series_Specimen.Reference != nil {
 								refVal := *item_2_item_4_x_Series_Specimen.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -21906,7 +21906,7 @@ func (x *ImagingStudySeries) ExtractEdges(project string) ([]json.RawMessage, er
 	_ = seen
 	if x.Specimen != nil {
 		for _, item_2_x_Specimen := range x.Specimen {
-			if item_2_x_Specimen != nil {
+				if item_2_x_Specimen != nil {
 				if item_2_x_Specimen.Reference != nil {
 					refVal := *item_2_x_Specimen.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -22964,7 +22964,7 @@ func (x *ImagingStudySeries) ExtractEdges(project string) ([]json.RawMessage, er
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -23012,7 +23012,7 @@ func (x *ImagingStudySeries) ExtractEdges(project string) ([]json.RawMessage, er
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -23060,7 +23060,7 @@ func (x *ImagingStudySeries) ExtractEdges(project string) ([]json.RawMessage, er
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -23108,7 +23108,7 @@ func (x *ImagingStudySeries) ExtractEdges(project string) ([]json.RawMessage, er
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -23434,7 +23434,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	_ = seen
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23480,7 +23480,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23652,7 +23652,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23698,7 +23698,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23744,7 +23744,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23790,7 +23790,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23836,7 +23836,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23882,7 +23882,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23928,7 +23928,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -23974,7 +23974,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24020,7 +24020,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24066,7 +24066,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24112,7 +24112,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24158,7 +24158,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24204,7 +24204,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24250,7 +24250,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24296,7 +24296,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24342,7 +24342,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24388,7 +24388,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24434,7 +24434,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24480,7 +24480,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24526,7 +24526,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24572,7 +24572,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24618,7 +24618,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24664,7 +24664,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -24710,7 +24710,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24758,7 +24758,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24806,7 +24806,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24854,7 +24854,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24902,7 +24902,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24950,7 +24950,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -24998,7 +24998,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25046,7 +25046,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25094,7 +25094,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25142,7 +25142,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25190,7 +25190,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25238,7 +25238,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25286,7 +25286,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25334,7 +25334,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25382,7 +25382,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25430,7 +25430,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25478,7 +25478,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25526,7 +25526,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25574,7 +25574,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25622,7 +25622,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25670,7 +25670,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25718,7 +25718,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -25766,7 +25766,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -26826,7 +26826,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -26874,7 +26874,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -26922,7 +26922,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -26970,7 +26970,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -27018,7 +27018,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27066,7 +27066,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27114,7 +27114,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27162,7 +27162,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27210,7 +27210,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27258,7 +27258,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27306,7 +27306,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27354,7 +27354,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27402,7 +27402,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27450,7 +27450,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27498,7 +27498,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27546,7 +27546,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27594,7 +27594,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27642,7 +27642,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27690,7 +27690,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27738,7 +27738,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27786,7 +27786,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27834,7 +27834,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27882,7 +27882,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27930,7 +27930,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -27978,7 +27978,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -28026,7 +28026,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -28074,7 +28074,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -30231,7 +30231,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	_ = seen
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30277,7 +30277,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30323,7 +30323,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30369,7 +30369,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30415,7 +30415,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30461,7 +30461,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30507,7 +30507,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30553,7 +30553,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -30599,7 +30599,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31023,7 +31023,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31069,7 +31069,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31115,7 +31115,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31161,7 +31161,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31207,7 +31207,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31253,7 +31253,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31299,7 +31299,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31345,7 +31345,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31391,7 +31391,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31437,7 +31437,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31483,7 +31483,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31529,7 +31529,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31575,7 +31575,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31621,7 +31621,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31667,7 +31667,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31713,7 +31713,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31759,7 +31759,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31805,7 +31805,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31851,7 +31851,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31897,7 +31897,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31943,7 +31943,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -31989,7 +31989,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -32035,7 +32035,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.SupportingInformation != nil {
 		for _, item_2_x_SupportingInformation := range x.SupportingInformation {
-			if item_2_x_SupportingInformation != nil {
+				if item_2_x_SupportingInformation != nil {
 				if item_2_x_SupportingInformation.Reference != nil {
 					refVal := *item_2_x_SupportingInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -32081,7 +32081,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32129,7 +32129,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32177,7 +32177,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32225,7 +32225,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32273,7 +32273,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32321,7 +32321,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32369,7 +32369,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32417,7 +32417,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32465,7 +32465,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32513,7 +32513,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32561,7 +32561,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32609,7 +32609,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32657,7 +32657,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32705,7 +32705,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32753,7 +32753,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32801,7 +32801,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32849,7 +32849,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32897,7 +32897,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32945,7 +32945,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -32993,7 +32993,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -33041,7 +33041,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -33089,7 +33089,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -33137,7 +33137,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Device != nil {
 		for _, item_3_x_Device := range x.Device {
-			if item_3_x_Device != nil {
+				if item_3_x_Device != nil {
 				if item_3_x_Device.Reference != nil {
 					if item_3_x_Device.Reference.Reference != nil {
 						refVal := *item_3_x_Device.Reference.Reference
@@ -34241,7 +34241,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -34289,7 +34289,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -34337,7 +34337,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -34385,7 +34385,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -34433,7 +34433,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34481,7 +34481,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34529,7 +34529,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34577,7 +34577,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34625,7 +34625,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34673,7 +34673,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34721,7 +34721,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34769,7 +34769,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34817,7 +34817,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34865,7 +34865,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34913,7 +34913,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -34961,7 +34961,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35009,7 +35009,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35057,7 +35057,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35105,7 +35105,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35153,7 +35153,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35201,7 +35201,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35249,7 +35249,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35297,7 +35297,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35345,7 +35345,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35393,7 +35393,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35441,7 +35441,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35489,7 +35489,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -35596,7 +35596,7 @@ func (x *MedicationRequestDispenseRequest) ExtractEdges(project string) ([]json.
 	}
 	if x.DispenserInstruction != nil {
 		for _, item_3_x_DispenserInstruction := range x.DispenserInstruction {
-			if item_3_x_DispenserInstruction != nil {
+				if item_3_x_DispenserInstruction != nil {
 				if item_3_x_DispenserInstruction.AuthorReference != nil {
 					if item_3_x_DispenserInstruction.AuthorReference.Reference != nil {
 						refVal := *item_3_x_DispenserInstruction.AuthorReference.Reference
@@ -35644,7 +35644,7 @@ func (x *MedicationRequestDispenseRequest) ExtractEdges(project string) ([]json.
 	}
 	if x.DispenserInstruction != nil {
 		for _, item_3_x_DispenserInstruction := range x.DispenserInstruction {
-			if item_3_x_DispenserInstruction != nil {
+				if item_3_x_DispenserInstruction != nil {
 				if item_3_x_DispenserInstruction.AuthorReference != nil {
 					if item_3_x_DispenserInstruction.AuthorReference.Reference != nil {
 						refVal := *item_3_x_DispenserInstruction.AuthorReference.Reference
@@ -35692,7 +35692,7 @@ func (x *MedicationRequestDispenseRequest) ExtractEdges(project string) ([]json.
 	}
 	if x.DispenserInstruction != nil {
 		for _, item_3_x_DispenserInstruction := range x.DispenserInstruction {
-			if item_3_x_DispenserInstruction != nil {
+				if item_3_x_DispenserInstruction != nil {
 				if item_3_x_DispenserInstruction.AuthorReference != nil {
 					if item_3_x_DispenserInstruction.AuthorReference.Reference != nil {
 						refVal := *item_3_x_DispenserInstruction.AuthorReference.Reference
@@ -35740,7 +35740,7 @@ func (x *MedicationRequestDispenseRequest) ExtractEdges(project string) ([]json.
 	}
 	if x.DispenserInstruction != nil {
 		for _, item_3_x_DispenserInstruction := range x.DispenserInstruction {
-			if item_3_x_DispenserInstruction != nil {
+				if item_3_x_DispenserInstruction != nil {
 				if item_3_x_DispenserInstruction.AuthorReference != nil {
 					if item_3_x_DispenserInstruction.AuthorReference.Reference != nil {
 						refVal := *item_3_x_DispenserInstruction.AuthorReference.Reference
@@ -35839,7 +35839,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	_ = seen
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -35885,7 +35885,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -35931,7 +35931,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -35977,7 +35977,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36023,7 +36023,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36069,7 +36069,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36115,7 +36115,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36161,7 +36161,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36207,7 +36207,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36253,7 +36253,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36299,7 +36299,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36345,7 +36345,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36391,7 +36391,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36437,7 +36437,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36483,7 +36483,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36529,7 +36529,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36575,7 +36575,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36621,7 +36621,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36667,7 +36667,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36713,7 +36713,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36759,7 +36759,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36805,7 +36805,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36851,7 +36851,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36897,7 +36897,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36943,7 +36943,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -36989,7 +36989,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -37035,7 +37035,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.InformationSource != nil {
 		for _, item_2_x_InformationSource := range x.InformationSource {
-			if item_2_x_InformationSource != nil {
+				if item_2_x_InformationSource != nil {
 				if item_2_x_InformationSource.Reference != nil {
 					refVal := *item_2_x_InformationSource.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -37081,7 +37081,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -37127,7 +37127,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -37173,7 +37173,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.RelatedClinicalInformation != nil {
 		for _, item_2_x_RelatedClinicalInformation := range x.RelatedClinicalInformation {
-			if item_2_x_RelatedClinicalInformation != nil {
+				if item_2_x_RelatedClinicalInformation != nil {
 				if item_2_x_RelatedClinicalInformation.Reference != nil {
 					refVal := *item_2_x_RelatedClinicalInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -37219,7 +37219,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.RelatedClinicalInformation != nil {
 		for _, item_2_x_RelatedClinicalInformation := range x.RelatedClinicalInformation {
-			if item_2_x_RelatedClinicalInformation != nil {
+				if item_2_x_RelatedClinicalInformation != nil {
 				if item_2_x_RelatedClinicalInformation.Reference != nil {
 					refVal := *item_2_x_RelatedClinicalInformation.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -38361,7 +38361,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -38409,7 +38409,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -38457,7 +38457,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -38505,7 +38505,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -38553,7 +38553,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38601,7 +38601,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38649,7 +38649,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38697,7 +38697,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38745,7 +38745,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38793,7 +38793,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38841,7 +38841,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38889,7 +38889,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38937,7 +38937,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -38985,7 +38985,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39033,7 +39033,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39081,7 +39081,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39129,7 +39129,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39177,7 +39177,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39225,7 +39225,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39273,7 +39273,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39321,7 +39321,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39369,7 +39369,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39417,7 +39417,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39465,7 +39465,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39513,7 +39513,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39561,7 +39561,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39609,7 +39609,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -39742,7 +39742,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -39830,7 +39830,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -39876,7 +39876,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -39922,7 +39922,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.DerivedFrom != nil {
 		for _, item_2_x_DerivedFrom := range x.DerivedFrom {
-			if item_2_x_DerivedFrom != nil {
+				if item_2_x_DerivedFrom != nil {
 				if item_2_x_DerivedFrom.Reference != nil {
 					refVal := *item_2_x_DerivedFrom.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -39968,7 +39968,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40014,7 +40014,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40060,7 +40060,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40106,7 +40106,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40152,7 +40152,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40198,7 +40198,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40244,7 +40244,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40290,7 +40290,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40336,7 +40336,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40382,7 +40382,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40428,7 +40428,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40474,7 +40474,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40520,7 +40520,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40566,7 +40566,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40612,7 +40612,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40658,7 +40658,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40704,7 +40704,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40750,7 +40750,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40796,7 +40796,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40842,7 +40842,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40888,7 +40888,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40934,7 +40934,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -40980,7 +40980,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Focus != nil {
 		for _, item_2_x_Focus := range x.Focus {
-			if item_2_x_Focus != nil {
+				if item_2_x_Focus != nil {
 				if item_2_x_Focus.Reference != nil {
 					refVal := *item_2_x_Focus.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41026,7 +41026,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.HasMember != nil {
 		for _, item_2_x_HasMember := range x.HasMember {
-			if item_2_x_HasMember != nil {
+				if item_2_x_HasMember != nil {
 				if item_2_x_HasMember.Reference != nil {
 					refVal := *item_2_x_HasMember.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41072,7 +41072,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41118,7 +41118,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41164,7 +41164,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41210,7 +41210,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41256,7 +41256,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41302,7 +41302,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41348,7 +41348,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41394,7 +41394,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_2_x_Performer := range x.Performer {
-			if item_2_x_Performer != nil {
+				if item_2_x_Performer != nil {
 				if item_2_x_Performer.Reference != nil {
 					refVal := *item_2_x_Performer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -41818,7 +41818,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -41866,7 +41866,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -41914,7 +41914,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -41962,7 +41962,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -42010,7 +42010,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.TriggeredBy != nil {
 		for _, item_3_x_TriggeredBy := range x.TriggeredBy {
-			if item_3_x_TriggeredBy != nil {
+				if item_3_x_TriggeredBy != nil {
 				if item_3_x_TriggeredBy.Observation != nil {
 					if item_3_x_TriggeredBy.Observation.Reference != nil {
 						refVal := *item_3_x_TriggeredBy.Observation.Reference
@@ -42210,7 +42210,7 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Contact != nil {
 		for _, item_3_x_Contact := range x.Contact {
-			if item_3_x_Contact != nil {
+				if item_3_x_Contact != nil {
 				if item_3_x_Contact.Organization != nil {
 					if item_3_x_Contact.Organization.Reference != nil {
 						refVal := *item_3_x_Contact.Organization.Reference
@@ -42258,7 +42258,7 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Qualification != nil {
 		for _, item_3_x_Qualification := range x.Qualification {
-			if item_3_x_Qualification != nil {
+				if item_3_x_Qualification != nil {
 				if item_3_x_Qualification.Issuer != nil {
 					if item_3_x_Qualification.Issuer.Reference != nil {
 						refVal := *item_3_x_Qualification.Issuer.Reference
@@ -42399,7 +42399,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.GeneralPractitioner != nil {
 		for _, item_2_x_GeneralPractitioner := range x.GeneralPractitioner {
-			if item_2_x_GeneralPractitioner != nil {
+				if item_2_x_GeneralPractitioner != nil {
 				if item_2_x_GeneralPractitioner.Reference != nil {
 					refVal := *item_2_x_GeneralPractitioner.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -42445,7 +42445,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.GeneralPractitioner != nil {
 		for _, item_2_x_GeneralPractitioner := range x.GeneralPractitioner {
-			if item_2_x_GeneralPractitioner != nil {
+				if item_2_x_GeneralPractitioner != nil {
 				if item_2_x_GeneralPractitioner.Reference != nil {
 					refVal := *item_2_x_GeneralPractitioner.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -42491,7 +42491,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.GeneralPractitioner != nil {
 		for _, item_2_x_GeneralPractitioner := range x.GeneralPractitioner {
-			if item_2_x_GeneralPractitioner != nil {
+				if item_2_x_GeneralPractitioner != nil {
 				if item_2_x_GeneralPractitioner.Reference != nil {
 					refVal := *item_2_x_GeneralPractitioner.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -42579,7 +42579,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Contact != nil {
 		for _, item_3_x_Contact := range x.Contact {
-			if item_3_x_Contact != nil {
+				if item_3_x_Contact != nil {
 				if item_3_x_Contact.Organization != nil {
 					if item_3_x_Contact.Organization.Reference != nil {
 						refVal := *item_3_x_Contact.Organization.Reference
@@ -42627,7 +42627,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Link != nil {
 		for _, item_3_x_Link := range x.Link {
-			if item_3_x_Link != nil {
+				if item_3_x_Link != nil {
 				if item_3_x_Link.Other != nil {
 					if item_3_x_Link.Other.Reference != nil {
 						refVal := *item_3_x_Link.Other.Reference
@@ -42844,7 +42844,7 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.Qualification != nil {
 		for _, item_3_x_Qualification := range x.Qualification {
-			if item_3_x_Qualification != nil {
+				if item_3_x_Qualification != nil {
 				if item_3_x_Qualification.Issuer != nil {
 					if item_3_x_Qualification.Issuer.Reference != nil {
 						refVal := *item_3_x_Qualification.Issuer.Reference
@@ -43069,7 +43069,7 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 	}
 	if x.Contact != nil {
 		for _, item_3_x_Contact := range x.Contact {
-			if item_3_x_Contact != nil {
+				if item_3_x_Contact != nil {
 				if item_3_x_Contact.Organization != nil {
 					if item_3_x_Contact.Organization.Reference != nil {
 						refVal := *item_3_x_Contact.Organization.Reference
@@ -43386,7 +43386,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -43432,7 +43432,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -43478,7 +43478,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -43650,7 +43650,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Report != nil {
 		for _, item_2_x_Report := range x.Report {
-			if item_2_x_Report != nil {
+				if item_2_x_Report != nil {
 				if item_2_x_Report.Reference != nil {
 					refVal := *item_2_x_Report.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -43696,7 +43696,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Report != nil {
 		for _, item_2_x_Report := range x.Report {
-			if item_2_x_Report != nil {
+				if item_2_x_Report != nil {
 				if item_2_x_Report.Reference != nil {
 					refVal := *item_2_x_Report.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44078,7 +44078,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44124,7 +44124,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44170,7 +44170,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44216,7 +44216,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44262,7 +44262,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44308,7 +44308,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44354,7 +44354,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44400,7 +44400,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44446,7 +44446,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44492,7 +44492,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44538,7 +44538,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44584,7 +44584,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44630,7 +44630,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44676,7 +44676,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44722,7 +44722,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44768,7 +44768,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44814,7 +44814,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44860,7 +44860,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44906,7 +44906,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44952,7 +44952,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -44998,7 +44998,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -45044,7 +45044,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -45090,7 +45090,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.SupportingInfo != nil {
 		for _, item_2_x_SupportingInfo := range x.SupportingInfo {
-			if item_2_x_SupportingInfo != nil {
+				if item_2_x_SupportingInfo != nil {
 				if item_2_x_SupportingInfo.Reference != nil {
 					refVal := *item_2_x_SupportingInfo.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -45136,7 +45136,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45184,7 +45184,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45232,7 +45232,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45280,7 +45280,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45328,7 +45328,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45376,7 +45376,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45424,7 +45424,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45472,7 +45472,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45520,7 +45520,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45568,7 +45568,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45616,7 +45616,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45664,7 +45664,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45712,7 +45712,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45760,7 +45760,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45808,7 +45808,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45856,7 +45856,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45904,7 +45904,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -45952,7 +45952,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46000,7 +46000,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46048,7 +46048,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46096,7 +46096,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46144,7 +46144,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46192,7 +46192,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Complication != nil {
 		for _, item_3_x_Complication := range x.Complication {
-			if item_3_x_Complication != nil {
+				if item_3_x_Complication != nil {
 				if item_3_x_Complication.Reference != nil {
 					if item_3_x_Complication.Reference.Reference != nil {
 						refVal := *item_3_x_Complication.Reference.Reference
@@ -46240,7 +46240,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -46288,7 +46288,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -46336,7 +46336,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -46384,7 +46384,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -46432,7 +46432,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -46480,7 +46480,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -46528,7 +46528,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -46576,7 +46576,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -46624,7 +46624,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.OnBehalfOf != nil {
 					if item_3_x_Performer.OnBehalfOf.Reference != nil {
 						refVal := *item_3_x_Performer.OnBehalfOf.Reference
@@ -46672,7 +46672,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46720,7 +46720,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46768,7 +46768,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46816,7 +46816,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46864,7 +46864,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46912,7 +46912,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -46960,7 +46960,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47008,7 +47008,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47056,7 +47056,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47104,7 +47104,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47152,7 +47152,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47200,7 +47200,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47248,7 +47248,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47296,7 +47296,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47344,7 +47344,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47392,7 +47392,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47440,7 +47440,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47488,7 +47488,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47536,7 +47536,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47584,7 +47584,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47632,7 +47632,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47680,7 +47680,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47728,7 +47728,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -47776,7 +47776,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -47824,7 +47824,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -47872,7 +47872,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -47920,7 +47920,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -47968,7 +47968,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48016,7 +48016,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48064,7 +48064,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48112,7 +48112,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48160,7 +48160,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48208,7 +48208,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48256,7 +48256,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48304,7 +48304,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48352,7 +48352,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48400,7 +48400,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48448,7 +48448,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48496,7 +48496,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48544,7 +48544,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48592,7 +48592,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48640,7 +48640,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48688,7 +48688,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48736,7 +48736,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48784,7 +48784,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -48832,7 +48832,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Used != nil {
 		for _, item_3_x_Used := range x.Used {
-			if item_3_x_Used != nil {
+				if item_3_x_Used != nil {
 				if item_3_x_Used.Reference != nil {
 					if item_3_x_Used.Reference.Reference != nil {
 						refVal := *item_3_x_Used.Reference.Reference
@@ -50235,7 +50235,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -50281,7 +50281,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Result != nil {
 		for _, item_2_x_Result := range x.Result {
-			if item_2_x_Result != nil {
+				if item_2_x_Result != nil {
 				if item_2_x_Result.Reference != nil {
 					refVal := *item_2_x_Result.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -50327,7 +50327,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Site != nil {
 		for _, item_2_x_Site := range x.Site {
-			if item_2_x_Site != nil {
+				if item_2_x_Site != nil {
 				if item_2_x_Site.Reference != nil {
 					refVal := *item_2_x_Site.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -50373,7 +50373,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Site != nil {
 		for _, item_2_x_Site := range x.Site {
-			if item_2_x_Site != nil {
+				if item_2_x_Site != nil {
 				if item_2_x_Site.Reference != nil {
 					refVal := *item_2_x_Site.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -50419,7 +50419,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.AssociatedParty != nil {
 		for _, item_3_x_AssociatedParty := range x.AssociatedParty {
-			if item_3_x_AssociatedParty != nil {
+				if item_3_x_AssociatedParty != nil {
 				if item_3_x_AssociatedParty.Party != nil {
 					if item_3_x_AssociatedParty.Party.Reference != nil {
 						refVal := *item_3_x_AssociatedParty.Party.Reference
@@ -50467,7 +50467,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.AssociatedParty != nil {
 		for _, item_3_x_AssociatedParty := range x.AssociatedParty {
-			if item_3_x_AssociatedParty != nil {
+				if item_3_x_AssociatedParty != nil {
 				if item_3_x_AssociatedParty.Party != nil {
 					if item_3_x_AssociatedParty.Party.Reference != nil {
 						refVal := *item_3_x_AssociatedParty.Party.Reference
@@ -50515,7 +50515,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.AssociatedParty != nil {
 		for _, item_3_x_AssociatedParty := range x.AssociatedParty {
-			if item_3_x_AssociatedParty != nil {
+				if item_3_x_AssociatedParty != nil {
 				if item_3_x_AssociatedParty.Party != nil {
 					if item_3_x_AssociatedParty.Party.Reference != nil {
 						refVal := *item_3_x_AssociatedParty.Party.Reference
@@ -50563,7 +50563,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.ComparisonGroup != nil {
 		for _, item_3_x_ComparisonGroup := range x.ComparisonGroup {
-			if item_3_x_ComparisonGroup != nil {
+				if item_3_x_ComparisonGroup != nil {
 				if item_3_x_ComparisonGroup.ObservedGroup != nil {
 					if item_3_x_ComparisonGroup.ObservedGroup.Reference != nil {
 						refVal := *item_3_x_ComparisonGroup.ObservedGroup.Reference
@@ -50611,7 +50611,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50659,7 +50659,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50707,7 +50707,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50755,7 +50755,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50803,7 +50803,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50851,7 +50851,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50899,7 +50899,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50947,7 +50947,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -50995,7 +50995,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51043,7 +51043,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51091,7 +51091,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51139,7 +51139,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51187,7 +51187,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51235,7 +51235,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51283,7 +51283,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51331,7 +51331,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51379,7 +51379,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51427,7 +51427,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51475,7 +51475,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51523,7 +51523,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51571,7 +51571,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51619,7 +51619,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51667,7 +51667,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Focus != nil {
 		for _, item_3_x_Focus := range x.Focus {
-			if item_3_x_Focus != nil {
+				if item_3_x_Focus != nil {
 				if item_3_x_Focus.Reference != nil {
 					if item_3_x_Focus.Reference.Reference != nil {
 						refVal := *item_3_x_Focus.Reference.Reference
@@ -51715,7 +51715,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -51763,7 +51763,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -51811,7 +51811,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -51859,7 +51859,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -51995,7 +51995,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52043,7 +52043,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52091,7 +52091,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52139,7 +52139,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52187,7 +52187,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52235,7 +52235,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52283,7 +52283,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52331,7 +52331,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52379,7 +52379,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52427,7 +52427,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52475,7 +52475,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52523,7 +52523,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52571,7 +52571,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52619,7 +52619,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52667,7 +52667,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52715,7 +52715,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52763,7 +52763,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52811,7 +52811,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52859,7 +52859,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52907,7 +52907,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -52955,7 +52955,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -53003,7 +53003,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -53051,7 +53051,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	}
 	if x.RelatedArtifact != nil {
 		for _, item_3_x_RelatedArtifact := range x.RelatedArtifact {
-			if item_3_x_RelatedArtifact != nil {
+				if item_3_x_RelatedArtifact != nil {
 				if item_3_x_RelatedArtifact.ResourceReference != nil {
 					if item_3_x_RelatedArtifact.ResourceReference.Reference != nil {
 						refVal := *item_3_x_RelatedArtifact.ResourceReference.Reference
@@ -54160,7 +54160,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.Parent != nil {
 		for _, item_2_x_Parent := range x.Parent {
-			if item_2_x_Parent != nil {
+				if item_2_x_Parent != nil {
 				if item_2_x_Parent.Reference != nil {
 					refVal := *item_2_x_Parent.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -54508,7 +54508,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -54556,7 +54556,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -54604,7 +54604,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -54652,7 +54652,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -54700,10 +54700,10 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Processing != nil {
 		for _, item_4_x_Processing := range x.Processing {
-			if item_4_x_Processing != nil {
+				if item_4_x_Processing != nil {
 				if item_4_x_Processing.Additive != nil {
 					for _, item_2_item_4_x_Processing_Additive := range item_4_x_Processing.Additive {
-						if item_2_item_4_x_Processing_Additive != nil {
+							if item_2_item_4_x_Processing_Additive != nil {
 							if item_2_item_4_x_Processing_Additive.Reference != nil {
 								refVal := *item_2_item_4_x_Processing_Additive.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -57012,7 +57012,7 @@ func (x *SpecimenProcessing) ExtractEdges(project string) ([]json.RawMessage, er
 	_ = seen
 	if x.Additive != nil {
 		for _, item_2_x_Additive := range x.Additive {
-			if item_2_x_Additive != nil {
+				if item_2_x_Additive != nil {
 				if item_2_x_Additive.Reference != nil {
 					refVal := *item_2_x_Additive.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -58087,7 +58087,7 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Ingredient != nil {
 		for _, item_3_x_Ingredient := range x.Ingredient {
-			if item_3_x_Ingredient != nil {
+				if item_3_x_Ingredient != nil {
 				if item_3_x_Ingredient.SubstanceReference != nil {
 					if item_3_x_Ingredient.SubstanceReference.Reference != nil {
 						refVal := *item_3_x_Ingredient.SubstanceReference.Reference
@@ -58152,7 +58152,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	_ = seen
 	if x.Manufacturer != nil {
 		for _, item_2_x_Manufacturer := range x.Manufacturer {
-			if item_2_x_Manufacturer != nil {
+				if item_2_x_Manufacturer != nil {
 				if item_2_x_Manufacturer.Reference != nil {
 					refVal := *item_2_x_Manufacturer.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -58198,7 +58198,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Supplier != nil {
 		for _, item_2_x_Supplier := range x.Supplier {
-			if item_2_x_Supplier != nil {
+				if item_2_x_Supplier != nil {
 				if item_2_x_Supplier.Reference != nil {
 					refVal := *item_2_x_Supplier.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -58244,10 +58244,10 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Code != nil {
 		for _, item_4_x_Code := range x.Code {
-			if item_4_x_Code != nil {
+				if item_4_x_Code != nil {
 				if item_4_x_Code.Source != nil {
 					for _, item_2_item_4_x_Code_Source := range item_4_x_Code.Source {
-						if item_2_item_4_x_Code_Source != nil {
+							if item_2_item_4_x_Code_Source != nil {
 							if item_2_item_4_x_Code_Source.Reference != nil {
 								refVal := *item_2_item_4_x_Code_Source.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -58296,10 +58296,10 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Name != nil {
 		for _, item_4_x_Name := range x.Name {
-			if item_4_x_Name != nil {
+				if item_4_x_Name != nil {
 				if item_4_x_Name.Source != nil {
 					for _, item_2_item_4_x_Name_Source := range item_4_x_Name.Source {
-						if item_2_item_4_x_Name_Source != nil {
+							if item_2_item_4_x_Name_Source != nil {
 							if item_2_item_4_x_Name_Source.Reference != nil {
 								refVal := *item_2_item_4_x_Name_Source.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -58348,7 +58348,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58396,7 +58396,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58444,7 +58444,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58492,7 +58492,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58540,10 +58540,10 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Relationship != nil {
 		for _, item_4_x_Relationship := range x.Relationship {
-			if item_4_x_Relationship != nil {
+				if item_4_x_Relationship != nil {
 				if item_4_x_Relationship.Source != nil {
 					for _, item_2_item_4_x_Relationship_Source := range item_4_x_Relationship.Source {
-						if item_2_item_4_x_Relationship_Source != nil {
+							if item_2_item_4_x_Relationship_Source != nil {
 							if item_2_item_4_x_Relationship_Source.Reference != nil {
 								refVal := *item_2_item_4_x_Relationship_Source.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -58592,7 +58592,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	}
 	if x.Relationship != nil {
 		for _, item_3_x_Relationship := range x.Relationship {
-			if item_3_x_Relationship != nil {
+				if item_3_x_Relationship != nil {
 				if item_3_x_Relationship.SubstanceDefinitionReference != nil {
 					if item_3_x_Relationship.SubstanceDefinitionReference.Reference != nil {
 						refVal := *item_3_x_Relationship.SubstanceDefinitionReference.Reference
@@ -58641,7 +58641,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	if x.Structure != nil {
 		if x.Structure.SourceDocument != nil {
 			for _, item_2_x_Structure_SourceDocument := range x.Structure.SourceDocument {
-				if item_2_x_Structure_SourceDocument != nil {
+					if item_2_x_Structure_SourceDocument != nil {
 					if item_2_x_Structure_SourceDocument.Reference != nil {
 						refVal := *item_2_x_Structure_SourceDocument.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -58722,7 +58722,7 @@ func (x *SubstanceDefinitionCode) ExtractEdges(project string) ([]json.RawMessag
 	_ = seen
 	if x.Source != nil {
 		for _, item_2_x_Source := range x.Source {
-			if item_2_x_Source != nil {
+				if item_2_x_Source != nil {
 				if item_2_x_Source.Reference != nil {
 					refVal := *item_2_x_Source.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -58768,7 +58768,7 @@ func (x *SubstanceDefinitionCode) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58816,7 +58816,7 @@ func (x *SubstanceDefinitionCode) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58864,7 +58864,7 @@ func (x *SubstanceDefinitionCode) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -58912,7 +58912,7 @@ func (x *SubstanceDefinitionCode) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -59011,7 +59011,7 @@ func (x *SubstanceDefinitionName) ExtractEdges(project string) ([]json.RawMessag
 	_ = seen
 	if x.Source != nil {
 		for _, item_2_x_Source := range x.Source {
-			if item_2_x_Source != nil {
+				if item_2_x_Source != nil {
 				if item_2_x_Source.Reference != nil {
 					refVal := *item_2_x_Source.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59057,10 +59057,10 @@ func (x *SubstanceDefinitionName) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Synonym != nil {
 		for _, item_4_x_Synonym := range x.Synonym {
-			if item_4_x_Synonym != nil {
+				if item_4_x_Synonym != nil {
 				if item_4_x_Synonym.Source != nil {
 					for _, item_2_item_4_x_Synonym_Source := range item_4_x_Synonym.Source {
-						if item_2_item_4_x_Synonym_Source != nil {
+							if item_2_item_4_x_Synonym_Source != nil {
 							if item_2_item_4_x_Synonym_Source.Reference != nil {
 								refVal := *item_2_item_4_x_Synonym_Source.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -59109,10 +59109,10 @@ func (x *SubstanceDefinitionName) ExtractEdges(project string) ([]json.RawMessag
 	}
 	if x.Translation != nil {
 		for _, item_4_x_Translation := range x.Translation {
-			if item_4_x_Translation != nil {
+				if item_4_x_Translation != nil {
 				if item_4_x_Translation.Source != nil {
 					for _, item_2_item_4_x_Translation_Source := range item_4_x_Translation.Source {
-						if item_2_item_4_x_Translation_Source != nil {
+							if item_2_item_4_x_Translation_Source != nil {
 							if item_2_item_4_x_Translation_Source.Reference != nil {
 								refVal := *item_2_item_4_x_Translation_Source.Reference
 								refType, targetID, ok := splitFHIRReference(refVal)
@@ -59212,7 +59212,7 @@ func (x *SubstanceDefinitionRelationship) ExtractEdges(project string) ([]json.R
 	_ = seen
 	if x.Source != nil {
 		for _, item_2_x_Source := range x.Source {
-			if item_2_x_Source != nil {
+				if item_2_x_Source != nil {
 				if item_2_x_Source.Reference != nil {
 					refVal := *item_2_x_Source.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59334,7 +59334,7 @@ func (x *SubstanceDefinitionStructure) ExtractEdges(project string) ([]json.RawM
 	_ = seen
 	if x.SourceDocument != nil {
 		for _, item_2_x_SourceDocument := range x.SourceDocument {
-			if item_2_x_SourceDocument != nil {
+				if item_2_x_SourceDocument != nil {
 				if item_2_x_SourceDocument.Reference != nil {
 					refVal := *item_2_x_SourceDocument.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59380,7 +59380,7 @@ func (x *SubstanceDefinitionStructure) ExtractEdges(project string) ([]json.RawM
 	}
 	if x.Representation != nil {
 		for _, item_3_x_Representation := range x.Representation {
-			if item_3_x_Representation != nil {
+				if item_3_x_Representation != nil {
 				if item_3_x_Representation.Document != nil {
 					if item_3_x_Representation.Document.Reference != nil {
 						refVal := *item_3_x_Representation.Document.Reference
@@ -59563,7 +59563,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	_ = seen
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59609,7 +59609,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59655,7 +59655,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59701,7 +59701,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59747,7 +59747,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59793,7 +59793,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59839,7 +59839,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59885,7 +59885,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59931,7 +59931,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -59977,7 +59977,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60023,7 +60023,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60069,7 +60069,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60115,7 +60115,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60161,7 +60161,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60207,7 +60207,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60253,7 +60253,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60299,7 +60299,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60345,7 +60345,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60391,7 +60391,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60437,7 +60437,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60483,7 +60483,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60529,7 +60529,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -60575,7 +60575,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.BasedOn != nil {
 		for _, item_2_x_BasedOn := range x.BasedOn {
-			if item_2_x_BasedOn != nil {
+				if item_2_x_BasedOn != nil {
 				if item_2_x_BasedOn.Reference != nil {
 					refVal := *item_2_x_BasedOn.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -62721,7 +62721,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.PartOf != nil {
 		for _, item_2_x_PartOf := range x.PartOf {
-			if item_2_x_PartOf != nil {
+				if item_2_x_PartOf != nil {
 				if item_2_x_PartOf.Reference != nil {
 					refVal := *item_2_x_PartOf.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -62935,7 +62935,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -62983,7 +62983,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63031,7 +63031,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63079,7 +63079,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63127,7 +63127,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63175,7 +63175,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63223,7 +63223,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63271,7 +63271,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63319,7 +63319,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63367,7 +63367,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63415,7 +63415,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63463,7 +63463,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63511,7 +63511,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63559,7 +63559,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63607,7 +63607,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63655,7 +63655,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63703,7 +63703,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63751,7 +63751,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63799,7 +63799,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63847,7 +63847,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63895,7 +63895,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63943,7 +63943,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -63991,7 +63991,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Input != nil {
 		for _, item_3_x_Input := range x.Input {
-			if item_3_x_Input != nil {
+				if item_3_x_Input != nil {
 				if item_3_x_Input.ValueReference != nil {
 					if item_3_x_Input.ValueReference.Reference != nil {
 						refVal := *item_3_x_Input.ValueReference.Reference
@@ -64039,7 +64039,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -64087,7 +64087,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -64135,7 +64135,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -64183,7 +64183,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Note != nil {
 		for _, item_3_x_Note := range x.Note {
-			if item_3_x_Note != nil {
+				if item_3_x_Note != nil {
 				if item_3_x_Note.AuthorReference != nil {
 					if item_3_x_Note.AuthorReference.Reference != nil {
 						refVal := *item_3_x_Note.AuthorReference.Reference
@@ -64231,7 +64231,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64279,7 +64279,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64327,7 +64327,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64375,7 +64375,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64423,7 +64423,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64471,7 +64471,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64519,7 +64519,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64567,7 +64567,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64615,7 +64615,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64663,7 +64663,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64711,7 +64711,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64759,7 +64759,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64807,7 +64807,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64855,7 +64855,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64903,7 +64903,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64951,7 +64951,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -64999,7 +64999,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65047,7 +65047,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65095,7 +65095,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65143,7 +65143,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65191,7 +65191,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65239,7 +65239,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65287,7 +65287,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Output != nil {
 		for _, item_3_x_Output := range x.Output {
-			if item_3_x_Output != nil {
+				if item_3_x_Output != nil {
 				if item_3_x_Output.ValueReference != nil {
 					if item_3_x_Output.ValueReference.Reference != nil {
 						refVal := *item_3_x_Output.ValueReference.Reference
@@ -65335,7 +65335,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -65383,7 +65383,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -65431,7 +65431,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -65479,7 +65479,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Performer != nil {
 		for _, item_3_x_Performer := range x.Performer {
-			if item_3_x_Performer != nil {
+				if item_3_x_Performer != nil {
 				if item_3_x_Performer.Actor != nil {
 					if item_3_x_Performer.Actor.Reference != nil {
 						refVal := *item_3_x_Performer.Actor.Reference
@@ -65527,7 +65527,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65575,7 +65575,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65623,7 +65623,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65671,7 +65671,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65719,7 +65719,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65767,7 +65767,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65815,7 +65815,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65863,7 +65863,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65911,7 +65911,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -65959,7 +65959,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66007,7 +66007,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66055,7 +66055,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66103,7 +66103,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66151,7 +66151,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66199,7 +66199,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66247,7 +66247,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66295,7 +66295,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66343,7 +66343,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66391,7 +66391,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66439,7 +66439,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66487,7 +66487,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66535,7 +66535,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66583,7 +66583,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.Reason != nil {
 		for _, item_3_x_Reason := range x.Reason {
-			if item_3_x_Reason != nil {
+				if item_3_x_Reason != nil {
 				if item_3_x_Reason.Reference != nil {
 					if item_3_x_Reason.Reference.Reference != nil {
 						refVal := *item_3_x_Reason.Reference.Reference
@@ -66631,7 +66631,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66679,7 +66679,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66727,7 +66727,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66775,7 +66775,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66823,7 +66823,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66871,7 +66871,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66919,7 +66919,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -66967,7 +66967,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67015,7 +67015,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67063,7 +67063,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67111,7 +67111,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67159,7 +67159,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67207,7 +67207,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67255,7 +67255,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67303,7 +67303,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67351,7 +67351,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67399,7 +67399,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67447,7 +67447,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67495,7 +67495,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67543,7 +67543,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67591,7 +67591,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67639,7 +67639,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67687,7 +67687,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	}
 	if x.RequestedPerformer != nil {
 		for _, item_3_x_RequestedPerformer := range x.RequestedPerformer {
-			if item_3_x_RequestedPerformer != nil {
+				if item_3_x_RequestedPerformer != nil {
 				if item_3_x_RequestedPerformer.Reference != nil {
 					if item_3_x_RequestedPerformer.Reference.Reference != nil {
 						refVal := *item_3_x_RequestedPerformer.Reference.Reference
@@ -67736,7 +67736,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	if x.Restriction != nil {
 		if x.Restriction.Recipient != nil {
 			for _, item_2_x_Restriction_Recipient := range x.Restriction.Recipient {
-				if item_2_x_Restriction_Recipient != nil {
+					if item_2_x_Restriction_Recipient != nil {
 					if item_2_x_Restriction_Recipient.Reference != nil {
 						refVal := *item_2_x_Restriction_Recipient.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -67784,7 +67784,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	if x.Restriction != nil {
 		if x.Restriction.Recipient != nil {
 			for _, item_2_x_Restriction_Recipient := range x.Restriction.Recipient {
-				if item_2_x_Restriction_Recipient != nil {
+					if item_2_x_Restriction_Recipient != nil {
 					if item_2_x_Restriction_Recipient.Reference != nil {
 						refVal := *item_2_x_Restriction_Recipient.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -67832,7 +67832,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	if x.Restriction != nil {
 		if x.Restriction.Recipient != nil {
 			for _, item_2_x_Restriction_Recipient := range x.Restriction.Recipient {
-				if item_2_x_Restriction_Recipient != nil {
+					if item_2_x_Restriction_Recipient != nil {
 					if item_2_x_Restriction_Recipient.Reference != nil {
 						refVal := *item_2_x_Restriction_Recipient.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -67880,7 +67880,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	if x.Restriction != nil {
 		if x.Restriction.Recipient != nil {
 			for _, item_2_x_Restriction_Recipient := range x.Restriction.Recipient {
-				if item_2_x_Restriction_Recipient != nil {
+					if item_2_x_Restriction_Recipient != nil {
 					if item_2_x_Restriction_Recipient.Reference != nil {
 						refVal := *item_2_x_Restriction_Recipient.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -67928,7 +67928,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 	if x.Restriction != nil {
 		if x.Restriction.Recipient != nil {
 			for _, item_2_x_Restriction_Recipient := range x.Restriction.Recipient {
-				if item_2_x_Restriction_Recipient != nil {
+					if item_2_x_Restriction_Recipient != nil {
 					if item_2_x_Restriction_Recipient.Reference != nil {
 						refVal := *item_2_x_Restriction_Recipient.Reference
 						refType, targetID, ok := splitFHIRReference(refVal)
@@ -76699,7 +76699,7 @@ func (x *TaskRestriction) ExtractEdges(project string) ([]json.RawMessage, error
 	_ = seen
 	if x.Recipient != nil {
 		for _, item_2_x_Recipient := range x.Recipient {
-			if item_2_x_Recipient != nil {
+				if item_2_x_Recipient != nil {
 				if item_2_x_Recipient.Reference != nil {
 					refVal := *item_2_x_Recipient.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -76745,7 +76745,7 @@ func (x *TaskRestriction) ExtractEdges(project string) ([]json.RawMessage, error
 	}
 	if x.Recipient != nil {
 		for _, item_2_x_Recipient := range x.Recipient {
-			if item_2_x_Recipient != nil {
+				if item_2_x_Recipient != nil {
 				if item_2_x_Recipient.Reference != nil {
 					refVal := *item_2_x_Recipient.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -76791,7 +76791,7 @@ func (x *TaskRestriction) ExtractEdges(project string) ([]json.RawMessage, error
 	}
 	if x.Recipient != nil {
 		for _, item_2_x_Recipient := range x.Recipient {
-			if item_2_x_Recipient != nil {
+				if item_2_x_Recipient != nil {
 				if item_2_x_Recipient.Reference != nil {
 					refVal := *item_2_x_Recipient.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -76837,7 +76837,7 @@ func (x *TaskRestriction) ExtractEdges(project string) ([]json.RawMessage, error
 	}
 	if x.Recipient != nil {
 		for _, item_2_x_Recipient := range x.Recipient {
-			if item_2_x_Recipient != nil {
+				if item_2_x_Recipient != nil {
 				if item_2_x_Recipient.Reference != nil {
 					refVal := *item_2_x_Recipient.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -76883,7 +76883,7 @@ func (x *TaskRestriction) ExtractEdges(project string) ([]json.RawMessage, error
 	}
 	if x.Recipient != nil {
 		for _, item_2_x_Recipient := range x.Recipient {
-			if item_2_x_Recipient != nil {
+				if item_2_x_Recipient != nil {
 				if item_2_x_Recipient.Reference != nil {
 					refVal := *item_2_x_Recipient.Reference
 					refType, targetID, ok := splitFHIRReference(refVal)
@@ -76980,7 +76980,7 @@ func (x *TriggerDefinition) ExtractEdges(project string) ([]json.RawMessage, err
 	_ = seen
 	if x.Data != nil {
 		for _, item_3_x_Data := range x.Data {
-			if item_3_x_Data != nil {
+				if item_3_x_Data != nil {
 				if item_3_x_Data.SubjectReference != nil {
 					if item_3_x_Data.SubjectReference.Reference != nil {
 						refVal := *item_3_x_Data.SubjectReference.Reference

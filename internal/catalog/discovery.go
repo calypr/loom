@@ -122,7 +122,7 @@ func DiscoverPopulatedReferences(ctx context.Context, opts PopulatedReferenceOpt
 	bindVars := map[string]any{
 		"project":                          opts.Project,
 		"auth_resource_paths":              cloneStrings(opts.AuthResourcePaths),
-		"auth_resource_paths_unrestricted": opts.AuthResourcePaths == nil,
+		"auth_resource_paths_unrestricted": len(opts.AuthResourcePaths) == 0,
 		"mode":                             mode,
 	}
 	switch dbio.BackendName(opts.Backend) {

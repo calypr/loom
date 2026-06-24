@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 
+	"arangodb-proto/internal/catalogcache"
 	"arangodb-proto/internal/graphqlapi"
 	"arangodb-proto/internal/proto"
 	"arangodb-proto/internal/writeapi"
@@ -48,6 +49,7 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	discoveryCache := catalogcache.New()
 	var scopeResolver *writeapi.ScopeResolver
 	authenticator := writeapi.Authenticator(writeapi.BearerTokenAuthenticator{})
 	authorizer := writeapi.Authorizer(writeapi.ScopeAuthorizer{})
@@ -66,14 +68,22 @@ func main() {
 		Runner:        writeapi.ProtoRunner{BaseOptions: loadOpts},
 		Logger:        logger,
 		MaxConcurrent: *maxConcurrent,
+		OnSuccess: func(project string) {
+			discoveryCache.InvalidateProject(project)
+			if scopeResolver != nil {
+				scopeResolver.InvalidateProject(project)
+			}
+		},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
-		ConnectionOptions: loadOpts.ConnectionOptions,
-		ScopeResolver:     scopeResolver,
+		ConnectionOptions:  loadOpts.ConnectionOptions,
+		DiscoverReferences: discoveryCache.DiscoverReferences(proto.DiscoverPopulatedReferences),
+		DiscoverFields:     discoveryCache.DiscoverFields(proto.DiscoverPopulatedFields),
+		ScopeResolver:      scopeResolver,
 	})
 	graphHandler := graphqlapi.NewHandler(graphqlapi.NewResolver(graphService))
 	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{

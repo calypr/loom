@@ -1,0 +1,22 @@
+schema:
+  - internal/graphqlapi/schema.graphqls
+
+exec:
+  filename: internal/graphqlapi/generated.go
+  package: graphqlapi
+
+model:
+  filename: internal/graphqlapi/model/models.go
+  package: model
+
+resolver:
+  layout: follow-schema
+  dir: internal/graphqlapi
+  package: graphqlapi
+
+skip_mod_tidy: true
+
+models:
+  JSON:
+    model:
+      - encoding/json.RawMessage

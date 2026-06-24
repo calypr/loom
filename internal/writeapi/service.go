@@ -104,12 +104,14 @@ type ServiceConfig struct {
 	Runner        Runner
 	MaxConcurrent int
 	Logger        *slog.Logger
+	OnSuccess     func(project string)
 }
 
 type Service struct {
-	runner Runner
-	sem    chan struct{}
-	logger *slog.Logger
+	runner    Runner
+	sem       chan struct{}
+	logger    *slog.Logger
+	onSuccess func(project string)
 
 	mu  sync.RWMutex
 	ops map[string]*operationState
@@ -133,10 +135,11 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		runner: cfg.Runner,
-		sem:    make(chan struct{}, cfg.MaxConcurrent),
-		logger: cfg.Logger,
-		ops:    make(map[string]*operationState),
+		runner:    cfg.Runner,
+		sem:       make(chan struct{}, cfg.MaxConcurrent),
+		logger:    cfg.Logger,
+		onSuccess: cfg.OnSuccess,
+		ops:       make(map[string]*operationState),
 	}, nil
 }
 
@@ -260,6 +263,9 @@ func (s *Service) runOperation(ctx context.Context, state *operationState, req I
 			},
 		})
 		s.logger.Info("import succeeded", "import_id", state.op.ID, "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
+		if s.onSuccess != nil {
+			s.onSuccess(req.Project)
+		}
 	}
 	state.op.EventCount = len(state.events)
 }

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -59,19 +60,22 @@ type ComplexityRoot struct {
 	}
 
 	DataframeFieldHint struct {
-		DistinctTruncated func(childComplexity int) int
-		DistinctValues    func(childComplexity int) int
-		DocCount          func(childComplexity int) int
-		FieldRef          func(childComplexity int) int
-		Kind              func(childComplexity int) int
-		Label             func(childComplexity int) int
-		Path              func(childComplexity int) int
-		PivotCandidate    func(childComplexity int) int
-		PivotColumns      func(childComplexity int) int
-		PivotKind         func(childComplexity int) int
-		ResourceType      func(childComplexity int) int
-		SampleCount       func(childComplexity int) int
-		Selector          func(childComplexity int) int
+		DefaultPivotColumnSelector func(childComplexity int) int
+		DefaultPivotValueSelector  func(childComplexity int) int
+		DistinctTruncated          func(childComplexity int) int
+		DistinctValues             func(childComplexity int) int
+		DocCount                   func(childComplexity int) int
+		FieldRef                   func(childComplexity int) int
+		Kind                       func(childComplexity int) int
+		Label                      func(childComplexity int) int
+		Path                       func(childComplexity int) int
+		PivotCandidate             func(childComplexity int) int
+		PivotColumns               func(childComplexity int) int
+		PivotFamily                func(childComplexity int) int
+		PivotKind                  func(childComplexity int) int
+		ResourceType               func(childComplexity int) int
+		SampleCount                func(childComplexity int) int
+		Selector                   func(childComplexity int) int
 	}
 
 	DataframeFieldPredicate struct {
@@ -110,10 +114,6 @@ type ComplexityRoot struct {
 		Columns  func(childComplexity int) int
 		RowCount func(childComplexity int) int
 		Rows     func(childComplexity int) int
-	}
-
-	FhirDataframeRow struct {
-		Data func(childComplexity int) int
 	}
 
 	Mutation struct {
@@ -207,6 +207,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.DataframeBuilderIntrospection.Traversals(childComplexity), true
 
+	case "DataframeFieldHint.defaultPivotColumnSelector":
+		if e.complexity.DataframeFieldHint.DefaultPivotColumnSelector == nil {
+			break
+		}
+
+		return e.complexity.DataframeFieldHint.DefaultPivotColumnSelector(childComplexity), true
+
+	case "DataframeFieldHint.defaultPivotValueSelector":
+		if e.complexity.DataframeFieldHint.DefaultPivotValueSelector == nil {
+			break
+		}
+
+		return e.complexity.DataframeFieldHint.DefaultPivotValueSelector(childComplexity), true
+
 	case "DataframeFieldHint.distinctTruncated":
 		if e.complexity.DataframeFieldHint.DistinctTruncated == nil {
 			break
@@ -269,6 +283,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.DataframeFieldHint.PivotColumns(childComplexity), true
+
+	case "DataframeFieldHint.pivotFamily":
+		if e.complexity.DataframeFieldHint.PivotFamily == nil {
+			break
+		}
+
+		return e.complexity.DataframeFieldHint.PivotFamily(childComplexity), true
 
 	case "DataframeFieldHint.pivotKind":
 		if e.complexity.DataframeFieldHint.PivotKind == nil {
@@ -437,13 +458,6 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.FhirDataframeResult.Rows(childComplexity), true
-
-	case "FhirDataframeRow.data":
-		if e.complexity.FhirDataframeRow.Data == nil {
-			break
-		}
-
-		return e.complexity.FhirDataframeRow.Data(childComplexity), true
 
 	case "Mutation.runFhirDataframe":
 		if e.complexity.Mutation.RunFhirDataframe == nil {
@@ -1186,6 +1200,12 @@ func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_fields(_ 
 				return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
 			case "pivotColumns":
 				return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
+			case "pivotFamily":
+				return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
+			case "defaultPivotColumnSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
+			case "defaultPivotValueSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldHint", field.Name)
 		},
@@ -1258,6 +1278,12 @@ func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_pivotFiel
 				return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
 			case "pivotColumns":
 				return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
+			case "pivotFamily":
+				return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
+			case "defaultPivotColumnSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
+			case "defaultPivotValueSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldHint", field.Name)
 		},
@@ -1842,6 +1868,145 @@ func (ec *executionContext) fieldContext_DataframeFieldHint_pivotColumns(_ conte
 	return fc, nil
 }
 
+func (ec *executionContext) _DataframeFieldHint_pivotFamily(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PivotFamily, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.FhirPivotFamily)
+	fc.Result = res
+	return ec.marshalOFhirPivotFamily2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotFamily(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeFieldHint_pivotFamily(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeFieldHint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type FhirPivotFamily does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeFieldHint_defaultPivotColumnSelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DefaultPivotColumnSelector, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeFieldSelector)
+	fc.Result = res
+	return ec.marshalODataframeFieldSelector2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐDataframeFieldSelector(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeFieldHint_defaultPivotColumnSelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeFieldHint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "sourcePath":
+				return ec.fieldContext_DataframeFieldSelector_sourcePath(ctx, field)
+			case "where":
+				return ec.fieldContext_DataframeFieldSelector_where(ctx, field)
+			case "valuePath":
+				return ec.fieldContext_DataframeFieldSelector_valuePath(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldSelector", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeFieldHint_defaultPivotValueSelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DefaultPivotValueSelector, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeFieldSelector)
+	fc.Result = res
+	return ec.marshalODataframeFieldSelector2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐDataframeFieldSelector(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeFieldHint_defaultPivotValueSelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeFieldHint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "sourcePath":
+				return ec.fieldContext_DataframeFieldSelector_sourcePath(ctx, field)
+			case "where":
+				return ec.fieldContext_DataframeFieldSelector_where(ctx, field)
+			case "valuePath":
+				return ec.fieldContext_DataframeFieldSelector_valuePath(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldSelector", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DataframeFieldPredicate_path(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldPredicate) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DataframeFieldPredicate_path(ctx, field)
 	if err != nil {
@@ -2359,6 +2524,12 @@ func (ec *executionContext) fieldContext_DataframeResourceHints_fields(_ context
 				return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
 			case "pivotColumns":
 				return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
+			case "pivotFamily":
+				return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
+			case "defaultPivotColumnSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
+			case "defaultPivotValueSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldHint", field.Name)
 		},
@@ -2431,6 +2602,12 @@ func (ec *executionContext) fieldContext_DataframeResourceHints_pivotFields(_ co
 				return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
 			case "pivotColumns":
 				return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
+			case "pivotFamily":
+				return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
+			case "defaultPivotColumnSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
+			case "defaultPivotValueSelector":
+				return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type DataframeFieldHint", field.Name)
 		},
@@ -2738,9 +2915,9 @@ func (ec *executionContext) _FhirDataframeResult_rows(ctx context.Context, field
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]*model.FhirDataframeRow)
+	res := resTmp.(json.RawMessage)
 	fc.Result = res
-	return ec.marshalNFhirDataframeRow2ᚕᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirDataframeRowᚄ(ctx, field.Selections, res)
+	return ec.marshalNJSON2encodingᚋjsonᚐRawMessage(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_FhirDataframeResult_rows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -2750,11 +2927,7 @@ func (ec *executionContext) fieldContext_FhirDataframeResult_rows(_ context.Cont
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "data":
-				return ec.fieldContext_FhirDataframeRow_data(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type FhirDataframeRow", field.Name)
+			return nil, errors.New("field of type JSON does not have child fields")
 		},
 	}
 	return fc, nil
@@ -2799,50 +2972,6 @@ func (ec *executionContext) fieldContext_FhirDataframeResult_rowCount(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _FhirDataframeRow_data(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeRow) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FhirDataframeRow_data(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Data, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(map[string]interface{})
-	fc.Result = res
-	return ec.marshalNJSON2map(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_FhirDataframeRow_data(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "FhirDataframeRow",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type JSON does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5467,11 +5596,11 @@ func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, ob
 		asMap[k] = v
 	}
 
-	if _, present := asMap["pivotKind"]; !present {
-		asMap["pivotKind"] = "CODEABLE_CONCEPT_DISPLAY_VALUE"
+	if _, present := asMap["columns"]; !present {
+		asMap["columns"] = []any{}
 	}
 
-	fieldsInOrder := [...]string{"name", "fieldRef", "fhirPath", "pivotKind", "selectedColumns", "valueFieldRef", "valuePath"}
+	fieldsInOrder := [...]string{"name", "fieldRef", "columnSelector", "valueSelector", "columns"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -5492,41 +5621,27 @@ func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, ob
 				return it, err
 			}
 			it.FieldRef = data
-		case "fhirPath":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fhirPath"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+		case "columnSelector":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("columnSelector"))
+			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirFieldSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.FhirPath = data
-		case "pivotKind":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pivotKind"))
-			data, err := ec.unmarshalOFhirPivotKind2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotKind(ctx, v)
+			it.ColumnSelector = data
+		case "valueSelector":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueSelector"))
+			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirFieldSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.PivotKind = data
-		case "selectedColumns":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selectedColumns"))
+			it.ValueSelector = data
+		case "columns":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("columns"))
 			data, err := ec.unmarshalNString2ᚕstringᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.SelectedColumns = data
-		case "valueFieldRef":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueFieldRef"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ValueFieldRef = data
-		case "valuePath":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valuePath"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.ValuePath = data
+			it.Columns = data
 		}
 	}
 
@@ -5846,6 +5961,12 @@ func (ec *executionContext) _DataframeFieldHint(ctx context.Context, sel ast.Sel
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "pivotFamily":
+			out.Values[i] = ec._DataframeFieldHint_pivotFamily(ctx, field, obj)
+		case "defaultPivotColumnSelector":
+			out.Values[i] = ec._DataframeFieldHint_defaultPivotColumnSelector(ctx, field, obj)
+		case "defaultPivotValueSelector":
+			out.Values[i] = ec._DataframeFieldHint_defaultPivotValueSelector(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -6141,45 +6262,6 @@ func (ec *executionContext) _FhirDataframeResult(ctx context.Context, sel ast.Se
 			}
 		case "rowCount":
 			out.Values[i] = ec._FhirDataframeResult_rowCount(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var fhirDataframeRowImplementors = []string{"FhirDataframeRow"}
-
-func (ec *executionContext) _FhirDataframeRow(ctx context.Context, sel ast.SelectionSet, obj *model.FhirDataframeRow) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, fhirDataframeRowImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("FhirDataframeRow")
-		case "data":
-			out.Values[i] = ec._FhirDataframeRow_data(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -6912,60 +6994,6 @@ func (ec *executionContext) marshalNFhirDataframeResult2ᚖarangodbᚑprotoᚋin
 	return ec._FhirDataframeResult(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNFhirDataframeRow2ᚕᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirDataframeRowᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.FhirDataframeRow) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNFhirDataframeRow2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirDataframeRow(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNFhirDataframeRow2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirDataframeRow(ctx context.Context, sel ast.SelectionSet, v *model.FhirDataframeRow) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._FhirDataframeRow(ctx, sel, v)
-}
-
 func (ec *executionContext) unmarshalNFhirFieldPredicateOperation2arangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirFieldPredicateOperation(ctx context.Context, v any) (model.FhirFieldPredicateOperation, error) {
 	var res model.FhirFieldPredicateOperation
 	err := res.UnmarshalGQL(v)
@@ -7060,12 +7088,12 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 	return res
 }
 
-func (ec *executionContext) unmarshalNJSON2map(ctx context.Context, v any) (map[string]interface{}, error) {
+func (ec *executionContext) unmarshalNJSON2encodingᚋjsonᚐRawMessage(ctx context.Context, v any) (json.RawMessage, error) {
 	res, err := ec.unmarshalInputJSON(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNJSON2map(ctx context.Context, sel ast.SelectionSet, v map[string]interface{}) graphql.Marshaler {
+func (ec *executionContext) marshalNJSON2encodingᚋjsonᚐRawMessage(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
@@ -7408,6 +7436,13 @@ func (ec *executionContext) marshalODataframeFieldPredicate2ᚖarangodbᚑproto�
 	return ec._DataframeFieldPredicate(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalODataframeFieldSelector2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐDataframeFieldSelector(ctx context.Context, sel ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DataframeFieldSelector(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalOFhirAggregateInput2ᚕᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirAggregateInputᚄ(ctx context.Context, v any) ([]*model.FhirAggregateInput, error) {
 	if v == nil {
 		return nil, nil
@@ -7464,6 +7499,22 @@ func (ec *executionContext) unmarshalOFhirFieldSelectorInput2ᚖarangodbᚑproto
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalOFhirPivotFamily2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotFamily(ctx context.Context, v any) (*model.FhirPivotFamily, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(model.FhirPivotFamily)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFhirPivotFamily2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotFamily(ctx context.Context, sel ast.SelectionSet, v *model.FhirPivotFamily) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
 func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotInputᚄ(ctx context.Context, v any) ([]*model.FhirPivotInput, error) {
 	if v == nil {
 		return nil, nil
@@ -7482,22 +7533,6 @@ func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖarangodbᚑprotoᚋin
 		}
 	}
 	return res, nil
-}
-
-func (ec *executionContext) unmarshalOFhirPivotKind2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotKind(ctx context.Context, v any) (*model.FhirPivotKind, error) {
-	if v == nil {
-		return nil, nil
-	}
-	var res = new(model.FhirPivotKind)
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOFhirPivotKind2ᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirPivotKind(ctx context.Context, sel ast.SelectionSet, v *model.FhirPivotKind) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return v
 }
 
 func (ec *executionContext) unmarshalOFhirRepresentativeSliceInput2ᚕᚖarangodbᚑprotoᚋinternalᚋgraphqlapiᚋmodelᚐFhirRepresentativeSliceInputᚄ(ctx context.Context, v any) ([]*model.FhirRepresentativeSliceInput, error) {

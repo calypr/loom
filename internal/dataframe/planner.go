@@ -1,6 +1,11 @@
 package dataframe
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"arangodb-proto/internal/fhirsemantics"
+)
 
 type PlanHint struct {
 	Mode                    string
@@ -80,19 +85,16 @@ func logicalNodesFromTraversal(in []TraversalStep) []logicalNode {
 	return out
 }
 
-func lowerGraphQLBuilder(builder Builder) (Builder, bool) {
+func lowerGraphQLBuilder(builder Builder) (Builder, error) {
 	request := buildLogicalRequest(builder)
 	if request.Root.ResourceType != "Patient" {
-		builder.PlanHint = &PlanHint{Mode: "generic_traversal"}
-		return builder, false
+		return Builder{}, unsupportedLoweringError("optimized lowering currently supports only Patient-root dataframe requests")
 	}
-	if !supportsPatientCaseAssayFamily(request.Root, request.Root.ResourceType) {
-		builder.PlanHint = &PlanHint{Mode: "generic_traversal"}
-		return builder, false
+	if !supportsSemanticLoweringFamily(request.Root, request.Root.ResourceType) {
+		return Builder{}, unsupportedLoweringError("one or more traversals are outside the supported optimized FHIR traversal family")
 	}
 	if !shouldUseStructuralLowering(request.Root) {
-		builder.PlanHint = &PlanHint{Mode: "generic_traversal"}
-		return builder, false
+		return Builder{}, unsupportedLoweringError("request does not use a supported optimized dataframe shape; add supported traversals, aggregates, slices, or pivots")
 	}
 
 	ctx := &loweringContext{
@@ -113,10 +115,9 @@ func lowerGraphQLBuilder(builder Builder) (Builder, bool) {
 		patientTypeSets: map[string]string{},
 	}
 
-	ctx.classifyDocumentReferences = shouldClassifyDocumentReferenceFields(request.Root)
+	ctx.classifyDocumentReferences = requestUsesDocumentReferenceSummary(request.Root)
 	if !ctx.lowerPatientRoot(request.Root) {
-		builder.PlanHint = &PlanHint{Mode: "generic_traversal"}
-		return builder, false
+		return Builder{}, unsupportedLoweringError("request matches the optimized family, but required semantic lowering rules are not implemented yet")
 	}
 
 	ctx.builder.PlanHint = &PlanHint{
@@ -126,37 +127,27 @@ func lowerGraphQLBuilder(builder Builder) (Builder, bool) {
 		ClassifiedFileSummaries: ctx.documentReferenceSummarySet != "",
 		StudyLookup:             ctx.studyLookupSet != "",
 	}
-	return ctx.builder, true
+	return ctx.builder, nil
 }
 
-func supportsPatientCaseAssayFamily(node logicalNode, sourceType string) bool {
+func unsupportedLoweringError(msg string) error {
+	return fmt.Errorf("unsupported dataframe query shape: %s", msg)
+}
+
+func supportsSemanticLoweringFamily(node logicalNode, sourceType string) bool {
 	for _, child := range node.Children {
-		if !supportsPatientCaseAssayTraversal(sourceType, child) {
+		if _, ok := fhirsemantics.ResolveTraversal(sourceType, child.Label, child.ResourceType); !ok {
 			return false
 		}
-		if !supportsPatientCaseAssayFamily(child, child.ResourceType) {
+		if !supportsSemanticLoweringFamily(child, child.ResourceType) {
 			return false
 		}
 	}
 	return true
 }
 
-func supportsPatientCaseAssayTraversal(sourceType string, node logicalNode) bool {
-	switch sourceType {
-	case "Patient":
-		return node.Label == "subject_Patient" && containsString([]string{"Condition", "ResearchSubject", "Specimen", "MedicationAdministration", "DocumentReference"}, node.ResourceType)
-	case "Specimen":
-		return (node.Label == "member_entity_Specimen" && node.ResourceType == "Group") ||
-			(node.Label == "subject_Specimen" && node.ResourceType == "DocumentReference")
-	case "Group":
-		return node.Label == "subject_Group" && node.ResourceType == "DocumentReference"
-	default:
-		return false
-	}
-}
-
 func (ctx *loweringContext) lowerPatientRoot(root logicalNode) bool {
-	useRootNeighbors := shouldUseRootNeighborSet(root.Children)
+	useRootNeighbors := shouldUseRootNeighborSet(root.Children, root.ResourceType)
 	if useRootNeighbors {
 		ctx.rootNeighborSet = ctx.ensureSet(NamedSet{
 			Name:   "root_patient_neighbor_set",
@@ -167,9 +158,13 @@ func (ctx *loweringContext) lowerPatientRoot(root logicalNode) bool {
 	}
 
 	for _, child := range root.Children {
-		switch child.ResourceType {
-		case "Condition", "ResearchSubject", "Specimen", "MedicationAdministration":
-			sourceSet := ctx.ensurePatientChildSet(child.ResourceType, useRootNeighbors)
+		spec, ok := fhirsemantics.ResolveTraversal(root.ResourceType, child.Label, child.ResourceType)
+		if !ok {
+			return false
+		}
+		switch spec.Role {
+		case fhirsemantics.TraversalRolePatientNeighborChild:
+			sourceSet := ctx.ensurePatientChildSet(spec, useRootNeighbors)
 			if child.ResourceType == "ResearchSubject" && requestNeedsStudyHydration(child) {
 				ctx.ensureStudyLookupSet(sourceSet)
 			}
@@ -177,12 +172,25 @@ func (ctx *loweringContext) lowerPatientRoot(root logicalNode) bool {
 				if !ctx.lowerSpecimenNode(child, sourceSet) {
 					return false
 				}
+			} else if child.ResourceType == "Group" {
+				if !ctx.lowerGroupNode(child, sourceSet) {
+					return false
+				}
 			} else {
 				ctx.lowerNodeSelections(child, sourceSet, false)
 			}
-		case "DocumentReference":
+		case fhirsemantics.TraversalRolePatientDocumentReference:
 			sourceSet := ctx.ensurePatientDocumentReferenceSet(useRootNeighbors)
 			ctx.lowerDocumentReferenceNode(child, sourceSet)
+		case fhirsemantics.TraversalRolePatientDirectChild:
+			sourceSet := ctx.ensureDirectTraversalSet(spec, "")
+			if child.ResourceType == "Group" {
+				if !ctx.lowerGroupNode(child, sourceSet) {
+					return false
+				}
+			} else {
+				ctx.lowerNodeSelections(child, sourceSet, false)
+			}
 		default:
 			return false
 		}
@@ -197,23 +205,38 @@ func (ctx *loweringContext) lowerPatientRoot(root logicalNode) bool {
 func (ctx *loweringContext) lowerSpecimenNode(node logicalNode, specimenSet string) bool {
 	ctx.lowerNodeSelections(node, specimenSet, false)
 	for _, child := range node.Children {
-		switch child.ResourceType {
-		case "Group":
+		spec, ok := fhirsemantics.ResolveTraversal(node.ResourceType, child.Label, child.ResourceType)
+		if !ok {
+			return false
+		}
+		switch spec.Role {
+		case fhirsemantics.TraversalRoleSpecimenGroup:
 			groupSet := ctx.ensureSpecimenGroupSet(specimenSet)
-			ctx.lowerNodeSelections(child, groupSet, false)
-			for _, grandchild := range child.Children {
-				if grandchild.ResourceType != "DocumentReference" {
-					return false
-				}
-				docSet := ctx.ensureGroupDocumentReferenceSet(groupSet)
-				ctx.lowerDocumentReferenceNode(grandchild, docSet)
+			if !ctx.lowerGroupNode(child, groupSet) {
+				return false
 			}
-		case "DocumentReference":
+		case fhirsemantics.TraversalRoleSpecimenDocumentReference:
 			docSet := ctx.ensureSpecimenDocumentReferenceSet(specimenSet)
 			ctx.lowerDocumentReferenceNode(child, docSet)
 		default:
 			return false
 		}
+	}
+	return true
+}
+
+func (ctx *loweringContext) lowerGroupNode(node logicalNode, groupSet string) bool {
+	ctx.lowerNodeSelections(node, groupSet, false)
+	for _, child := range node.Children {
+		spec, ok := fhirsemantics.ResolveTraversal(node.ResourceType, child.Label, child.ResourceType)
+		if !ok {
+			return false
+		}
+		if spec.Role != fhirsemantics.TraversalRoleGroupDocumentReference {
+			return false
+		}
+		docSet := ctx.ensureGroupDocumentReferenceSet(groupSet)
+		ctx.lowerDocumentReferenceNode(child, docSet)
 	}
 	return true
 }
@@ -250,20 +273,25 @@ func (ctx *loweringContext) lowerNodeSelections(node logicalNode, sourceSet stri
 		})
 	}
 	for _, pivot := range node.Pivots {
-		cols := pivot.Columns
-		if len(cols) == 0 {
-			cols = []string{"value"}
+		keySelect := pivot.ColumnSelect
+		valueSelect := pivot.ValueSelect
+		if useDocumentSummary {
+			if mapped, ok := mapDocumentReferenceSelectorToSummaryField(keySelect); ok {
+				keySelect = mapped
+			}
+			if mapped, ok := mapDocumentReferenceSelectorToSummaryField(valueSelect); ok {
+				valueSelect = mapped
+			}
 		}
-		for _, col := range cols {
-			ctx.builder.DerivedFields = append(ctx.builder.DerivedFields, DerivedField{
-				Name:        sanitizeColumnName(node.Alias + "__" + pivot.Name + "__" + col),
-				Source:      sourceSet,
-				Operation:   DerivedOpPivot,
-				Select:      pivot.Select,
-				PivotColumn: col,
-				ValuePath:   pivot.ValuePath,
-			})
-		}
+		ctx.builder.DerivedFields = append(ctx.builder.DerivedFields, DerivedField{
+			Name:             sanitizeColumnName(node.Alias + "__" + pivot.Name),
+			Source:           sourceSet,
+			Operation:        DerivedOpPivot,
+			PivotFamily:      pivot.PivotFamily,
+			PivotKeySelect:   keySelect,
+			PivotValueSelect: valueSelect,
+			PivotColumns:     cloneStrings(pivot.Columns),
+		})
 	}
 	for _, agg := range node.Aggregates {
 		field := DerivedField{
@@ -337,29 +365,32 @@ func (ctx *loweringContext) ensureSet(set NamedSet, mode string) string {
 	return set.Name
 }
 
-func (ctx *loweringContext) ensurePatientChildSet(resourceType string, useRootNeighbors bool) string {
-	if name, ok := ctx.patientTypeSets[resourceType]; ok {
+func (ctx *loweringContext) ensurePatientChildSet(spec fhirsemantics.TraversalSpec, useRootNeighbors bool) string {
+	if name, ok := ctx.patientTypeSets[spec.ToType]; ok {
 		return name
 	}
-	setName := "patient_" + sanitizeColumnName(strings.ToLower(resourceType)) + "_set"
+	setName := spec.SetName
+	if strings.TrimSpace(setName) == "" {
+		setName = "patient_" + sanitizeColumnName(strings.ToLower(spec.ToType)) + "_set"
+	}
 	set := NamedSet{
 		Name:              setName,
 		Kind:              SetKindFilter,
 		Source:            ctx.rootNeighborSet,
-		MatchResourceType: resourceType,
+		MatchResourceType: spec.ToType,
 		SortField:         "_key",
 	}
 	if !useRootNeighbors {
 		set = NamedSet{
 			Name:           setName,
 			Kind:           SetKindTraverse,
-			Label:          "subject_Patient",
-			ToResourceType: resourceType,
+			Label:          spec.EdgeLabel,
+			ToResourceType: spec.ToType,
 			Unique:         true,
 		}
 	}
-	ctx.patientTypeSets[resourceType] = ctx.ensureSet(set, "node")
-	return ctx.patientTypeSets[resourceType]
+	ctx.patientTypeSets[spec.ToType] = ctx.ensureSet(set, "node")
+	return ctx.patientTypeSets[spec.ToType]
 }
 
 func (ctx *loweringContext) ensureSpecimenGroupSet(specimenSet string) string {
@@ -483,10 +514,26 @@ func (ctx *loweringContext) ensureStudyLookupSet(researchSubjectSet string) stri
 	return ctx.studyLookupSet
 }
 
-func shouldUseRootNeighborSet(children []logicalNode) bool {
+func (ctx *loweringContext) ensureDirectTraversalSet(spec fhirsemantics.TraversalSpec, sourceSet string) string {
+	mode := "node"
+	set := NamedSet{
+		Name:           spec.SetName,
+		Kind:           SetKindTraverse,
+		Label:          spec.EdgeLabel,
+		ToResourceType: spec.ToType,
+		Unique:         true,
+	}
+	if sourceSet != "" {
+		set.Source = sourceSet
+	}
+	return ctx.ensureSet(set, mode)
+}
+
+func shouldUseRootNeighborSet(children []logicalNode, rootType string) bool {
 	count := 0
 	for _, child := range children {
-		if child.Label == "subject_Patient" {
+		spec, ok := fhirsemantics.ResolveTraversal(rootType, child.Label, child.ResourceType)
+		if ok && spec.SharedRootNeighborEligible {
 			count++
 		}
 	}
@@ -497,7 +544,7 @@ func shouldUseStructuralLowering(root logicalNode) bool {
 	if len(root.Children) > 1 {
 		return true
 	}
-	if shouldClassifyDocumentReferenceFields(root) {
+	if requestUsesDocumentReferenceSummary(root) {
 		return true
 	}
 	var hasNested bool
@@ -516,37 +563,37 @@ func shouldUseStructuralLowering(root logicalNode) bool {
 	return hasNested
 }
 
-func shouldClassifyDocumentReferenceFields(root logicalNode) bool {
+func requestUsesDocumentReferenceSummary(root logicalNode) bool {
 	nodes := collectDocumentReferenceNodes(root)
 	for _, node := range nodes {
 		for _, field := range node.Fields {
-			if _, ok := mapDocumentReferenceSelectorToSummaryField(field.Select); ok {
+			if fhirsemantics.SelectorNeedsDocumentReferenceSummary(field.Select) {
 				return true
 			}
 			for _, fallback := range field.FallbackSelects {
-				if _, ok := mapDocumentReferenceSelectorToSummaryField(fallback); ok {
+				if fhirsemantics.SelectorNeedsDocumentReferenceSummary(fallback) {
 					return true
 				}
 			}
 		}
 		for _, agg := range node.Aggregates {
-			if _, ok := mapDocumentReferenceSelectorToSummaryField(agg.Select); ok {
+			if fhirsemantics.SelectorNeedsDocumentReferenceSummary(agg.Select) {
 				return true
 			}
-			if _, ok := mapDocumentReferenceSelectorToSummaryField(agg.PredicatePath); ok {
+			if fhirsemantics.SelectorNeedsDocumentReferenceSummary(agg.PredicatePath) {
 				return true
 			}
 		}
 		for _, slice := range node.Slices {
-			if _, ok := mapDocumentReferenceSelectorToSummaryField(slice.PredicatePath); ok {
+			if fhirsemantics.SelectorNeedsDocumentReferenceSummary(slice.PredicatePath) {
 				return true
 			}
 			for _, field := range slice.Fields {
-				if _, ok := mapDocumentReferenceSelectorToSummaryField(field.Select); ok {
+				if fhirsemantics.SelectorNeedsDocumentReferenceSummary(field.Select) {
 					return true
 				}
 				for _, fallback := range field.FallbackSelects {
-					if _, ok := mapDocumentReferenceSelectorToSummaryField(fallback); ok {
+					if fhirsemantics.SelectorNeedsDocumentReferenceSummary(fallback) {
 						return true
 					}
 				}
@@ -579,13 +626,13 @@ func hasSingleDocumentReferenceAlias(root logicalNode) bool {
 
 func requestNeedsStudyHydration(node logicalNode) bool {
 	for _, field := range node.Fields {
-		if strings.Contains(field.Name, "study") || strings.Contains(field.Select, "study") {
+		if fhirsemantics.RequiresResearchStudyHydration(field.Select, field.FieldRef) {
 			return true
 		}
 	}
 	for _, slice := range node.Slices {
 		for _, field := range slice.Fields {
-			if strings.Contains(field.Name, "study") || strings.Contains(field.Select, "study") {
+			if fhirsemantics.RequiresResearchStudyHydration(field.Select, field.FieldRef) {
 				return true
 			}
 		}
@@ -594,50 +641,5 @@ func requestNeedsStudyHydration(node logicalNode) bool {
 }
 
 func mapDocumentReferenceSelectorToSummaryField(selectText string) (string, bool) {
-	sel, err := ParseSelector(selectText)
-	if err != nil {
-		return "", false
-	}
-	path := sel.CanonicalPath()
-	filterNeedle := ""
-	if sel.Filter != nil {
-		filterNeedle = sel.Filter.Needle
-	}
-	switch {
-	case path == "identifier[].value" && filterNeedle == "file_id":
-		return "file_id", true
-	case path == "content[].attachment.title":
-		return "file_name", true
-	case path == "content[].attachment.url":
-		return "file_url", true
-	case path == "content[].attachment.size":
-		return "file_size", true
-	case path == "type.coding[].display" || path == "type.coding[].code":
-		return "data_format", true
-	case path == "category[].coding[].display" || path == "category[].coding[].code":
-		switch filterNeedle {
-		case "data_category":
-			return "data_category", true
-		case "data_type":
-			return "data_type", true
-		case "experimental_strategy":
-			return "experimental_strategy", true
-		case "workflow_type":
-			return "workflow_type", true
-		case "platform":
-			return "platform", true
-		case "access":
-			return "access", true
-		}
-	}
-	return "", false
-}
-
-func containsString(in []string, want string) bool {
-	for _, item := range in {
-		if item == want {
-			return true
-		}
-	}
-	return false
+	return fhirsemantics.DocumentReferenceSummaryField(selectText)
 }

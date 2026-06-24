@@ -65,6 +65,9 @@ type DataframeFieldHint {
   pivotCandidate: Boolean!
   pivotKind: String
   pivotColumns: [String!]!
+  pivotFamily: FhirPivotFamily
+  defaultPivotColumnSelector: DataframeFieldSelector
+  defaultPivotValueSelector: DataframeFieldSelector
 }
 
 type DataframeFieldSelector {
@@ -79,8 +82,9 @@ type DataframeFieldPredicate {
   value: String!
 }
 
-enum FhirPivotKind {
-  CODEABLE_CONCEPT_DISPLAY_VALUE
+enum FhirPivotFamily {
+  CODEABLE_CONCEPT
+  OBSERVATION_CODE_VALUE
 }
 
 input FhirFieldSelectInput {
@@ -119,11 +123,9 @@ enum FhirValueMode {
 input FhirPivotInput {
   name: String!
   fieldRef: String
-  fhirPath: String
-  pivotKind: FhirPivotKind = CODEABLE_CONCEPT_DISPLAY_VALUE
-  selectedColumns: [String!]!
-  valueFieldRef: String
-  valuePath: String
+  columnSelector: FhirFieldSelectorInput
+  valueSelector: FhirFieldSelectorInput
+  columns: [String!]! = []
 }
 
 enum FhirAggregateOperation {
@@ -180,10 +182,6 @@ input FhirDataframeInput {
 
 type FhirDataframeResult {
   columns: [String!]!
-  rows: [FhirDataframeRow!]!
+  rows: JSON!
   rowCount: Int!
-}
-
-type FhirDataframeRow {
-  data: JSON!
 }

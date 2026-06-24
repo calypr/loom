@@ -1,0 +1,11 @@
+.git
+.github
+.gocache
+.gomodcache
+.DS_Store
+bin
+arango-fhir-proto
+arango-fhir-server
+META
+data
+experimental

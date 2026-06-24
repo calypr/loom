@@ -5,7 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"arangodb-proto/internal/dataframe"
+	"arangodb-proto/internal/fhirschema"
+	"arangodb-proto/internal/fhirsemantics"
 	"arangodb-proto/internal/proto"
 )
 
@@ -23,6 +24,9 @@ type FieldHintResponse struct {
 	PivotCandidate    bool
 	PivotKind         string
 	PivotColumns      []string
+	PivotFamily       string
+	PivotColumnSelect string
+	PivotValueSelect  string
 }
 
 type FieldSelectorResponse struct {
@@ -37,13 +41,6 @@ type FieldPredicateResponse struct {
 	Value string
 }
 
-type fieldAlias struct {
-	ResourceType string
-	FieldRef     string
-	Label        string
-	Selector     string
-}
-
 var fieldRefSanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 
 func discoveredFieldHints(resourceType string, fields []proto.PopulatedField) []FieldHintResponse {
@@ -52,17 +49,13 @@ func discoveredFieldHints(resourceType string, fields []proto.PopulatedField) []
 	}
 	out := make([]FieldHintResponse, 0, len(fields)+8)
 	seen := map[string]struct{}{}
-	for _, alias := range aliasesForResource(resourceType) {
-		sel, err := dataframe.ParseSelector(alias.Selector)
-		if err != nil {
-			continue
-		}
-		base := findFieldByPath(fields, sel.CanonicalPath())
+	for _, spec := range fhirsemantics.AliasesForResource(resourceType) {
+		base := findFieldByPath(fields, fhirschema.CanonicalPath(spec.Selector))
 		if base == nil {
 			continue
 		}
-		out = append(out, fieldHintFromDiscovered(*base, alias.FieldRef, alias.Label, alias.Selector))
-		seen[alias.FieldRef] = struct{}{}
+		out = append(out, fieldHintFromSemantic(*base, spec))
+		seen[spec.FieldRef] = struct{}{}
 	}
 	for _, field := range fields {
 		ref := defaultFieldRef(resourceType, field.Path)
@@ -74,14 +67,13 @@ func discoveredFieldHints(resourceType string, fields []proto.PopulatedField) []
 	return out
 }
 
-func fieldHintFromDiscovered(field proto.PopulatedField, fieldRef string, label string, selector string) FieldHintResponse {
-	selectorParts := decomposeSelector(selector)
+func fieldHintFromSemantic(field proto.PopulatedField, spec fhirsemantics.FieldSpec) FieldHintResponse {
 	return FieldHintResponse{
 		ResourceType:      field.ResourceType,
-		FieldRef:          fieldRef,
-		Label:             label,
+		FieldRef:          spec.FieldRef,
+		Label:             spec.Label,
 		Path:              field.Path,
-		Selector:          selectorParts,
+		Selector:          fieldSelectorResponseFromSpec(spec.Selector),
 		Kind:              field.Kind,
 		DocCount:          field.DocCount,
 		SampleCount:       field.SampleCount,
@@ -90,6 +82,34 @@ func fieldHintFromDiscovered(field proto.PopulatedField, fieldRef string, label 
 		PivotCandidate:    field.PivotCandidate,
 		PivotKind:         field.PivotKind,
 		PivotColumns:      cloneStrings(field.PivotColumns),
+		PivotFamily:       field.PivotFamily,
+		PivotColumnSelect: field.PivotColumnSelect,
+		PivotValueSelect:  field.PivotValueSelect,
+	}
+}
+
+func fieldHintFromDiscovered(field proto.PopulatedField, fieldRef string, label string, selector string) FieldHintResponse {
+	selectorResp := decomposeSelector(selector)
+	if spec, ok := fhirschema.LookupField(field.ResourceType, field.Path); ok {
+		selectorResp = fieldSelectorResponseFromSpec(fhirschema.SelectorFromField(spec))
+	}
+	return FieldHintResponse{
+		ResourceType:      field.ResourceType,
+		FieldRef:          fieldRef,
+		Label:             label,
+		Path:              field.Path,
+		Selector:          selectorResp,
+		Kind:              field.Kind,
+		DocCount:          field.DocCount,
+		SampleCount:       field.SampleCount,
+		DistinctValues:    cloneStrings(field.DistinctValues),
+		DistinctTruncated: field.DistinctTruncated,
+		PivotCandidate:    field.PivotCandidate,
+		PivotKind:         field.PivotKind,
+		PivotColumns:      cloneStrings(field.PivotColumns),
+		PivotFamily:       field.PivotFamily,
+		PivotColumnSelect: field.PivotColumnSelect,
+		PivotValueSelect:  field.PivotValueSelect,
 	}
 }
 
@@ -98,10 +118,8 @@ func resolveFieldRef(resourceType string, discovered []proto.PopulatedField, fie
 	if fieldRef == "" {
 		return "", fmt.Errorf("fieldRef is required")
 	}
-	for _, alias := range aliasesForResource(resourceType) {
-		if alias.FieldRef == fieldRef {
-			return alias.Selector, nil
-		}
+	if spec, ok := fhirsemantics.ResolveFieldRef(resourceType, fieldRef); ok {
+		return fhirschema.SelectorExpression(spec.Selector), nil
 	}
 	for _, field := range discovered {
 		if defaultFieldRef(resourceType, field.Path) == fieldRef {
@@ -115,56 +133,6 @@ func findFieldByPath(fields []proto.PopulatedField, path string) *proto.Populate
 	for i := range fields {
 		if fields[i].Path == path {
 			return &fields[i]
-		}
-	}
-	return nil
-}
-
-func aliasesForResource(resourceType string) []fieldAlias {
-	switch resourceType {
-	case "Patient":
-		return []fieldAlias{
-			{ResourceType: resourceType, FieldRef: "Patient.case_id", Label: "Case ID", Selector: `identifier[].value where system contains "case_id"`},
-			{ResourceType: resourceType, FieldRef: "Patient.case_submitter_id", Label: "Case Submitter ID", Selector: `identifier[].value where system contains "case_submitter_id"`},
-			{ResourceType: resourceType, FieldRef: "Patient.gender", Label: "Gender", Selector: `gender`},
-			{ResourceType: resourceType, FieldRef: "Patient.deceased", Label: "Deceased", Selector: `deceasedBoolean`},
-			{ResourceType: resourceType, FieldRef: "Patient.race", Label: "Race", Selector: `extension[].valueString where url contains "us-core-race"`},
-			{ResourceType: resourceType, FieldRef: "Patient.ethnicity", Label: "Ethnicity", Selector: `extension[].valueString where url contains "us-core-ethnicity"`},
-			{ResourceType: resourceType, FieldRef: "Patient.birth_sex", Label: "Birth Sex", Selector: `extension[].valueCode where url contains "us-core-birthsex"`},
-			{ResourceType: resourceType, FieldRef: "Patient.patient_age", Label: "Patient Age", Selector: `extension[].valueQuantity.value where url contains "Patient-age"`},
-			{ResourceType: resourceType, FieldRef: "Patient.part_of_study", Label: "Part Of Study", Selector: `extension[].valueReference.reference where url contains "part-of-study"`},
-		}
-	case "Condition":
-		return []fieldAlias{
-			{ResourceType: resourceType, FieldRef: "Condition.id", Label: "Condition ID", Selector: `id`},
-			{ResourceType: resourceType, FieldRef: "Condition.diagnosis", Label: "Diagnosis", Selector: `code.coding[].display`},
-			{ResourceType: resourceType, FieldRef: "Condition.body_site", Label: "Body Site", Selector: `bodySite[].coding[].display`},
-		}
-	case "Specimen":
-		return []fieldAlias{
-			{ResourceType: resourceType, FieldRef: "Specimen.id", Label: "Specimen ID", Selector: `id`},
-			{ResourceType: resourceType, FieldRef: "Specimen.type_display", Label: "Specimen Type", Selector: `type.coding[].display`},
-			{ResourceType: resourceType, FieldRef: "Specimen.preservation_method", Label: "Preservation Method", Selector: `processing[].method.coding[].display where system contains "preservation_method"`},
-		}
-	case "ResearchSubject":
-		return []fieldAlias{
-			{ResourceType: resourceType, FieldRef: "ResearchSubject.id", Label: "Research Subject ID", Selector: `id`},
-			{ResourceType: resourceType, FieldRef: "ResearchSubject.status", Label: "Status", Selector: `status`},
-			{ResourceType: resourceType, FieldRef: "ResearchSubject.study_ref", Label: "Study Reference", Selector: `study.reference`},
-		}
-	case "DocumentReference":
-		return []fieldAlias{
-			{ResourceType: resourceType, FieldRef: "DocumentReference.file_id", Label: "File ID", Selector: `identifier[].value where system contains "file_id"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.file_name", Label: "File Name", Selector: `content[].attachment.title`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.file_url", Label: "File URL", Selector: `content[].attachment.url`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.file_size", Label: "File Size", Selector: `content[].attachment.size`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.data_category", Label: "Data Category", Selector: `category[].coding[].display where system contains "data_category"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.data_type", Label: "Data Type", Selector: `category[].coding[].display where system contains "data_type"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.experimental_strategy", Label: "Experimental Strategy", Selector: `category[].coding[].display where system contains "experimental_strategy"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.workflow_type", Label: "Workflow Type", Selector: `category[].coding[].display where system contains "workflow_type"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.platform", Label: "Platform", Selector: `category[].coding[].display where system contains "platform"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.access", Label: "Access", Selector: `category[].coding[].display where system contains "access"`},
-			{ResourceType: resourceType, FieldRef: "DocumentReference.data_format", Label: "Data Format", Selector: `type.coding[].display`},
 		}
 	}
 	return nil
@@ -193,7 +161,7 @@ func defaultFieldLabel(path string) string {
 }
 
 func decomposeSelector(expression string) FieldSelectorResponse {
-	sel, err := dataframe.ParseSelector(expression)
+	sel, err := fhirschema.ParseSelector(expression)
 	if err != nil {
 		return FieldSelectorResponse{
 			ValuePath: strings.TrimSpace(expression),
@@ -216,7 +184,7 @@ func decomposeSelector(expression string) FieldSelectorResponse {
 	if sel.Filter != nil {
 		where = &FieldPredicateResponse{
 			Path:  sel.Filter.Field,
-			Op:    "CONTAINS",
+			Op:    fhirschema.PredicateContains,
 			Value: sel.Filter.Needle,
 		}
 	}
@@ -224,6 +192,22 @@ func decomposeSelector(expression string) FieldSelectorResponse {
 		SourcePath: sourcePath,
 		Where:      where,
 		ValuePath:  valuePath,
+	}
+}
+
+func fieldSelectorResponseFromSpec(spec fhirschema.FieldSelectorSpec) FieldSelectorResponse {
+	var where *FieldPredicateResponse
+	if spec.Where != nil {
+		where = &FieldPredicateResponse{
+			Path:  spec.Where.Path,
+			Op:    spec.Where.Op,
+			Value: spec.Where.Value,
+		}
+	}
+	return FieldSelectorResponse{
+		SourcePath: spec.SourcePath,
+		Where:      where,
+		ValuePath:  spec.ValuePath,
 	}
 }
 
@@ -249,7 +233,7 @@ func composeSelector(sourcePath string, wherePath string, whereOp string, whereV
 	return path
 }
 
-func selectorStepText(step dataframe.SelectorStep) string {
+func selectorStepText(step fhirschema.SelectorStep) string {
 	switch {
 	case step.Iterate:
 		return step.Field + "[]"

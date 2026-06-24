@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"arangodb-proto/internal/dbio"
+	"arangodb-proto/internal/fhirschema"
 	"arangodb-proto/internal/store"
 
 	"github.com/bytedance/sonic"
@@ -26,6 +27,7 @@ const (
 	fieldKindCodeableConcept = "codeable_concept"
 	fieldKindCoding          = "coding"
 	pivotKindCodeableConcept = "codeable_concept_display_value"
+	pivotKindObservation     = "observation_code_value"
 )
 
 type FieldCatalogDocument struct {
@@ -42,6 +44,9 @@ type FieldCatalogDocument struct {
 	PivotCandidate    bool     `json:"pivot_candidate"`
 	PivotKind         string   `json:"pivot_kind,omitempty"`
 	PivotColumns      []string `json:"pivot_columns,omitempty"`
+	PivotFamily       string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
 }
 
 type PopulatedFieldOptions struct {
@@ -66,6 +71,9 @@ type PopulatedField struct {
 	PivotCandidate    bool     `json:"pivot_candidate"`
 	PivotKind         string   `json:"pivot_kind,omitempty"`
 	PivotColumns      []string `json:"pivot_columns,omitempty"`
+	PivotFamily       string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
 }
 
 const populatedFieldsAQL = `
@@ -87,7 +95,10 @@ FOR d IN fhir_field_catalog
     distinct_truncated: d.distinct_truncated,
     pivot_candidate: d.pivot_candidate,
     pivot_kind: d.pivot_kind,
-    pivot_columns: d.pivot_columns
+    pivot_columns: d.pivot_columns,
+    pivot_family: d.pivot_family,
+    pivot_column_selector: d.pivot_column_selector,
+    pivot_value_selector: d.pivot_value_selector
   }
 `
 
@@ -103,7 +114,10 @@ SELECT
   distinct_truncated,
   pivot_candidate,
   pivot_kind,
-  pivot_columns
+  pivot_columns,
+  pivot_family,
+  pivot_column_selector,
+  pivot_value_selector
 FROM fhir_field_catalog
 WHERE project = $project
   AND ($auth_resource_paths_unrestricted = true OR auth_resource_path INSIDE $auth_resource_paths)
@@ -125,7 +139,10 @@ SELECT
   distinct_truncated,
   pivot_candidate,
   pivot_kind,
-  COALESCE(pivot_columns, ARRAY[]::text[]) AS pivot_columns
+  COALESCE(pivot_columns, ARRAY[]::text[]) AS pivot_columns,
+  pivot_family,
+  pivot_column_selector,
+  pivot_value_selector
 FROM fhir_field_catalog
 WHERE project = @project
   AND (@auth_resource_paths_unrestricted = true OR auth_resource_path = ANY(@auth_resource_paths))
@@ -153,6 +170,9 @@ type fieldCatalogStats struct {
 	pivotKind         string
 	pivotColumns      []string
 	pivotColumnSet    map[string]struct{}
+	pivotFamily       string
+	pivotColumnSelect string
+	pivotValueSelect  string
 }
 
 type ShapePlanCache struct {
@@ -229,6 +249,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 			}
 		}
 	}
+	p.observeObservationCodePivot(payload)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 
@@ -243,6 +264,13 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		pivotKind:      field.PivotKind,
 		distinctSet:    make(map[string]struct{}),
 		pivotColumnSet: make(map[string]struct{}),
+	}
+	if field.PivotCandidate {
+		if spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
+			stat.pivotFamily = spec.Family
+			stat.pivotColumnSelect = fhirschema.SelectorExpression(spec.ColumnSelector)
+			stat.pivotValueSelect = fhirschema.SelectorExpression(spec.ValueSelector)
+		}
 	}
 	p.stats[field.Path] = stat
 	return stat
@@ -280,6 +308,18 @@ func (s *fieldCatalogStats) addPivotColumn(value string) {
 	s.pivotColumns = append(s.pivotColumns, value)
 }
 
+func (s *fieldCatalogStats) setPivotDefaults(family string, columnSelector string, valueSelector string) {
+	if strings.TrimSpace(family) != "" {
+		s.pivotFamily = family
+	}
+	if strings.TrimSpace(columnSelector) != "" {
+		s.pivotColumnSelect = columnSelector
+	}
+	if strings.TrimSpace(valueSelector) != "" {
+		s.pivotValueSelect = valueSelector
+	}
+}
+
 func (p *Profiler) Merge(other *Profiler) {
 	for path, otherStat := range other.stats {
 		stat, ok := p.stats[path]
@@ -289,6 +329,9 @@ func (p *Profiler) Merge(other *Profiler) {
 				kind:           otherStat.kind,
 				pivotCandidate: otherStat.pivotCandidate,
 				pivotKind:      otherStat.pivotKind,
+				pivotFamily:    otherStat.pivotFamily,
+				pivotColumnSelect: otherStat.pivotColumnSelect,
+				pivotValueSelect:  otherStat.pivotValueSelect,
 				distinctSet:    make(map[string]struct{}),
 				pivotColumnSet: make(map[string]struct{}),
 			}
@@ -296,6 +339,7 @@ func (p *Profiler) Merge(other *Profiler) {
 		}
 		stat.docCount += otherStat.docCount
 		stat.distinctTruncated = stat.distinctTruncated || otherStat.distinctTruncated
+		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
 		for _, value := range otherStat.distinctValues {
 			stat.addDistinct(value)
 		}
@@ -332,6 +376,9 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotCandidate:    stat.pivotCandidate,
 			PivotKind:         stat.pivotKind,
 			PivotColumns:      pivotColumns,
+			PivotFamily:       stat.pivotFamily,
+			PivotColumnSelect: stat.pivotColumnSelect,
+			PivotValueSelect:  stat.pivotValueSelect,
 		})
 	}
 	return out
@@ -471,6 +518,82 @@ func isCodingShape(value map[string]any) bool {
 	_, hasCode := value["code"]
 	_, hasDisplay := value["display"]
 	return hasSystem || hasCode || hasDisplay
+}
+
+func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
+	if p.resourceType != "Observation" {
+		return
+	}
+	codeValue, ok := payload["code"].(map[string]any)
+	if !ok {
+		return
+	}
+	valueSelector := observationValueSelectorFromPayload(payload)
+	if valueSelector == "" {
+		return
+	}
+	stat, ok := p.stats["code"]
+	if !ok {
+		stat = &fieldCatalogStats{
+			path:           "code",
+			kind:           fieldKindCodeableConcept,
+			pivotCandidate: true,
+			pivotKind:      pivotKindObservation,
+			distinctSet:    make(map[string]struct{}),
+			pivotColumnSet: make(map[string]struct{}),
+		}
+		p.stats["code"] = stat
+	}
+	stat.pivotCandidate = true
+	stat.pivotKind = pivotKindObservation
+	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, "code.coding[].display", valueSelector)
+	for _, col := range codeableConceptColumns(codeValue) {
+		stat.addPivotColumn(col)
+	}
+}
+
+func observationValueSelectorFromPayload(payload map[string]any) string {
+	if value, ok := payload["valueQuantity"].(map[string]any); ok && value["value"] != nil {
+		return "valueQuantity.value"
+	}
+	if value, ok := payload["valueCodeableConcept"].(map[string]any); ok {
+		if strings.TrimSpace(stringValue(value["text"])) != "" {
+			return "valueCodeableConcept.text"
+		}
+		if len(codeableConceptColumns(value)) > 0 {
+			return "valueCodeableConcept.coding[].display"
+		}
+	}
+	for _, name := range []string{"valueString", "valueInteger", "valueBoolean", "valueDecimal", "valueDateTime", "valueTime"} {
+		if payload[name] != nil {
+			return name
+		}
+	}
+	if value, ok := payload["valuePeriod"].(map[string]any); ok {
+		if value["start"] != nil {
+			return "valuePeriod.start"
+		}
+		if value["end"] != nil {
+			return "valuePeriod.end"
+		}
+	}
+	if value, ok := payload["valueRange"].(map[string]any); ok {
+		if low, ok := value["low"].(map[string]any); ok && low["value"] != nil {
+			return "valueRange.low.value"
+		}
+		if high, ok := value["high"].(map[string]any); ok && high["value"] != nil {
+			return "valueRange.high.value"
+		}
+	}
+	if value, ok := payload["valueRatio"].(map[string]any); ok {
+		if num, ok := value["numerator"].(map[string]any); ok && num["value"] != nil {
+			return "valueRatio.numerator.value"
+		}
+		if den, ok := value["denominator"].(map[string]any); ok && den["value"] != nil {
+			return "valueRatio.denominator.value"
+		}
+	}
+	return ""
 }
 
 func appendPath(prefix, key string, array bool) string {
@@ -704,7 +827,7 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 		"project":                          opts.Project,
 		"pivot_only":                       opts.PivotOnly,
 		"auth_resource_paths":              cloneStrings(opts.AuthResourcePaths),
-		"auth_resource_paths_unrestricted": opts.AuthResourcePaths == nil,
+		"auth_resource_paths_unrestricted": len(opts.AuthResourcePaths) == 0,
 	}
 	switch dbio.BackendName(opts.Backend) {
 	case dbio.BackendSurreal:
@@ -736,6 +859,9 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 			PivotCandidate:    boolValue(row["pivot_candidate"]),
 			PivotKind:         stringValue(row["pivot_kind"]),
 			PivotColumns:      stringSliceValue(row["pivot_columns"]),
+			PivotFamily:       stringValue(row["pivot_family"]),
+			PivotColumnSelect: stringValue(row["pivot_column_selector"]),
+			PivotValueSelect:  stringValue(row["pivot_value_selector"]),
 		})
 		return nil
 	})
