@@ -1,5 +1,18 @@
 # FHIR-Native GraphQL Dataframe Builder Draft
 
+This file is now a historical design document, not the source of truth for the
+live GraphQL contract.
+
+Use these current docs first:
+
+- [README](../README.md)
+- [Quickstart](./QUICKSTART.md)
+- [Developer Architecture](./DEVELOPER_ARCHITECTURE.md)
+
+The live schema is:
+
+- [`internal/graphqlapi/schema.graphqls`](../internal/graphqlapi/schema.graphqls)
+
 ## Summary
 
 This document defines a draft GraphQL contract for the future dataframe-builder

@@ -1,336 +1,151 @@
 # ARANGODB_PROTO
 
-Minimal graph database prototype for the `gen3_tracker.meta.dataframer` path.
+FHIR graph loader and dataframe server, with ArangoDB as the primary execution
+backend.
 
-The primary implementation target is ArangoDB. The repository also contains
-experimental SurrealDB and Postgres benchmarking code under [`experimental/`](experimental/).
-See
-[`ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md`](ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md)
-for the technical comparison and recommendation.
+This repo now has two main runtime surfaces:
 
-## Build and deploy
+- `arango-fhir-proto`: CLI for load, discovery, query, prepare, and benchmark work
+- `arango-fhir-server`: Fiber + GraphQL/REST server for dataframe reads and bulk ingest
 
-Repo-local build targets now live in [`Makefile`](Makefile):
+The current product direction is:
+
+- load raw FHIR NDJSON into one collection per resource type
+- store graph edges in `fhir_edge`
+- profile populated fields into `fhir_field_catalog`
+- expose builder introspection and dataframe execution through GraphQL
+- keep bulk ingest as REST, not GraphQL
+
+ArangoDB is the first-class backend for dataframe execution. SurrealDB and
+Postgres code remains under [`experimental/`](experimental/) for research and
+benchmarking only.
+
+## Docs
+
+- [Quickstart](docs/QUICKSTART.md)
+- [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
+- [GraphQL/Dataframe Portability Notes](docs/DATAFRAME_BUILDER_PORTABILITY.md)
+- [Arango vs. Surreal post-mortem](experimental/ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md)
+
+## Current Layout
+
+- [`cmd/arango-fhir-proto/main.go`](cmd/arango-fhir-proto/main.go): CLI entrypoint
+- [`cmd/arango-fhir-server/main.go`](cmd/arango-fhir-server/main.go): HTTP server entrypoint
+- [`internal/proto`](internal/proto): load pipeline and backend bootstrap helpers
+- [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
+- [`internal/catalogcache`](internal/catalogcache): per-project discovery cache
+- [`internal/graphqlapi`](internal/graphqlapi): GraphQL schema, request mapping, introspection service
+- [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
+- [`internal/fhirschema`](internal/fhirschema): generated schema metadata used by planner/validation
+- [`internal/fhirsemantics`](internal/fhirsemantics): friendly `fieldRef`s and semantic lowering hints
+- [`internal/writeapi`](internal/writeapi): REST import API and in-process operation manager
+- [`queries/`](queries/): Arango AQL query artifacts
+- [`experimental/`](experimental/): non-primary backend work and benchmark artifacts
+
+## Local Dev
+
+Start local Arango:
+
+```bash
+rtk docker compose -f experimental/docker-compose.yml up -d
+```
+
+Generate/build:
 
 ```bash
 make generate-fhir
-make graphql-check
-make gqlgen-check
+make generate-graphql
 make build
-make test
 ```
 
-`gqlgen-check` is intentionally a contract-validation alias, not a code-generation
-step. The active GraphQL runtime is hand-wired, so the repo tracks GraphQL shape
-through the schema plus focused GraphQL/dataframe tests rather than a generated
-execution layer.
-
-The deployable service image is built from [`Dockerfile`](Dockerfile) and packages:
-
-- `arango-fhir-server`
-- `schemas/graph-fhir.json`
-- `queries/`
-
-Local image build:
+Load the bundled sample dataset:
 
 ```bash
-make docker-build
-```
-
-GitHub Actions now include:
-
-- [`.github/workflows/tests.yaml`](.github/workflows/tests.yaml) for PR test runs
-- [`.github/workflows/build.yaml`](.github/workflows/build.yaml) for branch-tagged Quay image publishing
-
-This prototype intentionally ignores auth and only targets one hardcoded traversal:
-
-- `flattened_document_reference`
-- `gdc_file_sample_matrix`
-- `gdc_case_assay_matrix`
-
-It mirrors the current Python/SQLite logic in
-`gen3_util/gen3_tracker/meta/dataframer.py`:
-
-1. load FHIR NDJSON
-2. store raw resource payloads in Arango collections
-3. key every resource by `project::id` so multiple projects can coexist in one DB
-4. create reference edges in AQL for:
-   - `subject`
-   - `focus`
-5. run an AQL traversal that follows:
-   - `DocumentReference.subject`
-   - `subject-of-subject`
-   - `Observation.focus -> DocumentReference`
-6. either:
-   - return flattened rows directly as NDJSON
-   - materialize the flattened rows into a collection
-   - export either path as Elasticsearch bulk NDJSON
-
-The more useful GDC traversal is `gdc_file_sample_matrix`. It emits one row per
-`DocumentReference` file and sample-group member:
-
-- `DocumentReference -> Group.member[] -> Specimen -> Patient`
-- patient diagnosis from `Condition`
-- study metadata from `ResearchSubject/ResearchStudy`
-- treatment categories/counts from `MedicationAdministration`
-- file category/type/format/platform/workflow/access from GDC codings
-
-The patient-first GDC traversal is `gdc_case_assay_matrix`. It emits one row per
-`Patient`/case and summarizes what downstream assay evidence exists:
-
-- `Patient -> Specimen -> Group.member[] -> DocumentReference`
-- patient diagnosis from `Condition`
-- study metadata from `ResearchSubject/ResearchStudy`
-- treatment categories/counts from `MedicationAdministration`
-- assay availability flags/counts for SNV, WXS, WGS, RNA-Seq, expression, fusion,
-  CNV, methylation, slides, aligned reads, and clinical files
-- representative files per assay class for drill-down
-
-This is the useful metadata-level starting point for questions like "find cases
-with tumor samples, annotated somatic mutation files, expression files, and
-slides." A literal "find everyone with TP53 mutation" query needs a second
-prototype phase that indexes controlled MAF/VCF/variant payload contents and then
-joins those variant findings back to this case/sample/file matrix.
-
-## Scope
-
-This is a prototype to answer:
-
-- can the current hardcoded dataframer traversal be expressed in AQL?
-- how fast is Arango at loading and materializing this shape?
-
-It is not intended to be production-ready.
-
-## Collections
-
-The prototype discovers resource collections from whatever exists in `META/*.ndjson`.
-
-It also creates:
-
-- `subject_ref` (edge)
-- `focus_ref` (edge)
-- `member_ref` (edge)
-- `document_reference_flat` (optional materialized rows)
-
-## Quick start
-
-Start the local ArangoDB runtime:
-
-```bash
-cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/experimental
-docker compose up -d arangodb
-```
-
-This brings up:
-
-- ArangoDB on `http://127.0.0.1:8529`
-
-The full prototype benchmark stack lives under
-[`experimental/docker/docker-compose.full.yml`](experimental/docker/docker-compose.full.yml).
-That compose file includes:
-
-- ArangoDB
-- SurrealDB
-- Postgres
-
-Bring it up with:
-
-```bash
-cd /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO
-docker compose -f experimental/docker/docker-compose.full.yml up -d
-```
-
-Experimental Surreal load benchmark:
-
-```bash
-./arango-fhir-proto load \
-  --backend surreal \
-  --url http://127.0.0.1:8001 \
-  --namespace fhir_proto \
+./bin/arango-fhir-proto load \
+  --backend arango \
+  --url http://127.0.0.1:8529 \
   --database fhir_proto \
-  --username root \
-  --password root \
-  --meta-dir /tmp/META_10PCT \
+  --meta-dir META \
   --project ARANGODB_PROTO \
-  --batch-size 1000 \
-  --progress-every 50000 \
   --auth-resource-path EllrottLab-GDC_Data
 ```
 
-Bootstrap collections and indexes:
+Start the server in local demo mode:
 
 ```bash
-python3 prototype.py bootstrap \
-  --meta-dir /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/META
+./bin/arango-fhir-server \
+  --listen :8080 \
+  --no-auth \
+  --backend arango \
+  --url http://127.0.0.1:8529 \
+  --database fhir_proto
 ```
 
-Load the local test dataset as raw payload documents:
+Then open:
 
-```bash
-python3 prototype.py load \
-  --meta-dir /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/META \
-  --project ARANGODB_PROTO \
-  --batch-size 2000 \
-  --progress-every 50000
-```
+- Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
+- GraphQL endpoint: [http://127.0.0.1:8080/graphql](http://127.0.0.1:8080/graphql)
+- Health check: [http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)
 
-For large runs, `load` now streams file-by-file and emits JSON progress events
-instead of holding the whole dataset in memory before writing.
+The full step-by-step flow, including a sample GraphQL dataframe mutation, lives
+in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
-Build project-scoped graph edges from the raw payload using AQL:
+If you are starting from a fresh checkout, go there next:
 
-```bash
-python3 prototype.py build-edges \
-  --meta-dir /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/META \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 10000 \
-  --progress-every 50000
-```
+- [Continue with the Quickstart](docs/QUICKSTART.md)
 
-`build-edges` builds `subject_ref`, `focus_ref`, and `member_ref`. Rerun it after
-upgrading the prototype because the case-first matrix depends on `Group.member[]`
-edges.
+## Build Targets
 
-Query the hardcoded dataframer traversal directly and emit flattened NDJSON:
+Important make targets:
 
-```bash
-python3 prototype.py query-document-references \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 10000 \
-  --progress-every 50000 \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/document_reference_flat.ndjson
-```
+- `make generate-fhir`
+- `make generate-graphql`
+- `make build`
+- `make build-server`
+- `make build-cli`
+- `make graphql-check`
+- `make test`
 
-If you want a materialized Arango collection for repeated export/testing:
+`make generate-graphql` is important now. The GraphQL schema and generated
+artifacts are not purely static, and the repo includes a small reproducible
+workaround in the generation target for a gqlgen scalar/codegen edge case.
 
-```bash
-python3 prototype.py materialize-document-references \
-  --project ARANGODB_PROTO \
-  --batch-size 2000 \
-  --cursor-batch-size 10000 \
-  --progress-every 50000
-```
+## Current HTTP Surfaces
 
-Export Elasticsearch bulk NDJSON directly from the AQL query:
+The server mounts:
 
-```bash
-python3 prototype.py export-elastic \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/document_reference_flat.bulk.ndjson \
-  --index fhir_document_reference_flat \
-  --source query \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 10000 \
-  --progress-every 50000
-```
+- `GET /healthz`
+- `GET /apollo`
+- `GET /graphql`
+- `POST /graphql`
+- `POST /api/v1/imports`
+- `GET /api/v1/imports/:id`
+- `GET /api/v1/imports/:id/events`
 
-Build the more useful GDC file/sample/case dataframe as NDJSON:
+Write/import behavior lives in [`internal/writeapi/http.go`](internal/writeapi/http.go).
 
-```bash
-python3 prototype.py query-gdc-file-sample-matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 10000 \
-  --progress-every 50000 \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_file_sample_matrix.ndjson
-```
+## Primary Collections
 
-For quick iteration, cap the output:
+The loader bootstraps:
 
-```bash
-python3 prototype.py query-gdc-file-sample-matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 500 \
-  --progress-every 500 \
-  --max-rows 1000 \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_file_sample_matrix.sample.ndjson
-```
+- one collection per FHIR resource type discovered in the NDJSON input
+- `fhir_edge`
+- `fhir_field_catalog`
+- `patient_file_rollup`
 
-Export that dataframe directly as Elasticsearch bulk NDJSON:
+See [`internal/proto/backend.go`](internal/proto/backend.go).
 
-```bash
-python3 prototype.py export-gdc-file-sample-matrix \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_file_sample_matrix.bulk.ndjson \
-  --index gdc_file_sample_matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 10000 \
-  --progress-every 50000
-```
+## Status
 
-Build the patient-first GDC case/assay dataframe as NDJSON:
+What is current and real:
 
-```bash
-python3 prototype.py query-gdc-case-assay-matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 1000 \
-  --progress-every 1000 \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_case_assay_matrix.ndjson
-```
+- GraphQL introspection for populated traversals/fields/pivots
+- GraphQL dataframe execution on Arango
+- REST bulk ingest with in-process operation tracking
+- generated schema metadata in `internal/fhirschema`
+- semantic alias/lowering hints in `internal/fhirsemantics`
 
-For quick iteration, cap the case-first output:
+What is explicitly experimental:
 
-```bash
-python3 prototype.py query-gdc-case-assay-matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 500 \
-  --progress-every 500 \
-  --max-rows 1000 \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_case_assay_matrix.sample.ndjson
-```
-
-Export that patient-first dataframe directly as Elasticsearch bulk NDJSON:
-
-```bash
-python3 prototype.py export-gdc-case-assay-matrix \
-  --output /Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/gdc_case_assay_matrix.bulk.ndjson \
-  --index gdc_case_assay_matrix \
-  --project ARANGODB_PROTO \
-  --cursor-batch-size 1000 \
-  --progress-every 1000
-```
-
-## What is preserved
-
-Each resource document stores:
-
-- `payload`: canonical source JSON
-- `id`: logical FHIR id
-- `project`
-- `resourceType`
-- `_key = project::id`
-
-This version is more realistic than the first pass because:
-
-- ingest does not precompute flattened fields
-- AQL builds graph edges from raw payload
-- AQL derives flattened rows from raw payload + edges
-- export can stream those flattened rows straight into Elasticsearch bulk format
-- `gdc_file_sample_matrix` shows a real GDC file-to-case/sample/study traversal
-- `gdc_case_assay_matrix` shows a real case-to-sample/file/assay traversal
-
-It is still intentionally narrow, but it now has one real file-centric GDC
-dataframe, one case-centric cohort discovery dataframe, and the older
-`flattened_document_reference` compatibility path.
-
-## Benchmarking
-
-Each command prints timing information for:
-
-- collection bootstrap
-- resource ingest
-- edge ingest
-- query materialization
-- export
-
-That should be enough to evaluate whether the current hardcoded dataframer can be abstracted into AQL later.
-
-The multi-backend benchmark harness and alternate-backend query assets now live
-under [`experimental/`](experimental/):
-
-- [`experimental/scripts/benchmark_fair.sh`](experimental/scripts/benchmark_fair.sh)
-- [`experimental/queries/postgres/`](experimental/queries/postgres/)
-- [`experimental/queries/surreal/`](experimental/queries/surreal/)
-
-## Portability Guide
-
-For the implementation-neutral workload definition used to port and benchmark
-this prototype against other databases, see
-[DATAFRAME_BUILDER_PORTABILITY.md](DATAFRAME_BUILDER_PORTABILITY.md).
+- SurrealDB/Postgres benchmarking and comparison
+- alternate query artifacts under [`experimental/queries/`](experimental/queries/)
