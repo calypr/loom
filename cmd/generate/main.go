@@ -43,13 +43,19 @@ type Property struct {
 type Link struct {
 	Rel              string           `json:"rel"`
 	TargetHints      TargetHints      `json:"targetHints"`
+	TargetSchema     TargetSchema     `json:"targetSchema"`
 	TemplatePointers TemplatePointers `json:"templatePointers"`
 }
 
 type TargetHints struct {
-	Backref    []string `json:"backref"`
-	Direction  []string `json:"direction"`
-	RegexMatch []string `json:"regex_match"`
+	Backref      []string `json:"backref"`
+	Direction    []string `json:"direction"`
+	Multiplicity []string `json:"multiplicity"`
+	RegexMatch   []string `json:"regex_match"`
+}
+
+type TargetSchema struct {
+	Ref string `json:"$ref"`
 }
 
 type TemplatePointers struct {
@@ -1011,6 +1017,34 @@ func generateFHIRSchema(schema *Schema, path string) error {
 		sb.WriteString("\t\t},\n")
 		sb.WriteString("\t},\n")
 	}
+	sb.WriteString("}\n\n")
+	sb.WriteString("var generatedTraversals = map[string]TraversalSpec{\n")
+	seenTraversalKeys := map[string]struct{}{}
+	for _, k := range keys {
+		def := schema.Defs[k]
+		if def == nil || len(def.Links) == 0 {
+			continue
+		}
+		for _, link := range def.Links {
+			toType := refName(link.TargetSchema.Ref)
+			if strings.TrimSpace(toType) == "" {
+				toType = targetTypeFromLabel(link.Rel)
+			}
+			if strings.TrimSpace(link.Rel) == "" || strings.TrimSpace(toType) == "" {
+				continue
+			}
+			forwardKey := traversalKey(k, link.Rel, toType)
+			if _, ok := seenTraversalKeys[forwardKey]; !ok {
+				writeGeneratedTraversal(&sb, k, link.Rel, toType, link, forwardKey)
+				seenTraversalKeys[forwardKey] = struct{}{}
+			}
+			reverseKey := traversalKey(toType, link.Rel, k)
+			if _, ok := seenTraversalKeys[reverseKey]; !ok {
+				writeGeneratedTraversal(&sb, toType, link.Rel, k, link, reverseKey)
+				seenTraversalKeys[reverseKey] = struct{}{}
+			}
+		}
+	}
 	sb.WriteString("}\n")
 	return os.WriteFile(path, []byte(sb.String()), 0644)
 }
@@ -1111,6 +1145,39 @@ func writeGeneratedProperties(sb *strings.Builder, props map[string]*Property, i
 		writeIndent(sb, indent)
 		sb.WriteString("},\n")
 	}
+}
+
+func writeGeneratedStringSlice(sb *strings.Builder, fieldName string, values []string, indent int) {
+	writeIndent(sb, indent)
+	sb.WriteString(fieldName)
+	sb.WriteString(": []string{")
+	if len(values) == 0 {
+		sb.WriteString("},\n")
+		return
+	}
+	sb.WriteString("\n")
+	for _, value := range values {
+		writeIndent(sb, indent+1)
+		sb.WriteString(fmt.Sprintf("%q,\n", value))
+	}
+	writeIndent(sb, indent)
+	sb.WriteString("},\n")
+}
+
+func traversalKey(fromType, edgeLabel, toType string) string {
+	return fromType + "|" + edgeLabel + "|" + toType
+}
+
+func writeGeneratedTraversal(sb *strings.Builder, fromType, edgeLabel, toType string, link Link, key string) {
+	sb.WriteString(fmt.Sprintf("\t%q: {\n", key))
+	sb.WriteString(fmt.Sprintf("\t\tFromType: %q,\n", fromType))
+	sb.WriteString(fmt.Sprintf("\t\tEdgeLabel: %q,\n", edgeLabel))
+	sb.WriteString(fmt.Sprintf("\t\tToType: %q,\n", toType))
+	writeGeneratedStringSlice(sb, "Direction", link.TargetHints.Direction, 2)
+	writeGeneratedStringSlice(sb, "Multiplicity", link.TargetHints.Multiplicity, 2)
+	writeGeneratedStringSlice(sb, "Backref", link.TargetHints.Backref, 2)
+	writeGeneratedStringSlice(sb, "RegexMatch", link.TargetHints.RegexMatch, 2)
+	sb.WriteString("\t},\n")
 }
 
 func writeIndent(sb *strings.Builder, n int) {

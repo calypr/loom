@@ -57,9 +57,20 @@ type ResolvedPath struct {
 }
 
 type PivotSpec struct {
-	Family         string
-	ColumnSelector FieldSelectorSpec
-	ValueSelector  FieldSelectorSpec
+	Family          string
+	CatalogRootPath string
+	ColumnSelector  FieldSelectorSpec
+	ValueSelector   FieldSelectorSpec
+}
+
+type TraversalSpec struct {
+	FromType     string
+	EdgeLabel    string
+	ToType       string
+	Direction    []string
+	Multiplicity []string
+	Backref      []string
+	RegexMatch   []string
 }
 
 type generatedDefinition struct {
@@ -77,8 +88,8 @@ type generatedProperty struct {
 }
 
 const (
-	PredicateContains     = "CONTAINS"
-	maxSelectorFieldDepth = 6
+	PredicateContains               = "CONTAINS"
+	maxSelectorFieldDepth           = 6
 	PivotFamilyCodeableConcept      = "CODEABLE_CONCEPT"
 	PivotFamilyObservationCodeValue = "OBSERVATION_CODE_VALUE"
 )
@@ -87,25 +98,6 @@ var (
 	containsPattern = regexp.MustCompile(`^([A-Za-z0-9_]+)\s+contains\s+"([^"]*)"$`)
 	resourceCache   sync.Map
 )
-
-func Resources() []ResourceSpec {
-	out := make([]ResourceSpec, 0, len(generatedResourceTypes))
-	for _, resourceType := range generatedResourceTypes {
-		out = append(out, ResourceSpec{
-			ResourceType: resourceType,
-			Fields:       FieldsForResource(resourceType),
-		})
-	}
-	return out
-}
-
-func Resource(resourceType string) (ResourceSpec, bool) {
-	fields := FieldsForResource(resourceType)
-	if len(fields) == 0 {
-		return ResourceSpec{}, false
-	}
-	return ResourceSpec{ResourceType: resourceType, Fields: fields}, true
-}
 
 func FieldsForResource(resourceType string) []FieldSpec {
 	if cached, ok := resourceCache.Load(resourceType); ok {
@@ -126,6 +118,14 @@ func LookupField(resourceType, canonicalPath string) (FieldSpec, bool) {
 		}
 	}
 	return FieldSpec{}, false
+}
+
+func LookupTraversal(fromType, edgeLabel, toType string) (TraversalSpec, bool) {
+	spec, ok := generatedTraversals[traversalKey(fromType, edgeLabel, toType)]
+	if !ok {
+		return TraversalSpec{}, false
+	}
+	return cloneTraversalSpec(spec), true
 }
 
 func ResolvePath(resourceType, canonicalPath string) (ResolvedPath, bool) {
@@ -165,11 +165,6 @@ func ResolvePath(resourceType, canonicalPath string) (ResolvedPath, bool) {
 func ResolvesToCodeableConcept(resourceType, canonicalPath string) bool {
 	resolved, ok := ResolvePath(resourceType, canonicalPath)
 	return ok && resolved.PropertyRef == "CodeableConcept"
-}
-
-func ResolvesToCoding(resourceType, canonicalPath string) bool {
-	resolved, ok := ResolvePath(resourceType, canonicalPath)
-	return ok && resolved.PropertyRef == "Coding"
 }
 
 func ObservationValueSelectorOptions(resourceType string) []FieldSelectorSpec {
@@ -224,27 +219,13 @@ func ValidatePivotSelectors(resourceType string, column FieldSelectorSpec, value
 		return PivotSpec{}, fmt.Errorf("pivot value selector is required")
 	}
 
-	if resourceType == "Observation" && isObservationCodeSelector(columnCanonical) && isObservationValueSelector(valueCanonical) {
+	if match, ok := resolvePivotFamily(resourceType, columnCanonical, valueCanonical); ok {
 		return PivotSpec{
-			Family:         PivotFamilyObservationCodeValue,
-			ColumnSelector: normalizeSelectorSpec(column, columnExpr),
-			ValueSelector:  normalizeSelectorSpec(value, valueExpr),
+			Family:          match.family,
+			CatalogRootPath: match.catalogRootPath,
+			ColumnSelector:  normalizeSelectorSpec(column, columnExpr),
+			ValueSelector:   normalizeSelectorSpec(value, valueExpr),
 		}, nil
-	}
-
-	if roots, ok := codeableConceptRoots(resourceType, columnCanonical); ok {
-		valueRoots, valueOK := codeableConceptRoots(resourceType, valueCanonical)
-		if valueOK {
-			for _, root := range roots {
-				if slicesContains(valueRoots, root) {
-					return PivotSpec{
-						Family:         PivotFamilyCodeableConcept,
-						ColumnSelector: normalizeSelectorSpec(column, columnExpr),
-						ValueSelector:  normalizeSelectorSpec(value, valueExpr),
-					}, nil
-				}
-			}
-		}
 	}
 
 	return PivotSpec{}, fmt.Errorf("unsupported pivot selector pair %q / %q for resourceType %q", columnExpr, valueExpr, resourceType)
@@ -299,6 +280,18 @@ func CanonicalPath(spec FieldSelectorSpec) string {
 		SourcePath: spec.SourcePath,
 		ValuePath:  spec.ValuePath,
 	}))
+}
+
+func traversalKey(fromType, edgeLabel, toType string) string {
+	return fromType + "|" + edgeLabel + "|" + toType
+}
+
+func cloneTraversalSpec(spec TraversalSpec) TraversalSpec {
+	spec.Direction = cloneStrings(spec.Direction)
+	spec.Multiplicity = cloneStrings(spec.Multiplicity)
+	spec.Backref = cloneStrings(spec.Backref)
+	spec.RegexMatch = cloneStrings(spec.RegexMatch)
+	return spec
 }
 
 func CanonicalizePath(path string) string {
@@ -538,6 +531,54 @@ func codeableConceptRoots(resourceType, canonicalPath string) ([]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+type pivotFamilyMatch struct {
+	family          string
+	catalogRootPath string
+}
+
+func resolvePivotFamily(resourceType, columnCanonical, valueCanonical string) (pivotFamilyMatch, bool) {
+	resolvers := []func(string, string, string) (pivotFamilyMatch, bool){
+		matchObservationCodeValuePivot,
+		matchSharedCodeableConceptPivot,
+	}
+	for _, resolver := range resolvers {
+		if match, ok := resolver(resourceType, columnCanonical, valueCanonical); ok {
+			return match, true
+		}
+	}
+	return pivotFamilyMatch{}, false
+}
+
+func matchObservationCodeValuePivot(resourceType, columnCanonical, valueCanonical string) (pivotFamilyMatch, bool) {
+	if resourceType == "Observation" && isObservationCodeSelector(columnCanonical) && isObservationValueSelector(valueCanonical) {
+		return pivotFamilyMatch{
+			family:          PivotFamilyObservationCodeValue,
+			catalogRootPath: "code",
+		}, true
+	}
+	return pivotFamilyMatch{}, false
+}
+
+func matchSharedCodeableConceptPivot(resourceType, columnCanonical, valueCanonical string) (pivotFamilyMatch, bool) {
+	roots, ok := codeableConceptRoots(resourceType, columnCanonical)
+	if !ok {
+		return pivotFamilyMatch{}, false
+	}
+	valueRoots, valueOK := codeableConceptRoots(resourceType, valueCanonical)
+	if !valueOK {
+		return pivotFamilyMatch{}, false
+	}
+	for _, root := range roots {
+		if slicesContains(valueRoots, root) {
+			return pivotFamilyMatch{
+				family:          PivotFamilyCodeableConcept,
+				catalogRootPath: root,
+			}, true
+		}
+	}
+	return pivotFamilyMatch{}, false
 }
 
 func isObservationCodeSelector(canonicalPath string) bool {

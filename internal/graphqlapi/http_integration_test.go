@@ -8,23 +8,26 @@ import (
 	"strings"
 	"testing"
 
-	"arangodb-proto/internal/dataframe"
-	"arangodb-proto/internal/graphqlapi"
-	"arangodb-proto/internal/proto"
-	"arangodb-proto/internal/writeapi"
+	"github.com/calypr/loom/internal/api"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/graphqlapi"
+	"github.com/calypr/loom/internal/ingest"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestGraphQLIntrospectionEndpoint(t *testing.T) {
-	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
-			return []proto.PopulatedReference{
+	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+			return []catalog.PopulatedReference{
 				{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
 			}, nil
 		},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			if opts.PivotOnly {
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{
 						ResourceType:      "Patient",
 						Path:              "valueCodeableConcept",
@@ -39,7 +42,7 @@ func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 					},
 				}, nil
 			}
-			return []proto.PopulatedField{
+			return []catalog.PopulatedField{
 				{
 					ResourceType:      "Patient",
 					Path:              "identifier[].value",
@@ -54,16 +57,16 @@ func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 			}, nil
 		},
 	})
-	svc, err := writeapi.NewService(writeapi.ServiceConfig{
+	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{
+	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Service:                  svc,
-		Authenticator:            writeapi.StaticAuthenticator{Principal: writeapi.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
-		GraphQLHandler:           graphqlapi.NewHandler(graphqlapi.NewResolver(graphService)),
+		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
+		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
 		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
 		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
 	})
@@ -124,17 +127,17 @@ func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 }
 
 func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
-	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{})
-	svc, err := writeapi.NewService(writeapi.ServiceConfig{
+	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{})
+	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{
+	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Service:                  svc,
-		Authenticator:            writeapi.StaticAuthenticator{Principal: writeapi.Principal{Subject: "u1"}},
-		GraphQLHandler:           graphqlapi.NewHandler(graphqlapi.NewResolver(graphService)),
+		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1"}},
+		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
 		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
 		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
 	})
@@ -181,84 +184,84 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframe.NewService(dataframe.ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			switch opts.ResourceType {
 			case "Patient":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
 					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
 				}, nil
 			case "Condition":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
 				}, nil
 			case "Specimen":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
 				}, nil
 			default:
-				return []proto.PopulatedField{}, nil
+				return []catalog.PopulatedField{}, nil
 			}
 		},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
 				}, nil
 			}
-			return []proto.PopulatedReference{}, nil
+			return []catalog.PopulatedReference{}, nil
 		},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_condition_set") {
 				t.Fatalf("expected advanced lowered query, got:\n%s", query)
 			}
 			return visit(map[string]any{"_key": "p1", "gender": "female", "condition__condition_count": 1})
 		},
 	})
-	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			switch opts.ResourceType {
 			case "Patient":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
 					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
 				}, nil
 			case "Condition":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
 				}, nil
 			case "Specimen":
-				return []proto.PopulatedField{
+				return []catalog.PopulatedField{
 					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
 				}, nil
 			default:
-				return []proto.PopulatedField{}, nil
+				return []catalog.PopulatedField{}, nil
 			}
 		},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
 				}, nil
 			}
-			return []proto.PopulatedReference{}, nil
+			return []catalog.PopulatedReference{}, nil
 		},
 		Dataframes: dfService,
 	})
-	svc, err := writeapi.NewService(writeapi.ServiceConfig{
+	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{
+	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Service:                  svc,
-		Authenticator:            writeapi.StaticAuthenticator{Principal: writeapi.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
-		GraphQLHandler:           graphqlapi.NewHandler(graphqlapi.NewResolver(graphService)),
+		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
+		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
 		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
 		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
 	})
@@ -282,9 +285,9 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	var payload struct {
 		Data struct {
 			Run struct {
-				Columns []string `json:"columns"`
-				Rows    []map[string]any `json:"rows"`
-				RowCount int `json:"rowCount"`
+				Columns  []string         `json:"columns"`
+				Rows     []map[string]any `json:"rows"`
+				RowCount int              `json:"rowCount"`
 			} `json:"runFhirDataframe"`
 		} `json:"data"`
 		Errors []map[string]any `json:"errors"`
@@ -302,20 +305,20 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframe.NewService(dataframe.ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			switch opts.ResourceType {
 			case "Patient":
-				return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 			case "Specimen":
-				return []proto.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
 			default:
-				return []proto.PopulatedField{}, nil
+				return []catalog.PopulatedField{}, nil
 			}
 		},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{
 						FromType:  "Patient",
 						Label:     "subject_Patient",
@@ -330,9 +333,9 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 					},
 				}, nil
 			}
-			return []proto.PopulatedReference{}, nil
+			return []catalog.PopulatedReference{}, nil
 		},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_specimen_set") {
 				t.Fatalf("expected advanced lowered query, got:\n%s", query)
 			}
@@ -344,23 +347,23 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 			})
 		},
 	})
-	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			switch opts.ResourceType {
 			case "Patient":
-				return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 			case "Specimen":
-				return []proto.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
 			case "Condition":
-				return []proto.PopulatedField{{ResourceType: "Condition", Path: "id", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Condition", Path: "id", Kind: "scalar"}}, nil
 			default:
-				return []proto.PopulatedField{}, nil
+				return []catalog.PopulatedField{}, nil
 			}
 		},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			if opts.NodeType == "Patient" {
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{
 						FromType:  "Patient",
 						Label:     "subject_Patient",
@@ -375,20 +378,20 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 					},
 				}, nil
 			}
-			return []proto.PopulatedReference{}, nil
+			return []catalog.PopulatedReference{}, nil
 		},
 		Dataframes: dfService,
 	})
-	svc, err := writeapi.NewService(writeapi.ServiceConfig{
+	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{
+	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Service:                  svc,
-		Authenticator:            writeapi.StaticAuthenticator{Principal: writeapi.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
-		GraphQLHandler:           graphqlapi.NewHandler(graphqlapi.NewResolver(graphService)),
+		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
+		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
 		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
 		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
 	})
@@ -412,9 +415,9 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	var payload struct {
 		Data struct {
 			Run struct {
-				Columns []string `json:"columns"`
-				Rows    []map[string]any `json:"rows"`
-				RowCount int `json:"rowCount"`
+				Columns  []string         `json:"columns"`
+				Rows     []map[string]any `json:"rows"`
+				RowCount int              `json:"rowCount"`
 			} `json:"runFhirDataframe"`
 		} `json:"data"`
 		Errors []map[string]any `json:"errors"`
@@ -432,6 +435,6 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 
 type fakeRunner struct{}
 
-func (fakeRunner) Run(ctx context.Context, req writeapi.ImportRequest, sink proto.EventSink) (proto.LoadSummary, error) {
-	return proto.LoadSummary{}, nil
+func (fakeRunner) Run(ctx context.Context, req api.ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
 }

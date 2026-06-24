@@ -6,16 +6,16 @@ import (
 	"log/slog"
 	"os"
 
-	"arangodb-proto/internal/catalogcache"
-	"arangodb-proto/internal/graphqlapi"
-	"arangodb-proto/internal/proto"
-	"arangodb-proto/internal/writeapi"
+	"github.com/calypr/loom/internal/api"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/cache"
+	"github.com/calypr/loom/internal/graphqlapi"
+	"github.com/calypr/loom/internal/ingest"
 )
 
 const (
-	defaultBackend  = "arango"
 	defaultURL      = "http://127.0.0.1:8529"
-	defaultNS       = "fhir_proto"
 	defaultDatabase = "fhir_proto"
 	defaultSchema   = "schemas/graph-fhir.json"
 )
@@ -23,19 +23,13 @@ const (
 func main() {
 	fs := flag.NewFlagSet("arango-fhir-server", flag.ExitOnError)
 	listenAddr := fs.String("listen", ":8080", "HTTP listen address")
-	maxConcurrent := fs.Int("max-concurrent-imports", 1, "Maximum concurrent in-process imports")
 	bodyLimit := fs.Int("body-limit", 1024*1024*1024, "Maximum request body size in bytes")
 	readBufferSize := fs.Int("read-buffer-size", 1024*1024, "Fiber request read buffer size in bytes; also limits max header size")
 	noAuth := fs.Bool("no-auth", false, "Disable scope-based auth for local demo use")
 
-	loadOpts := proto.LoadOptions{}
-	fs.StringVar(&loadOpts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
+	loadOpts := ingest.LoadOptions{}
 	fs.StringVar(&loadOpts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&loadOpts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
 	fs.StringVar(&loadOpts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&loadOpts.Username, "username", "root", "Backend username")
-	fs.StringVar(&loadOpts.Password, "password", "root", "Backend password")
-	fs.StringVar(&loadOpts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
 	fs.StringVar(&loadOpts.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
 	fs.IntVar(&loadOpts.BatchSize, "batch-size", 5000, "Bulk insert batch size")
 	fs.IntVar(&loadOpts.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
@@ -49,25 +43,24 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	discoveryCache := catalogcache.New()
-	var scopeResolver *writeapi.ScopeResolver
-	authenticator := writeapi.Authenticator(writeapi.BearerTokenAuthenticator{})
-	authorizer := writeapi.Authorizer(writeapi.ScopeAuthorizer{})
+	discoveryCache := cache.New()
+	var scopeResolver *authscope.ScopeResolver
+	authenticator := authscope.Authenticator(authscope.BearerTokenAuthenticator{})
+	authorizer := authscope.Authorizer(authscope.ScopeAuthorizer{})
 	if *noAuth {
-		authenticator = writeapi.StaticAuthenticator{
-			Principal: writeapi.Principal{Subject: "local-demo"},
+		authenticator = authscope.StaticAuthenticator{
+			Principal: authscope.Principal{Subject: "local-demo"},
 		}
-		authorizer = writeapi.AllowAllAuthorizer{}
+		authorizer = authscope.AllowAllAuthorizer{}
 	} else {
-		scopeResolver = writeapi.NewScopeResolver(writeapi.ScopeResolverConfig{
+		scopeResolver = authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 			ConnectionOptions: loadOpts.ConnectionOptions,
 		})
-		authorizer = writeapi.ScopeAuthorizer{Resolver: scopeResolver}
+		authorizer = authscope.ScopeAuthorizer{Resolver: scopeResolver}
 	}
-	service, err := writeapi.NewService(writeapi.ServiceConfig{
-		Runner:        writeapi.ProtoRunner{BaseOptions: loadOpts},
-		Logger:        logger,
-		MaxConcurrent: *maxConcurrent,
+	service, err := api.NewService(api.ServiceConfig{
+		Runner: api.IngestRunner{BaseOptions: loadOpts},
+		Logger: logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
 			if scopeResolver != nil {
@@ -79,14 +72,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	graphService := graphqlapi.NewService(graphqlapi.ServiceConfig{
+	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
 		ConnectionOptions:  loadOpts.ConnectionOptions,
-		DiscoverReferences: discoveryCache.DiscoverReferences(proto.DiscoverPopulatedReferences),
-		DiscoverFields:     discoveryCache.DiscoverFields(proto.DiscoverPopulatedFields),
+		DiscoverReferences: discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences),
+		DiscoverFields:     discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields),
 		ScopeResolver:      scopeResolver,
 	})
-	graphHandler := graphqlapi.NewHandler(graphqlapi.NewResolver(graphService))
-	server, err := writeapi.NewHTTPServer(writeapi.HTTPConfig{
+	graphHandler := graphqlapi.NewHandler(graphResolver)
+	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Service:                  service,
 		Authenticator:            authenticator,
 		Authorizer:               authorizer,
@@ -102,7 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("starting write api server", "listen", *listenAddr, "backend", loadOpts.Backend, "database", loadOpts.Database, "no_auth", *noAuth)
+	logger.Info("starting server", "listen", *listenAddr, "backend", "arango", "database", loadOpts.Database, "no_auth", *noAuth)
 	if err := server.App().Listen(*listenAddr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

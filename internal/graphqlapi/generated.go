@@ -3,13 +3,13 @@
 package graphqlapi
 
 import (
-	"arangodb-proto/internal/graphqlapi/model"
 	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/graphqlapi/model"
 	"strconv"
 	"sync"
 	"sync/atomic"

@@ -46,14 +46,12 @@ The server entrypoint is:
 It wires together:
 
 - Fiber HTTP server
-- REST bulk ingest service
 - GraphQL dataframe service
-- discovery cache invalidation after successful writes
 - optional scope-aware auth for reads/writes
 
 Mounted routes are registered in:
 
-- [`internal/writeapi/http.go`](../internal/writeapi/http.go)
+- [`internal/api/routes.go`](../internal/api/routes.go)
 
 Current routes:
 
@@ -61,15 +59,12 @@ Current routes:
 - `GET /graphql`
 - `POST /graphql`
 - `GET /apollo`
-- `POST /api/v1/imports`
-- `GET /api/v1/imports/:id`
-- `GET /api/v1/imports/:id/events`
 
 ## 2. Storage Model
 
 The repo’s logical collections are defined in:
 
-- [`internal/proto/backend.go`](../internal/proto/backend.go)
+- [`internal/ingest/backend.go`](../internal/ingest/backend.go)
 
 Current primary collections:
 
@@ -88,18 +83,17 @@ Important details:
 
 The common backend interface is:
 
-- [`internal/store/store.go`](../internal/store/store.go)
+- `internal/store/arango`
 
-Arango is the main execution backend for reads. Backend selection is abstracted
-through:
+Arango is the only runtime backend. Connection setup lives in:
 
-- [`internal/dbio/dbio.go`](../internal/dbio/dbio.go)
+- [`internal/store/arango/`](../internal/store/arango/)
 
 ## 3. Load Pipeline
 
 The primary load implementation is:
 
-- [`internal/proto/load.go`](../internal/proto/load.go)
+- [`internal/ingest/load.go`](../internal/ingest/load.go)
 
 High-level flow:
 
@@ -116,10 +110,11 @@ High-level flow:
 
 Key load-related pieces:
 
-- [`internal/proto/files.go`](../internal/proto/files.go): NDJSON discovery and scanners
-- [`internal/proto/row_builder.go`](../internal/proto/row_builder.go): generated vs generic row-builder surface
-- [`internal/proto/generated_load.go`](../internal/proto/generated_load.go): generated fast-path extraction
-- [`internal/catalog/field_catalog.go`](../internal/catalog/field_catalog.go): load-time field profiling
+- [`internal/ingest/files.go`](../internal/ingest/files.go): NDJSON discovery and scanners
+- [`internal/ingest/row_builder.go`](../internal/ingest/row_builder.go): generated vs generic row-builder surface
+- [`internal/ingest/generated_load.go`](../internal/ingest/generated_load.go): generated fast-path extraction
+- [`internal/catalog/write_profiler.go`](../internal/catalog/write_profiler.go): load-time field profiling
+- [`internal/catalog/write_persist.go`](../internal/catalog/write_persist.go): field catalog persistence
 
 The loader can still run in a slower generic mode, but the intended fast path is
 the generated FHIR-specific path.
@@ -133,9 +128,9 @@ Builder introspection depends on two discovery surfaces:
 
 These live in:
 
-- [`internal/catalog/discovery.go`](../internal/catalog/discovery.go)
-- [`internal/catalog/field_catalog.go`](../internal/catalog/field_catalog.go)
-- [`internal/catalog/auth_resource_paths.go`](../internal/catalog/auth_resource_paths.go)
+- [`internal/catalog/read_references.go`](../internal/catalog/read_references.go)
+- [`internal/catalog/read_fields.go`](../internal/catalog/read_fields.go)
+- [`internal/catalog/read_auth_paths.go`](../internal/catalog/read_auth_paths.go)
 
 Important behavior:
 
@@ -147,7 +142,7 @@ Important behavior:
 
 The server wraps discovery in a cache:
 
-- [`internal/catalogcache/cache.go`](../internal/catalogcache/cache.go)
+- [`internal/catalog/cache/cache.go`](../internal/catalog/cache/cache.go)
 
 That cache is invalidated after successful writes by the server bootstrap code in:
 
@@ -181,7 +176,7 @@ The GraphQL split is intentional:
 - dataframe execution mutation:
   - `runFhirDataframe`
 
-GraphQL is the read/builder contract. It is not used for bulk ingest.
+GraphQL is the read/builder contract.
 
 ## 6. FHIR Schema Metadata vs. FHIR Semantics
 
@@ -236,10 +231,13 @@ The dataframe subsystem is:
 
 Current important files:
 
-- [`internal/dataframe/dataframe.go`](../internal/dataframe/dataframe.go): service entrypoint, validation, auth-scope prep, compile/run orchestration
+- [`internal/dataframe/service.go`](../internal/dataframe/service.go): service entrypoint and run orchestration
+- [`internal/dataframe/validation.go`](../internal/dataframe/validation.go): builder and traversal validation against catalog discovery
+- [`internal/dataframe/auth.go`](../internal/dataframe/auth.go): auth-scope and project authorization handling
+- [`internal/dataframe/compile.go`](../internal/dataframe/compile.go): compiled query contract and compile entrypoint
 - [`internal/dataframe/planner.go`](../internal/dataframe/planner.go): request lowering and optimization planning
-- [`internal/dataframe/advanced_types.go`](../internal/dataframe/advanced_types.go): advanced internal builder structures
-- [`internal/dataframe/advanced_compile.go`](../internal/dataframe/advanced_compile.go): advanced lowered builder -> optimized AQL
+- [`internal/dataframe/lowered_types.go`](../internal/dataframe/lowered_types.go): lowered internal builder structures
+- [`internal/dataframe/lowered_compile.go`](../internal/dataframe/lowered_compile.go): lowered builder -> optimized AQL
 
 Current execution model:
 
@@ -255,52 +253,38 @@ Important current truth:
 - optimizer complexity lives under the covers
 - Arango is the only supported runtime for `runFhirDataframe`
 
-## 8. Query Execution Service
+## 8. Query Execution
 
-Direct query helpers and older query-oriented flows now live under:
+Row-oriented AQL execution now lives with the dataframe runtime:
 
-- [`internal/querysvc`](../internal/querysvc)
+- [`internal/dataframe/query_runtime.go`](../internal/dataframe/query_runtime.go)
 
-Key files:
+CLI-oriented canned query/export behavior lives with the CLI command surface:
 
-- [`internal/querysvc/query.go`](../internal/querysvc/query.go): direct query execution and bulk export helpers
-- [`internal/querysvc/prepare_case_assay.go`](../internal/querysvc/prepare_case_assay.go): helper-table preparation
-- [`internal/querysvc/build_scalar_index.go`](../internal/querysvc/build_scalar_index.go): scalar index build path
+- [`cmd/arango-fhir-proto/query.go`](../cmd/arango-fhir-proto/query.go)
 
-This package is mostly for:
+This keeps the split honest:
 
-- CLI-oriented query/export flows
-- prepared helper surfaces
-- benchmark support
+- `internal/dataframe` owns the callback-based row execution hook used by GraphQL/dataframe reads
+- `cmd/arango-fhir-proto` owns file-based query/export command behavior and stdout/file shaping
 
-It is distinct from the GraphQL dataframe path, which compiles from the GraphQL
-builder contract instead of simply reading a canned query file.
+## 9. HTTP/Auth Layer
 
-## 9. REST Write API
+The import HTTP server lives in:
 
-Bulk ingest is intentionally REST-only.
+- [`internal/api/routes.go`](../internal/api/routes.go)
+- [`internal/api/service.go`](../internal/api/service.go)
+- [`internal/authscope/principal.go`](../internal/authscope/principal.go)
+- [`internal/authscope/scope.go`](../internal/authscope/scope.go)
 
-Core files:
+The API package now owns:
 
-- [`internal/writeapi/http.go`](../internal/writeapi/http.go)
-- [`internal/writeapi/service.go`](../internal/writeapi/service.go)
+- Fiber app construction
+- request ID / recovery / logging / auth middleware
+- principal extraction and request context propagation
+- scope resolution for GraphQL auth-aware reads
 
-Design choices:
-
-- one uploaded NDJSON file per import request
-- explicit `project` and `resource_type`
-- async HTTP contract via operation polling
-- in-process execution, not a distributed job system
-
-The server persists minimal operation state in memory:
-
-- operation metadata
-- status
-- event stream
-- load summary
-
-This is enough for workflow-runner orchestration without turning this service
-into a scheduler.
+It no longer exposes import job endpoints.
 
 ## 10. Experimental Code
 
@@ -350,12 +334,12 @@ If you want to:
   - then run `make generate-graphql`
 - change dataframe lowering or optimization:
   - [`internal/dataframe/planner.go`](../internal/dataframe/planner.go)
-  - [`internal/dataframe/advanced_compile.go`](../internal/dataframe/advanced_compile.go)
-- change bulk ingest HTTP behavior:
-  - [`internal/writeapi/http.go`](../internal/writeapi/http.go)
-  - [`internal/writeapi/service.go`](../internal/writeapi/service.go)
+  - [`internal/dataframe/lowered_compile.go`](../internal/dataframe/lowered_compile.go)
+- change HTTP middleware or auth wiring:
+  - [`internal/api/routes.go`](../internal/api/routes.go)
+  - [`internal/authscope/scope.go`](../internal/authscope/scope.go)
 - change backend bootstrap/index strategy:
-  - [`internal/proto/backend.go`](../internal/proto/backend.go)
+  - [`internal/ingest/backend.go`](../internal/ingest/backend.go)
 
 ## 13. Current Reality Check
 

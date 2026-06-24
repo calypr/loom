@@ -56,15 +56,6 @@ func TestParseSelectorCanonicalizesIndexedPaths(t *testing.T) {
 	}
 }
 
-func TestResolvePathRecognizesFHIRRefs(t *testing.T) {
-	if !ResolvesToCodeableConcept("Observation", "code") {
-		t.Fatal("expected Observation.code to resolve to CodeableConcept")
-	}
-	if !ResolvesToCoding("Observation", "code.coding[]") {
-		t.Fatal("expected Observation.code.coding[] to resolve to Coding")
-	}
-}
-
 func TestObservationValueSelectorOptions(t *testing.T) {
 	options := ObservationValueSelectorOptions("Observation")
 	if len(options) == 0 {
@@ -90,6 +81,9 @@ func TestValidatePivotSelectors(t *testing.T) {
 	if cc.Family != PivotFamilyCodeableConcept {
 		t.Fatalf("unexpected family: %q", cc.Family)
 	}
+	if cc.CatalogRootPath != "code" {
+		t.Fatalf("unexpected codeable concept catalog root: %q", cc.CatalogRootPath)
+	}
 
 	obs, err := ValidatePivotSelectors("Observation", FieldSelectorSpecFromPath("code.coding[].display"), FieldSelectorSpecFromPath("valueQuantity.value"))
 	if err != nil {
@@ -97,5 +91,37 @@ func TestValidatePivotSelectors(t *testing.T) {
 	}
 	if obs.Family != PivotFamilyObservationCodeValue {
 		t.Fatalf("unexpected observation family: %q", obs.Family)
+	}
+	if obs.CatalogRootPath != "code" {
+		t.Fatalf("unexpected observation catalog root: %q", obs.CatalogRootPath)
+	}
+}
+
+func TestLookupTraversal(t *testing.T) {
+	cases := []struct {
+		fromType  string
+		edgeLabel string
+		toType    string
+	}{
+		{"Patient", "subject_Patient", "Condition"},
+		{"Patient", "subject_Patient", "Specimen"},
+		{"Patient", "focus_Patient", "Observation"},
+		{"Specimen", "subject_Specimen", "DocumentReference"},
+		{"Group", "subject_Group", "DocumentReference"},
+	}
+	for _, tc := range cases {
+		spec, ok := LookupTraversal(tc.fromType, tc.edgeLabel, tc.toType)
+		if !ok {
+			t.Fatalf("expected traversal %s %s %s", tc.fromType, tc.edgeLabel, tc.toType)
+		}
+		if spec.FromType != tc.fromType || spec.EdgeLabel != tc.edgeLabel || spec.ToType != tc.toType {
+			t.Fatalf("unexpected traversal spec: %#v", spec)
+		}
+	}
+}
+
+func TestLookupTraversalRejectsUnknownTuple(t *testing.T) {
+	if _, ok := LookupTraversal("Patient", "subject_Patient", "Medication"); ok {
+		t.Fatal("expected unsupported tuple to miss")
 	}
 }

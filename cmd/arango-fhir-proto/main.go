@@ -10,14 +10,12 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 
-	"arangodb-proto/internal/experimental"
-	"arangodb-proto/internal/proto"
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/ingest"
 )
 
 const (
-	defaultBackend  = "arango"
 	defaultURL      = "http://127.0.0.1:8529"
-	defaultNS       = "fhir_proto"
 	defaultDatabase = "fhir_proto"
 	defaultProject  = "ARANGODB_PROTO"
 	defaultSchema   = "schemas/graph-fhir.json"
@@ -42,12 +40,6 @@ func main() {
 		err = runDiscoverPopulatedReferences(ctx, os.Args[2:])
 	case "discover-populated-fields":
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
-	case "prepare-gdc-case-assay-matrix":
-		err = runPrepareCaseAssayMatrix(ctx, os.Args[2:])
-	case "build-scalar-index":
-		err = runBuildScalarIndex(ctx, os.Args[2:])
-	case "benchmark":
-		err = runBenchmark(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -60,18 +52,13 @@ func main() {
 
 func runLoad(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("load", flag.ExitOnError)
-	opts := proto.LoadOptions{}
+	opts := ingest.LoadOptions{}
 	cpuProfile := fs.String("cpu-profile", "", "Write CPU profile to file")
 	memProfile := fs.String("mem-profile", "", "Write heap profile to file at end of run")
 	traceProfile := fs.String("trace-profile", "", "Write runtime trace to file")
 	blockProfile := fs.String("block-profile", "", "Write block profile to file at end of run")
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
 	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
 	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
 	fs.StringVar(&opts.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
 	fs.StringVar(&opts.MetaDir, "meta-dir", defaultMetaDir, "Directory containing META/*.ndjson")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -96,7 +83,7 @@ func runLoad(ctx context.Context, args []string) error {
 			deferredErr = stopErr
 		}
 	}()
-	summary, err := proto.Load(ctx, opts)
+	summary, err := ingest.Load(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -106,148 +93,18 @@ func runLoad(ctx context.Context, args []string) error {
 	return printJSON(summary)
 }
 
-func runQuery(ctx context.Context, args []string, bulk bool) error {
-	name := "query-gdc-case-assay-matrix"
-	if bulk {
-		name = "export-gdc-case-assay-matrix"
-	}
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
-	opts := proto.QueryOptions{Bulk: bulk}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path used to scope dataframe/export queries, for example EllrottLab-GDC_Data")
-	fs.StringVar(&opts.PatientKey, "patient-key", "", "Optional patient _key bind var for backend-specific probe queries")
-	fs.StringVar(&opts.QueryFile, "query", "", "Backend-specific query file; defaults to the case/assay query for the selected backend")
-	fs.StringVar(&opts.Output, "output", "", "Output path; defaults to stdout")
-	fs.StringVar(&opts.Index, "index", proto.DefaultBulkIndex(), "Elasticsearch bulk target index")
-	fs.IntVar(&opts.BatchSize, "cursor-batch-size", 1000, "Query cursor batch size")
-	fs.IntVar(&opts.ProgressEvery, "progress-every", 50000, "Emit progress every N rows")
-	fs.IntVar(&opts.MaxRows, "max-rows", 0, "Stop after N output rows")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if opts.QueryFile == "" {
-		opts.QueryFile = proto.DefaultCaseAssayQueryPathForBackend(opts.Backend)
-	}
-	if bulk && opts.Output == "" {
-		return fmt.Errorf("--output is required for %s", name)
-	}
-	rows, err := proto.Query(ctx, opts)
-	if err != nil {
-		return err
-	}
-	return printJSON(map[string]any{"step": name, "rows": rows, "output": opts.Output})
-}
-
-func runBenchmark(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("benchmark", flag.ExitOnError)
-	opts := experimental.BenchmarkOptions{}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
-	fs.StringVar(&opts.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
-	fs.StringVar(&opts.MetaDir, "meta-dir", defaultMetaDir, "Directory containing META/*.ndjson")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path copied onto loaded records and used in dataframe queries")
-	fs.StringVar(&opts.QueryFile, "query", "", "Backend-specific dataframe query file")
-	fs.StringVar(&opts.DatasetName, "dataset-name", "", "Optional benchmark dataset label")
-	fs.StringVar(&opts.Output, "output", "", "Optional path to keep the benchmark dataframe output; defaults to a temporary file")
-	fs.IntVar(&opts.BatchSize, "batch-size", 5000, "Bulk insert batch size")
-	fs.IntVar(&opts.CursorBatchSize, "cursor-batch-size", 1000, "Query cursor batch size")
-	fs.IntVar(&opts.ProgressEvery, "progress-every", 50000, "Emit progress every N rows")
-	fs.IntVar(&opts.WriterCount, "writers", 8, "Concurrent writer goroutines")
-	fs.BoolVar(&opts.Truncate, "truncate", true, "Truncate prototype collections before benchmarking")
-	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if opts.QueryFile == "" {
-		opts.QueryFile = proto.DefaultCaseAssayQueryPathForBackend(opts.Backend)
-	}
-	summary, err := experimental.Benchmark(ctx, opts)
-	if err != nil {
-		return err
-	}
-	return printJSON(summary)
-}
-
-func runPrepareCaseAssayMatrix(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("prepare-gdc-case-assay-matrix", flag.ExitOnError)
-	opts := proto.PrepareCaseAssayOptions{}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path used to scope prepare work")
-	fs.IntVar(&opts.BatchSize, "batch-size", 1000, "Bulk insert batch size for helper rows")
-	fs.IntVar(&opts.ProgressEvery, "progress-every", 5000, "Emit progress every N prepared rows")
-	fs.BoolVar(&opts.Truncate, "truncate", true, "Truncate helper collections before preparing")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	summary, err := proto.PrepareGDCCaseAssayMatrix(ctx, opts)
-	if err != nil {
-		return err
-	}
-	return printJSON(summary)
-}
-
-func runBuildScalarIndex(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("build-scalar-index", flag.ExitOnError)
-	opts := proto.BuildScalarIndexOptions{}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
-	fs.StringVar(&opts.Project, "project", "", "Optional project filter")
-	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter")
-	fs.IntVar(&opts.BatchSize, "batch-size", 5000, "Bulk insert batch size for scalar rows")
-	fs.IntVar(&opts.ProgressEvery, "progress-every", 5000, "Emit progress every N scanned resources")
-	fs.BoolVar(&opts.Truncate, "truncate", true, "Delete existing matching scalar rows before rebuilding")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	summary, err := proto.BuildScalarIndex(ctx, opts)
-	if err != nil {
-		return err
-	}
-	return printJSON(summary)
-}
-
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("discover-populated-references", flag.ExitOnError)
-	opts := proto.PopulatedReferenceOptions{}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
+	opts := catalog.PopulatedReferenceOptions{}
 	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
 	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	results, err := proto.DiscoverPopulatedReferences(ctx, opts)
+	results, err := catalog.DiscoverPopulatedReferences(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -256,14 +113,9 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 
 func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("discover-populated-fields", flag.ExitOnError)
-	opts := proto.PopulatedFieldOptions{}
-	fs.StringVar(&opts.Backend, "backend", defaultBackend, "Backend: arango, surreal, or postgres")
+	opts := catalog.PopulatedFieldOptions{}
 	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Namespace, "namespace", defaultNS, "SurrealDB namespace")
 	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Username, "username", "root", "Backend username")
-	fs.StringVar(&opts.Password, "password", "root", "Backend password")
-	fs.StringVar(&opts.AuthToken, "auth-token", "", "SurrealDB auth token; overrides username/password when set")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter, for example Patient")
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
@@ -271,7 +123,7 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	results, err := proto.DiscoverPopulatedFields(ctx, opts)
+	results, err := catalog.DiscoverPopulatedFields(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -294,9 +146,6 @@ func usage() {
   arango-fhir-proto export-gdc-case-assay-matrix --output FILE [flags]
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
-  arango-fhir-proto prepare-gdc-case-assay-matrix [flags]
-  arango-fhir-proto build-scalar-index [flags]
-  arango-fhir-proto benchmark [flags]
 `)
 }
 

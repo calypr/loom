@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"arangodb-proto/internal/proto"
-	"arangodb-proto/internal/writeapi"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestParseSelector(t *testing.T) {
@@ -23,7 +24,7 @@ func TestParseSelector(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsNonAdvancedBuilder(t *testing.T) {
+func TestCompileRejectsNonLoweredBuilder(t *testing.T) {
 	_, err := Compile(Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
@@ -66,8 +67,8 @@ func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected case-assay profile to match, got %v", err)
 	}
-	if !usesAdvancedBuilder(planned) {
-		t.Fatal("expected planner to return advanced builder")
+	if !usesLoweredBuilder(planned) {
+		t.Fatal("expected planner to return lowered builder")
 	}
 	if planned.PlanHint == nil || planned.PlanHint.Profile != "patient_case_assay_family" {
 		t.Fatalf("unexpected plan hint: %#v", planned.PlanHint)
@@ -255,24 +256,24 @@ func TestLowerGraphQLBuilderPreservesUnrestrictedAuthScope(t *testing.T) {
 
 func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
-			return []proto.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+			return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
 		},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			if opts.PivotOnly {
-				return []proto.PopulatedField{}, nil
+				return []catalog.PopulatedField{}, nil
 			}
 			if opts.ResourceType == "Patient" {
-				return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+				return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 			}
-			return []proto.PopulatedField{{ResourceType: "Specimen", Path: "type.coding[].display", Kind: "scalar"}}, nil
+			return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type.coding[].display", Kind: "scalar"}}, nil
 		},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{"_key": "p1", "gender": "female", "specimen__specimen_type": []string{"Blood"}})
 		},
 	})
-	ctx := writeapi.ContextWithPrincipal(context.Background(), &writeapi.Principal{
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Projects:          []string{"P1"},
 		AuthResourcePaths: []string{"pathA"},
 	})
@@ -297,37 +298,37 @@ func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
 
 func TestServiceRunCaseAssayRecipe(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			switch opts.NodeType {
 			case "Patient":
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
 					{FromType: "Patient", Label: "subject_Patient", ToType: "ResearchSubject", EdgeCount: 1},
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
 					{FromType: "Patient", Label: "subject_Patient", ToType: "MedicationAdministration", EdgeCount: 1},
 				}, nil
 			case "Specimen":
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{FromType: "Specimen", Label: "subject_Specimen", ToType: "DocumentReference", EdgeCount: 1},
 					{FromType: "Specimen", Label: "member_entity_Specimen", ToType: "Group", EdgeCount: 1},
 				}, nil
 			case "Group":
-				return []proto.PopulatedReference{
+				return []catalog.PopulatedReference{
 					{FromType: "Group", Label: "subject_Group", ToType: "DocumentReference", EdgeCount: 1},
 				}, nil
 			default:
-				return []proto.PopulatedReference{}, nil
+				return []catalog.PopulatedReference{}, nil
 			}
 		},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
-			return []proto.PopulatedField{
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+			return []catalog.PopulatedField{
 				{ResourceType: opts.ResourceType, Path: "gender", Kind: "scalar"},
 				{ResourceType: opts.ResourceType, Path: "id", Kind: "scalar"},
 				{ResourceType: opts.ResourceType, Path: "status", Kind: "scalar"},
 			}, nil
 		},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_condition_set") || !strings.Contains(query, "LET specimen_group_set") {
 				t.Fatalf("expected advanced planned query, got:\n%s", query)
 			}
@@ -337,7 +338,7 @@ func TestServiceRunCaseAssayRecipe(t *testing.T) {
 			return visit(map[string]any{"_key": "p1", "gender": "female"})
 		},
 	})
-	ctx := writeapi.ContextWithPrincipal(context.Background(), &writeapi.Principal{
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Projects:          []string{"P1"},
 		AuthResourcePaths: []string{"pathA"},
 	})
@@ -403,14 +404,14 @@ func containsDerivedFieldWithSelect(fields []DerivedField, wantName, wantSelect 
 
 func TestServiceRejectsUnsupportedRootOnlyQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ConnectionOptions: proto.ConnectionOptions{Backend: "arango"},
-		DiscoverReferences: func(ctx context.Context, opts proto.PopulatedReferenceOptions) ([]proto.PopulatedReference, error) {
-			return []proto.PopulatedReference{}, nil
+		ConnectionOptions: arangostore.ConnectionOptions{},
+		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+			return []catalog.PopulatedReference{}, nil
 		},
-		DiscoverFields: func(ctx context.Context, opts proto.PopulatedFieldOptions) ([]proto.PopulatedField, error) {
-			return []proto.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+			return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 		},
-		ExecuteRows: func(ctx context.Context, opts proto.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{"_key": "p1", "gender": "female"})
 		},
 	})
@@ -427,8 +428,8 @@ func TestServiceRejectsUnsupportedRootOnlyQuery(t *testing.T) {
 }
 
 func TestServiceRejectsUnauthorizedAuthPath(t *testing.T) {
-	svc := NewService(ServiceConfig{ConnectionOptions: proto.ConnectionOptions{Backend: "arango"}})
-	ctx := writeapi.ContextWithPrincipal(context.Background(), &writeapi.Principal{
+	svc := NewService(ServiceConfig{ConnectionOptions: arangostore.ConnectionOptions{}})
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Projects:          []string{"P1"},
 		AuthResourcePaths: []string{"pathA"},
 	})
@@ -442,5 +443,57 @@ func TestServiceRejectsUnauthorizedAuthPath(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected auth path error")
+	}
+}
+
+func TestLookupPlannerTraversalUsesSchemaDerivedMetadata(t *testing.T) {
+	cases := []struct {
+		fromType  string
+		edgeLabel string
+		toType    string
+		role      traversalRole
+	}{
+		{"Patient", "subject_Patient", "Condition", traversalRolePatientNeighborChild},
+		{"Patient", "subject_Patient", "Specimen", traversalRolePatientNeighborChild},
+		{"Patient", "focus_Patient", "Observation", traversalRolePatientDirectChild},
+		{"Specimen", "subject_Specimen", "DocumentReference", traversalRoleSpecimenDocumentReference},
+		{"Group", "subject_Group", "DocumentReference", traversalRoleGroupDocumentReference},
+	}
+	for _, tc := range cases {
+		spec, ok := lookupPlannerTraversal(tc.fromType, tc.edgeLabel, tc.toType)
+		if !ok {
+			t.Fatalf("expected traversal %s %s %s", tc.fromType, tc.edgeLabel, tc.toType)
+		}
+		if spec.Role != tc.role {
+			t.Fatalf("unexpected role for %s %s %s: %q", tc.fromType, tc.edgeLabel, tc.toType, spec.Role)
+		}
+		if spec.Schema.FromType != tc.fromType || spec.Schema.EdgeLabel != tc.edgeLabel || spec.Schema.ToType != tc.toType {
+			t.Fatalf("unexpected schema spec: %#v", spec.Schema)
+		}
+	}
+}
+
+func TestLookupPlannerTraversalRejectsUnsupportedTuple(t *testing.T) {
+	if _, ok := lookupPlannerTraversal("Patient", "subject_Patient", "Medication"); ok {
+		t.Fatal("expected unsupported tuple to miss")
+	}
+}
+
+func TestDocumentReferenceSummaryFieldMapping(t *testing.T) {
+	got, ok := mapDocumentReferenceSelectorToSummaryField(`category[].coding[].display where system contains "workflow_type"`)
+	if !ok {
+		t.Fatal("expected workflow_type selector to map")
+	}
+	if got != "workflow_type" {
+		t.Fatalf("unexpected mapped field: %q", got)
+	}
+}
+
+func TestRequiresResearchStudyHydration(t *testing.T) {
+	if requiresResearchStudyHydration("study.reference", "ResearchSubject.study_reference") {
+		t.Fatal("default generated study ref should not require hydration")
+	}
+	if !requiresResearchStudyHydration("study.display", "ResearchSubject.study_display") {
+		t.Fatal("study child selector should require hydration")
 	}
 }

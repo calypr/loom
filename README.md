@@ -6,7 +6,7 @@ backend.
 This repo now has two main runtime surfaces:
 
 - `arango-fhir-proto`: CLI for load, discovery, query, prepare, and benchmark work
-- `arango-fhir-server`: Fiber + GraphQL/REST server for dataframe reads and bulk ingest
+- `arango-fhir-server`: Fiber server for GraphQL reads plus a direct REST import endpoint
 
 The current product direction is:
 
@@ -14,8 +14,6 @@ The current product direction is:
 - store graph edges in `fhir_edge`
 - profile populated fields into `fhir_field_catalog`
 - expose builder introspection and dataframe execution through GraphQL
-- keep bulk ingest as REST, not GraphQL
-
 ArangoDB is the first-class backend for dataframe execution. SurrealDB and
 Postgres code remains under [`experimental/`](experimental/) for research and
 benchmarking only.
@@ -31,14 +29,15 @@ benchmarking only.
 
 - [`cmd/arango-fhir-proto/main.go`](cmd/arango-fhir-proto/main.go): CLI entrypoint
 - [`cmd/arango-fhir-server/main.go`](cmd/arango-fhir-server/main.go): HTTP server entrypoint
-- [`internal/proto`](internal/proto): load pipeline and backend bootstrap helpers
+- [`internal/ingest`](internal/ingest): load pipeline and Arango ingest bootstrap/runtime
 - [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
-- [`internal/catalogcache`](internal/catalogcache): per-project discovery cache
+- [`internal/catalog/cache`](internal/catalog/cache): per-project discovery cache
 - [`internal/graphqlapi`](internal/graphqlapi): GraphQL schema, request mapping, introspection service
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
 - [`internal/fhirschema`](internal/fhirschema): generated schema metadata used by planner/validation
 - [`internal/fhirsemantics`](internal/fhirsemantics): friendly `fieldRef`s and semantic lowering hints
-- [`internal/writeapi`](internal/writeapi): REST import API and in-process operation manager
+- [`internal/api`](internal/api): HTTP API surface and ingest import wiring
+- [`internal/authscope`](internal/authscope): shared request principal context and auth-resource-path scope resolution
 - [`queries/`](queries/): Arango AQL query artifacts
 - [`experimental/`](experimental/): non-primary backend work and benchmark artifacts
 
@@ -119,10 +118,8 @@ The server mounts:
 - `GET /graphql`
 - `POST /graphql`
 - `POST /api/v1/imports`
-- `GET /api/v1/imports/:id`
-- `GET /api/v1/imports/:id/events`
 
-Write/import behavior lives in [`internal/writeapi/http.go`](internal/writeapi/http.go).
+HTTP wiring lives in [`internal/api/routes.go`](internal/api/routes.go) and [`internal/api/server.go`](internal/api/server.go).
 
 ## Primary Collections
 
@@ -133,7 +130,7 @@ The loader bootstraps:
 - `fhir_field_catalog`
 - `patient_file_rollup`
 
-See [`internal/proto/backend.go`](internal/proto/backend.go).
+See [`internal/ingest/backend.go`](internal/ingest/backend.go).
 
 ## Status
 
@@ -141,7 +138,6 @@ What is current and real:
 
 - GraphQL introspection for populated traversals/fields/pivots
 - GraphQL dataframe execution on Arango
-- REST bulk ingest with in-process operation tracking
 - generated schema metadata in `internal/fhirschema`
 - semantic alias/lowering hints in `internal/fhirsemantics`
 

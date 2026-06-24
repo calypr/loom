@@ -2,7 +2,6 @@ package graphqlapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"net/http"
 
@@ -75,12 +74,4 @@ func NewApolloSandboxHandler(endpoint string) http.Handler {
 			EndpointJSON: template.JS(endpointJSON),
 		})
 	})
-}
-
-func GraphQLEndpointForRequest(r *http.Request, path string) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return fmt.Sprintf("%s://%s%s", scheme, r.Host, path)
 }

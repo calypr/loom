@@ -66,7 +66,7 @@ What this does:
 - profiles populated fields for builder introspection
 
 The bootstrap and collection definitions live in
-[`internal/proto/backend.go`](../internal/proto/backend.go).
+[`internal/ingest/backend.go`](../internal/ingest/backend.go).
 
 ## 4. Start the HTTP server
 
@@ -348,19 +348,7 @@ Notes:
 - the server validates selectors/traversals against populated-field and populated-reference discovery
 - `fieldRef` is the preferred frontend-friendly path when available
 
-## 7. Optional: test the REST write API
-
-The server also exposes a write/import API:
-
-- `POST /api/v1/imports`
-- `GET /api/v1/imports/:id`
-- `GET /api/v1/imports/:id/events`
-
-The REST surface is for bulk NDJSON ingest. GraphQL is for reads/dataframing.
-
-The HTTP registration lives in [`internal/writeapi/http.go`](../internal/writeapi/http.go).
-
-## 8. Shut down local Arango
+## 7. Shut down local Arango
 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml down

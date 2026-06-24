@@ -1,0 +1,146 @@
+package catalog
+
+import (
+	"sync"
+
+	arangostore "github.com/calypr/loom/internal/store/arango"
+)
+
+const (
+	FieldCatalogCollection   = "fhir_field_catalog"
+	fieldCatalogDistinctCap  = 50
+	fieldCatalogPivotCap     = 50
+	fieldKindScalar          = "scalar"
+	fieldKindObject          = "object"
+	fieldKindArray           = "array"
+	fieldKindCodeableConcept = "codeable_concept"
+	fieldKindCoding          = "coding"
+	pivotKindCodeableConcept = "codeable_concept_display_value"
+	pivotKindObservation     = "observation_code_value"
+)
+
+const (
+	TraversalModeStorage = "storage"
+	TraversalModeBuilder = "builder"
+)
+
+// Write-side catalog records persisted during load.
+type FieldCatalogDocument struct {
+	Key               string   `json:"_key"`
+	Project           string   `json:"project"`
+	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
+	ResourceType      string   `json:"resource_type"`
+	Path              string   `json:"path"`
+	Kind              string   `json:"kind"`
+	DocCount          int64    `json:"doc_count"`
+	SampleCount       int      `json:"sample_count"`
+	DistinctValues    []string `json:"distinct_values,omitempty"`
+	DistinctTruncated bool     `json:"distinct_truncated"`
+	PivotCandidate    bool     `json:"pivot_candidate"`
+	PivotKind         string   `json:"pivot_kind,omitempty"`
+	PivotColumns      []string `json:"pivot_columns,omitempty"`
+	PivotFamily       string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
+}
+
+// Read-side field discovery request and response types.
+type PopulatedFieldOptions struct {
+	arangostore.ConnectionOptions
+	Project           string
+	AuthResourcePaths []string
+	ResourceType      string
+	PivotOnly         bool
+	CursorBatch       int
+}
+
+type PopulatedField struct {
+	Project           string   `json:"project"`
+	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
+	ResourceType      string   `json:"resource_type"`
+	Path              string   `json:"path"`
+	Kind              string   `json:"kind"`
+	DocCount          int64    `json:"doc_count"`
+	SampleCount       int      `json:"sample_count"`
+	DistinctValues    []string `json:"distinct_values,omitempty"`
+	DistinctTruncated bool     `json:"distinct_truncated"`
+	PivotCandidate    bool     `json:"pivot_candidate"`
+	PivotKind         string   `json:"pivot_kind,omitempty"`
+	PivotColumns      []string `json:"pivot_columns,omitempty"`
+	PivotFamily       string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
+}
+
+// Read-side auth path discovery request type.
+type AuthResourcePathOptions struct {
+	arangostore.ConnectionOptions
+	Project     string
+	CursorBatch int
+}
+
+// Read-side reference discovery request and response types.
+type PopulatedReferenceOptions struct {
+	arangostore.ConnectionOptions
+	Project           string
+	AuthResourcePaths []string
+	FromType          string
+	NodeType          string
+	Mode              string
+	CursorBatch       int
+}
+
+type PopulatedReference struct {
+	FromType  string `json:"from_type"`
+	Label     string `json:"label"`
+	ToType    string `json:"to_type"`
+	EdgeCount int64  `json:"edge_count"`
+}
+
+// Write-side field profiling state.
+type Profiler struct {
+	project          string
+	authResourcePath string
+	resourceType     string
+	shapeCache       *ShapePlanCache
+	stats            map[string]*fieldCatalogStats
+}
+
+type fieldCatalogStats struct {
+	path              string
+	kind              string
+	docCount          int64
+	distinctValues    []string
+	distinctSet       map[string]struct{}
+	distinctTruncated bool
+	pivotCandidate    bool
+	pivotKind         string
+	pivotColumns      []string
+	pivotColumnSet    map[string]struct{}
+	pivotFamily       string
+	pivotColumnSelect string
+	pivotValueSelect  string
+}
+
+// Shared write-side shape planning cache.
+type ShapePlanCache struct {
+	mu    sync.RWMutex
+	plans map[string]*shapePlan
+}
+
+type shapePlan struct {
+	fields []*fieldPlan
+}
+
+type fieldPlan struct {
+	Path           string
+	Kind           string
+	Accessor       []pathStep
+	PivotCandidate bool
+	PivotKind      string
+}
+
+type pathStep struct {
+	field        string
+	iterateArray bool
+}

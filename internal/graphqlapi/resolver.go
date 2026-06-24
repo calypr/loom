@@ -1,10 +1,13 @@
 package graphqlapi
 
-// Resolver wires gqlgen resolvers onto the dataframe builder service layer.
+import "github.com/calypr/loom/internal/dataframebuilder"
+
 type Resolver struct {
-	Service *Service
+	service *dataframebuilder.Service
 }
 
-func NewResolver(service *Service) *Resolver {
-	return &Resolver{Service: service}
+type ResolverConfig = dataframebuilder.Config
+
+func NewResolver(cfg ResolverConfig) *Resolver {
+	return &Resolver{service: dataframebuilder.NewService(cfg)}
 }

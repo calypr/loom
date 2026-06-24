@@ -29,9 +29,9 @@ This is not a generic graph-builder schema. It is a builder contract for the
 specific graph and field surfaces already present in this repo:
 
 - populated references discovered from `fhir_edge`, as implemented in
-  [internal/proto/discovery.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/discovery.go:9)
+  [internal/catalog/read_references.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/read_references.go)
 - populated canonical field paths and pivot metadata discovered at load time in
-  [internal/proto/field_catalog.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog.go:17)
+  [internal/catalog/write_profiler.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler.go)
 - traversal and field-plucking behavior demonstrated by the live
   `gdc_case_assay_matrix` AQL in
   [queries/gdc_case_assay_matrix_arango_rows.aql](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/queries/gdc_case_assay_matrix_arango_rows.aql:1)
@@ -51,7 +51,7 @@ The traversal surface is already represented in `fhir_edge` as:
 - `edge_count`
 
 That is the exact shape returned by
-[internal/proto/discovery.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/discovery.go:42),
+[internal/catalog/read_references.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/read_references.go),
 which currently groups edges by `from_type`, `label`, and `to_type`.
 
 Example logical edges already used by the case-assay query:
@@ -86,7 +86,7 @@ The field catalog already records observed canonical FHIR paths per
 
 This is the stored shape of
 `FieldCatalogDocument` in
-[internal/proto/field_catalog.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog.go:29).
+[internal/catalog/types.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/types.go).
 
 The path walker canonicalizes arrays with bracket wildcards such as:
 
@@ -97,9 +97,9 @@ The path walker canonicalizes arrays with bracket wildcards such as:
 
 That behavior is implemented by `walkShapeValue`, `appendPath`, and
 `extractAccessorValues` in
-[internal/proto/field_catalog.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog.go:362),
+[internal/catalog/write_profiler.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler.go),
 and tested in
-[internal/proto/field_catalog_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog_test.go:7).
+[internal/catalog/write_profiler_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler_test.go).
 
 ### Pivot Semantics
 
@@ -111,11 +111,11 @@ V1 pivot semantics already exist in the load-time field profiler:
 
 The current implementation marks a field as a pivot candidate when
 `classifyObjectShape` detects a `CodeableConcept`, via
-[internal/proto/field_catalog.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog.go:439).
+[internal/catalog/write_profiler.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler.go).
 Observed pivot columns are accumulated by `addPivotColumn` in
-[internal/proto/field_catalog.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog.go:249).
+[internal/catalog/write_profiler.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler.go).
 The expected behavior is tested in
-[internal/proto/field_catalog_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog_test.go:92).
+[internal/catalog/write_profiler_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler_test.go).
 
 This contract draft keeps those semantics intact. It does not invent generalized
 pivoting beyond what the prototype already observes.
@@ -586,7 +586,7 @@ as:
 - `pivot_columns` containing observed coding displays
 
 That exact behavior is tested in
-[internal/proto/field_catalog_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/proto/field_catalog_test.go:92).
+[internal/catalog/write_profiler_test.go](/Users/peterkor/Desktop/BMEG/ARANGODB_PROTO/internal/catalog/write_profiler_test.go).
 
 Example GraphQL mutation:
 

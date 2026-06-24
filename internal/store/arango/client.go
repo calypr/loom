@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"arangodb-proto/internal/store"
-
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/arangodb/go-driver/v2/connection"
@@ -75,7 +73,7 @@ func Open(ctx context.Context, url, database string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Bootstrap(ctx context.Context, spec store.BootstrapSpec) error {
+func (c *Client) Bootstrap(ctx context.Context, spec BootstrapSpec) error {
 	total := len(spec.Collections)
 	for i, collection := range spec.Collections {
 		reportBootstrap(spec, "go_bootstrap_collection_start", map[string]any{
@@ -147,7 +145,7 @@ func (c *Client) InsertBatchRaw(ctx context.Context, collection string, docs []j
 	return c.insertBatchDocumentRaw(ctx, collection, docs, overwrite)
 }
 
-func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit store.RowVisitor) error {
+func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
 	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
 	if err != nil {
 		return err
@@ -173,7 +171,7 @@ func (c *Client) Close(ctx context.Context) error {
 	return nil
 }
 
-func reportBootstrap(spec store.BootstrapSpec, event string, fields map[string]any) {
+func reportBootstrap(spec BootstrapSpec, event string, fields map[string]any) {
 	if spec.Reporter != nil {
 		spec.Reporter(event, fields)
 	}
