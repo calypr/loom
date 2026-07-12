@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/fhir"
+	fhir "github.com/calypr/loom/fhirstructs"
 )
 
 func TestGeneratedLoadCapabilityFallsBackForSchemaOnlyRoots(t *testing.T) {

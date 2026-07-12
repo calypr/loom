@@ -19,11 +19,8 @@ FHIR model or a parallel AQL implementation.
 developer GraphQL tools. In `--dataset-generations` mode it resolves one active
 READY generation and rejects the legacy one-file HTTP import endpoint.
 
-The GraphQL dataframe mutation is a live compatibility/expert transport to the
-compiler, not the intended non-technical product UI. Do not add graph-editor
-features to it. Guided discovery and recipe preparation live below transport
-in `internal/dataframebuilder`, `internal/discovery`, and
-`internal/recipecompiler` until the dedicated product endpoint is added.
+The GraphQL dataframe mutation is the live compiler transport. Do not add a
+second query compiler or hand-maintained AQL path behind another endpoint.
 
 ## Load and storage model
 
@@ -47,8 +44,8 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/dataset`, `internal/datasetstore`, and
-`internal/schemaidentity`. Their manifest records project, generation, and
+Immutable loads use `internal/dataset`, `internal/dataset/arango`, and
+`internal/graphschema`. Their manifest records project, generation, and
 schema identity; the active pointer selects one READY generation per project.
 The generation-qualified physical keys and mandatory generation predicates are
 part of the query correctness contract, not an optional filter.
@@ -69,7 +66,7 @@ GraphQL request
 
 `internal/dataframe` owns semantics, authorization-aware query compilation,
 and execution. `internal/catalog` owns scoped observed-field and relationship
-facts. `internal/fhirschema` owns generated structural metadata. These
+facts. `fhirschema` owns generated structural metadata. These
 boundaries matter: catalog observations constrain what is populated, while
 schema metadata constrains what a request means.
 
@@ -80,35 +77,11 @@ layout, plus the explicitly proven `ResearchSubject --study--> ResearchStudy`
 sufficient proof; every other forward route remains rejected until it has a
 verified storage contract.
 
-The older specialized Patient/case-assay lowerer is still production-reachable
-for selected request shapes. It cannot be deleted merely because generic
-lowering exists: it currently supplies shared sibling traversal behavior,
-DocumentReference normalization, and ResearchSubject-to-ResearchStudy lookup
-semantics. See [`COMPILER_CLEANUP_AUDIT.md`](COMPILER_CLEANUP_AUDIT.md) for its
-explicit removal gates.
-
 `internal/dataframe/physical_plan.go` and its renderer are a typed diagnostic
 and optimization foundation. They are not yet the execution renderer for all
 selections, filters, aggregates, pivots, and required relationships. Keep them
 as new compiler work rather than treating their current limited runtime
 reachability as dead code.
-
-## Product foundations
-
-The product-facing contract should exchange opaque catalog capability IDs and
-recipe intent, never browser-provided FHIR selectors, graph labels, auth paths,
-or AQL. Relevant ownership is:
-
-- `internal/discovery`: scoped guided capability snapshots;
-- `internal/recipe`: versioned user intent and templates;
-- `internal/recipecompiler`: capability-to-typed-dataframe translation;
-- `internal/export` and `internal/dataframeexport`: flat NDJSON/CSV streaming
-  primitives.
-
-These are foundations, not a claim that the product API, job system, saved
-recipes, Elasticsearch delivery, or all relationship/pivot recipes are done.
-Keep the boundary clean so those features can be added without reviving a
-hand-maintained AQL track.
 
 ## Compatibility tracks and removal order
 
@@ -116,10 +89,8 @@ The following compatibility tracks remain deliberately, but should not grow:
 
 - mutable CLI `load` and `POST /api/v1/imports`, until a complete
   generation-aware upload/job flow replaces them;
-- raw-structure GraphQL dataframe input, until guided capability/recipe
-  transport is public;
-- specialized Patient lowering, until generic lowering has equivalent result
-  and Explain/cost coverage.
+- raw-structure GraphQL dataframe input, until a deliberately designed guided
+  transport exists.
 
 The former hard-coded GDC AQL files, GDC export command, browser `/builder`
 demo, and unowned bootstrap materializations were removed. They bypassed the
@@ -129,7 +100,7 @@ compiler and did not work with immutable generation keys.
 
 Run `make generate-fhir` after changing the graph schema and
 `make generate-graphql` after changing the GraphQL schema. Do not hand-edit
-generated FHIR or gqlgen output.
+generated `fhirstructs`, compiler metadata, or gqlgen output.
 
 The normal verification targets are:
 

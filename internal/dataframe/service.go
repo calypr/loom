@@ -3,6 +3,7 @@ package dataframe
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -58,30 +59,43 @@ func NewService(cfg ServiceConfig) *Service {
 }
 
 func (s *Service) Run(ctx context.Context, req RunRequest) (*Result, error) {
-	compiled, err := s.compileRunRequest(ctx, req)
+	started := time.Now()
+	compiled, diagnostics, err := s.compileRunRequestWithDiagnostics(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return s.runQuery(ctx, compiled)
+	result, err := s.runQuery(ctx, compiled)
+	if err != nil {
+		return nil, err
+	}
+	diagnostics.ArangoQuery = result.Diagnostics.ArangoQuery
+	diagnostics.RowMaterialization = result.Diagnostics.RowMaterialization
+	diagnostics.ResultAssembly = result.Diagnostics.ResultAssembly
+	diagnostics.Total = time.Since(started)
+	result.Diagnostics = diagnostics
+	return result, nil
 }
 
-func (s *Service) compileRunRequest(ctx context.Context, req RunRequest) (CompiledQuery, error) {
+func (s *Service) compileRunRequestWithDiagnostics(ctx context.Context, req RunRequest) (CompiledQuery, QueryDiagnostics, error) {
+	prepareStarted := time.Now()
 	spec, err := s.prepareSpec(ctx, req.Builder)
 	if err != nil {
-		return CompiledQuery{}, err
+		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
+	diagnostics := QueryDiagnostics{RequestPreparation: time.Since(prepareStarted)}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = defaultRowLimit
 	}
-	// Keep the validated logical request through the compiler boundary. Calling
-	// Compile on a pre-lowered Builder would force every service execution down
-	// the legacy string renderer and bypass the typed physical-plan path.
+	// Keep the validated logical request through the physical compiler boundary.
+	compileStarted := time.Now()
 	compiled, err := CompileRequest(spec, limit)
 	if err != nil {
-		return CompiledQuery{}, err
+		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
-	return compiled, nil
+	diagnostics.Compilation = time.Since(compileStarted)
+	diagnostics.Plan = compiled.PlanDiagnostics
+	return compiled, diagnostics, nil
 }
 
 func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, error) {

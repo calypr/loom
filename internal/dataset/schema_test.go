@@ -7,13 +7,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/schemaidentity"
+	"github.com/calypr/loom/internal/graphschema"
 )
 
 func TestSnapshotSchemaIdentityPreservesSourceAndCopies(t *testing.T) {
-	identity, err := schemaidentity.Load(filepath.Join("..", "..", "schemas", "graph-fhir.json"))
+	identity, err := graphschema.Load(filepath.Join("..", "..", "schemas", "graph-fhir.json"))
 	if err != nil {
-		t.Fatalf("schemaidentity.Load: %v", err)
+		t.Fatalf("graphschema.Load: %v", err)
 	}
 	snapshot, err := SnapshotSchemaIdentity(identity)
 	if err != nil {

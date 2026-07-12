@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 )
 
 func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
@@ -16,9 +17,10 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 		return nil, err
 	}
 	return &Result{
-		Columns:  streamed.Columns,
-		Rows:     rows,
-		RowCount: streamed.RowCount,
+		Columns:     streamed.Columns,
+		Rows:        rows,
+		RowCount:    streamed.RowCount,
+		Diagnostics: streamed.Diagnostics,
 	}, nil
 }
 
@@ -30,11 +32,21 @@ func (s *Service) Stream(ctx context.Context, req RunRequest, visit func(map[str
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
-	compiled, err := s.compileRunRequest(ctx, req)
+	started := time.Now()
+	compiled, diagnostics, err := s.compileRunRequestWithDiagnostics(ctx, req)
 	if err != nil {
 		return StreamResult{}, err
 	}
-	return s.streamQuery(ctx, compiled, visit)
+	result, err := s.streamQuery(ctx, compiled, visit)
+	if err != nil {
+		return result, err
+	}
+	diagnostics.ArangoQuery = result.Diagnostics.ArangoQuery
+	diagnostics.RowMaterialization = result.Diagnostics.RowMaterialization
+	diagnostics.ResultAssembly = result.Diagnostics.ResultAssembly
+	diagnostics.Total = time.Since(started)
+	result.Diagnostics = diagnostics
+	return result, nil
 }
 
 func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (StreamResult, error) {
@@ -49,10 +61,14 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 
 	extraColumns := map[string]struct{}{}
 	rowCount := 0
+	var rowMaterialization time.Duration
+	queryStarted := time.Now()
 	err := s.executeRows(ctx, ExecuteQueryOptions{
 		ConnectionOptions: s.connOpts,
 		BatchSize:         1000,
 	}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+		rowStarted := time.Now()
+		defer func() { rowMaterialization += time.Since(rowStarted) }()
 		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)
 		for key := range flatRow {
 			if _, ok := seenColumns[key]; ok {
@@ -67,6 +83,12 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 		rowCount++
 		return nil
 	})
+	queryElapsed := time.Since(queryStarted)
+	arangoQuery := queryElapsed - rowMaterialization
+	if arangoQuery < 0 {
+		arangoQuery = 0
+	}
+	assemblyStarted := time.Now()
 	newColumns := make([]string, 0, len(extraColumns))
 	for column := range extraColumns {
 		newColumns = append(newColumns, column)
@@ -76,6 +98,11 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	result := StreamResult{
 		Columns:  columns,
 		RowCount: rowCount,
+		Diagnostics: QueryDiagnostics{
+			ArangoQuery:        arangoQuery,
+			RowMaterialization: rowMaterialization,
+			ResultAssembly:     time.Since(assemblyStarted),
+		},
 	}
 	if err != nil {
 		return result, err

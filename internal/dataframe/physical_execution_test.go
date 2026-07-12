@@ -1,7 +1,6 @@
 package dataframe
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -43,24 +42,12 @@ func TestCompileRequestUsesPhysicalExecutionForNavigationOnlyGenericPlan(t *test
 		t.Fatalf("root limit must occur before optional navigation materialization:\n%s", physical.Query)
 	}
 	if strings.Contains(physical.Query, "FOR root IN Specimen") || strings.Contains(physical.Query, "generic_file_set") {
-		t.Fatalf("navigation-only request unexpectedly used lowered string renderer:\n%s", physical.Query)
+		t.Fatalf("physical request unexpectedly used a compatibility string renderer:\n%s", physical.Query)
 	}
 
-	lowered, err := Lower(builder)
-	if err != nil {
-		t.Fatalf("Lower() error = %v", err)
-	}
-	legacy, err := Compile(lowered, 7)
-	if err != nil {
-		t.Fatalf("Compile(lowered) error = %v", err)
-	}
-	if physical.Query == legacy.Query {
-		t.Fatalf("physical execution path did not render a distinct typed plan:\n%s", physical.Query)
-	}
-	assertPhysicalExecutionMetadataParity(t, physical, legacy)
 }
 
-func TestCompileRequestFallsBackForGenericSelectionUntilPhysicalProjectionExists(t *testing.T) {
+func TestCompileRequestUsesPhysicalExecutionForRootSelection(t *testing.T) {
 	compiled, err := CompileRequest(Builder{
 		Project:          "P1",
 		RootResourceType: "Specimen",
@@ -69,11 +56,11 @@ func TestCompileRequestFallsBackForGenericSelectionUntilPhysicalProjectionExists
 	if err != nil {
 		t.Fatalf("CompileRequest() error = %v", err)
 	}
-	if !strings.Contains(compiled.Query, "FOR root IN Specimen") || !strings.Contains(compiled.Query, "root.payload.id") {
-		t.Fatalf("selection request did not use the full lowered fallback:\n%s", compiled.Query)
+	if !strings.Contains(compiled.Query, "FOR root IN @@root_collection") || !strings.Contains(compiled.Query, "root.payload.id") {
+		t.Fatalf("selection request did not use the physical renderer:\n%s", compiled.Query)
 	}
-	if strings.Contains(compiled.Query, "@@root_collection") {
-		t.Fatalf("selection request was incorrectly routed through the navigation-only physical renderer:\n%s", compiled.Query)
+	if !strings.Contains(compiled.Query, "@@root_collection") {
+		t.Fatalf("selection request was not routed through the physical renderer:\n%s", compiled.Query)
 	}
 }
 
@@ -116,24 +103,4 @@ func buildPhysicalPlanForTest(t *testing.T, semantic SemanticPlan) PhysicalPlan 
 		t.Fatal(err)
 	}
 	return plan
-}
-
-func assertPhysicalExecutionMetadataParity(t *testing.T, physical, lowered CompiledQuery) {
-	t.Helper()
-	if physical.Project != lowered.Project ||
-		physical.DatasetGeneration != lowered.DatasetGeneration ||
-		physical.RootResourceType != lowered.RootResourceType ||
-		physical.PlanMode != lowered.PlanMode ||
-		physical.PlanProfile != lowered.PlanProfile ||
-		physical.NamedSetCount != lowered.NamedSetCount ||
-		physical.FileSummaries != lowered.FileSummaries ||
-		physical.StudyLookup != lowered.StudyLookup ||
-		physical.Limit != lowered.Limit ||
-		!reflect.DeepEqual(physical.AuthResourcePaths, lowered.AuthResourcePaths) ||
-		!reflect.DeepEqual(physical.OptimizationRules, lowered.OptimizationRules) ||
-		!reflect.DeepEqual(physical.RowIdentity, lowered.RowIdentity) ||
-		!reflect.DeepEqual(physical.Columns, lowered.Columns) ||
-		!reflect.DeepEqual(physical.PivotFields, lowered.PivotFields) {
-		t.Fatalf("physical metadata does not match lowered renderer:\nphysical=%#v\nlowered=%#v", physical, lowered)
-	}
 }

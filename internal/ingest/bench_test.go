@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/fhir"
+	fhir "github.com/calypr/loom/fhirstructs"
 
 	jsgarango "github.com/bmeg/jsonschemagraph/arango"
 	"github.com/bmeg/jsonschemagraph/graph"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/calypr/loom/internal/datasetstore"
+	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -100,7 +100,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 // caller explicitly selects immutable dataset-generation mode.
 func lifecycleBootstrapSpecWithReporter(reporter EventSink) arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{
-		Collections: datasetstore.CollectionSpecs(),
+		Collections: datasetarango.CollectionSpecs(),
 		Reporter: func(event string, fields map[string]any) {
 			emitEvent(reporter, event, fields)
 		},

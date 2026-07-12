@@ -14,8 +14,8 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/datasetstore"
-	"github.com/calypr/loom/internal/schemaidentity"
+	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/graphschema"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -32,18 +32,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 }
 
 func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary, err error) {
-	if opts.BatchSize <= 0 {
-		opts.BatchSize = 5000
-	}
-	if opts.ProgressEvery <= 0 {
-		opts.ProgressEvery = 50000
-	}
-	if opts.WriterCount <= 0 {
-		opts.WriterCount = 8
-	}
-	if opts.WriteAPI == "" {
-		opts.WriteAPI = "import"
-	}
+	opts = normalizeLoadOptions(opts)
 
 	start := time.Now()
 	files, err := DiscoverNDJSON(opts.MetaDir)
@@ -64,7 +53,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	schemaIdentity, err := schemaidentity.Load(opts.Schema)
+	schemaIdentity, err := graphschema.Load(opts.Schema)
 	if err != nil {
 		return summary, err
 	}
@@ -153,7 +142,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
 
-	lifecycleStore, err := datasetstore.New(client)
+	lifecycleStore, err := datasetarango.New(client)
 	if err != nil {
 		return summary, err
 	}

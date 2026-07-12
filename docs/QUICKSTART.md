@@ -348,6 +348,47 @@ Notes:
 - the server validates selectors/traversals against populated-field and populated-reference discovery
 - `fieldRef` is the preferred frontend-friendly path when available
 
+### Run it and see the timing
+
+The checked-in operation and variables above are also runnable without copying
+JSON from this document. With the local server running in `--no-auth` mode:
+
+```bash
+make dataframe-demo
+```
+
+This prints the actual GraphQL response plus wall-clock time. To issue the
+same request repeatedly and see min/average/max timing:
+
+```bash
+make dataframe-demo DATAFRAME_REPEAT=10
+```
+
+The command labels the first request as `cold` and the final request as
+`warm`, then reports total HTTP/server time, returned rows, response bytes, and
+rows/second. It also reports server-side field-reference resolution, request
+preparation, physical compilation, Arango cursor time, per-row materialization,
+and result assembly. The remaining wall-clock time is GraphQL serialization and
+HTTP overhead.
+
+The compact example files are
+[`examples/meta_patient_dataframe.graphql`](../examples/meta_patient_dataframe.graphql)
+and
+[`examples/meta_patient_dataframe.variables.json`](../examples/meta_patient_dataframe.variables.json).
+`make dataframe-demo` runs the richer GDC-style case matrix in
+[`examples/meta_gdc_case_matrix.graphql`](../examples/meta_gdc_case_matrix.graphql)
+with [`examples/meta_gdc_case_matrix.variables.json`](../examples/meta_gdc_case_matrix.variables.json):
+diagnoses, specimens, nested files and sample groups, Observation code/value
+pivots, and representative related records.
+For an explicit named GDC operation, run:
+
+```bash
+rtk go run ./cmd/dataframe-query \
+  -query examples/meta_gdc_case_matrix.graphql \
+  -variables examples/meta_gdc_case_matrix.variables.json \
+  -repeat 1
+```
+
 ## 7. Shut down local Arango
 
 ```bash

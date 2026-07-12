@@ -41,18 +41,18 @@ The baseline includes:
 - `schemas/graph-fhir.json`: the active graph/FHIR schema used by generation,
   generic validation, and edge extraction
 - `cmd/generate/main.go`: the existing FHIR generator
-- `internal/fhir/model.go`: generated Go FHIR structs
-- `internal/fhir/validate.go`: generated validation methods
-- `internal/fhir/extract.go`: generated graph-edge extraction
-- `internal/fhirschema/generated.go`: generated field and traversal metadata
-- `internal/fhirschema/schema.go`: the handwritten lookup, selector, and pivot
+- `fhirstructs/model.go`: generated Go FHIR structs
+- `fhirstructs/validate.go`: generated validation methods
+- `fhirstructs/extract.go`: generated graph-edge extraction
+- `fhirschema/generated.go`: generated field and traversal metadata
+- `fhirschema/schema.go`: the handwritten lookup, selector, and pivot
   logic over generated metadata
 - `internal/ingest/generated_load.go`: generated fast-path resource dispatch
 - `internal/ingest/row_builder.go`: generated/generic row-builder boundary
 - `internal/catalog/`: existing populated-field, distinct-value, pivot, and
   populated-reference profiling/discovery
-- `internal/graphqlapi/schema.graphqls`: the handwritten GraphQL contract
-- `gqlgen.yml` and generated gqlgen artifacts under `internal/graphqlapi/`
+- `graphqlapi/schema.graphqls`: the handwritten GraphQL contract
+- `gqlgen.yml` and generated gqlgen artifacts under `graphqlapi/`
 - `Makefile` targets `generate-fhir`, `generate-graphql`, `graphql-check`, and
   `test`
 
@@ -346,7 +346,7 @@ Owns:
 
 Primary files:
 
-- new `internal/schemaidentity/`
+- `internal/graphschema/`
 - new `internal/dataset/`
 - `internal/ingest/`
 - generation-aware ingestion storage
@@ -409,7 +409,7 @@ Primary files:
 During C2, consume current field and traversal behavior through adapters. Do
 not immediately move:
 
-- `internal/dataframebuilder/fieldrefs.go`
+- `graphqlapi/dataframe/fieldrefs.go`
 - `internal/dataframe/traversal_rules.go`
 
 Consolidation occurs after recipe and planner contracts agree.
@@ -543,12 +543,12 @@ It must not add production shortcuts merely to pass fixtures.
 
 These files have one integration owner per wave:
 
-- `internal/graphqlapi/schema.graphqls`
-- `internal/graphqlapi/schema.resolvers.go`
-- `internal/graphqlapi/generated.go`
-- `internal/graphqlapi/model/models.go`
-- `internal/api/routes.go`
-- `internal/api/service.go`
+- `graphqlapi/schema.graphqls`
+- `graphqlapi/schema.resolvers.go`
+- `graphqlapi/generated.go`
+- `graphqlapi/model/models.go`
+- `internal/httpapi/routes.go`
+- `internal/httpapi/service.go`
 - `internal/dataframe/service.go`
 - current `internal/dataframe/planner.go`
 - `internal/dataframe/lowered_types.go`

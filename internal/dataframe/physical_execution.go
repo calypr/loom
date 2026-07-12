@@ -4,15 +4,11 @@ import "fmt"
 
 const genericPhysicalExecutionLimitBind = "limit"
 
-// compileGenericPhysicalExecution is the executable bridge from the generic
-// semantic graph to the typed physical renderer. Its caller has already
-// established that the request is navigation-only, so the physical return
-// shape (_key at the root row grain) is exactly the public dataframe shape.
-func compileGenericPhysicalExecution(semantic SemanticPlan, lowered Builder, limit int) (CompiledQuery, error) {
-	physical, err := BuildGenericPhysicalPlan(semantic)
-	if err != nil {
-		return CompiledQuery{}, fmt.Errorf("build generic physical execution plan: %w", err)
-	}
+// compilePhysicalExecution renders a validated semantic physical plan. Its
+// caller has already established that the plan represents the complete
+// request, so it never needs compatibility named sets or string lowering.
+func compilePhysicalExecution(physical PhysicalPlan, semantic SemanticPlan, limit int) (CompiledQuery, error) {
+	var err error
 	physical, err = withGenericPhysicalExecutionWindow(physical, limit)
 	if err != nil {
 		return CompiledQuery{}, err
@@ -22,29 +18,75 @@ func compileGenericPhysicalExecution(semantic SemanticPlan, lowered Builder, lim
 		return CompiledQuery{}, fmt.Errorf("render generic physical execution plan: %w", err)
 	}
 
+	columns, pivotFields := physicalProjectionMetadata(physical)
 	return CompiledQuery{
 		Project:           semantic.Project,
 		DatasetGeneration: normalizeDatasetGeneration(semantic.DatasetGeneration),
 		RootResourceType:  semantic.Root.ResourceType,
 		AuthResourcePaths: cloneStrings(semantic.AuthResourcePaths),
-		PlanMode:          planMode(lowered.PlanHint),
-		PlanProfile:       planProfile(lowered.PlanHint),
-		NamedSetCount:     planNamedSetCount(lowered.PlanHint),
-		FileSummaries:     planFileSummaries(lowered.PlanHint),
-		StudyLookup:       planStudyLookup(lowered.PlanHint),
-		OptimizationRules: planAppliedRules(lowered.PlanHint),
-		RowIdentity:       planRowIdentity(lowered.PlanHint),
+		PlanMode:          "physical",
+		PlanProfile:       "generic_fhir_graph",
+		TraversalCount:     physicalTraversalCount(physical),
+		OptimizationRules: physicalOptimizationRules(semantic.Root),
+		RowIdentity:       cloneRowIdentity(semantic.RowIdentity),
 		Query:             rendered.Query,
 		BindVars:          rendered.BindVars,
-		Columns:           []string{"_key"},
-		PivotFields:       nil,
+		Columns:           columns,
+		PivotFields:       pivotFields,
 		Limit:             limit,
+		PlanDiagnostics:   physicalPlanDiagnostics(physical),
 	}, nil
 }
 
+func physicalOptimizationRules(node SemanticNode) []string {
+	rules := make([]string, 0, 2)
+	if len(node.Filters) != 0 {
+		rules = append(rules, OptimizerRuleFilterPushdown)
+	}
+	for _, child := range node.Children {
+		if child.MatchMode.required() {
+			rules = appendUniqueRule(rules, OptimizerRuleRelationshipSemiJoin)
+		}
+		for _, rule := range physicalOptimizationRules(child) {
+			rules = appendUniqueRule(rules, rule)
+		}
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	return rules
+}
+
+func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
+	for _, operation := range plan.Operations {
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		columns := make([]string, 0, len(operation.Return.Projections))
+		var pivots []string
+		for _, projection := range operation.Return.Projections {
+			columns = append(columns, projection.Name)
+			if projection.Expression != nil && projection.Expression.Kind == PhysicalPivotExpression {
+				pivots = append(pivots, projection.Name)
+			}
+		}
+		return columns, pivots
+	}
+	return nil, nil
+}
+
+func physicalTraversalCount(plan PhysicalPlan) int {
+	count := 0
+	for _, operation := range plan.Operations {
+		if operation.Kind == PhysicalTraversalOp {
+			count++
+		}
+	}
+	return count
+}
+
 // withGenericPhysicalExecutionWindow inserts the deterministic root ordering
-// and optional preview bound before any traversal LET subquery. This matches
-// the established lowered renderer's row-grain semantics while ensuring an
+// and optional preview bound before any traversal LET subquery, ensuring an
 // expensive optional navigation is evaluated only for selected root rows.
 func withGenericPhysicalExecutionWindow(plan PhysicalPlan, limit int) (PhysicalPlan, error) {
 	if err := ValidateGenericPhysicalPlanScope(plan); err != nil {
@@ -62,7 +104,7 @@ func withGenericPhysicalExecutionWindow(plan PhysicalPlan, limit int) (PhysicalP
 		return PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")
 	}
 
-	out := cloneCompilerPhysicalPlan(plan)
+	out := clonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
 	window := []PhysicalOperation{{
 		Kind:   PhysicalSortOp,

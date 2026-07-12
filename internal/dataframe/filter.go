@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/fhir"
+	fhir "github.com/calypr/loom/fhirstructs"
 )
 
 // FilterOperator is the closed set of operations accepted by the typed filter

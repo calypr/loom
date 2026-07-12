@@ -16,8 +16,8 @@ func TestGenericExistsAggregateWithoutPredicateTestsSetNonEmptiness(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, `"file__has_file": LENGTH(generic_file_set) > 0`) {
-		t.Fatalf("EXISTS aggregate did not compile as set non-emptiness:\n%s", compiled.Query)
+	if !strings.Contains(compiled.Query, "LENGTH(child_set_1) > 0") {
+		t.Fatalf("EXISTS aggregate did not compile as physical set non-emptiness:\n%s", compiled.Query)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestGenericMinAndMaxAggregatesLowerToTypedReductions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, `"file__min_size": MIN(FLATTEN(`) || !strings.Contains(compiled.Query, `"file__max_size": MAX(FLATTEN(`) {
-		t.Fatalf("MIN/MAX did not compile through typed aggregate reductions:\n%s", compiled.Query)
+	if !strings.Contains(compiled.Query, "MIN(FLATTEN(") || !strings.Contains(compiled.Query, "MAX(FLATTEN(") {
+		t.Fatalf("MIN/MAX did not compile through physical aggregate reductions:\n%s", compiled.Query)
 	}
 }

@@ -26,43 +26,12 @@ func ActiveGenerationFor(manifest Manifest) (ActiveGeneration, error) {
 }
 
 // Validate checks only the reference's key representation. Read adapters must
-// call ResolveActive against their persisted manifest set to verify readiness.
+// verify readiness against their persisted manifest record.
 func (a ActiveGeneration) Validate() error {
 	if err := a.Dataset.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidActiveGeneration, err)
 	}
 	return nil
-}
-
-// ResolveActive returns the single READY manifest named by active. It rejects
-// missing, duplicate, failed, loading, and superseded matches, which prevents
-// a caller from silently reading a different generation.
-func ResolveActive(active ActiveGeneration, manifests []Manifest) (Manifest, error) {
-	if err := active.Validate(); err != nil {
-		return Manifest{}, err
-	}
-
-	var matched *Manifest
-	for index, manifest := range manifests {
-		if !manifest.Dataset.Equal(active.Dataset) {
-			continue
-		}
-		if err := manifest.Validate(); err != nil {
-			return Manifest{}, fmt.Errorf("%w: matching manifest at index %d: %w", ErrInvalidActiveGeneration, index, err)
-		}
-		if matched != nil {
-			return Manifest{}, fmt.Errorf("%w: multiple manifests match %s/%s", ErrInvalidActiveGeneration, active.Dataset.Project, active.Dataset.Generation)
-		}
-		copy := manifest.Clone()
-		matched = &copy
-	}
-	if matched == nil {
-		return Manifest{}, fmt.Errorf("%w: %s/%s was not found", ErrInvalidActiveGeneration, active.Dataset.Project, active.Dataset.Generation)
-	}
-	if matched.State != ManifestStateReady {
-		return Manifest{}, fmt.Errorf("%w: %s/%s is %s", ErrGenerationNotReady, active.Dataset.Project, active.Dataset.Generation, matched.State)
-	}
-	return matched.Clone(), nil
 }
 
 // ActivationPlan is a persistence-neutral description of an active-generation

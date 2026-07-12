@@ -31,10 +31,8 @@ func TestDatasetGenerationCompilesRootTraversalAndRequiredMatch(t *testing.T) {
 	}
 	for _, want := range []string{
 		"root.dataset_generation == @dataset_generation",
-		"__edge.dataset_generation == @dataset_generation",
-		"__node.dataset_generation == @dataset_generation",
-		"__match_edge_0_0.dataset_generation == @dataset_generation",
-		"__match_0_0.dataset_generation == @dataset_generation",
+		"required_0_edge_0.dataset_generation == @dataset_generation",
+		"required_0_node_0.dataset_generation == @dataset_generation",
 	} {
 		if !strings.Contains(compiled.Query, want) {
 			t.Fatalf("compiled query is missing generation predicate %q:\n%s", want, compiled.Query)

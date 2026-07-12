@@ -98,3 +98,105 @@ func TestPhysicalPlanValidateTaggedOperationAndReturnShape(t *testing.T) {
 		})
 	}
 }
+
+func TestPhysicalPlanValidateRichExpressionContract(t *testing.T) {
+	patientGender := mustPhysicalSelector(t, "gender")
+	attachmentTitle := mustPhysicalSelector(t, "content[].attachment.title")
+	root := PhysicalValue{Variable: "root"}
+	files := PhysicalValue{Variable: "files"}
+	file := PhysicalValue{Variable: "file"}
+
+	fileSubplan := PhysicalSubplan{
+		Captures: []string{"root"},
+		Operations: []PhysicalOperation{{
+			Kind: PhysicalTraversalOp,
+			Traversal: &PhysicalTraversal{
+				SourceVariable: "root", TargetVariable: "file", EdgeVariable: "file_edge",
+				Direction: PhysicalInbound, EdgeCollectionBindKey: "edge_collection",
+				EdgeLabelBindKey: "file_label", TargetTypeBindKey: "file_type",
+			},
+		}},
+		Return: physicalValueExpression(file, PhysicalObjectCardinality),
+	}
+	existsSubplan := fileSubplan
+	existsSubplan.Return = physicalValueExpression(file, PhysicalScalarCardinality)
+
+	plan := PhysicalPlan{
+		Version: 2,
+		BindVars: map[string]any{
+			"root_collection": "Patient", "edge_collection": "fhir_edge",
+			"file_label": "subject_Patient", "file_type": "DocumentReference",
+			"project": "project-a", "pivot_columns": []string{"BAM", "VCF"}, "slice_limit": 2,
+		},
+		Operations: []PhysicalOperation{
+			{Kind: PhysicalRootScanOp, RootScan: &PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: PhysicalFilterOp, Filter: &PhysicalFilter{Expression: &PhysicalPredicateExpression{
+				Kind: PhysicalAllPredicate,
+				Children: []PhysicalPredicateExpression{
+					{Kind: PhysicalComparisonPredicate, Comparison: &PhysicalPredicate{Operator: "EQUALS", Left: PhysicalValue{Variable: "root", Path: []string{"project"}}, Right: &PhysicalValue{BindKey: "project"}}},
+					{Kind: PhysicalExistsPredicate, Exists: &existsSubplan},
+				},
+			}}},
+			{Kind: PhysicalSetOp, Set: &PhysicalSet{Variable: "files", Unique: true, Subplan: fileSubplan}},
+			{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: []PhysicalProjection{{
+				Name: "row",
+				Expression: &PhysicalExpression{
+					Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
+					Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{
+						{Name: "gender", Expression: PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Extract: &PhysicalExtract{Source: root, ResourceType: "Patient", Selector: patientGender}}},
+						{Name: "file_count", Expression: PhysicalExpression{Kind: PhysicalAggregateExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalEmptyOnNull, Aggregate: &PhysicalAggregate{Source: files, Operation: PhysicalCountAggregate}}},
+						{Name: "file_titles", Expression: PhysicalExpression{Kind: PhysicalPivotExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalEmptyOnNull, Pivot: &PhysicalPivotMap{Source: files, ResourceType: "DocumentReference", KeySelector: attachmentTitle, ValueSelector: attachmentTitle, ColumnsBindKey: "pivot_columns"}}},
+						{Name: "representative_files", Expression: PhysicalExpression{Kind: PhysicalSliceExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull, Slice: &PhysicalSlice{Source: files, LimitBindKey: "slice_limit", Sort: physicalExpressionPtr(physicalValueExpression(files, PhysicalScalarCardinality)), Projections: []PhysicalExpressionProjection{{Name: "title", Expression: PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Extract: &PhysicalExtract{Source: files, ResourceType: "DocumentReference", Selector: attachmentTitle}}}}}}},
+					}},
+				},
+			}}}},
+		},
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("rich physical plan should validate: %v", err)
+	}
+}
+
+func TestPhysicalPlanValidateRichExpressionRejectsUnsafeScopeAndShape(t *testing.T) {
+	plan := validPhysicalPlan()
+	plan.Version = 2
+	plan.Operations[3] = PhysicalOperation{Kind: PhysicalSetOp, Set: &PhysicalSet{
+		Variable: "files",
+		Subplan: PhysicalSubplan{
+			Captures:   []string{"future"},
+			Operations: []PhysicalOperation{{Kind: PhysicalDerivedLetOp, DerivedLet: &PhysicalDerivedLet{Variable: "x", Expression: physicalExpressionPtr(physicalValueExpression(PhysicalValue{Variable: "future"}, PhysicalScalarCardinality))}}},
+			Return:     physicalValueExpression(PhysicalValue{Variable: "x"}, PhysicalScalarCardinality),
+		},
+	}}
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "capture \"future\" is out of scope") {
+		t.Fatalf("Validate() error = %v; want out-of-scope capture", err)
+	}
+
+	plan = validPhysicalPlan()
+	plan.Version = 2
+	plan.Operations[3] = PhysicalOperation{Kind: PhysicalDerivedLetOp, DerivedLet: &PhysicalDerivedLet{
+		Variable: "pivot",
+		Expression: &PhysicalExpression{Kind: PhysicalPivotExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalEmptyOnNull, Pivot: &PhysicalPivotMap{
+			Source: PhysicalValue{Variable: "specimen"}, ResourceType: "Specimen",
+			KeySelector: mustPhysicalSelector(t, "type.coding[].display"), ValueSelector: mustPhysicalSelector(t, "type.coding[].display"), ColumnsBindKey: "edge_label",
+		}},
+	}}
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "must be a non-empty []string") {
+		t.Fatalf("Validate() error = %v; want typed pivot columns", err)
+	}
+}
+
+func mustPhysicalSelector(t *testing.T, input string) Selector {
+	t.Helper()
+	selector, err := ParseSelector(input)
+	if err != nil {
+		t.Fatalf("ParseSelector(%q): %v", input, err)
+	}
+	return selector
+}
+
+func physicalValueExpression(value PhysicalValue, cardinality PhysicalCardinality) PhysicalExpression {
+	return PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: cardinality, NullBehavior: PhysicalPreserveNull, Value: &value}
+}
+
+func physicalExpressionPtr(expression PhysicalExpression) *PhysicalExpression { return &expression }

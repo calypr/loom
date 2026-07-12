@@ -9,12 +9,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/calypr/loom/internal/schemaidentity"
+	"github.com/calypr/loom/internal/graphschema"
 )
 
 // SchemaIdentitySnapshot is the serializable, immutable schema metadata
 // attached to a dataset generation. It is copied from the active Loom binary's
-// schemaidentity.Identity when a generation is created.
+// graphschema.Identity when a generation is created.
 //
 // FHIRVersion is deliberately empty when the configured graph schema does not
 // explicitly declare one. This package never infers a FHIR version from a URL,
@@ -26,10 +26,10 @@ type SchemaIdentitySnapshot struct {
 	generatedResourceTypes []string
 }
 
-// SnapshotSchemaIdentity copies an immutable schemaidentity.Identity into the
+// SnapshotSchemaIdentity copies an immutable graphschema.Identity into the
 // public dataset lifecycle value. The resulting snapshot has no reference to
 // the source identity's backing data.
-func SnapshotSchemaIdentity(identity schemaidentity.Identity) (SchemaIdentitySnapshot, error) {
+func SnapshotSchemaIdentity(identity graphschema.Identity) (SchemaIdentitySnapshot, error) {
 	return NewSchemaIdentitySnapshot(
 		identity.SchemaID(),
 		identity.FHIRVersion(),
@@ -56,7 +56,7 @@ func NewSchemaIdentitySnapshot(schemaID, fhirVersion, schemaSHA256 string, gener
 	return snapshot, nil
 }
 
-// SchemaID returns the exact graph-schema $id copied from schemaidentity, or
+// SchemaID returns the exact graph-schema $id copied from graphschema, or
 // an empty string when the source schema does not declare one.
 func (s SchemaIdentitySnapshot) SchemaID() string { return s.schemaID }
 
@@ -141,7 +141,7 @@ func validateOptionalSchemaMetadata(field, value string) error {
 }
 
 func utf8ValidNonControl(value string) bool {
-	// Schema metadata must retain the exact text that schemaidentity observed;
+	// Schema metadata must retain the exact text that graphschema observed;
 	// unlike a project key it is not whitespace-normalized here.
 	for _, r := range value {
 		if r < 0x20 || r == 0x7f {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/fhirschema"
 )
 
 func (s *Service) expandPivotColumns(ctx context.Context, builder Builder) (Builder, error) {

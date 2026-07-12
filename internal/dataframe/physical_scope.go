@@ -82,7 +82,7 @@ func physicalScopeResourceForOperation(operation PhysicalOperation) (physicalSco
 func physicalScopeWindowEnd(operations []PhysicalOperation, start int) int {
 	for index := start; index < len(operations); index++ {
 		switch operations[index].Kind {
-		case PhysicalRootScanOp, PhysicalTraversalOp, PhysicalReturnOp:
+		case PhysicalRootScanOp, PhysicalTraversalOp, PhysicalSetOp, PhysicalReturnOp:
 			return index
 		}
 	}

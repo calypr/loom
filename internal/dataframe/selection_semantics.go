@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 // SelectionSemanticSpec is the compiler-ready meaning of one field selection.

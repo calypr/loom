@@ -1,0 +1,241 @@
+type Query {
+  dataframeBuilderIntrospection(
+    input: DataframeBuilderIntrospectionInput!
+  ): DataframeBuilderIntrospection!
+}
+
+scalar JSON
+
+type Mutation {
+  runFhirDataframe(
+    input: FhirDataframeInput!
+    limit: Int = 25
+  ): FhirDataframeResult!
+}
+
+input DataframeBuilderIntrospectionInput {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]
+  includePivotOnlyFields: Boolean = true
+}
+
+type DataframeBuilderIntrospection {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]!
+  root: DataframeResourceHints!
+  relatedResources: [DataframeRelatedResourceHints!]!
+  traversals: [DataframeTraversalHint!]!
+  fields: [DataframeFieldHint!]!
+  pivotFields: [DataframeFieldHint!]!
+}
+
+type DataframeResourceHints {
+  resourceType: String!
+  fields: [DataframeFieldHint!]!
+  pivotFields: [DataframeFieldHint!]!
+  traversals: [DataframeTraversalHint!]!
+}
+
+type DataframeRelatedResourceHints {
+  viaLabel: String!
+  edgeCount: Int!
+  target: DataframeResourceHints!
+}
+
+type DataframeTraversalHint {
+  fromType: String!
+  label: String!
+  toType: String!
+  edgeCount: Int!
+}
+
+type DataframeFieldHint {
+  resourceType: String!
+  fieldRef: String!
+  label: String!
+  path: String!
+  selector: DataframeFieldSelector!
+  kind: String!
+  docCount: Int!
+  sampleCount: Int!
+  distinctValues: [String!]!
+  distinctTruncated: Boolean!
+  pivotCandidate: Boolean!
+  pivotKind: String
+  pivotColumns: [String!]!
+  pivotFamily: FhirPivotFamily
+  defaultPivotColumnSelector: DataframeFieldSelector
+  defaultPivotValueSelector: DataframeFieldSelector
+}
+
+type DataframeFieldSelector {
+  sourcePath: String
+  where: DataframeFieldPredicate
+  valuePath: String!
+}
+
+type DataframeFieldPredicate {
+  path: String!
+  op: FhirFieldPredicateOperation!
+  value: String!
+}
+
+enum FhirPivotFamily {
+  CODEABLE_CONCEPT
+  OBSERVATION_CODE_VALUE
+}
+
+input FhirFieldSelectInput {
+  name: String!
+  fieldRef: String
+  selector: FhirFieldSelectorInput
+  selectionHint: String
+  fallbackFieldRefs: [String!]! = []
+  fallbackSelectors: [FhirFieldSelectorInput!]! = []
+  valueMode: FhirValueMode! = AUTO
+}
+
+input FhirFieldSelectorInput {
+  sourcePath: String
+  where: FhirFieldPredicateInput
+  valuePath: String!
+}
+
+input FhirFieldPredicateInput {
+  path: String!
+  op: FhirFieldPredicateOperation! = CONTAINS
+  value: String!
+}
+
+enum FhirFieldPredicateOperation {
+  CONTAINS
+}
+
+enum FhirValueMode {
+  AUTO
+  FIRST
+  ALL
+  DISTINCT
+}
+
+input FhirPivotInput {
+  name: String!
+  fieldRef: String
+  columnSelector: FhirFieldSelectorInput
+  valueSelector: FhirFieldSelectorInput
+  columns: [String!]! = []
+}
+
+enum FhirAggregateOperation {
+  COUNT
+  COUNT_DISTINCT
+  EXISTS
+  DISTINCT_VALUES
+}
+
+input FhirAggregateInput {
+  name: String!
+  operation: FhirAggregateOperation!
+  fieldRef: String
+  fhirPath: String
+  predicateFieldRef: String
+  predicatePath: String
+  predicateEquals: String
+  valueMode: FhirValueMode! = AUTO
+}
+
+input FhirRepresentativeSliceInput {
+  name: String!
+  limit: Int!
+  whereFieldRef: String
+  wherePath: String
+  whereEquals: String
+  fields: [FhirFieldSelectInput!]! = []
+}
+
+input FhirTraversalStepInput {
+  edgeLabel: String!
+  toResourceType: String!
+  alias: String!
+  fields: [FhirFieldSelectInput!]! = []
+  pivots: [FhirPivotInput!] = []
+  aggregates: [FhirAggregateInput!] = []
+  slices: [FhirRepresentativeSliceInput!] = []
+  traverse: [FhirTraversalStepInput!] = []
+}
+
+input FhirDataframeInput {
+  project: String!
+  authResourcePath: String
+  authResourcePaths: [String!]
+  rootResourceType: String!
+  rootFields: [FhirFieldSelectInput!]
+  rootPivots: [FhirPivotInput!]
+  rootAggregates: [FhirAggregateInput!]
+  rootSlices: [FhirRepresentativeSliceInput!]
+  traverse: [FhirTraversalStepInput!]
+  limit: Int
+  cursor: String
+}
+
+type FhirDataframeResult {
+  columns: [String!]!
+  rows: JSON!
+  rowCount: Int!
+  diagnostics: DataframeQueryDiagnostics!
+}
+
+# Server-side timings for one dataframe request. `arangoQueryMs` excludes
+# Loom's per-row flattening/delivery time; together those two fields identify
+# whether the database plan or result materialization is dominant.
+type DataframeQueryDiagnostics {
+  inputResolutionMs: Float!
+  requestPreparationMs: Float!
+  compilationMs: Float!
+  arangoQueryMs: Float!
+  rowMaterializationMs: Float!
+  resultAssemblyMs: Float!
+  totalMs: Float!
+  plan: DataframeCompilerPlanDiagnostics!
+}
+
+# Compiler facts for deciding which AQL rewrite to implement next. These are
+# not Arango estimates; pair them with a live PROFILE for operator-level cost.
+type DataframeCompilerPlanDiagnostics {
+  traversalSets: Int!
+  sharedTraversalCount: Int!
+  requiredMatchReuseCount: Int!
+  scopedSharingCandidateGroups: Int!
+  scopedSharingCandidateSets: Int!
+  potentialSharingOpportunityGroups: Int!
+  potentialSharingOpportunitySets: Int!
+  optimizationPolicy: DataframeOptimizationPolicy!
+  richSourceReuse: [DataframeRichSourceReuse!]!
+}
+
+type DataframeOptimizationPolicy {
+  name: String!
+  enabled: Boolean!
+  minimumSavings: Int!
+  decisions: [DataframeOptimizationDecision!]!
+}
+
+type DataframeOptimizationDecision {
+  rule: String!
+  enabled: Boolean!
+  candidateSets: Int!
+  estimatedBaselineWork: Int!
+  estimatedOptimizedWork: Int!
+  estimatedSavings: Int!
+  reason: String!
+}
+
+type DataframeRichSourceReuse {
+  sourceSet: String!
+  aggregateConsumers: Int!
+  pivotConsumers: Int!
+  sliceConsumers: Int!
+  totalConsumers: Int!
+}

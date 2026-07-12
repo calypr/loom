@@ -145,6 +145,139 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 	}
 }
 
+func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
+		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gender := mustPhysicalSelector(t, "gender")
+	value := func(value PhysicalValue) PhysicalExpression {
+		return PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Value: &value}
+	}
+	genderExpression := PhysicalExpression{
+		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
+		Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
+	}
+	inner := PhysicalExpression{
+		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
+		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{
+			{Name: "z_key", Expression: value(PhysicalValue{Variable: "root", Path: []string{"_key"}})},
+			{Name: "a_gender", Expression: genderExpression},
+		}},
+	}
+	outer := PhysicalExpression{
+		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
+		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{
+			{Name: "scalar", Expression: genderExpression},
+			{Name: "nested", Expression: inner},
+		}},
+	}
+	returnOp := plan.Operations[len(plan.Operations)-1].Return
+	returnOp.Projections = []PhysicalProjection{{Name: "row", Expression: &outer}}
+
+	first, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan() error = %v", err)
+	}
+	second, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatalf("second RenderPhysicalPlan() error = %v", err)
+	}
+	if first.Query != second.Query {
+		t.Fatalf("nested object rendering is not deterministic:\nfirst=%s\nsecond=%s", first.Query, second.Query)
+	}
+	for _, want := range []string{
+		"RETURN { [@__loom_physical_projection_0_name]: {",
+	} {
+		if !strings.Contains(first.Query, want) {
+			t.Fatalf("nested object query missing %q:\n%s", want, first.Query)
+		}
+	}
+	if got := strings.Count(first.Query, "[@__loom_physical_object_field_"); got != 4 {
+		t.Fatalf("nested object did not render four bind-backed field names, got %d:\n%s", got, first.Query)
+	}
+	fieldNames := map[string]bool{}
+	for key, value := range first.BindVars {
+		if strings.HasPrefix(key, "__loom_physical_object_field_") {
+			if name, ok := value.(string); ok {
+				fieldNames[name] = true
+			}
+		}
+	}
+	for _, name := range []string{"nested", "scalar", "a_gender", "z_key"} {
+		if !fieldNames[name] {
+			t.Fatalf("object field %q was not bind-backed: %#v", name, first.BindVars)
+		}
+	}
+	foundNestedField := false
+	for key, value := range first.BindVars {
+		if strings.HasPrefix(key, "__loom_physical_object_field_") && value == "a_gender" {
+			foundNestedField = true
+			break
+		}
+	}
+	if !foundNestedField {
+		t.Fatalf("nested object field name was not bind-backed: %#v", first.BindVars)
+	}
+}
+
+func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
+		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gender := mustPhysicalSelector(t, "gender")
+	optional := PhysicalExpression{
+		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalOmitNulls,
+		Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
+	}
+	object := PhysicalExpression{
+		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
+		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{{Name: "optional_gender", Expression: optional}}},
+	}
+	returnOp := plan.Operations[len(plan.Operations)-1].Return
+	returnOp.Projections = []PhysicalProjection{{Name: "row", Expression: &object}}
+	rendered, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan() error = %v", err)
+	}
+	for _, want := range []string{
+		"MERGE(",
+		"__loom_object_omit: true",
+		"FILTER __loom_object_field.__loom_object_omit == false OR __loom_object_field.__loom_object_value != null",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("null-omitting object query missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if got := rendered.BindVars["__loom_physical_object_field_0_name"]; got != "optional_gender" {
+		t.Fatalf("object field bind = %#v", got)
+	}
+}
+
+func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
+		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	object := &PhysicalObject{}
+	cycle := PhysicalExpression{Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Object: object}
+	object.Fields = []PhysicalExpressionProjection{{Name: "self", Expression: cycle}}
+	plan.Operations[len(plan.Operations)-1].Return.Projections = []PhysicalProjection{{Name: "row", Expression: &cycle}}
+	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "recursive cycle") {
+		t.Fatalf("Validate() error = %v; want recursive object cycle rejection", err)
+	}
+}
+
 func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T) {
 	newPlan := func(t *testing.T) PhysicalPlan {
 		t.Helper()

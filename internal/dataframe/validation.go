@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/fhirschema"
 )
 
 func (s *Service) validateBuilder(ctx context.Context, builder Builder) error {

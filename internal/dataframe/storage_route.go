@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 // ErrUnsupportedStorageRoute identifies a FHIR relationship that is known to
@@ -134,68 +134,4 @@ func formatRegexMatchHints(hints []string) string {
 		quoted = append(quoted, fmt.Sprintf("%q", strings.TrimSpace(hint)))
 	}
 	return strings.Join(quoted, ", ")
-}
-
-// validateGenericLoweredStorageRoutes closes the pre-lowered Builder path.
-// Generic lowering itself emits these sets, but persisted or conformance
-// callers can invoke Compile directly. The generic profile contains only a
-// root-to-child chain of TRAVERSE sets, so source resource types can be
-// derived without trusting caller-provided physical direction.
-func validateGenericLoweredStorageRoutes(builder Builder) error {
-	if builder.PlanHint == nil || builder.PlanHint.Profile != "generic_fhir_graph" {
-		return nil
-	}
-	_, err := resolveGenericLoweredStorageRoutes(builder)
-	return err
-}
-
-// resolveGenericLoweredStorageRoutes derives the immutable stored-edge route
-// for every generic TRAVERSE set. Compile uses the result to emit the edge
-// type discriminator in addition to the target node resourceType guard; this
-// avoids trusting a persisted lowered Builder's requested direction.
-func resolveGenericLoweredStorageRoutes(builder Builder) (map[string]storageRoute, error) {
-	if builder.PlanHint == nil || builder.PlanHint.Profile != "generic_fhir_graph" {
-		return nil, nil
-	}
-
-	setResourceTypes := make(map[string]string, len(builder.Sets))
-	routes := make(map[string]storageRoute, len(builder.Sets))
-	for _, set := range builder.Sets {
-		switch strings.ToUpper(strings.TrimSpace(set.Kind)) {
-		case SetKindTraverse:
-			fromType := builder.RootResourceType
-			source := strings.TrimSpace(set.Source)
-			if source != "" && source != "root" {
-				var found bool
-				fromType, found = setResourceTypes[source]
-				if !found {
-					return nil, fmt.Errorf("set %q: %w: source set %q does not establish a generated resource type", set.Name, ErrUnsupportedStorageRoute, set.Source)
-				}
-			}
-			route, err := resolveStorageRoute(fromType, set.Label, set.ToResourceType)
-			if err != nil {
-				return nil, fmt.Errorf("set %q: %w", set.Name, err)
-			}
-			direction := strings.ToUpper(strings.TrimSpace(set.Direction))
-			if direction != "" && direction != string(route.Direction) {
-				return nil, fmt.Errorf("set %q: %w: generic route direction must be %s, got %q", set.Name, ErrUnsupportedStorageRoute, route.Direction, set.Direction)
-			}
-			setResourceTypes[set.Name] = set.ToResourceType
-			routes[set.Name] = route
-		case SetKindFilter:
-			source := strings.TrimSpace(set.Source)
-			fromType, found := setResourceTypes[source]
-			if source == "root" {
-				fromType, found = builder.RootResourceType, true
-			}
-			if !found {
-				return nil, fmt.Errorf("set %q: %w: source set %q does not establish a generated resource type", set.Name, ErrUnsupportedStorageRoute, set.Source)
-			}
-			if targetType := strings.TrimSpace(set.MatchResourceType); targetType != "" {
-				fromType = targetType
-			}
-			setResourceTypes[set.Name] = fromType
-		}
-	}
-	return routes, nil
 }

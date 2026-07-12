@@ -14,7 +14,6 @@ import (
 const (
 	maxOpaqueIdentifierBytes = 512
 	maxResourceTypes         = 4096
-	maxScopePaths            = 4096
 )
 
 var (
@@ -24,8 +23,6 @@ var (
 	ErrInvalidSchemaIdentity = errors.New("invalid schema identity")
 	// ErrInvalidAnalysisVersion reports a malformed analysis-version value.
 	ErrInvalidAnalysisVersion = errors.New("invalid analysis version")
-	// ErrInvalidAuthScopeFingerprint reports a malformed scope fingerprint.
-	ErrInvalidAuthScopeFingerprint = errors.New("invalid authorization scope fingerprint")
 	// ErrInvalidManifest reports a manifest whose immutable values or state are
 	// not valid for this lifecycle contract.
 	ErrInvalidManifest = errors.New("invalid dataset manifest")

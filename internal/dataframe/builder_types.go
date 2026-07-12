@@ -1,6 +1,10 @@
 package dataframe
 
-import "github.com/calypr/loom/internal/authscope"
+import (
+	"time"
+
+	"github.com/calypr/loom/internal/authscope"
+)
 
 type Builder struct {
 	Project string
@@ -15,21 +19,12 @@ type Builder struct {
 	AuthScopeMode        authscope.ReadScopeMode
 	RootResourceType     string
 	RowGrain             RowGrain
-	PlanHint             *PlanHint
 	Fields               []FieldSelect
 	Filters              []TypedFilter
 	Pivots               []PivotSelect
 	Aggregates           []AggregateSelect
 	Slices               []RepresentativeSlice
 	Traversals           []TraversalStep
-	Sets                 []NamedSet
-	DerivedFields        []DerivedField
-	RepresentativeSlices []RepresentativeSlice
-	// RequiredTraversalMatches is populated only by compiler lowering from
-	// TraversalStep.MatchMode. It keeps root-scoped relationship predicates
-	// separate from materialized traversal sets, so Compile can apply them
-	// before root SORT/LIMIT.
-	RequiredTraversalMatches []RequiredTraversalMatch
 }
 
 type TraversalStep struct {
@@ -46,9 +41,20 @@ type TraversalStep struct {
 	// post-projection filter.
 	MatchMode            TraversalMatchMode
 	Traversals           []TraversalStep
-	Sets                 []NamedSet
-	DerivedFields        []DerivedField
-	RepresentativeSlices []RepresentativeSlice
+}
+
+// RepresentativeSlice is a bounded child projection requested by the
+// semantic dataframe request. It is consumed directly by the physical plan;
+// it is not a lowered named-set artifact.
+type RepresentativeSlice struct {
+	Name              string
+	SourceSet         string
+	Predicate         string
+	PredicateFieldRef string
+	PredicatePath     string
+	PredicateEquals   string
+	Limit             int
+	Fields            []FieldSelect
 }
 
 type FieldSelect struct {
@@ -86,9 +92,26 @@ type RunRequest struct {
 }
 
 type Result struct {
-	Columns  []string
-	Rows     []map[string]any
-	RowCount int
+	Columns     []string
+	Rows        []map[string]any
+	RowCount    int
+	Diagnostics QueryDiagnostics
+}
+
+// QueryDiagnostics separates the cost of turning a dataframe request into
+// rows. ArangoQuery is cursor time excluding Loom's per-row processing;
+// RowMaterialization is the time spent flattening and delivering rows.
+type QueryDiagnostics struct {
+	// InputResolution is populated by the GraphQL adapter while resolving field
+	// references from the catalog before this service is called.
+	InputResolution    time.Duration
+	RequestPreparation time.Duration
+	Compilation        time.Duration
+	ArangoQuery        time.Duration
+	RowMaterialization time.Duration
+	ResultAssembly     time.Duration
+	Total              time.Duration
+	Plan               CompilerPlanDiagnostics
 }
 
 // StreamResult describes rows delivered to a streaming caller. Columns are
@@ -96,8 +119,9 @@ type Result struct {
 // data-dependent output keys. The streaming callback itself receives each
 // flattened row as it is read from Arango.
 type StreamResult struct {
-	Columns  []string
-	RowCount int
+	Columns     []string
+	RowCount    int
+	Diagnostics QueryDiagnostics
 }
 
 func cloneStrings(in []string) []string {

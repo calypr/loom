@@ -1,17 +1,17 @@
 schema:
-  - internal/graphqlapi/schema.graphqls
+  - graphqlapi/schema.graphqls
 
 exec:
-  filename: internal/graphqlapi/generated.go
+  filename: graphqlapi/generated.go
   package: graphqlapi
 
 model:
-  filename: internal/graphqlapi/model/models.go
+  filename: graphqlapi/model/models.go
   package: model
 
 resolver:
   layout: follow-schema
-  dir: internal/graphqlapi
+  dir: graphqlapi
   package: graphqlapi
 
 skip_mod_tidy: true

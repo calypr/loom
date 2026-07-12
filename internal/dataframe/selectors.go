@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 type Selector = fhirschema.Selector

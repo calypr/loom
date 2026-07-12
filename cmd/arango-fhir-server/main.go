@@ -9,14 +9,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/calypr/loom/internal/api"
+	"github.com/calypr/loom/graphqlapi"
+	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	catalogcache "github.com/calypr/loom/internal/catalog/cache"
 	"github.com/calypr/loom/internal/dataframe"
-	"github.com/calypr/loom/internal/dataframebuilder"
-	"github.com/calypr/loom/internal/datasetstore"
-	"github.com/calypr/loom/internal/graphqlapi"
+	"github.com/calypr/loom/internal/dataset"
+	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	api "github.com/calypr/loom/internal/httpapi"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -47,23 +47,26 @@ func main() {
 		Database: *database,
 	}
 
-	var activeManifestResolver *datasetstore.Store
+	// Keep this as an interface, not a typed *datasetarango.Store nil. Passing a
+	// typed nil into dataframeapi.Config makes the interface non-nil and
+	// incorrectly activates immutable-generation lookup for legacy META loads.
+	var activeManifestResolver dataset.ActiveManifestResolver
 	if *datasetGenerations {
 		lifecycleClient, err := arangostore.Open(context.Background(), connOpts.URL, connOpts.Database)
 		if err != nil {
 			exitf("open dataset lifecycle store: %v", err)
 		}
 		defer lifecycleClient.Close(context.Background())
-		if err := lifecycleClient.Bootstrap(context.Background(), datasetstore.BootstrapSpec()); err != nil {
+		if err := lifecycleClient.Bootstrap(context.Background(), datasetarango.BootstrapSpec()); err != nil {
 			exitf("bootstrap dataset lifecycle store: %v", err)
 		}
-		activeManifestResolver, err = datasetstore.New(lifecycleClient)
+		activeManifestResolver, err = datasetarango.New(lifecycleClient)
 		if err != nil {
 			exitf("create dataset lifecycle store: %v", err)
 		}
 	}
 
-	discoveryCache := catalogcache.New()
+	discoveryCache := catalog.NewCache()
 	discoverFields := discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields)
 	discoverReferences := discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences)
 
@@ -85,7 +88,7 @@ func main() {
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
 	})
-	resolver := graphqlapi.NewResolver(dataframebuilder.Config{
+	resolver := graphqlapi.NewResolver(dataframeapi.Config{
 		ConnectionOptions:      connOpts,
 		DiscoverReferences:     discoverReferences,
 		DiscoverFields:         discoverFields,

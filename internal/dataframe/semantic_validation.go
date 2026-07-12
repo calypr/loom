@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 // MaxSemanticTraversalDepth is the maximum number of relationship edges below

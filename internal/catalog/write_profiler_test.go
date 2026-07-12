@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {

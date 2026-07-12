@@ -77,8 +77,8 @@ The repository already contains valuable production-shaped components:
 
 - the 14-resource development dataset under `META/` and smaller `META_SMALL/`
 - the active graph schema at `schemas/graph-fhir.json`
-- generated Go FHIR structs, validators, and edge extractors in `internal/fhir`
-- generated FHIR field/traversal metadata in `internal/fhirschema/generated.go`
+- generated Go FHIR structs, validators, and edge extractors in `fhirstructs`
+- generated FHIR field/traversal metadata in `fhirschema/generated.go`
 - existing generation commands in `cmd/generate`, `Makefile`, and `gqlgen.yml`
 - NDJSON and gzip discovery and scanning in `internal/ingest`
 - generated and generic FHIR row builders
@@ -238,7 +238,7 @@ fail during preflight with a complete report rather than partway through load.
 
 ## Implementation plan
 
-1. Add `internal/schemaidentity` with:
+1. Maintain `internal/graphschema` with:
    - `FHIRVersion`
    - `SchemaName`
    - `SchemaVersion`
@@ -269,7 +269,7 @@ fail during preflight with a complete report rather than partway through load.
 
 ## Files and packages
 
-- add `internal/schemaidentity/`
+- maintain `internal/graphschema/`
 - modify `internal/ingest/load.go`
 - modify `internal/ingest/row_builder.go`
 - modify `internal/ingest/generated_load.go` or generation output contract
@@ -605,7 +605,7 @@ semantics and declare capability requirements without embedding canned AQL.
    - sensitivity classification
 4. Define `SemanticRelationship` separately from physical edge labels.
 5. Consolidate the mechanically derived field references in
-   `internal/dataframebuilder/fieldrefs.go` and the optimized traversal roles in
+   `graphqlapi/dataframe/fieldrefs.go` and the optimized traversal roles in
    `internal/dataframe/traversal_rules.go` behind these stable concepts. Avoid
    leaving product semantics split across unrelated packages.
 6. Implement initial template definitions for all six product families.
@@ -651,7 +651,7 @@ options, value suggestions, validation, and explanation.
 
 ## Implementation plan
 
-1. Add `internal/productapi` or extend `internal/dataframebuilder` only if the
+1. Add `internal/productapi` or extend `graphqlapi/dataframe` only if the
    latter remains semantically accurate.
 2. Implement service methods:
    - `DatasetSummary`

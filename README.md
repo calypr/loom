@@ -16,8 +16,7 @@ The current product direction is:
 - store graph edges in `fhir_edge`
 - profile populated fields into `fhir_field_catalog`
 - lower typed dataframe requests through the FHIR-aware compiler into scoped AQL
-- expose the current expert/compatibility GraphQL transport while the guided
-  recipe transport is being added
+- expose the current compiler-backed GraphQL transport
 
 ArangoDB is the only runtime backend. The tracked [`experimental/`](experimental/)
 directory contains the local Arango compose setup.
@@ -26,12 +25,13 @@ directory contains the local Arango compose setup.
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
-- [Product Recipes and Dataset Discovery](docs/PRODUCT_RECIPE_DISCOVERY.md)
 - [Formal Product Gap Analysis](docs/FORMAL_GAP_ANALYSIS.md)
 - [Compiler-First FHIR/AQL Plan](docs/COMPILER_FIRST_PLAN.md)
-- [Compiler-First Implementation Status](docs/COMPILER_IMPLEMENTATION_STATUS.md)
+- [Physical Renderer Replacement Plan](docs/PHYSICAL_RENDERER_REPLACEMENT_PLAN.md)
+- [Rich Physical Renderer Plan](docs/RICH_PHYSICAL_RENDERER_PLAN.md)
+- [Luna Rich Physical Renderer Execution Plan](docs/LUNA_RICH_PHYSICAL_RENDERER_EXECUTION.md)
+- [Luna Compiler Finalization Plan](docs/LUNA_COMPILER_FINALIZATION_PLAN.md)
 - [Terra Ultra Parallel Execution Plan](docs/TERRA_ULTRA_EXECUTION_PLAN.md)
-- [Compiler Cleanup Audit](docs/COMPILER_CLEANUP_AUDIT.md)
 
 ## Current Layout
 
@@ -39,19 +39,15 @@ directory contains the local Arango compose setup.
 - [`cmd/arango-fhir-server/main.go`](cmd/arango-fhir-server/main.go): HTTP server entrypoint
 - [`internal/ingest`](internal/ingest): load pipeline and Arango ingest bootstrap/runtime
 - [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
-- [`internal/catalog/cache`](internal/catalog/cache): per-project discovery cache
-- [`internal/discovery`](internal/discovery): safe guided capability snapshots built from scoped catalog facts
 - [`internal/dataset`](internal/dataset): dataset generation, schema, and scope lifecycle contract
-- [`internal/datasetstore`](internal/datasetstore): Arango-backed immutable manifest and active-generation pointer store
-- [`internal/graphqlapi`](internal/graphqlapi): GraphQL schema, request mapping, introspection service
+- [`internal/dataset/arango`](internal/dataset/arango): Arango-backed immutable manifest and active-generation pointer store
+- [`graphqlapi`](graphqlapi): GraphQL schema, request mapping, introspection service, and gqlgen output
+- [`graphqlapi/dataframe`](graphqlapi/dataframe): GraphQL dataframe input translation and builder introspection
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
-- [`internal/export`](internal/export): strict flat-row NDJSON and CSV encoding primitives
-- [`internal/dataframeexport`](internal/dataframeexport): streaming bridge from dataframe execution to flat encoders
-- [`internal/fhirschema`](internal/fhirschema): generated schema metadata used by planner/validation
-- [`internal/dataframebuilder`](internal/dataframebuilder): builder introspection, friendly `fieldRef`s, and GraphQL input translation
-- [`internal/recipe`](internal/recipe): versioned product recipe intent and guided template metadata
-- [`internal/schemaidentity`](internal/schemaidentity): exact graph-schema identity captured by dataset generations
-- [`internal/api`](internal/api): HTTP host, authenticated GraphQL mounting, and legacy import compatibility wiring
+- [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
+- [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
+- [`internal/graphschema`](internal/graphschema): exact graph-schema identity captured by dataset generations
+- [`internal/httpapi`](internal/httpapi): HTTP host, authenticated GraphQL mounting, and legacy import compatibility wiring
 - [`internal/authscope`](internal/authscope): shared request principal context and auth-resource-path scope resolution
 - [`experimental/`](experimental/): local Arango development compose setup
 
@@ -154,7 +150,7 @@ The server mounts:
 - `POST /graphql`
 - `POST /api/v1/imports` (legacy one-file import; disabled with `--dataset-generations`)
 
-HTTP wiring lives in [`internal/api/routes.go`](internal/api/routes.go) and [`internal/api/server.go`](internal/api/server.go).
+HTTP wiring lives in [`internal/httpapi/routes.go`](internal/httpapi/routes.go) and [`internal/httpapi/server.go`](internal/httpapi/server.go).
 
 ## Primary Collections
 
@@ -173,10 +169,5 @@ What is current and real:
 
 - GraphQL introspection for populated traversals/fields/pivots
 - GraphQL dataframe execution on Arango
-- generated schema metadata in `internal/fhirschema`
-- derived field aliases in `internal/dataframebuilder` and explicit lowering rules in `internal/dataframe`
-
-What is explicitly experimental:
-
-- the guided discovery, recipe, and streaming-export foundations until their
-  public delivery API exists
+- generated schema metadata in `fhirschema`
+- derived field aliases in `graphqlapi/dataframe` and explicit lowering rules in `internal/dataframe`

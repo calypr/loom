@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/schemaidentity"
+	"github.com/calypr/loom/internal/graphschema"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -94,7 +94,7 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
 	schemaPath := repoPath(t, "schemas", "graph-fhir.json")
-	wantIdentity, err := schemaidentity.Load(schemaPath)
+	wantIdentity, err := graphschema.Load(schemaPath)
 	if err != nil {
 		t.Fatalf("load expected schema identity: %v", err)
 	}

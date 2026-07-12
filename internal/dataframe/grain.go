@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/fhirschema"
+	"github.com/calypr/loom/fhirschema"
 )
 
 // RowGrain identifies the resource represented by one output row.

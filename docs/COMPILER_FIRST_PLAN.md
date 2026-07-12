@@ -36,14 +36,14 @@ This is not a greenfield compiler.
 
 ### Existing request and validation path
 
-- `internal/graphqlapi/schema.graphqls` defines fields, traversals, pivots,
+- `graphqlapi/schema.graphqls` defines fields, traversals, pivots,
   aggregates, slices, and value modes.
-- `internal/dataframebuilder` maps and resolves GraphQL input.
+- `graphqlapi/dataframe` maps and resolves GraphQL input.
 - `internal/dataframe/validation.go` validates fields and traversals against
   populated catalog records and generated schema metadata.
-- `internal/fhirschema/generated.go` contains generated FHIR definitions and
+- `fhirschema/generated.go` contains generated FHIR definitions and
   traversals.
-- `internal/fhirschema/schema.go` resolves fields, selectors, traversals, and
+- `fhirschema/schema.go` resolves fields, selectors, traversals, and
   pivot families.
 
 ### Existing lowering path
@@ -266,7 +266,7 @@ a typed, backend-independent semantic request.
 ## Ownership
 
 - new `internal/dataframe/planner/semantic/` or equivalent
-- adapters from `internal/dataframebuilder`
+- adapters from `graphqlapi/dataframe`
 
 ## Tests and gates
 
@@ -291,7 +291,7 @@ compiler knowledge base instead of maintaining a hardcoded Patient tuple list.
 
 ## Implementation
 
-1. Inventory what `internal/fhirschema/generated.go` already records:
+1. Inventory what `fhirschema/generated.go` already records:
    - definitions
    - properties/kinds
    - traversals
@@ -321,7 +321,7 @@ compiler knowledge base instead of maintaining a hardcoded Patient tuple list.
 
 ## Ownership
 
-- `internal/fhirschema/`
+- `fhirschema/`
 - `cmd/generate/` only when necessary
 - no copied FHIR structs or handwritten replacement schema
 

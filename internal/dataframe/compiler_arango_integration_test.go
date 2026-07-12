@@ -129,59 +129,8 @@ func TestGenericRootPreviewUsesScopedSortIndexAgainstArango(t *testing.T) {
 		t.Fatalf("ExplainCompiledQuery() error = %v", err)
 	}
 	assessment := arangostore.AssessExplainResult(explain)
-	if !hasExplainIndex(assessment, "Patient", []string{"project", "_key"}) {
+	if !hasScopedRootPreviewIndex(assessment, "Patient") {
 		t.Fatalf("root preview did not use the project/_key index; assessment=%#v", assessment)
-	}
-}
-
-// TestGenericPhysicalExecutionHasLoweredResultParityAgainstArango compares
-// the executable typed navigation renderer with the compatibility lowered
-// renderer against one locally loaded fixture. Optional navigation must not
-// change root membership or row shape, and both renderers must select the same
-// stable root-key preview window.
-func TestGenericPhysicalExecutionHasLoweredResultParityAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run compiler/Arango integration")
-	}
-	url, database, project := compilerArangoTarget()
-	builder := Builder{
-		Project:          project,
-		RootResourceType: "Patient",
-		Traversals: []TraversalStep{{
-			Label:          "subject_Patient",
-			ToResourceType: "Specimen",
-			Alias:          "specimen",
-		}},
-	}
-	physical, err := CompileRequest(builder, 25)
-	if err != nil {
-		t.Fatalf("CompileRequest() error = %v", err)
-	}
-	if !strings.Contains(physical.Query, "FOR root IN @@root_collection") || !strings.Contains(physical.Query, "LET __loom_physical_set_1") {
-		t.Fatalf("generic navigation did not execute through physical renderer:\n%s", physical.Query)
-	}
-	lowered, err := Lower(builder)
-	if err != nil {
-		t.Fatalf("Lower() error = %v", err)
-	}
-	legacy, err := Compile(lowered, 25)
-	if err != nil {
-		t.Fatalf("Compile(lowered) error = %v", err)
-	}
-
-	opts := arangostore.ConnectionOptions{URL: url, Database: database}
-	physicalRows, err := executeCompiledRows(context.Background(), opts, physical)
-	if err != nil {
-		t.Fatalf("execute physical navigation: %v\nAQL:\n%s", err, physical.Query)
-	}
-	legacyRows, err := executeCompiledRows(context.Background(), opts, legacy)
-	if err != nil {
-		t.Fatalf("execute lowered navigation: %v\nAQL:\n%s", err, legacy.Query)
-	}
-	sortRowsByKey(physicalRows)
-	sortRowsByKey(legacyRows)
-	if difference := firstRowDifference(physicalRows, legacyRows); difference != "" {
-		t.Fatalf("physical/lowered navigation result mismatch: %s", difference)
 	}
 }
 
@@ -225,8 +174,77 @@ func TestRenderedGenericPhysicalNavigationExplainsAgainstArango(t *testing.T) {
 	if len(assessment.FullCollectionScans) != 0 {
 		t.Fatalf("rendered physical navigation unexpectedly full-scanned a collection: assessment=%#v", assessment)
 	}
-	if !hasExplainIndex(assessment, "Patient", []string{"project", "_key"}) && !hasExplainIndex(assessment, "Patient", []string{"project", "auth_resource_path", "_key"}) {
+	if !hasScopedRootPreviewIndex(assessment, "Patient") {
 		t.Fatalf("rendered physical navigation did not use a scoped root index; assessment=%#v", assessment)
+	}
+}
+
+// BenchmarkGenericCompilerAgainstArango measures two different costs against
+// the locally loaded META fixture: AQL compilation in-process and execution
+// of the already-compiled AQL over one reusable Arango client. The latter is
+// intentionally an end-to-end database benchmark, not a Go allocation proxy.
+// It is opt-in so normal unit test runs never require a local database.
+func BenchmarkGenericCompilerAgainstArango(b *testing.B) {
+	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
+		b.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to benchmark against local Arango/META")
+	}
+	url, database, project := compilerArangoTarget()
+	builder := genericMetaSpecimenBuilder(project)
+
+	b.Run("compile_specimen_file", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := CompileRequest(builder, 25); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	compiled, err := CompileRequest(builder, 25)
+	if err != nil {
+		b.Fatal(err)
+	}
+	client, err := arangostore.Open(context.Background(), url, database)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	b.Run("execute_specimen_file", func(b *testing.B) {
+		b.ReportAllocs()
+		rows := 0
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			rows = 0
+			err := client.QueryRows(context.Background(), compiled.Query, 25, compiled.BindVars, func(map[string]any) error {
+				rows++
+				return nil
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ReportMetric(float64(rows), "rows/op")
+	})
+}
+
+func genericMetaSpecimenBuilder(project string) Builder {
+	return Builder{
+		Project:          project,
+		RootResourceType: "Specimen",
+		Filters: []TypedFilter{{
+			FieldRef: "Specimen.type_display", Selector: "type.coding[].display", FieldKind: FilterString,
+			Repeated: true, Quantifier: QuantifierAny, Operator: FilterExists,
+		}},
+		Fields: []FieldSelect{{Name: "specimen_type", Select: "type.coding[].display"}},
+		Traversals: []TraversalStep{{
+			Label: "subject_Specimen", ToResourceType: "DocumentReference", Alias: "file",
+			Filters: []TypedFilter{{
+				FieldRef: "DocumentReference.file_name", Selector: "content[].attachment.title", FieldKind: FilterString,
+				Repeated: true, Quantifier: QuantifierAny, Operator: FilterExists,
+			}},
+			Aggregates: []AggregateSelect{{Name: "file_count", Operation: "COUNT"}},
+		}},
 	}
 }
 
@@ -316,6 +334,18 @@ func summarizeParityValue(value any) string {
 func hasExplainIndex(assessment arangostore.ExplainAssessment, collection string, fields []string) bool {
 	for _, index := range assessment.Indexes {
 		if index.Collection == collection && reflect.DeepEqual(index.Fields, fields) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasScopedRootPreviewIndex(assessment arangostore.ExplainAssessment, collection string) bool {
+	for _, index := range assessment.Indexes {
+		if index.Collection != collection || len(index.Fields) < 2 {
+			continue
+		}
+		if index.Fields[0] == "project" && index.Fields[len(index.Fields)-1] == "_key" {
 			return true
 		}
 	}

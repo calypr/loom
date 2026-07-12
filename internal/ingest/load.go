@@ -15,7 +15,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/schemaidentity"
+	"github.com/calypr/loom/internal/graphschema"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschema/v6"
@@ -63,11 +63,31 @@ type LoadSummary struct {
 	// SchemaIdentity is the exact configured graph-schema evidence used for
 	// this load. It remains nil when Loom cannot load the configured schema, so
 	// an early failure never looks like a successful schema observation.
-	SchemaIdentity *schemaidentity.Identity `json:"schema_identity,omitempty"`
+	SchemaIdentity *graphschema.Identity `json:"schema_identity,omitempty"`
 	// Dataset is the immutable target when this was a generation load. It is
 	// present even on a failed generation load so callers can identify the
 	// inactive manifest that needs operational inspection.
 	Dataset *dataset.DatasetRef `json:"dataset,omitempty"`
+}
+
+// normalizeLoadOptions applies the operational defaults shared by both loader
+// modes. The immutable-generation loader deliberately has a different write
+// lifecycle, but both modes must agree on batching, progress, concurrency, and
+// the Arango write API before any input is examined.
+func normalizeLoadOptions(opts LoadOptions) LoadOptions {
+	if opts.BatchSize <= 0 {
+		opts.BatchSize = 5000
+	}
+	if opts.ProgressEvery <= 0 {
+		opts.ProgressEvery = 50000
+	}
+	if opts.WriterCount <= 0 {
+		opts.WriterCount = 8
+	}
+	if opts.WriteAPI == "" {
+		opts.WriteAPI = "import"
+	}
+	return opts
 }
 
 var (
@@ -144,7 +164,7 @@ type generationLoadPlan struct {
 // newGenerationLoadPlan validates and snapshots all immutable information
 // after input preflight and before a database connection is opened. Nil keeps
 // the legacy loader path exactly unversioned.
-func newGenerationLoadPlan(opts LoadOptions, files []string, identity schemaidentity.Identity) (*generationLoadPlan, error) {
+func newGenerationLoadPlan(opts LoadOptions, files []string, identity graphschema.Identity) (*generationLoadPlan, error) {
 	if opts.Dataset == nil {
 		return nil, nil
 	}
@@ -185,18 +205,7 @@ func newGenerationLoadPlan(opts LoadOptions, files []string, identity schemaiden
 // when Dataset is nil so existing import/API behavior and physical identities
 // remain unchanged while generation mode evolves independently.
 func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
-	if opts.BatchSize <= 0 {
-		opts.BatchSize = 5000
-	}
-	if opts.ProgressEvery <= 0 {
-		opts.ProgressEvery = 50000
-	}
-	if opts.WriterCount <= 0 {
-		opts.WriterCount = 8
-	}
-	if opts.WriteAPI == "" {
-		opts.WriteAPI = "import"
-	}
+	opts = normalizeLoadOptions(opts)
 	start := time.Now()
 	files, err := DiscoverNDJSON(opts.MetaDir)
 	if err != nil {
@@ -210,7 +219,7 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	// Keep graph.Load as the authoritative graph parser so its established
 	// validation and error behavior remain unchanged. Identity records evidence
 	// for the same configured file once graph loading succeeds.
-	schemaIdentity, err := schemaidentity.Load(opts.Schema)
+	schemaIdentity, err := graphschema.Load(opts.Schema)
 	if err != nil {
 		return summary, err
 	}

@@ -10,7 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/schemaidentity"
+	"github.com/calypr/loom/internal/graphschema"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -27,38 +27,38 @@ func TestNewGenerationLoadPlanRejectsUnsafeOrIncompleteInputs(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		opts LoadOptions
+		name  string
+		opts  LoadOptions
 		files []string
-		want error
+		want  error
 	}{
 		{
-			name: "invalid dataset reference",
-			opts: LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &dataset.DatasetRef{Project: "project-a"}},
+			name:  "invalid dataset reference",
+			opts:  LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &dataset.DatasetRef{Project: "project-a"}},
 			files: []string{file},
 			want:  dataset.ErrInvalidDatasetRef,
 		},
 		{
-			name: "project mismatch",
-			opts: LoadOptions{MetaDir: dir, Project: "project-b", Dataset: &validRef},
+			name:  "project mismatch",
+			opts:  LoadOptions{MetaDir: dir, Project: "project-b", Dataset: &validRef},
 			files: []string{file},
 			want:  ErrGenerationDatasetProjectMismatch,
 		},
 		{
-			name: "truncate forbidden",
-			opts: LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &validRef, Truncate: true},
+			name:  "truncate forbidden",
+			opts:  LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &validRef, Truncate: true},
 			files: []string{file},
 			want:  ErrGenerationLoadTruncateForbidden,
 		},
 		{
-			name: "file is not directory",
-			opts: LoadOptions{MetaDir: file, Project: "project-a", Dataset: &validRef},
+			name:  "file is not directory",
+			opts:  LoadOptions{MetaDir: file, Project: "project-a", Dataset: &validRef},
 			files: []string{file},
 			want:  ErrGenerationLoadRequiresDirectory,
 		},
 		{
-			name: "empty staged directory",
-			opts: LoadOptions{MetaDir: t.TempDir(), Project: "project-a", Dataset: &validRef},
+			name:  "empty staged directory",
+			opts:  LoadOptions{MetaDir: t.TempDir(), Project: "project-a", Dataset: &validRef},
 			files: nil,
 			want:  ErrGenerationLoadRequiresFiles,
 		},
@@ -107,11 +107,11 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 	}
 	var events []string
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:    repoPath(t, "schemas", "graph-fhir.json"),
-		MetaDir:   dir,
-		Project:   ref.Project,
-		Dataset:   &ref,
-		Truncate:  true, // would be rejected only after preflight succeeds.
+		Schema:   repoPath(t, "schemas", "graph-fhir.json"),
+		MetaDir:  dir,
+		Project:  ref.Project,
+		Dataset:  &ref,
+		Truncate: true, // would be rejected only after preflight succeeds.
 		ConnectionOptions: arangostore.ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "generation_preflight_must_not_connect",
@@ -193,9 +193,9 @@ func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 	}
 }
 
-func loadGenerationSchemaIdentity(t *testing.T) schemaidentity.Identity {
+func loadGenerationSchemaIdentity(t *testing.T) graphschema.Identity {
 	t.Helper()
-	identity, err := schemaidentity.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	identity, err := graphschema.Load(repoPath(t, "schemas", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema identity: %v", err)
 	}

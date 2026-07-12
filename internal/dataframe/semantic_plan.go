@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/fhirschema"
 )
 
 // SemanticPlan is the validated, backend-independent meaning of a dataframe
@@ -236,8 +236,8 @@ func semanticNodeFromBuilder(alias, resourceType, edgeLabel string, matchMode Tr
 		}
 		seenAggregates[aggregate.Name] = struct{}{}
 		operation := strings.ToUpper(strings.TrimSpace(aggregate.Operation))
-		if _, err := normalizeAggregateFunction(operation); err != nil {
-			return SemanticNode{}, fmt.Errorf("aggregate %q: %w", aggregate.Name, err)
+		if !isKnownAggregateOperation(operation) {
+			return SemanticNode{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
 		}
 		if !isKnownValueMode(aggregate.ValueMode) {
 			return SemanticNode{}, fmt.Errorf("aggregate %q uses unsupported value mode %q", aggregate.Name, aggregate.ValueMode)
@@ -364,6 +364,15 @@ func validateSemanticSelector(resourceType string, selector Selector) error {
 func aggregateOperationRequiresSelector(operation string) bool {
 	switch operation {
 	case "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX":
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownAggregateOperation(operation string) bool {
+	switch strings.ToUpper(strings.TrimSpace(operation)) {
+	case "COUNT", "COUNT_DISTINCT", "EXISTS", "DISTINCT_VALUES", "MIN", "MAX":
 		return true
 	default:
 		return false
