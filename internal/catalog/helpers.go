@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -97,6 +100,47 @@ func stringSliceValue(value any) []string {
 
 func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {
 	return sanitizeCollectionKey(project + "::" + authResourcePath + "::" + resourceType + "::" + path)
+}
+
+const generationFieldCatalogKeyPrefix = "gfc_"
+
+// fieldCatalogKeyForGeneration returns the persistent catalog document key for
+// one profiler identity. The empty-generation branch deliberately calls the
+// pre-generation key function unchanged: existing catalogs and callers that
+// have not selected a generation must retain their exact legacy key layout.
+//
+// A non-empty generation uses a SHA-256 digest of every identity component.
+// In particular, it must not append a sanitized generation string to the
+// legacy key: sanitization is many-to-one (for example, a slash and a space
+// both become an underscore) and would allow one immutable generation to
+// overwrite another catalog row.
+func fieldCatalogKeyForGeneration(project, datasetGeneration, authResourcePath, resourceType, path string) string {
+	datasetGeneration = NormalizeDatasetGeneration(datasetGeneration)
+	if datasetGeneration == "" {
+		return fieldCatalogKey(project, authResourcePath, resourceType, path)
+	}
+	return generationFieldCatalogKeyPrefix + catalogIdentityDigest(
+		"field-catalog/v1",
+		project,
+		datasetGeneration,
+		authResourcePath,
+		resourceType,
+		path,
+	)
+}
+
+// catalogIdentityDigest hashes a length-prefixed sequence rather than a
+// delimiter-joined string. That keeps the input encoding injective even if a
+// project, generation, or path itself contains a delimiter or NUL byte.
+func catalogIdentityDigest(parts ...string) string {
+	hash := sha256.New()
+	for _, part := range parts {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(part))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func sanitizeCollectionKey(value string) string {

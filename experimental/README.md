@@ -1,13 +1,12 @@
-# Experimental Benchmarks
+# Local Arango development
 
-This directory is now Arango-only.
+This directory contains the checked-in ArangoDB compose setup used by the
+quickstart. Start it from the repository root:
 
-Use it for benchmark helper scripts, benchmark notes, and other non-runtime
-artifacts that support the main Arango path.
+```bash
+rtk docker compose -f experimental/docker-compose.yml up -d
+```
 
-The primary runtime lives at:
-
-- root [`docker-compose.yml`](../docker-compose.yml)
-- [`queries/`](../queries/)
-- [`internal/store/arango/`](../internal/store/arango/)
-- [`internal/ingest/`](../internal/ingest/)
+The runtime implementation lives under [`internal/store/arango/`](../internal/store/arango/)
+and [`internal/ingest/`](../internal/ingest/). This is not a home for a second
+query engine or manually maintained AQL recipes.

@@ -32,5 +32,15 @@ func (s *HTTPServer) registerGraphQLRoutes() {
 
 func (s *HTTPServer) registerImportRoutes() {
 	api := s.app.Group("/api/v1")
+	if s.disableSingleResourceImports {
+		api.Post("/imports", func(c fiber.Ctx) error {
+			return &apiError{
+				Status:  fiber.StatusConflict,
+				Code:    "legacy_import_disabled",
+				Message: "single-resource imports are disabled while dataset-generation mode is enabled; load a complete dataset generation instead",
+			}
+		})
+		return
+	}
 	api.Post("/imports", s.createImport)
 }

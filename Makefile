@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GOCACHE_DIR ?= $(CURDIR)/.gocache
@@ -29,6 +29,7 @@ generate-graphql:
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -out-dir internal/fhir
+	gofmt -w internal/fhir/model.go internal/fhir/validate.go internal/fhir/extract.go internal/fhirschema/generated.go
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
@@ -39,6 +40,14 @@ gqlgen-check: graphql-check
 test:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) test $(GOFLAGS) ./... -count=1
+
+compiler-bench:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) test $(GOFLAGS) ./conformance/compiler -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
+
+conformance:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) test $(GOFLAGS) ./conformance/... -count=1
 
 docker-build:
 	docker build -t $(IMAGE) .

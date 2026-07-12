@@ -11,6 +11,7 @@ import (
 	"runtime/trace"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -32,10 +33,8 @@ func main() {
 	switch os.Args[1] {
 	case "load":
 		err = runLoad(ctx, os.Args[2:])
-	case "query-gdc-case-assay-matrix":
-		err = runQuery(ctx, os.Args[2:], false)
-	case "export-gdc-case-assay-matrix":
-		err = runQuery(ctx, os.Args[2:], true)
+	case "load-generation":
+		err = runLoadGeneration(ctx, os.Args[2:])
 	case "discover-populated-references":
 		err = runDiscoverPopulatedReferences(ctx, os.Args[2:])
 	case "discover-populated-fields":
@@ -50,30 +49,93 @@ func main() {
 	}
 }
 
+type loadCommandConfig struct {
+	Options ingest.LoadOptions
+	Backend string
+
+	CPUProfile   string
+	MemProfile   string
+	TraceProfile string
+	BlockProfile string
+
+	Generation string
+}
+
 func runLoad(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("load", flag.ExitOnError)
-	opts := ingest.LoadOptions{}
-	cpuProfile := fs.String("cpu-profile", "", "Write CPU profile to file")
-	memProfile := fs.String("mem-profile", "", "Write heap profile to file at end of run")
-	traceProfile := fs.String("trace-profile", "", "Write runtime trace to file")
-	blockProfile := fs.String("block-profile", "", "Write block profile to file at end of run")
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
-	fs.StringVar(&opts.MetaDir, "meta-dir", defaultMetaDir, "Directory containing META/*.ndjson")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path copied onto vertex data, for example EllrottLab-GDC_Data")
-	fs.IntVar(&opts.BatchSize, "batch-size", 5000, "Bulk insert batch size")
-	fs.IntVar(&opts.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
-	fs.IntVar(&opts.WriterCount, "writers", 8, "Concurrent writer goroutines")
-	fs.BoolVar(&opts.Truncate, "truncate", true, "Truncate prototype collections before loading")
-	fs.BoolVar(&opts.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
-	fs.BoolVar(&opts.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
-	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-	if err := fs.Parse(args); err != nil {
+	return runLoadCommand(ctx, args, false)
+}
+
+func runLoadGeneration(ctx context.Context, args []string) error {
+	return runLoadCommand(ctx, args, true)
+}
+
+func runLoadCommand(ctx context.Context, args []string, generationMode bool) error {
+	config, err := parseLoadCommand(args, generationMode, flag.ExitOnError)
+	if err != nil {
 		return err
 	}
-	stopProfiles, profileErr := startProfiles(*cpuProfile, *memProfile, *traceProfile, *blockProfile)
+	return runConfiguredLoad(ctx, config)
+}
+
+func parseLoadCommand(args []string, generationMode bool, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
+	name := "load"
+	if generationMode {
+		name = "load-generation"
+	}
+	fs := flag.NewFlagSet(name, errorHandling)
+	config := loadCommandConfig{}
+	configureLoadFlags(fs, &config, generationMode)
+	if err := fs.Parse(args); err != nil {
+		return loadCommandConfig{}, err
+	}
+	if config.Backend != "arango" {
+		return loadCommandConfig{}, fmt.Errorf("unsupported backend %q: only arango is supported", config.Backend)
+	}
+	if !generationMode {
+		return config, nil
+	}
+	if config.Generation == "" {
+		return loadCommandConfig{}, fmt.Errorf("--generation is required for load-generation")
+	}
+	if config.Options.Truncate {
+		return loadCommandConfig{}, fmt.Errorf("--truncate=true is not permitted for load-generation")
+	}
+	ref, err := dataset.NewDatasetRef(config.Options.Project, config.Generation)
+	if err != nil {
+		return loadCommandConfig{}, fmt.Errorf("invalid --generation for load-generation: %w", err)
+	}
+	config.Options.Dataset = &ref
+	return config, nil
+}
+
+func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig, generationMode bool) {
+	fs.StringVar(&config.Backend, "backend", "arango", "Storage backend; only arango is supported")
+	fs.StringVar(&config.CPUProfile, "cpu-profile", "", "Write CPU profile to file")
+	fs.StringVar(&config.MemProfile, "mem-profile", "", "Write heap profile to file at end of run")
+	fs.StringVar(&config.TraceProfile, "trace-profile", "", "Write runtime trace to file")
+	fs.StringVar(&config.BlockProfile, "block-profile", "", "Write block profile to file at end of run")
+	fs.StringVar(&config.Options.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&config.Options.Database, "database", defaultDatabase, "Backend database")
+	fs.StringVar(&config.Options.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
+	fs.StringVar(&config.Options.MetaDir, "meta-dir", defaultMetaDir, "Directory containing META/*.ndjson")
+	fs.StringVar(&config.Options.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&config.Options.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path copied onto vertex data, for example EllrottLab-GDC_Data")
+	fs.IntVar(&config.Options.BatchSize, "batch-size", 5000, "Bulk insert batch size")
+	fs.IntVar(&config.Options.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
+	fs.IntVar(&config.Options.WriterCount, "writers", 8, "Concurrent writer goroutines")
+	if !generationMode {
+		fs.BoolVar(&config.Options.Truncate, "truncate", true, "Truncate prototype collections before loading")
+	}
+	fs.BoolVar(&config.Options.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
+	fs.BoolVar(&config.Options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
+	fs.StringVar(&config.Options.WriteAPI, "write-api", "import", "Bulk write API: import or document")
+	if generationMode {
+		fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
+	}
+}
+
+func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
+	stopProfiles, profileErr := startProfiles(config.CPUProfile, config.MemProfile, config.TraceProfile, config.BlockProfile)
 	if profileErr != nil {
 		return profileErr
 	}
@@ -83,7 +145,7 @@ func runLoad(ctx context.Context, args []string) error {
 			deferredErr = stopErr
 		}
 	}()
-	summary, err := ingest.Load(ctx, opts)
+	summary, err := ingest.Load(ctx, config.Options)
 	if err != nil {
 		return err
 	}
@@ -94,14 +156,8 @@ func runLoad(ctx context.Context, args []string) error {
 }
 
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("discover-populated-references", flag.ExitOnError)
-	opts := catalog.PopulatedReferenceOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
-	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
-	if err := fs.Parse(args); err != nil {
+	opts, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
+	if err != nil {
 		return err
 	}
 	results, err := catalog.DiscoverPopulatedReferences(ctx, opts)
@@ -112,15 +168,8 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 }
 
 func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("discover-populated-fields", flag.ExitOnError)
-	opts := catalog.PopulatedFieldOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
-	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter, for example Patient")
-	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
-	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
-	if err := fs.Parse(args); err != nil {
+	opts, err := parseDiscoverPopulatedFieldOptions(args, flag.ExitOnError)
+	if err != nil {
 		return err
 	}
 	results, err := catalog.DiscoverPopulatedFields(ctx, opts)
@@ -128,6 +177,37 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 		return err
 	}
 	return printJSON(results)
+}
+
+func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {
+	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
+	opts := catalog.PopulatedReferenceOptions{}
+	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
+	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
+	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
+	if err := fs.Parse(args); err != nil {
+		return catalog.PopulatedReferenceOptions{}, err
+	}
+	return opts, nil
+}
+
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, error) {
+	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
+	opts := catalog.PopulatedFieldOptions{}
+	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
+	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter, for example Patient")
+	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
+	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
+	if err := fs.Parse(args); err != nil {
+		return catalog.PopulatedFieldOptions{}, err
+	}
+	return opts, nil
 }
 
 func printJSON(value any) error {
@@ -141,9 +221,8 @@ func printJSON(value any) error {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
-  arango-fhir-proto load [flags]
-  arango-fhir-proto query-gdc-case-assay-matrix [flags]
-  arango-fhir-proto export-gdc-case-assay-matrix --output FILE [flags]
+  arango-fhir-proto load [flags]  # legacy mutable import; default --truncate=true
+  arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory; no --truncate flag
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
 `)

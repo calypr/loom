@@ -1,65 +1,104 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/calypr/loom/internal/api"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/cache"
+	catalogcache "github.com/calypr/loom/internal/catalog/cache"
+	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframebuilder"
+	"github.com/calypr/loom/internal/datasetstore"
 	"github.com/calypr/loom/internal/graphqlapi"
 	"github.com/calypr/loom/internal/ingest"
-)
-
-const (
-	defaultURL      = "http://127.0.0.1:8529"
-	defaultDatabase = "fhir_proto"
-	defaultSchema   = "schemas/graph-fhir.json"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func main() {
-	fs := flag.NewFlagSet("arango-fhir-server", flag.ExitOnError)
-	listenAddr := fs.String("listen", ":8080", "HTTP listen address")
-	bodyLimit := fs.Int("body-limit", 1024*1024*1024, "Maximum request body size in bytes")
-	readBufferSize := fs.Int("read-buffer-size", 1024*1024, "Fiber request read buffer size in bytes; also limits max header size")
-	noAuth := fs.Bool("no-auth", false, "Disable scope-based auth for local demo use")
+	var (
+		listen   = flag.String("listen", ":8080", "HTTP listen address")
+		noAuth   = flag.Bool("no-auth", false, "disable scoped authorization for local development")
+		backend  = flag.String("backend", "arango", "storage backend")
+		url      = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
+		database = flag.String("database", "fhir_proto", "ArangoDB database")
+		schema   = flag.String("schema", "schemas/graph-fhir.json", "FHIR graph schema path for imports")
+		// Dataset generations opt the server into resolving a project's READY
+		// active manifest before dataframe discovery or execution. This mode
+		// disables the legacy one-file import route because that route cannot
+		// safely construct a complete immutable snapshot.
+		datasetGenerations = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
+	)
+	flag.Parse()
 
-	loadOpts := ingest.LoadOptions{}
-	fs.StringVar(&loadOpts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&loadOpts.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&loadOpts.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
-	fs.IntVar(&loadOpts.BatchSize, "batch-size", 5000, "Bulk insert batch size")
-	fs.IntVar(&loadOpts.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
-	fs.IntVar(&loadOpts.WriterCount, "writers", 8, "Concurrent writer goroutines")
-	fs.BoolVar(&loadOpts.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
-	fs.StringVar(&loadOpts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-
-	if err := fs.Parse(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+	if *backend != "arango" {
+		exitf("unsupported backend %q: only arango is wired in this server", *backend)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	discoveryCache := cache.New()
-	var scopeResolver *authscope.ScopeResolver
-	authenticator := authscope.Authenticator(authscope.BearerTokenAuthenticator{})
-	authorizer := authscope.Authorizer(authscope.ScopeAuthorizer{})
-	if *noAuth {
-		authenticator = authscope.StaticAuthenticator{
-			Principal: authscope.Principal{Subject: "local-demo"},
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
+	connOpts := arangostore.ConnectionOptions{
+		URL:      *url,
+		Database: *database,
+	}
+
+	var activeManifestResolver *datasetstore.Store
+	if *datasetGenerations {
+		lifecycleClient, err := arangostore.Open(context.Background(), connOpts.URL, connOpts.Database)
+		if err != nil {
+			exitf("open dataset lifecycle store: %v", err)
 		}
+		defer lifecycleClient.Close(context.Background())
+		if err := lifecycleClient.Bootstrap(context.Background(), datasetstore.BootstrapSpec()); err != nil {
+			exitf("bootstrap dataset lifecycle store: %v", err)
+		}
+		activeManifestResolver, err = datasetstore.New(lifecycleClient)
+		if err != nil {
+			exitf("create dataset lifecycle store: %v", err)
+		}
+	}
+
+	discoveryCache := catalogcache.New()
+	discoverFields := discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields)
+	discoverReferences := discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences)
+
+	var scopeResolver *authscope.ScopeResolver
+	var authorizer authscope.Authorizer
+	if *noAuth {
 		authorizer = authscope.AllowAllAuthorizer{}
 	} else {
 		scopeResolver = authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ConnectionOptions: loadOpts.ConnectionOptions,
+			ConnectionOptions: connOpts,
 		})
 		authorizer = authscope.ScopeAuthorizer{Resolver: scopeResolver}
 	}
-	service, err := api.NewService(api.ServiceConfig{
-		Runner: api.IngestRunner{BaseOptions: loadOpts},
+
+	dataframes := dataframe.NewService(dataframe.ServiceConfig{
+		ConnectionOptions:      connOpts,
+		DiscoverReferences:     discoverReferences,
+		DiscoverFields:         discoverFields,
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: activeManifestResolver,
+	})
+	resolver := graphqlapi.NewResolver(dataframebuilder.Config{
+		ConnectionOptions:      connOpts,
+		DiscoverReferences:     discoverReferences,
+		DiscoverFields:         discoverFields,
+		Dataframes:             dataframes,
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: activeManifestResolver,
+	})
+
+	importService, err := api.NewService(api.ServiceConfig{
+		Runner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
+			ConnectionOptions: connOpts,
+			Schema:            *schema,
+		}},
 		Logger: logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
@@ -69,35 +108,45 @@ func main() {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
-		ConnectionOptions:  loadOpts.ConnectionOptions,
-		DiscoverReferences: discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences),
-		DiscoverFields:     discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields),
-		ScopeResolver:      scopeResolver,
-	})
-	graphHandler := graphqlapi.NewHandler(graphResolver)
-	server, err := api.NewHTTPServer(api.HTTPConfig{
-		Service:                  service,
-		Authenticator:            authenticator,
-		Authorizer:               authorizer,
-		GraphQLHandler:           graphHandler,
-		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
-		Logger:                   logger,
-		BodyLimit:                *bodyLimit,
-		ReadBufferSize:           *readBufferSize,
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exitf("create import service: %v", err)
 	}
 
-	logger.Info("starting server", "listen", *listenAddr, "backend", "arango", "database", loadOpts.Database, "no_auth", *noAuth)
-	if err := server.App().Listen(*listenAddr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	server, err := api.NewHTTPServer(api.HTTPConfig{
+		Service:                      importService,
+		Authorizer:                   authorizer,
+		GraphQLHandler:               graphqlapi.NewHandler(resolver),
+		GraphQLPlaygroundHandler:     graphqlapi.NewPlaygroundHandler("/graphql"),
+		ApolloSandboxHandler:         graphqlapi.NewApolloSandboxHandler("/graphql"),
+		DisableSingleResourceImports: *datasetGenerations,
+		Logger:                       logger,
+	})
+	if err != nil {
+		exitf("create HTTP server: %v", err)
 	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("starting HTTP server", "listen", *listen, "database", *database, "no_auth", *noAuth, "dataset_generations", *datasetGenerations)
+		errCh <- server.App().Listen(*listen)
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			exitf("server stopped: %v", err)
+		}
+	case sig := <-stop:
+		logger.Info("shutting down HTTP server", "signal", sig.String())
+		if err := server.App().ShutdownWithContext(context.Background()); err != nil {
+			exitf("shutdown failed: %v", err)
+		}
+	}
+}
+
+func exitf(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
 }

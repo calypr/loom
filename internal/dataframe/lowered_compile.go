@@ -14,16 +14,22 @@ const (
 )
 
 func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
+	genericSetRoutes, err := resolveGenericLoweredStorageRoutes(builder)
+	if err != nil {
+		return CompiledQuery{}, err
+	}
 	c := &compiler{
 		builder: builder,
 		bindVars: map[string]any{
 			"project":                          builder.Project,
+			datasetGenerationBindKey:           datasetGenerationBindValue(builder.DatasetGeneration),
 			"auth_resource_paths":              builder.AuthResourcePaths,
-			"auth_resource_paths_unrestricted": len(builder.AuthResourcePaths) == 0,
+			"auth_resource_paths_unrestricted": builderAuthScopeUnrestricted(builder),
 		},
-		columns:     []string{"_key"},
-		pivotFields: []string{},
-		pivotExprs:  map[string]string{},
+		columns:          []string{"_key"},
+		pivotFields:      []string{},
+		pivotExprs:       map[string]string{},
+		genericSetRoutes: genericSetRoutes,
 	}
 	if limit > 0 {
 		c.bindVars["limit"] = limit
@@ -41,9 +47,20 @@ func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
 		lets = append(lets, let)
 		setModes[set.Name] = mode
 	}
+	rootFilter, err := c.compileTypedFilters(rootVar+".payload", builder.Filters)
+	if err != nil {
+		return CompiledQuery{}, err
+	}
+	requiredMatchFilters, err := c.compileRequiredTraversalMatches(rootVar, builder.RequiredTraversalMatches)
+	if err != nil {
+		return CompiledQuery{}, err
+	}
 
 	for _, field := range builder.Fields {
-		sel, _ := ParseSelector(field.Select)
+		sel, err := ParseSelector(field.Select)
+		if err != nil {
+			return CompiledQuery{}, fmt.Errorf("root field %q selector: %w", field.Name, err)
+		}
 		expr, err := c.compileRootFieldSelect(rootVar+".payload", field, sel)
 		if err != nil {
 			return CompiledQuery{}, err
@@ -52,8 +69,14 @@ func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
 		c.columns = append(c.columns, field.Name)
 	}
 	for _, pivot := range builder.Pivots {
-		keySel, _ := ParseSelector(pivot.ColumnSelect)
-		valueSel, _ := ParseSelector(pivot.ValueSelect)
+		keySel, err := ParseSelector(pivot.ColumnSelect)
+		if err != nil {
+			return CompiledQuery{}, fmt.Errorf("root pivot %q key selector: %w", pivot.Name, err)
+		}
+		valueSel, err := ParseSelector(pivot.ValueSelect)
+		if err != nil {
+			return CompiledQuery{}, fmt.Errorf("root pivot %q value selector: %w", pivot.Name, err)
+		}
 		colName := sanitizeColumnName(pivot.Name)
 		expr, err := c.compileRootPivot(rootVar+".payload", keySel, valueSel, pivot.Columns)
 		if err != nil {
@@ -115,7 +138,14 @@ func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("FOR %s IN %s\n", rootVar, builder.RootResourceType))
 	sb.WriteString(fmt.Sprintf("  FILTER %s.project == @project\n", rootVar))
+	sb.WriteString(fmt.Sprintf("  FILTER %s.%s == @%s\n", rootVar, datasetGenerationField, datasetGenerationBindKey))
 	sb.WriteString(fmt.Sprintf("  FILTER @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths\n", rootVar))
+	if rootFilter != "true" {
+		sb.WriteString(fmt.Sprintf("  FILTER %s\n", rootFilter))
+	}
+	for _, matchFilter := range requiredMatchFilters {
+		sb.WriteString(fmt.Sprintf("  FILTER %s\n", matchFilter))
+	}
 	sb.WriteString(fmt.Sprintf("  SORT %s._key\n", rootVar))
 	if limit > 0 {
 		sb.WriteString("  LIMIT @limit\n")
@@ -133,6 +163,7 @@ func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
 	sb.WriteString("\n  }\n")
 	return CompiledQuery{
 		Project:           builder.Project,
+		DatasetGeneration: normalizeDatasetGeneration(builder.DatasetGeneration),
 		RootResourceType:  builder.RootResourceType,
 		AuthResourcePaths: append([]string(nil), builder.AuthResourcePaths...),
 		PlanMode:          planMode(builder.PlanHint),
@@ -140,6 +171,8 @@ func compileLowered(builder Builder, limit int) (CompiledQuery, error) {
 		NamedSetCount:     planNamedSetCount(builder.PlanHint),
 		FileSummaries:     planFileSummaries(builder.PlanHint),
 		StudyLookup:       planStudyLookup(builder.PlanHint),
+		OptimizationRules: planAppliedRules(builder.PlanHint),
+		RowIdentity:       planRowIdentity(builder.PlanHint),
 		Query:             sb.String(),
 		BindVars:          c.bindVars,
 		Columns:           append([]string(nil), c.columns...),
@@ -161,12 +194,39 @@ func (c *compiler) compileNamedSet(rootVar string, set NamedSet, modes map[strin
 		}
 		labelBind := c.newBind(name+"_label", set.Label)
 		var toFilter string
-		if set.ToResourceType != "" {
+		if set.ToResourceType != "" && !set.AllTargetTypes {
 			toBind := c.newBind(name+"_to", set.ToResourceType)
 			toFilter = fmt.Sprintf(" FILTER __node.resourceType == @%s", toBind)
 		}
-		query := fmt.Sprintf("  LET %s = UNIQUE(%s)", name, c.compileTraverseSetSource(source, set.Source != "" && set.Source != "root", labelBind, toFilter))
-		return query, setModeNode, nil
+		filters, err := c.compileTypedFilters("__node.payload", set.Filters)
+		if err != nil {
+			return "", "", fmt.Errorf("compile filters for set %q: %w", set.Name, err)
+		}
+		if filters != "true" {
+			toFilter += " FILTER " + filters
+		}
+		edgeTypeFilter := ""
+		// A shared sibling prefix intentionally spans several target resource
+		// types. Its ToResourceType is only a route-validation anchor, so an
+		// edge type predicate here would discard every sibling except that
+		// anchor. Typed subsets apply their resourceType filters afterwards.
+		if route, generic := c.genericSetRoutes[set.Name]; generic && !set.AllTargetTypes {
+			edgeTypeField := route.targetEdgeTypeField()
+			if edgeTypeField == "" {
+				return "", "", fmt.Errorf("compile generic traversal set %q: %w: route direction %q has no fhir_edge target type field", set.Name, ErrUnsupportedStorageRoute, route.Direction)
+			}
+			edgeTypeBind := c.newBind(name+"_edge_target_type", set.ToResourceType)
+			edgeTypeFilter = fmt.Sprintf(" FILTER __edge.%s == @%s", edgeTypeField, edgeTypeBind)
+		}
+		expr := c.compileTraverseSetSource(source, set.Source != "" && set.Source != "root", set.Direction, labelBind, edgeTypeFilter, toFilter)
+		setExpr := expr
+		if set.Unique {
+			setExpr = fmt.Sprintf("UNIQUE(%s)", setExpr)
+		}
+		if set.SortField != "" {
+			setExpr = fmt.Sprintf("(FOR __item IN %s SORT __item.%s RETURN __item)", setExpr, set.SortField)
+		}
+		return fmt.Sprintf("  LET %s = %s", name, setExpr), setModeNode, nil
 	case SetKindFilter:
 		source := sanitizeColumnName(set.Source)
 		lines := []string{fmt.Sprintf("FOR __item IN %s", source)}
@@ -174,15 +234,25 @@ func (c *compiler) compileNamedSet(rootVar string, set NamedSet, modes map[strin
 			typeBind := c.newBind(name+"_match", set.MatchResourceType)
 			lines = append(lines, fmt.Sprintf("  FILTER __item.resourceType == @%s", typeBind))
 		}
-		if set.SortField != "" {
-			lines = append(lines, fmt.Sprintf("  SORT __item.%s", set.SortField))
+		filters, err := c.compileTypedFilters("__item.payload", set.Filters)
+		if err != nil {
+			return "", "", fmt.Errorf("compile filters for set %q: %w", set.Name, err)
+		}
+		if filters != "true" {
+			lines = append(lines, "  FILTER "+filters)
 		}
 		lines = append(lines, "  RETURN __item")
-		query := "  LET " + name + " = (\n    " + strings.Join(lines, "\n    ") + "\n  )"
+		setExpr := "(\n    " + strings.Join(lines, "\n    ") + "\n  )"
 		if set.Unique {
-			query = fmt.Sprintf("  LET %s = UNIQUE(%s)", name, strings.TrimPrefix(query, "  LET "+name+" = "))
+			setExpr = fmt.Sprintf("UNIQUE(%s)", setExpr)
 		}
-		return query, modes[set.Source], nil
+		// UNIQUE is allowed to choose its own internal implementation order.
+		// Reapply the requested stable order after deduplication rather than
+		// assuming the order of the input subquery survives it.
+		if set.SortField != "" {
+			setExpr = fmt.Sprintf("(FOR __item IN %s SORT __item.%s RETURN __item)", setExpr, set.SortField)
+		}
+		return fmt.Sprintf("  LET %s = %s", name, setExpr), modes[set.Source], nil
 	case SetKindUnion:
 		parts := make([]string, 0, len(set.Sources))
 		mode := setModeNode
@@ -293,7 +363,7 @@ func (c *compiler) compileDerivedPivotMapLets(rootVar string, fields []DerivedFi
           RETURN { key: __key, values: __values }
     )
       COLLECT __key = __pair.key INTO __group
-      LET __flat_values = UNIQUE(FLATTEN(__group[*].__pair.values))
+		LET __flat_values = SORTED_UNIQUE(FLATTEN(__group[*].__pair.values))
       FILTER LENGTH(__flat_values) > 0
       RETURN { [__key]: FIRST(__flat_values) }
   )`, group.letName, group.sourceExpr, keyExpr, valueExpr, filterLine)
@@ -314,11 +384,15 @@ func (c *compiler) compilePivotMapProjection(mapVar string, columns []string) st
   )`, colsBind, mapVar, mapVar)
 }
 
-func (c *compiler) compileTraverseSetSource(source string, sourceIsSet bool, labelBind string, toFilter string) string {
-	if sourceIsSet {
-		return fmt.Sprintf("(FLATTEN(FOR __parent IN %s FOR __node, __edge IN 1..1 INBOUND __parent fhir_edge FILTER __edge.project == @project FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s%s RETURN [__node]))", source, labelBind, toFilter)
+func (c *compiler) compileTraverseSetSource(source string, sourceIsSet bool, direction string, labelBind string, edgeTypeFilter string, toFilter string) string {
+	direction = strings.ToUpper(strings.TrimSpace(direction))
+	if direction == "" {
+		direction = "INBOUND"
 	}
-	return fmt.Sprintf("(FOR __node, __edge IN 1..1 INBOUND %s fhir_edge FILTER __edge.project == @project FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s%s RETURN __node)", source, labelBind, toFilter)
+	if sourceIsSet {
+		return fmt.Sprintf("(FLATTEN(FOR __parent IN %s FOR __node, __edge IN 1..1 %s __parent fhir_edge FILTER __edge.project == @project FILTER __node.project == @project FILTER __edge.%s == @%s FILTER __node.%s == @%s FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s%s%s RETURN [__node]))", source, direction, datasetGenerationField, datasetGenerationBindKey, datasetGenerationField, datasetGenerationBindKey, labelBind, edgeTypeFilter, toFilter)
+	}
+	return fmt.Sprintf("(FOR __node, __edge IN 1..1 %s %s fhir_edge FILTER __edge.project == @project FILTER __node.project == @project FILTER __edge.%s == @%s FILTER __node.%s == @%s FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s%s%s RETURN __node)", direction, source, datasetGenerationField, datasetGenerationBindKey, datasetGenerationField, datasetGenerationBindKey, labelBind, edgeTypeFilter, toFilter)
 }
 
 func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes map[string]setMode) (string, error) {
@@ -328,8 +402,6 @@ func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes
 		}
 	}
 	switch strings.ToUpper(strings.TrimSpace(field.Operation)) {
-	case DerivedOpRawExpr:
-		return field.RawExpr, nil
 	case DerivedOpConst:
 		return literalExpr(field.ConstValue), nil
 	case DerivedOpRootField:
@@ -349,12 +421,23 @@ func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes
 			return "", err
 		}
 		return fmt.Sprintf("LENGTH(%s)", uniqueExpr), nil
+	case DerivedOpMin, DerivedOpMax:
+		values, err := c.compileAllField(rootVar, field, modes)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s(%s)", strings.ToUpper(strings.TrimSpace(field.Operation)), values), nil
 	case DerivedOpCountWhere:
 		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s RETURN 1)", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate, field.PredicatePath, field.PredicateEquals)), nil
 	case DerivedOpAny:
+		if strings.TrimSpace(field.Predicate) == "" && strings.TrimSpace(field.PredicatePath) == "" {
+			return fmt.Sprintf("LENGTH(%s) > 0", sanitizeColumnName(field.Source)), nil
+		}
 		return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s LIMIT 1 RETURN 1) > 0", sanitizeColumnName(field.Source), c.compilePredicateExpr("__item", modes[field.Source], field.Predicate, field.PredicatePath, field.PredicateEquals)), nil
 	case DerivedOpFirstNonNull:
 		return c.compileFirstNonNullField(rootVar, field, modes)
+	case DerivedOpAll:
+		return c.compileAllField(rootVar, field, modes)
 	case DerivedOpUnique:
 		return c.compileUniqueField(rootVar, field, modes)
 	case DerivedOpPivot:
@@ -362,6 +445,19 @@ func (c *compiler) compileDerivedField(rootVar string, field DerivedField, modes
 	default:
 		return "", fmt.Errorf("unsupported derived field operation %q", field.Operation)
 	}
+}
+
+func (c *compiler) compileAllField(rootVar string, field DerivedField, modes map[string]setMode) (string, error) {
+	selects := append([]string{field.Select}, field.FallbackSelects...)
+	if field.Source == "root" || field.Source == "" {
+		return c.compileSelectorArrayForSelects(rootVar+".payload", selects), nil
+	}
+	setVar := sanitizeColumnName(field.Source)
+	mode := modes[field.Source]
+	return fmt.Sprintf(`FLATTEN(
+    FOR __item IN %s
+      RETURN %s
+  )`, setVar, c.compileSelectorArrayForSelects(setPayloadVar("__item", mode), selects)), nil
 }
 
 func (c *compiler) compileFirstNonNullField(rootVar string, field DerivedField, modes map[string]setMode) (string, error) {
@@ -382,11 +478,11 @@ func (c *compiler) compileFirstNonNullField(rootVar string, field DerivedField, 
 func (c *compiler) compileUniqueField(rootVar string, field DerivedField, modes map[string]setMode) (string, error) {
 	selects := append([]string{field.Select}, field.FallbackSelects...)
 	if field.Source == "root" || field.Source == "" {
-		return fmt.Sprintf("UNIQUE(%s)", c.compileSelectorArrayForSelects(rootVar+".payload", selects)), nil
+		return fmt.Sprintf("SORTED_UNIQUE(%s)", c.compileSelectorArrayForSelects(rootVar+".payload", selects)), nil
 	}
 	setVar := sanitizeColumnName(field.Source)
 	mode := modes[field.Source]
-	return fmt.Sprintf(`UNIQUE(FLATTEN(
+	return fmt.Sprintf(`SORTED_UNIQUE(FLATTEN(
     FOR __item IN %s
       RETURN %s
   ))`, setVar, c.compileSelectorArrayForSelects(setPayloadVar("__item", mode), selects)), nil
@@ -457,7 +553,7 @@ func (c *compiler) compileRootAggregateExpr(payloadVar string, agg AggregateSele
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("LENGTH(UNIQUE(%s))", values), nil
+		return fmt.Sprintf("LENGTH(SORTED_UNIQUE(%s))", values), nil
 	case "EXISTS":
 		if strings.TrimSpace(agg.PredicatePath) != "" {
 			return c.compileRootPredicateExpr(payloadVar, agg.PredicatePath, agg.PredicateEquals), nil
@@ -478,7 +574,16 @@ func (c *compiler) compileRootAggregateExpr(payloadVar string, agg AggregateSele
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("UNIQUE(%s)", values), nil
+		return fmt.Sprintf("SORTED_UNIQUE(%s)", values), nil
+	case "MIN", "MAX":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for %s", agg.Name, strings.ToUpper(strings.TrimSpace(agg.Operation)))
+		}
+		values, err := c.compileRootSelectorArray(payloadVar, agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s(%s)", strings.ToUpper(strings.TrimSpace(agg.Operation)), values), nil
 	default:
 		return "", fmt.Errorf("unsupported aggregate operation %q", agg.Operation)
 	}
@@ -556,7 +661,7 @@ func (c *compiler) compileSetAggregateExpr(setVar string, agg AggregateSelect) (
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("LENGTH(UNIQUE(FLATTEN(FOR __item IN %s RETURN %s)))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+		return fmt.Sprintf("LENGTH(SORTED_UNIQUE(FLATTEN(FOR __item IN %s RETURN %s)))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
 	case "EXISTS":
 		if strings.TrimSpace(agg.PredicatePath) != "" {
 			return fmt.Sprintf("LENGTH(FOR __item IN %s FILTER %s LIMIT 1 RETURN 1) > 0", setVar, c.compilePredicateExpr("__item", mode, "", agg.PredicatePath, agg.PredicateEquals)), nil
@@ -577,7 +682,16 @@ func (c *compiler) compileSetAggregateExpr(setVar string, agg AggregateSelect) (
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("UNIQUE(FLATTEN(FOR __item IN %s RETURN %s))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+		return fmt.Sprintf("SORTED_UNIQUE(FLATTEN(FOR __item IN %s RETURN %s))", setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
+	case "MIN", "MAX":
+		if strings.TrimSpace(agg.Select) == "" {
+			return "", fmt.Errorf("aggregate %q requires fhirPath for %s", agg.Name, strings.ToUpper(strings.TrimSpace(agg.Operation)))
+		}
+		sel, err := ParseSelector(agg.Select)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s(FLATTEN(FOR __item IN %s RETURN %s))", strings.ToUpper(strings.TrimSpace(agg.Operation)), setVar, compileSelectorArrayExpr("__item.payload", sel, c)), nil
 	default:
 		return "", fmt.Errorf("unsupported aggregate operation %q", agg.Operation)
 	}
@@ -704,7 +818,16 @@ func compileStudyLookupSet(rootVar, researchSubjects string) string {
     )
     LET __study_parts = __resolved_ref ? SPLIT(__resolved_ref, "/") : []
     LET __study_id = LENGTH(__study_parts) == 2 ? __study_parts[1] : null
-    LET __study = __study_id ? DOCUMENT(CONCAT("ResearchStudy/", __study_id)) : null
+    LET __study = FIRST(
+      FOR __candidate IN ResearchStudy
+        FILTER __study_id != null
+        FILTER __candidate.project == @project
+        FILTER __candidate.dataset_generation == @dataset_generation
+        FILTER @auth_resource_paths_unrestricted == true OR __candidate.auth_resource_path IN @auth_resource_paths
+        FILTER __candidate.id == __study_id
+        LIMIT 1
+        RETURN __candidate
+    )
     FILTER __study != null
     RETURN __study.payload
   )`, researchSubjects, rootVar, rootVar)

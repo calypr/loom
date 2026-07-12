@@ -150,13 +150,6 @@ func cloneStrings(in []string) []string {
 	return append([]string(nil), in...)
 }
 
-func cloneTraversals(in []catalog.PopulatedReference) []catalog.PopulatedReference {
-	if len(in) == 0 {
-		return []catalog.PopulatedReference{}
-	}
-	return append([]catalog.PopulatedReference(nil), in...)
-}
-
 func optionalString(in string) *string {
 	in = strings.TrimSpace(in)
 	if in == "" {

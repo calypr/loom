@@ -2,17 +2,53 @@ package dataframe
 
 import (
 	"context"
+	"fmt"
+	"sort"
 )
 
 func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
 	rows := make([]map[string]any, 0, compiled.Limit)
-	rowCount := 0
+	streamed, err := s.streamQuery(ctx, compiled, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Result{
+		Columns:  streamed.Columns,
+		Rows:     rows,
+		RowCount: streamed.RowCount,
+	}, nil
+}
+
+// Stream compiles the same catalog- and authorization-validated request used
+// by Run, but delivers flattened rows as Arango yields them instead of
+// retaining the complete dataframe in Loom memory. Each invocation receives a
+// distinct top-level row map.
+func (s *Service) Stream(ctx context.Context, req RunRequest, visit func(map[string]any) error) (StreamResult, error) {
+	if visit == nil {
+		return StreamResult{}, fmt.Errorf("row visitor is required")
+	}
+	compiled, err := s.compileRunRequest(ctx, req)
+	if err != nil {
+		return StreamResult{}, err
+	}
+	return s.streamQuery(ctx, compiled, visit)
+}
+
+func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (StreamResult, error) {
+	if visit == nil {
+		return StreamResult{}, fmt.Errorf("row visitor is required")
+	}
 	columns := materializedColumns(compiled.Columns, compiled.PivotFields)
 	seenColumns := make(map[string]struct{}, len(columns))
 	for _, col := range columns {
 		seenColumns[col] = struct{}{}
 	}
 
+	extraColumns := map[string]struct{}{}
+	rowCount := 0
 	err := s.executeRows(ctx, ExecuteQueryOptions{
 		ConnectionOptions: s.connOpts,
 		BatchSize:         1000,
@@ -23,20 +59,28 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 				continue
 			}
 			seenColumns[key] = struct{}{}
-			columns = append(columns, key)
+			extraColumns[key] = struct{}{}
 		}
-		rows = append(rows, flatRow)
+		if err := visit(flatRow); err != nil {
+			return err
+		}
 		rowCount++
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	newColumns := make([]string, 0, len(extraColumns))
+	for column := range extraColumns {
+		newColumns = append(newColumns, column)
 	}
-	return &Result{
+	sort.Strings(newColumns)
+	columns = append(columns, newColumns...)
+	result := StreamResult{
 		Columns:  columns,
-		Rows:     rows,
 		RowCount: rowCount,
-	}, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func materializedColumns(columns []string, pivotFields []string) []string {
@@ -68,7 +112,13 @@ func flattenPivotFields(row map[string]any, pivotFields []string) map[string]any
 			continue
 		}
 		delete(row, field)
-		for key, item := range obj {
+		keys := make([]string, 0, len(obj))
+		for key := range obj {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			item := obj[key]
 			row[sanitizeColumnName(field+"__"+key)] = item
 		}
 	}

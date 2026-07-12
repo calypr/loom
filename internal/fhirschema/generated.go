@@ -4,18 +4,27 @@ package fhirschema
 var generatedResourceTypes = []string{
 	"BodyStructure",
 	"Condition",
+	"DiagnosticReport",
 	"DocumentReference",
+	"FamilyMemberHistory",
 	"Group",
 	"ImagingStudy",
 	"Medication",
 	"MedicationAdministration",
+	"MedicationRequest",
+	"MedicationStatement",
 	"Observation",
 	"Organization",
 	"Patient",
 	"Practitioner",
+	"PractitionerRole",
+	"Procedure",
 	"ResearchStudy",
 	"ResearchSubject",
 	"Specimen",
+	"Substance",
+	"SubstanceDefinition",
+	"Task",
 }
 
 var generatedDefinitions = map[string]generatedDefinition{
@@ -263,8 +272,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "time",
-				Kind: "string",
+				Name:   "time",
+				Kind:   "string",
+				Format: "date-time",
 			},
 		},
 	},
@@ -340,12 +350,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "creation",
-				Kind: "string",
+				Name:   "creation",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
-				Name: "data",
-				Kind: "string",
+				Name:   "data",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name: "duration",
@@ -366,8 +378,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "integer",
 			},
 			{
-				Name: "hash",
-				Kind: "string",
+				Name:   "hash",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name: "height",
@@ -404,8 +417,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "url",
-				Kind: "string",
+				Name:   "url",
+				Kind:   "string",
+				Format: "uri",
 			},
 			{
 				Name: "width",
@@ -481,12 +495,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "boolean",
 			},
 			{
-				Name: "availableEndTime",
-				Kind: "string",
+				Name:   "availableEndTime",
+				Kind:   "string",
+				Format: "time",
 			},
 			{
-				Name: "availableStartTime",
-				Kind: "string",
+				Name:   "availableStartTime",
+				Kind:   "string",
+				Format: "time",
 			},
 			{
 				Name:     "daysOfWeek",
@@ -1044,8 +1060,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Age",
 			},
 			{
-				Name: "abatementDateTime",
-				Kind: "string",
+				Name:   "abatementDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "abatementPeriod",
@@ -1157,8 +1174,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Age",
 			},
 			{
-				Name: "onsetDateTime",
-				Kind: "string",
+				Name:   "onsetDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "onsetPeriod",
@@ -1181,8 +1199,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "ConditionParticipant",
 			},
 			{
-				Name: "recordedDate",
-				Kind: "string",
+				Name:   "recordedDate",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "resourceType",
@@ -1708,8 +1727,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueDuration",
@@ -1828,8 +1848,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueDuration",
@@ -1914,8 +1935,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Resource",
 			},
 			{
-				Name: "effectiveDateTime",
-				Kind: "string",
+				Name:   "effectiveDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "effectivePeriod",
@@ -1952,8 +1974,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "issued",
-				Kind: "string",
+				Name:   "issued",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "language",
@@ -2338,8 +2361,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Reference",
 			},
 			{
-				Name: "date",
-				Kind: "string",
+				Name:   "date",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "description",
@@ -2510,8 +2534,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "time",
-				Kind: "string",
+				Name:   "time",
+				Kind:   "string",
+				Format: "date-time",
 			},
 		},
 	},
@@ -3105,8 +3130,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Availability",
 			},
 			{
-				Name: "valueBase64Binary",
-				Kind: "string",
+				Name:   "valueBase64Binary",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name: "valueBoolean",
@@ -3156,12 +3182,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "DataRequirement",
 			},
 			{
-				Name: "valueDate",
-				Kind: "string",
+				Name:   "valueDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueDecimal",
@@ -3207,8 +3235,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Identifier",
 			},
 			{
-				Name: "valueInstant",
-				Kind: "string",
+				Name:   "valueInstant",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueInteger",
@@ -3295,8 +3324,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueTime",
-				Kind: "string",
+				Name:   "valueTime",
+				Kind:   "string",
+				Format: "time",
 			},
 			{
 				Name: "valueTiming",
@@ -3317,8 +3347,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueUrl",
-				Kind: "string",
+				Name:   "valueUrl",
+				Kind:   "string",
+				Format: "uri",
 			},
 			{
 				Name: "valueUsageContext",
@@ -3326,8 +3357,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "UsageContext",
 			},
 			{
-				Name: "valueUuid",
-				Kind: "string",
+				Name:   "valueUuid",
+				Kind:   "string",
+				Format: "uuid",
 			},
 		},
 	},
@@ -3448,8 +3480,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "bornDate",
-				Kind: "string",
+				Name:   "bornDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name: "bornPeriod",
@@ -3478,8 +3511,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "date",
-				Kind: "string",
+				Name:   "date",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "deceasedAge",
@@ -3491,8 +3525,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "boolean",
 			},
 			{
-				Name: "deceasedDate",
-				Kind: "string",
+				Name:   "deceasedDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name: "deceasedRange",
@@ -3816,8 +3851,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Age",
 			},
 			{
-				Name: "performedDateTime",
-				Kind: "string",
+				Name:   "performedDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "performedPeriod",
@@ -4455,8 +4491,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "ImagingStudySeries",
 			},
 			{
-				Name: "started",
-				Kind: "string",
+				Name:   "started",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "status",
@@ -4583,8 +4620,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Reference",
 			},
 			{
-				Name: "started",
-				Kind: "string",
+				Name:   "started",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "uid",
@@ -4954,8 +4992,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Annotation",
 			},
 			{
-				Name: "occurenceDateTime",
-				Kind: "string",
+				Name:   "occurenceDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "occurencePeriod",
@@ -4986,8 +5025,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "CodeableReference",
 			},
 			{
-				Name: "recorded",
-				Kind: "string",
+				Name:   "recorded",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "request",
@@ -5162,8 +5202,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "expirationDate",
-				Kind: "string",
+				Name:   "expirationDate",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -5317,8 +5358,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "authoredOn",
-				Kind: "string",
+				Name:   "authoredOn",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "basedOn",
@@ -5510,8 +5552,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "statusChanged",
-				Kind: "string",
+				Name:   "statusChanged",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "statusReason",
@@ -5772,8 +5815,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Resource",
 			},
 			{
-				Name: "dateAsserted",
-				Kind: "string",
+				Name:   "dateAsserted",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "derivedFrom",
@@ -5788,8 +5832,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Dosage",
 			},
 			{
-				Name: "effectiveDateTime",
-				Kind: "string",
+				Name:   "effectiveDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "effectivePeriod",
@@ -5992,8 +6037,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "lastUpdated",
-				Kind: "string",
+				Name:   "lastUpdated",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "links",
@@ -6242,12 +6288,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Reference",
 			},
 			{
-				Name: "effectiveDateTime",
-				Kind: "string",
+				Name:   "effectiveDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
-				Name: "effectiveInstant",
-				Kind: "string",
+				Name:   "effectiveInstant",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "effectivePeriod",
@@ -6316,8 +6364,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "CodeableConcept",
 			},
 			{
-				Name: "issued",
-				Kind: "string",
+				Name:   "issued",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "language",
@@ -6413,8 +6462,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueInteger",
@@ -6455,8 +6505,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueTime",
-				Kind: "string",
+				Name:   "valueTime",
+				Kind:   "string",
+				Format: "time",
 			},
 		},
 	},
@@ -6554,8 +6605,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueInteger",
@@ -6596,8 +6648,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueTime",
-				Kind: "string",
+				Name:   "valueTime",
+				Kind:   "string",
+				Format: "time",
 			},
 		},
 	},
@@ -7077,8 +7130,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Address",
 			},
 			{
-				Name: "birthDate",
-				Kind: "string",
+				Name:   "birthDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name:     "communication",
@@ -7103,8 +7157,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "boolean",
 			},
 			{
-				Name: "deceasedDateTime",
-				Kind: "string",
+				Name:   "deceasedDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -7398,8 +7453,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "end",
-				Kind: "string",
+				Name:   "end",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -7426,8 +7482,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "start",
-				Kind: "string",
+				Name:   "start",
+				Kind:   "string",
+				Format: "date-time",
 			},
 		},
 	},
@@ -7479,8 +7536,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Address",
 			},
 			{
-				Name: "birthDate",
-				Kind: "string",
+				Name:   "birthDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name:     "communication",
@@ -7499,8 +7557,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "boolean",
 			},
 			{
-				Name: "deceasedDateTime",
-				Kind: "string",
+				Name:   "deceasedDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -8019,8 +8078,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Age",
 			},
 			{
-				Name: "occurrenceDateTime",
-				Kind: "string",
+				Name:   "occurrenceDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "occurrencePeriod",
@@ -8065,8 +8125,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "CodeableReference",
 			},
 			{
-				Name: "recorded",
-				Kind: "string",
+				Name:   "recorded",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "recorder",
@@ -8556,8 +8617,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "links",
 			},
 			{
-				Name: "publicationDate",
-				Kind: "string",
+				Name:   "publicationDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name: "publicationStatus",
@@ -8665,8 +8727,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Resource",
 			},
 			{
-				Name: "date",
-				Kind: "string",
+				Name:   "date",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "description",
@@ -9432,8 +9495,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "endDate",
-				Kind: "string",
+				Name:   "endDate",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -9476,8 +9540,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "startDate",
-				Kind: "string",
+				Name:   "startDate",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "subjectState",
@@ -9673,8 +9738,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "data",
-				Kind: "string",
+				Name:   "data",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name:     "extension",
@@ -9720,8 +9786,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "Coding",
 			},
 			{
-				Name: "when",
-				Kind: "string",
+				Name:   "when",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "who",
@@ -9859,8 +9926,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				ItemRef:  "SpecimenProcessing",
 			},
 			{
-				Name: "receivedTime",
-				Kind: "string",
+				Name:   "receivedTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "request",
@@ -9912,8 +9980,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableReference",
 			},
 			{
-				Name: "collectedDateTime",
-				Kind: "string",
+				Name:   "collectedDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "collectedPeriod",
@@ -10147,8 +10216,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "timeDateTime",
-				Kind: "string",
+				Name:   "timeDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "timePeriod",
@@ -10211,8 +10281,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "expiry",
-				Kind: "string",
+				Name:   "expiry",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -10618,8 +10689,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "statusDate",
-				Kind: "string",
+				Name:   "statusDate",
+				Kind:   "string",
+				Format: "date-time",
 			},
 		},
 	},
@@ -10880,8 +10952,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "date",
-				Kind: "string",
+				Name:   "date",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -10982,8 +11055,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name: "valueDate",
-				Kind: "string",
+				Name:   "valueDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
 				Name: "valueQuantity",
@@ -11395,8 +11469,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "FHIRPrimitiveExtension",
 			},
 			{
-				Name: "authoredOn",
-				Kind: "string",
+				Name:   "authoredOn",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "basedOn",
@@ -11506,8 +11581,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "lastModified",
-				Kind: "string",
+				Name:   "lastModified",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name:     "links",
@@ -11780,8 +11856,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Availability",
 			},
 			{
-				Name: "valueBase64Binary",
-				Kind: "string",
+				Name:   "valueBase64Binary",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name: "valueBoolean",
@@ -11831,12 +11908,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "DataRequirement",
 			},
 			{
-				Name: "valueDate",
-				Kind: "string",
+				Name:   "valueDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueDecimal",
@@ -11882,8 +11961,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Identifier",
 			},
 			{
-				Name: "valueInstant",
-				Kind: "string",
+				Name:   "valueInstant",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueInteger",
@@ -11970,8 +12050,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueTime",
-				Kind: "string",
+				Name:   "valueTime",
+				Kind:   "string",
+				Format: "time",
 			},
 			{
 				Name: "valueTiming",
@@ -11992,8 +12073,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueUrl",
-				Kind: "string",
+				Name:   "valueUrl",
+				Kind:   "string",
+				Format: "uri",
 			},
 			{
 				Name: "valueUsageContext",
@@ -12001,8 +12083,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "UsageContext",
 			},
 			{
-				Name: "valueUuid",
-				Kind: "string",
+				Name:   "valueUuid",
+				Kind:   "string",
+				Format: "uuid",
 			},
 		},
 	},
@@ -12169,8 +12252,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Availability",
 			},
 			{
-				Name: "valueBase64Binary",
-				Kind: "string",
+				Name:   "valueBase64Binary",
+				Kind:   "string",
+				Format: "binary",
 			},
 			{
 				Name: "valueBoolean",
@@ -12220,12 +12304,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "DataRequirement",
 			},
 			{
-				Name: "valueDate",
-				Kind: "string",
+				Name:   "valueDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
-				Name: "valueDateTime",
-				Kind: "string",
+				Name:   "valueDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueDecimal",
@@ -12271,8 +12357,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "Identifier",
 			},
 			{
-				Name: "valueInstant",
-				Kind: "string",
+				Name:   "valueInstant",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "valueInteger",
@@ -12359,8 +12446,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueTime",
-				Kind: "string",
+				Name:   "valueTime",
+				Kind:   "string",
+				Format: "time",
 			},
 			{
 				Name: "valueTiming",
@@ -12381,8 +12469,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "valueUrl",
-				Kind: "string",
+				Name:   "valueUrl",
+				Kind:   "string",
+				Format: "uri",
 			},
 			{
 				Name: "valueUsageContext",
@@ -12390,8 +12479,9 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "UsageContext",
 			},
 			{
-				Name: "valueUuid",
-				Kind: "string",
+				Name:   "valueUuid",
+				Kind:   "string",
+				Format: "uuid",
 			},
 		},
 	},
@@ -12507,9 +12597,10 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Ref:  "CodeableConcept",
 			},
 			{
-				Name:     "event",
-				Kind:     "array",
-				ItemKind: "string",
+				Name:       "event",
+				Kind:       "array",
+				ItemKind:   "string",
+				ItemFormat: "date-time",
 			},
 			{
 				Name:     "extension",
@@ -12712,9 +12803,10 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name:     "timeOfDay",
-				Kind:     "array",
-				ItemKind: "string",
+				Name:       "timeOfDay",
+				Kind:       "array",
+				ItemKind:   "string",
+				ItemFormat: "time",
 			},
 			{
 				Name:     "when",
@@ -12799,12 +12891,14 @@ var generatedDefinitions = map[string]generatedDefinition{
 				Kind: "string",
 			},
 			{
-				Name: "timingDate",
-				Kind: "string",
+				Name:   "timingDate",
+				Kind:   "string",
+				Format: "date",
 			},
 			{
-				Name: "timingDateTime",
-				Kind: "string",
+				Name:   "timingDateTime",
+				Kind:   "string",
+				Format: "date-time",
 			},
 			{
 				Name: "timingReference",

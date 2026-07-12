@@ -11,37 +11,45 @@ import (
 
 func (s *Service) validateBuilder(ctx context.Context, builder Builder) error {
 	seenAliases := map[string]struct{}{}
+	authResourcePathsUnrestricted := builderAuthScopeUnrestricted(builder)
 	rootFields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           builder.Project,
-		AuthResourcePaths: builder.AuthResourcePaths,
-		ResourceType:      builder.RootResourceType,
+		ConnectionOptions:             s.connOpts,
+		Project:                       builder.Project,
+		DatasetGeneration:             builder.DatasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authResourcePathsUnrestricted),
+		AuthResourcePaths:             builder.AuthResourcePaths,
+		ResourceType:                  builder.RootResourceType,
 	})
 	if err != nil {
 		return err
 	}
 	rootPivots, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           builder.Project,
-		AuthResourcePaths: builder.AuthResourcePaths,
-		ResourceType:      builder.RootResourceType,
-		PivotOnly:         true,
+		ConnectionOptions:             s.connOpts,
+		Project:                       builder.Project,
+		DatasetGeneration:             builder.DatasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authResourcePathsUnrestricted),
+		AuthResourcePaths:             builder.AuthResourcePaths,
+		ResourceType:                  builder.RootResourceType,
+		PivotOnly:                     true,
 	})
 	if err != nil {
 		return err
 	}
-	if err := validateNodeSelections(builder.Fields, builder.Pivots, builder.Aggregates, builder.Slices, rootFields, rootPivots); err != nil {
+	if err := validateNodeSelections(builder.Fields, builder.Filters, builder.Pivots, builder.Aggregates, builder.Slices, rootFields, rootPivots); err != nil {
 		return err
 	}
 	for _, step := range builder.Traversals {
-		if err := s.validateTraversal(ctx, builder.Project, builder.AuthResourcePaths, builder.RootResourceType, step, seenAliases); err != nil {
+		if err := s.validateTraversal(ctx, builder.Project, builder.DatasetGeneration, builder.AuthResourcePaths, authResourcePathsUnrestricted, builder.RootResourceType, step, seenAliases); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Service) validateTraversal(ctx context.Context, project string, authResourcePaths []string, sourceType string, step TraversalStep, seenAliases map[string]struct{}) error {
+func (s *Service) validateTraversal(ctx context.Context, project, datasetGeneration string, authResourcePaths []string, authResourcePathsUnrestricted bool, sourceType string, step TraversalStep, seenAliases map[string]struct{}) error {
+	if err := step.MatchMode.Validate(); err != nil {
+		return fmt.Errorf("traversal %s -> %s (%s): %w", sourceType, step.ToResourceType, step.Label, err)
+	}
 	if step.Alias == "" {
 		return fmt.Errorf("traversal alias is required")
 	}
@@ -51,11 +59,13 @@ func (s *Service) validateTraversal(ctx context.Context, project string, authRes
 	seenAliases[step.Alias] = struct{}{}
 
 	refs, err := s.discoverReferences(ctx, catalog.PopulatedReferenceOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           project,
-		AuthResourcePaths: authResourcePaths,
-		NodeType:          sourceType,
-		Mode:              catalog.TraversalModeBuilder,
+		ConnectionOptions:             s.connOpts,
+		Project:                       project,
+		DatasetGeneration:             datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authResourcePathsUnrestricted),
+		AuthResourcePaths:             authResourcePaths,
+		NodeType:                      sourceType,
+		Mode:                          catalog.TraversalModeBuilder,
 	})
 	if err != nil {
 		return err
@@ -72,36 +82,40 @@ func (s *Service) validateTraversal(ctx context.Context, project string, authRes
 	}
 
 	fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           project,
-		AuthResourcePaths: authResourcePaths,
-		ResourceType:      step.ToResourceType,
+		ConnectionOptions:             s.connOpts,
+		Project:                       project,
+		DatasetGeneration:             datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authResourcePathsUnrestricted),
+		AuthResourcePaths:             authResourcePaths,
+		ResourceType:                  step.ToResourceType,
 	})
 	if err != nil {
 		return err
 	}
 	pivotFields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           project,
-		AuthResourcePaths: authResourcePaths,
-		ResourceType:      step.ToResourceType,
-		PivotOnly:         true,
+		ConnectionOptions:             s.connOpts,
+		Project:                       project,
+		DatasetGeneration:             datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authResourcePathsUnrestricted),
+		AuthResourcePaths:             authResourcePaths,
+		ResourceType:                  step.ToResourceType,
+		PivotOnly:                     true,
 	})
 	if err != nil {
 		return err
 	}
-	if err := validateNodeSelections(step.Fields, step.Pivots, step.Aggregates, step.Slices, fields, pivotFields); err != nil {
+	if err := validateNodeSelections(step.Fields, step.Filters, step.Pivots, step.Aggregates, step.Slices, fields, pivotFields); err != nil {
 		return fmt.Errorf("alias %s: %w", step.Alias, err)
 	}
 	for _, child := range step.Traversals {
-		if err := s.validateTraversal(ctx, project, authResourcePaths, step.ToResourceType, child, seenAliases); err != nil {
+		if err := s.validateTraversal(ctx, project, datasetGeneration, authResourcePaths, authResourcePathsUnrestricted, step.ToResourceType, child, seenAliases); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregates []AggregateSelect, slices []RepresentativeSlice, discovered []catalog.PopulatedField, pivotable []catalog.PopulatedField) error {
+func validateNodeSelections(fields []FieldSelect, filters []TypedFilter, pivots []PivotSelect, aggregates []AggregateSelect, slices []RepresentativeSlice, discovered []catalog.PopulatedField, pivotable []catalog.PopulatedField) error {
 	seenFields := map[string]struct{}{}
 	for _, field := range fields {
 		if field.Name == "" || field.Select == "" {
@@ -118,6 +132,19 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregat
 			if _, err := ParseSelector(fallback); err != nil {
 				return fmt.Errorf("invalid fallback selector for field %q: %w", field.Name, err)
 			}
+		}
+	}
+
+	for _, filter := range filters {
+		if err := ValidateTypedFilterForResource(resourceTypeFromDiscovered(discovered), filter); err != nil {
+			return fmt.Errorf("invalid filter %q: %w", filter.FieldRef, err)
+		}
+		sel, err := ParseSelector(filter.Selector)
+		if err != nil {
+			return fmt.Errorf("invalid filter selector for %q: %w", filter.FieldRef, err)
+		}
+		if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
+			return fmt.Errorf("filter selector %q is not present in populated fields", filter.Selector)
 		}
 	}
 
@@ -164,7 +191,7 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregat
 		}
 		seenAggregates[agg.Name] = struct{}{}
 		switch strings.ToUpper(strings.TrimSpace(agg.Operation)) {
-		case "COUNT", "COUNT_DISTINCT", "EXISTS", "DISTINCT_VALUES":
+		case "COUNT", "COUNT_DISTINCT", "EXISTS", "DISTINCT_VALUES", "MIN", "MAX":
 		default:
 			return fmt.Errorf("aggregate %q uses unsupported operation %q", agg.Name, agg.Operation)
 		}
@@ -176,6 +203,9 @@ func validateNodeSelections(fields []FieldSelect, pivots []PivotSelect, aggregat
 			if findFieldByPath(discovered, sel.CanonicalPath()) == nil {
 				return fmt.Errorf("aggregate selector %q is not present in populated fields", agg.Select)
 			}
+		}
+		if aggregateOperationRequiresSelector(strings.ToUpper(strings.TrimSpace(agg.Operation))) && strings.TrimSpace(agg.Select) == "" {
+			return fmt.Errorf("aggregate %q operation %s requires a selector", agg.Name, agg.Operation)
 		}
 		if strings.TrimSpace(agg.PredicatePath) != "" {
 			sel, err := ParseSelector(agg.PredicatePath)

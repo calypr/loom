@@ -3,5 +3,5 @@
 bin/
 data/
 META/
-arango-fhir-proto
-arango-fhir-server
+/arango-fhir-proto
+/arango-fhir-server

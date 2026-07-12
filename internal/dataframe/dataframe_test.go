@@ -35,7 +35,7 @@ func TestCompileRejectsNonLoweredBuilder(t *testing.T) {
 	}
 }
 
-func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
+func TestLowerGraphQLBuilderUsesGenericCompilerForComplexPatientGraph(t *testing.T) {
 	builder := Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
@@ -65,12 +65,12 @@ func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
 	}
 	planned, err := lowerGraphQLBuilder(builder)
 	if err != nil {
-		t.Fatalf("expected case-assay profile to match, got %v", err)
+		t.Fatalf("expected generic graph lowering, got %v", err)
 	}
 	if !usesLoweredBuilder(planned) {
 		t.Fatal("expected planner to return lowered builder")
 	}
-	if planned.PlanHint == nil || planned.PlanHint.Profile != "patient_case_assay_family" {
+	if planned.PlanHint == nil || planned.PlanHint.Profile != "generic_fhir_graph" {
 		t.Fatalf("unexpected plan hint: %#v", planned.PlanHint)
 	}
 	if len(planned.DerivedFields) == 0 {
@@ -79,14 +79,14 @@ func TestLowerGraphQLBuilderUsesStructuralLowering(t *testing.T) {
 	if containsDerivedField(planned.DerivedFields, "recipe") {
 		t.Fatalf("did not expect canned recipe field in lowered builder: %#v", planned.DerivedFields)
 	}
-	for _, expectedSet := range []string{"root_patient_neighbor_set", "patient_condition_set", "patient_specimen_set", "specimen_group_set"} {
+	for _, expectedSet := range []string{"generic_root_subject_Patient_neighbors_set", "generic_condition_set", "generic_specimen_set", "generic_group_set"} {
 		if !containsNamedSet(planned.Sets, expectedSet) {
 			t.Fatalf("expected lowered set %q, got %#v", expectedSet, planned.Sets)
 		}
 	}
 }
 
-func TestLowerGraphQLBuilderRejectsSimpleTraversal(t *testing.T) {
+func TestLowerGraphQLBuilderUsesGenericPlanForSimpleTraversal(t *testing.T) {
 	builder := Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
@@ -94,13 +94,16 @@ func TestLowerGraphQLBuilderRejectsSimpleTraversal(t *testing.T) {
 			{Label: "subject_Patient", ToResourceType: "Specimen", Alias: "specimen"},
 		},
 	}
-	_, err := lowerGraphQLBuilder(builder)
-	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
-		t.Fatalf("expected unsupported lowering error, got %v", err)
+	planned, err := lowerGraphQLBuilder(builder)
+	if err != nil {
+		t.Fatalf("lowerGraphQLBuilder() error = %v", err)
+	}
+	if planned.PlanHint == nil || planned.PlanHint.Profile != "generic_fhir_graph" {
+		t.Fatalf("expected generic plan, got %#v", planned.PlanHint)
 	}
 }
 
-func TestLowerGraphQLBuilderMapsSingleDocumentReferenceSelectorToSummary(t *testing.T) {
+func TestLowerGraphQLBuilderKeepsDocumentReferenceSelectorsInGenericFHIR(t *testing.T) {
 	builder := Builder{
 		Project:          "P1",
 		RootResourceType: "Patient",
@@ -124,13 +127,13 @@ func TestLowerGraphQLBuilderMapsSingleDocumentReferenceSelectorToSummary(t *test
 	}
 	planned, err := lowerGraphQLBuilder(builder)
 	if err != nil {
-		t.Fatalf("expected supported structural lowering, got %v", err)
+		t.Fatalf("expected generic lowering, got %v", err)
 	}
-	if !containsNamedSet(planned.Sets, "document_reference_summary_set") {
-		t.Fatalf("expected summary set, got %#v", planned.Sets)
+	if planned.PlanHint == nil || planned.PlanHint.Profile != "generic_fhir_graph" {
+		t.Fatalf("expected generic plan, got %#v", planned.PlanHint)
 	}
-	if !containsDerivedFieldWithSelect(planned.DerivedFields, "specimen_file__data_category", "data_category") {
-		t.Fatalf("expected summary-backed derived field, got %#v", planned.DerivedFields)
+	if !containsDerivedFieldWithSelect(planned.DerivedFields, "specimen_file__data_category", `category[].coding[].display where system contains "data_category"`) {
+		t.Fatalf("expected raw FHIR selector, got %#v", planned.DerivedFields)
 	}
 }
 
@@ -158,11 +161,11 @@ func TestLowerGraphQLBuilderSupportsExpandedPatientRootFamily(t *testing.T) {
 		t.Fatalf("expected expanded patient-root family to lower, got %v", err)
 	}
 	for _, expectedSet := range []string{
-		"patient_subject_observation_set",
-		"patient_focus_observation_set",
-		"patient_imaging_study_set",
-		"patient_group_set",
-		"group_document_reference_set",
+		"generic_subject_observation_set",
+		"generic_focus_observation_set",
+		"generic_imaging_study_set",
+		"generic_patient_group_set",
+		"generic_group_file_set",
 	} {
 		if !containsNamedSet(planned.Sets, expectedSet) {
 			t.Fatalf("expected lowered set %q, got %#v", expectedSet, planned.Sets)
@@ -254,7 +257,7 @@ func TestLowerGraphQLBuilderPreservesUnrestrictedAuthScope(t *testing.T) {
 	}
 }
 
-func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
+func TestServiceRunsGenericSimpleQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
 		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
@@ -277,7 +280,7 @@ func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
 		Projects:          []string{"P1"},
 		AuthResourcePaths: []string{"pathA"},
 	})
-	_, err := svc.Run(ctx, RunRequest{
+	result, err := svc.Run(ctx, RunRequest{
 		Builder: Builder{
 			Project:           "P1",
 			RootResourceType:  "Patient",
@@ -291,8 +294,11 @@ func TestServiceRejectsUnsupportedSimpleQuery(t *testing.T) {
 			}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
-		t.Fatalf("expected unsupported lowering error, got %v", err)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.RowCount != 1 || !slices.Contains(result.Columns, "specimen__specimen_type") {
+		t.Fatalf("unexpected generic result: %#v", result)
 	}
 }
 
@@ -329,7 +335,7 @@ func TestServiceRunCaseAssayRecipe(t *testing.T) {
 			}, nil
 		},
 		ExecuteRows: func(ctx context.Context, opts ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_condition_set") || !strings.Contains(query, "LET specimen_group_set") {
+			if !strings.Contains(query, "LET generic_root_subject_Patient_neighbors_set") || !strings.Contains(query, "LET generic_condition_set") || !strings.Contains(query, "LET generic_group_set") {
 				t.Fatalf("expected advanced planned query, got:\n%s", query)
 			}
 			if strings.Contains(query, `"recipe"`) {
@@ -402,7 +408,7 @@ func containsDerivedFieldWithSelect(fields []DerivedField, wantName, wantSelect 
 	return false
 }
 
-func TestServiceRejectsUnsupportedRootOnlyQuery(t *testing.T) {
+func TestServiceRunsGenericRootOnlyQuery(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
 		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
@@ -415,15 +421,18 @@ func TestServiceRejectsUnsupportedRootOnlyQuery(t *testing.T) {
 			return visit(map[string]any{"_key": "p1", "gender": "female"})
 		},
 	})
-	_, err := svc.Run(context.Background(), RunRequest{
+	result, err := svc.Run(context.Background(), RunRequest{
 		Builder: Builder{
 			Project:          "P1",
 			RootResourceType: "Patient",
 			Fields:           []FieldSelect{{Name: "gender", Select: "gender"}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "unsupported dataframe query shape") {
-		t.Fatalf("expected unsupported lowering error, got %v", err)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.RowCount != 1 || !slices.Contains(result.Columns, "gender") {
+		t.Fatalf("unexpected generic result: %#v", result)
 	}
 }
 
@@ -443,57 +452,5 @@ func TestServiceRejectsUnauthorizedAuthPath(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected auth path error")
-	}
-}
-
-func TestLookupPlannerTraversalUsesSchemaDerivedMetadata(t *testing.T) {
-	cases := []struct {
-		fromType  string
-		edgeLabel string
-		toType    string
-		role      traversalRole
-	}{
-		{"Patient", "subject_Patient", "Condition", traversalRolePatientNeighborChild},
-		{"Patient", "subject_Patient", "Specimen", traversalRolePatientNeighborChild},
-		{"Patient", "focus_Patient", "Observation", traversalRolePatientDirectChild},
-		{"Specimen", "subject_Specimen", "DocumentReference", traversalRoleSpecimenDocumentReference},
-		{"Group", "subject_Group", "DocumentReference", traversalRoleGroupDocumentReference},
-	}
-	for _, tc := range cases {
-		spec, ok := lookupPlannerTraversal(tc.fromType, tc.edgeLabel, tc.toType)
-		if !ok {
-			t.Fatalf("expected traversal %s %s %s", tc.fromType, tc.edgeLabel, tc.toType)
-		}
-		if spec.Role != tc.role {
-			t.Fatalf("unexpected role for %s %s %s: %q", tc.fromType, tc.edgeLabel, tc.toType, spec.Role)
-		}
-		if spec.Schema.FromType != tc.fromType || spec.Schema.EdgeLabel != tc.edgeLabel || spec.Schema.ToType != tc.toType {
-			t.Fatalf("unexpected schema spec: %#v", spec.Schema)
-		}
-	}
-}
-
-func TestLookupPlannerTraversalRejectsUnsupportedTuple(t *testing.T) {
-	if _, ok := lookupPlannerTraversal("Patient", "subject_Patient", "Medication"); ok {
-		t.Fatal("expected unsupported tuple to miss")
-	}
-}
-
-func TestDocumentReferenceSummaryFieldMapping(t *testing.T) {
-	got, ok := mapDocumentReferenceSelectorToSummaryField(`category[].coding[].display where system contains "workflow_type"`)
-	if !ok {
-		t.Fatal("expected workflow_type selector to map")
-	}
-	if got != "workflow_type" {
-		t.Fatalf("unexpected mapped field: %q", got)
-	}
-}
-
-func TestRequiresResearchStudyHydration(t *testing.T) {
-	if requiresResearchStudyHydration("study.reference", "ResearchSubject.study_reference") {
-		t.Fatal("default generated study ref should not require hydration")
-	}
-	if !requiresResearchStudyHydration("study.display", "ResearchSubject.study_display") {
-		t.Fatal("study child selector should require hydration")
 	}
 }

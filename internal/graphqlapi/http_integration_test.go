@@ -214,8 +214,8 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 			return []catalog.PopulatedReference{}, nil
 		},
 		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_condition_set") {
-				t.Fatalf("expected advanced lowered query, got:\n%s", query)
+			if !strings.Contains(query, "LET generic_root_subject_Patient_neighbors_set") || !strings.Contains(query, "LET generic_condition_set") {
+				t.Fatalf("expected generic lowered query, got:\n%s", query)
 			}
 			return visit(map[string]any{"_key": "p1", "gender": "female", "condition__condition_count": 1})
 		},
@@ -336,8 +336,8 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 			return []catalog.PopulatedReference{}, nil
 		},
 		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
-			if !strings.Contains(query, "LET root_patient_neighbor_set") || !strings.Contains(query, "LET patient_specimen_set") {
-				t.Fatalf("expected advanced lowered query, got:\n%s", query)
+			if !strings.Contains(query, "LET generic_root_subject_Patient_neighbors_set") || !strings.Contains(query, "LET generic_specimen_set") {
+				t.Fatalf("expected generic lowered query, got:\n%s", query)
 			}
 			return visit(map[string]any{
 				"_key":                     "p1",

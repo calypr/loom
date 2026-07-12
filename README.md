@@ -3,27 +3,35 @@
 FHIR graph loader and dataframe server, with ArangoDB as the primary execution
 backend.
 
-This repo now has two main runtime surfaces:
+This repo has two main runtime surfaces:
 
-- `arango-fhir-proto`: CLI for load, discovery, query, prepare, and benchmark work
-- `arango-fhir-server`: Fiber server for GraphQL reads plus a direct REST import endpoint
+- `arango-fhir-proto`: CLI for FHIR loading (including immutable complete
+  generations) and catalog diagnostics
+- `arango-fhir-server`: Fiber server for compiler-backed GraphQL reads and a
+  temporary one-file import compatibility endpoint
 
 The current product direction is:
 
 - load raw FHIR NDJSON into one collection per resource type
 - store graph edges in `fhir_edge`
 - profile populated fields into `fhir_field_catalog`
-- expose builder introspection and dataframe execution through GraphQL
-ArangoDB is the first-class backend for dataframe execution. SurrealDB and
-Postgres code remains under [`experimental/`](experimental/) for research and
-benchmarking only.
+- lower typed dataframe requests through the FHIR-aware compiler into scoped AQL
+- expose the current expert/compatibility GraphQL transport while the guided
+  recipe transport is being added
+
+ArangoDB is the only runtime backend. The tracked [`experimental/`](experimental/)
+directory contains the local Arango compose setup.
 
 ## Docs
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
-- [GraphQL/Dataframe Portability Notes](docs/DATAFRAME_BUILDER_PORTABILITY.md)
-- [Arango vs. Surreal post-mortem](experimental/ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md)
+- [Product Recipes and Dataset Discovery](docs/PRODUCT_RECIPE_DISCOVERY.md)
+- [Formal Product Gap Analysis](docs/FORMAL_GAP_ANALYSIS.md)
+- [Compiler-First FHIR/AQL Plan](docs/COMPILER_FIRST_PLAN.md)
+- [Compiler-First Implementation Status](docs/COMPILER_IMPLEMENTATION_STATUS.md)
+- [Terra Ultra Parallel Execution Plan](docs/TERRA_ULTRA_EXECUTION_PLAN.md)
+- [Compiler Cleanup Audit](docs/COMPILER_CLEANUP_AUDIT.md)
 
 ## Current Layout
 
@@ -32,14 +40,20 @@ benchmarking only.
 - [`internal/ingest`](internal/ingest): load pipeline and Arango ingest bootstrap/runtime
 - [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
 - [`internal/catalog/cache`](internal/catalog/cache): per-project discovery cache
+- [`internal/discovery`](internal/discovery): safe guided capability snapshots built from scoped catalog facts
+- [`internal/dataset`](internal/dataset): dataset generation, schema, and scope lifecycle contract
+- [`internal/datasetstore`](internal/datasetstore): Arango-backed immutable manifest and active-generation pointer store
 - [`internal/graphqlapi`](internal/graphqlapi): GraphQL schema, request mapping, introspection service
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
+- [`internal/export`](internal/export): strict flat-row NDJSON and CSV encoding primitives
+- [`internal/dataframeexport`](internal/dataframeexport): streaming bridge from dataframe execution to flat encoders
 - [`internal/fhirschema`](internal/fhirschema): generated schema metadata used by planner/validation
-- [`internal/fhirsemantics`](internal/fhirsemantics): friendly `fieldRef`s and semantic lowering hints
-- [`internal/api`](internal/api): HTTP API surface and ingest import wiring
+- [`internal/dataframebuilder`](internal/dataframebuilder): builder introspection, friendly `fieldRef`s, and GraphQL input translation
+- [`internal/recipe`](internal/recipe): versioned product recipe intent and guided template metadata
+- [`internal/schemaidentity`](internal/schemaidentity): exact graph-schema identity captured by dataset generations
+- [`internal/api`](internal/api): HTTP host, authenticated GraphQL mounting, and legacy import compatibility wiring
 - [`internal/authscope`](internal/authscope): shared request principal context and auth-resource-path scope resolution
-- [`queries/`](queries/): Arango AQL query artifacts
-- [`experimental/`](experimental/): non-primary backend work and benchmark artifacts
+- [`experimental/`](experimental/): local Arango development compose setup
 
 ## Local Dev
 
@@ -69,6 +83,21 @@ Load the bundled sample dataset:
   --auth-resource-path EllrottLab-GDC_Data
 ```
 
+For an immutable, generation-qualified load instead of the mutable prototype
+load above, use a complete `META` directory and an operator-supplied opaque
+generation ID. This command deliberately has no `--truncate` flag:
+
+```bash
+./bin/arango-fhir-proto load-generation \
+  --generation local-meta-2026-07-11 \
+  --backend arango \
+  --url http://127.0.0.1:8529 \
+  --database fhir_proto \
+  --meta-dir META \
+  --project ARANGODB_PROTO \
+  --auth-resource-path EllrottLab-GDC_Data
+```
+
 Start the server in local demo mode:
 
 ```bash
@@ -79,6 +108,10 @@ Start the server in local demo mode:
   --url http://127.0.0.1:8529 \
   --database fhir_proto
 ```
+
+To read the active immutable generation instead, add `--dataset-generations`.
+That mode disables `POST /api/v1/imports`; use `load-generation` (or the future
+bundle/job API) to create a complete snapshot.
 
 Then open:
 
@@ -104,6 +137,8 @@ Important make targets:
 - `make build-cli`
 - `make graphql-check`
 - `make test`
+- `make conformance`
+- `make compiler-bench`
 
 `make generate-graphql` is important now. The GraphQL schema and generated
 artifacts are not purely static, and the repo includes a small reproducible
@@ -117,7 +152,7 @@ The server mounts:
 - `GET /apollo`
 - `GET /graphql`
 - `POST /graphql`
-- `POST /api/v1/imports`
+- `POST /api/v1/imports` (legacy one-file import; disabled with `--dataset-generations`)
 
 HTTP wiring lives in [`internal/api/routes.go`](internal/api/routes.go) and [`internal/api/server.go`](internal/api/server.go).
 
@@ -128,7 +163,7 @@ The loader bootstraps:
 - one collection per FHIR resource type discovered in the NDJSON input
 - `fhir_edge`
 - `fhir_field_catalog`
-- `patient_file_rollup`
+- `loom_dataset_lifecycle` for generation-aware loads (never truncated)
 
 See [`internal/ingest/backend.go`](internal/ingest/backend.go).
 
@@ -139,9 +174,9 @@ What is current and real:
 - GraphQL introspection for populated traversals/fields/pivots
 - GraphQL dataframe execution on Arango
 - generated schema metadata in `internal/fhirschema`
-- semantic alias/lowering hints in `internal/fhirsemantics`
+- derived field aliases in `internal/dataframebuilder` and explicit lowering rules in `internal/dataframe`
 
 What is explicitly experimental:
 
-- SurrealDB/Postgres benchmarking and comparison
-- alternate query artifacts under [`experimental/queries/`](experimental/queries/)
+- the guided discovery, recipe, and streaming-export foundations until their
+  public delivery API exists

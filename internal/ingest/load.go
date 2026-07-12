@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/schemaidentity"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschema/v6"
@@ -34,6 +37,16 @@ type LoadOptions struct {
 	UseGeneric       bool
 	WriteAPI         string
 	EventSink        EventSink
+	// Dataset selects immutable generation mode. A nil value preserves the
+	// original unversioned loader behavior. A non-nil value requires a complete
+	// directory import, writes generation-qualified graph identities, and only
+	// activates the generation after every graph file and catalog finalization
+	// succeeds.
+	Dataset *dataset.DatasetRef
+	// PreflightSampleRows bounds the number of payloads inspected from every
+	// staged file before Loom opens or mutates Arango. Zero uses the safe
+	// default; full row validation still happens in the loader.
+	PreflightSampleRows int
 }
 
 type LoadSummary struct {
@@ -46,9 +59,132 @@ type LoadSummary struct {
 	BatchCounts      map[string]int     `json:"batch_counts,omitempty"`
 	Resources        map[string]int     `json:"resources"`
 	StageSeconds     map[string]float64 `json:"stage_seconds"`
+	Preflight        PreflightReport    `json:"preflight"`
+	// SchemaIdentity is the exact configured graph-schema evidence used for
+	// this load. It remains nil when Loom cannot load the configured schema, so
+	// an early failure never looks like a successful schema observation.
+	SchemaIdentity *schemaidentity.Identity `json:"schema_identity,omitempty"`
+	// Dataset is the immutable target when this was a generation load. It is
+	// present even on a failed generation load so callers can identify the
+	// inactive manifest that needs operational inspection.
+	Dataset *dataset.DatasetRef `json:"dataset,omitempty"`
 }
 
-func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
+var (
+	// ErrGenerationLoadRequiresDirectory prevents a one-file or arbitrary-file
+	// load from being mistaken for a complete immutable dataset snapshot.
+	ErrGenerationLoadRequiresDirectory = errors.New("dataset generation load requires a directory")
+	// ErrGenerationLoadRequiresFiles prevents an empty staged directory from
+	// becoming an active but meaningless generation.
+	ErrGenerationLoadRequiresFiles = errors.New("dataset generation load requires at least one NDJSON file")
+	// ErrGenerationLoadTruncateForbidden prevents a new generation from
+	// deleting active or historical graph data.
+	ErrGenerationLoadTruncateForbidden = errors.New("dataset generation load cannot truncate collections")
+	// ErrGenerationDatasetProjectMismatch prevents graph documents and their
+	// lifecycle manifest from being scoped to different projects.
+	ErrGenerationDatasetProjectMismatch = errors.New("dataset generation project does not match load project")
+	// ErrGenerationSingleResourceUnsupported makes the legacy HTTP one-file
+	// path explicitly unavailable in immutable snapshot mode.
+	ErrGenerationSingleResourceUnsupported = errors.New("single-resource imports cannot create a dataset generation")
+)
+
+// ActivationOutcomeError means the generation reached READY but Loom could
+// not prove that the active-generation pointer was updated. READY is kept for
+// an operator to reconcile; it must never be downgraded to FAILED because the
+// activation request may have committed before its error reached the caller.
+type ActivationOutcomeError struct {
+	Dataset dataset.DatasetRef
+	Err     error
+}
+
+func (e *ActivationOutcomeError) Error() string {
+	if e == nil {
+		return "dataset generation activation outcome is unknown"
+	}
+	return fmt.Sprintf("activate dataset generation %s/%s: %v", e.Dataset.Project, e.Dataset.Generation, e.Err)
+}
+
+func (e *ActivationOutcomeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// GenerationLoadIncompleteError means row-level validation, generation, or
+// edge construction failures were observed while FailFast was disabled. The
+// graph may contain partial immutable documents, but the lifecycle manifest is
+// deliberately left FAILED and cannot be selected for reads.
+type GenerationLoadIncompleteError struct {
+	Dataset          dataset.DatasetRef
+	ValidationErrors int
+	GenerationErrors int
+	EdgeErrors       int
+}
+
+func (e *GenerationLoadIncompleteError) Error() string {
+	if e == nil {
+		return "dataset generation load is incomplete"
+	}
+	return fmt.Sprintf(
+		"dataset generation %s/%s is incomplete: validation_errors=%d generation_errors=%d edge_errors=%d",
+		e.Dataset.Project,
+		e.Dataset.Generation,
+		e.ValidationErrors,
+		e.GenerationErrors,
+		e.EdgeErrors,
+	)
+}
+
+type generationLoadPlan struct {
+	Dataset  dataset.DatasetRef
+	Manifest dataset.Manifest
+}
+
+// newGenerationLoadPlan validates and snapshots all immutable information
+// after input preflight and before a database connection is opened. Nil keeps
+// the legacy loader path exactly unversioned.
+func newGenerationLoadPlan(opts LoadOptions, files []string, identity schemaidentity.Identity) (*generationLoadPlan, error) {
+	if opts.Dataset == nil {
+		return nil, nil
+	}
+
+	ref := *opts.Dataset
+	if err := ref.Validate(); err != nil {
+		return nil, err
+	}
+	if ref.Project != opts.Project {
+		return nil, fmt.Errorf("%w: dataset project %q, load project %q", ErrGenerationDatasetProjectMismatch, ref.Project, opts.Project)
+	}
+	if opts.Truncate {
+		return nil, ErrGenerationLoadTruncateForbidden
+	}
+	info, err := os.Stat(opts.MetaDir)
+	if err != nil {
+		return nil, fmt.Errorf("inspect dataset generation directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: %q", ErrGenerationLoadRequiresDirectory, opts.MetaDir)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrGenerationLoadRequiresFiles, opts.MetaDir)
+	}
+
+	schemaSnapshot, err := dataset.SnapshotSchemaIdentity(identity)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot dataset generation schema identity: %w", err)
+	}
+	manifest, err := dataset.NewManifest(ref, schemaSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("create dataset generation manifest: %w", err)
+	}
+	return &generationLoadPlan{Dataset: ref, Manifest: manifest}, nil
+}
+
+// loadLegacy is the original unversioned loader. Load dispatches to it only
+// when Dataset is nil so existing import/API behavior and physical identities
+// remain unchanged while generation mode evolves independently.
+func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	if opts.BatchSize <= 0 {
 		opts.BatchSize = 5000
 	}
@@ -66,9 +202,47 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	if err != nil {
 		return LoadSummary{}, err
 	}
-	resourceTypes := make([]string, 0, len(files))
-	for _, file := range files {
-		resourceTypes = append(resourceTypes, ResourceTypeFromPath(file))
+	summary := LoadSummary{Files: len(files), Resources: map[string]int{}, BatchCounts: map[string]int{}, StageSeconds: map[string]float64{}}
+	schema, err := graph.Load(opts.Schema)
+	if err != nil {
+		return summary, err
+	}
+	// Keep graph.Load as the authoritative graph parser so its established
+	// validation and error behavior remain unchanged. Identity records evidence
+	// for the same configured file once graph loading succeeds.
+	schemaIdentity, err := schemaidentity.Load(opts.Schema)
+	if err != nil {
+		return summary, err
+	}
+	summary.SchemaIdentity = &schemaIdentity
+	preflightSampleRows := opts.PreflightSampleRows
+	if preflightSampleRows <= 0 {
+		preflightSampleRows = defaultPreflightSampleRows
+	}
+	emitEvent(opts.EventSink, "go_preflight_start", map[string]any{
+		"files":              len(files),
+		"sampleRows":         preflightSampleRows,
+		"schemaSha256":       schemaIdentity.SchemaSHA256(),
+		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes()),
+	})
+	preflightStart := time.Now()
+	preflight, err := PreflightFiles(files, schema, preflightSampleRows)
+	summary.Preflight = preflight
+	summary.StageSeconds["preflight"] = time.Since(preflightStart).Seconds()
+	emitEvent(opts.EventSink, "go_preflight_complete", map[string]any{
+		"files":     len(files),
+		"resources": len(preflight.Resources),
+		"issues":    len(preflight.Issues),
+		"seconds":   summary.StageSeconds["preflight"],
+	})
+	if err != nil {
+		return summary, err
+	}
+	// Preflight groups staged files by resource type, which prevents duplicate
+	// collection bootstrap specs when callers stage multiple files for one type.
+	resourceTypes := make([]string, 0, len(preflight.Resources))
+	for _, resource := range preflight.Resources {
+		resourceTypes = append(resourceTypes, resource.ResourceType)
 	}
 	emitEvent(opts.EventSink, "go_backend_connect_start", map[string]any{
 		"backend":  "arango",
@@ -78,7 +252,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	connectStart := time.Now()
 	client, err := openBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
-		return LoadSummary{}, err
+		return summary, err
 	}
 	defer client.Close(ctx)
 	emitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
@@ -94,13 +268,8 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	})
 	bootstrapStart := time.Now()
 	if err := client.Bootstrap(ctx, bootstrapSpecWithReporter(resourceTypes, opts.Truncate, opts.EventSink)); err != nil {
-		return LoadSummary{}, err
+		return summary, err
 	}
-	schema, err := graph.Load(opts.Schema)
-	if err != nil {
-		return LoadSummary{}, err
-	}
-	summary := LoadSummary{Files: len(files), Resources: map[string]int{}, BatchCounts: map[string]int{}, StageSeconds: map[string]float64{}}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
 	extraArgs := graphExtraArgs(opts.AuthResourcePath)
 
@@ -117,7 +286,7 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		fileStart := time.Now()
 		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 		var rowBuilder RowBuilder
-		if opts.UseGeneric {
+		if opts.UseGeneric || !supportsGeneratedLoad(resourceType) {
 			rowBuilder = NewGenericRowBuilder(opts.Project, class, schema, extraArgs)
 		} else {
 			rowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
@@ -447,6 +616,9 @@ func graphExtraArgs(authResourcePath string) map[string]any {
 }
 
 func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceType string, reader io.Reader, compressed bool) (LoadSummary, error) {
+	if opts.Dataset != nil {
+		return LoadSummary{}, ErrGenerationSingleResourceUnsupported
+	}
 	dir, err := os.MkdirTemp("", "arango-fhir-single-resource-*")
 	if err != nil {
 		return LoadSummary{}, err
@@ -476,6 +648,9 @@ func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceTyp
 }
 
 func LoadSingleResourceFile(ctx context.Context, opts LoadOptions, resourceType, path string) (LoadSummary, error) {
+	if opts.Dataset != nil {
+		return LoadSummary{}, ErrGenerationSingleResourceUnsupported
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return LoadSummary{}, err

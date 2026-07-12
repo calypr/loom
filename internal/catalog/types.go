@@ -26,8 +26,13 @@ const (
 
 // Write-side catalog records persisted during load.
 type FieldCatalogDocument struct {
-	Key               string   `json:"_key"`
-	Project           string   `json:"project"`
+	Key     string `json:"_key"`
+	Project string `json:"project"`
+	// DatasetGeneration identifies the immutable dataset generation that
+	// produced this catalog row. An omitted value is intentionally the legacy
+	// dataset namespace; readers always bind either this exact value or null so
+	// legacy and generation-qualified observations never mix.
+	DatasetGeneration string   `json:"dataset_generation,omitempty"`
 	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
 	ResourceType      string   `json:"resource_type"`
 	Path              string   `json:"path"`
@@ -47,15 +52,25 @@ type FieldCatalogDocument struct {
 // Read-side field discovery request and response types.
 type PopulatedFieldOptions struct {
 	arangostore.ConnectionOptions
-	Project           string
-	AuthResourcePaths []string
-	ResourceType      string
-	PivotOnly         bool
-	CursorBatch       int
+	Project string
+	// DatasetGeneration is optional. An empty value means the legacy dataset
+	// namespace and therefore reads only catalog documents whose
+	// dataset_generation is null or absent.
+	DatasetGeneration string
+	// AuthResourcePathsUnrestricted is the effective AQL bypass mode. A nil
+	// value preserves the legacy convention that an empty path list is
+	// unrestricted; request services must set it explicitly after resolving
+	// authorization so a restricted-empty intersection remains restricted.
+	AuthResourcePathsUnrestricted *bool
+	AuthResourcePaths             []string
+	ResourceType                  string
+	PivotOnly                     bool
+	CursorBatch                   int
 }
 
 type PopulatedField struct {
 	Project           string   `json:"project"`
+	DatasetGeneration string   `json:"dataset_generation,omitempty"`
 	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
 	ResourceType      string   `json:"resource_type"`
 	Path              string   `json:"path"`
@@ -75,35 +90,44 @@ type PopulatedField struct {
 // Read-side auth path discovery request type.
 type AuthResourcePathOptions struct {
 	arangostore.ConnectionOptions
-	Project     string
-	CursorBatch int
+	Project           string
+	DatasetGeneration string
+	CursorBatch       int
 }
 
 // Read-side reference discovery request and response types.
 type PopulatedReferenceOptions struct {
 	arangostore.ConnectionOptions
-	Project           string
-	AuthResourcePaths []string
-	FromType          string
-	NodeType          string
-	Mode              string
-	CursorBatch       int
+	Project string
+	// DatasetGeneration follows the same legacy-null contract as
+	// PopulatedFieldOptions.
+	DatasetGeneration string
+	// AuthResourcePathsUnrestricted has the same explicit-mode contract as
+	// PopulatedFieldOptions.
+	AuthResourcePathsUnrestricted *bool
+	AuthResourcePaths             []string
+	FromType                      string
+	NodeType                      string
+	Mode                          string
+	CursorBatch                   int
 }
 
 type PopulatedReference struct {
-	FromType  string `json:"from_type"`
-	Label     string `json:"label"`
-	ToType    string `json:"to_type"`
-	EdgeCount int64  `json:"edge_count"`
+	DatasetGeneration string `json:"dataset_generation,omitempty"`
+	FromType          string `json:"from_type"`
+	Label             string `json:"label"`
+	ToType            string `json:"to_type"`
+	EdgeCount         int64  `json:"edge_count"`
 }
 
 // Write-side field profiling state.
 type Profiler struct {
-	project          string
-	authResourcePath string
-	resourceType     string
-	shapeCache       *ShapePlanCache
-	stats            map[string]*fieldCatalogStats
+	project           string
+	datasetGeneration string
+	authResourcePath  string
+	resourceType      string
+	shapeCache        *ShapePlanCache
+	stats             map[string]*fieldCatalogStats
 }
 
 type fieldCatalogStats struct {

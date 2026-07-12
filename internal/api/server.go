@@ -20,17 +20,23 @@ type HTTPConfig struct {
 	Logger                   *slog.Logger
 	BodyLimit                int
 	ReadBufferSize           int
+	// DisableSingleResourceImports prevents the legacy multipart endpoint from
+	// mutating shared graph collections. Generation-aware deployments must use
+	// a complete staged bundle loader instead: one uploaded resource file can
+	// never safely become an immutable active dataset generation.
+	DisableSingleResourceImports bool
 }
 
 type HTTPServer struct {
-	app                         *fiber.App
-	service                     *Service
-	authn                       authscope.Authenticator
-	authz                       authscope.Authorizer
-	logger                      *slog.Logger
-	cfgGraphQLHandler           http.Handler
-	cfgGraphQLPlaygroundHandler http.Handler
-	cfgApolloSandboxHandler     http.Handler
+	app                          *fiber.App
+	service                      *Service
+	authn                        authscope.Authenticator
+	authz                        authscope.Authorizer
+	logger                       *slog.Logger
+	cfgGraphQLHandler            http.Handler
+	cfgGraphQLPlaygroundHandler  http.Handler
+	cfgApolloSandboxHandler      http.Handler
+	disableSingleResourceImports bool
 }
 
 type apiError struct {
@@ -72,13 +78,14 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 	}
 
 	server := &HTTPServer{
-		service:                     cfg.Service,
-		authn:                       cfg.Authenticator,
-		authz:                       cfg.Authorizer,
-		logger:                      cfg.Logger,
-		cfgGraphQLHandler:           cfg.GraphQLHandler,
-		cfgGraphQLPlaygroundHandler: cfg.GraphQLPlaygroundHandler,
-		cfgApolloSandboxHandler:     cfg.ApolloSandboxHandler,
+		service:                      cfg.Service,
+		authn:                        cfg.Authenticator,
+		authz:                        cfg.Authorizer,
+		logger:                       cfg.Logger,
+		cfgGraphQLHandler:            cfg.GraphQLHandler,
+		cfgGraphQLPlaygroundHandler:  cfg.GraphQLPlaygroundHandler,
+		cfgApolloSandboxHandler:      cfg.ApolloSandboxHandler,
+		disableSingleResourceImports: cfg.DisableSingleResourceImports,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:      cfg.BodyLimit,

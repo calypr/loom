@@ -11,6 +11,20 @@ import (
 	"github.com/bytedance/sonic"
 )
 
+// supportsGeneratedLoad reports whether the optimized generated-loader
+// dispatcher has a concrete fast-path case for this resource. The generated
+// FHIR model can contain more types than this dispatcher; Load uses the
+// generic schema-backed builder for active graph-schema roots outside the fast
+// switch rather than rejecting an otherwise valid file.
+func supportsGeneratedLoad(resourceType string) bool {
+	switch resourceType {
+	case "BodyStructure", "Condition", "DocumentReference", "Group", "ImagingStudy", "Medication", "MedicationAdministration", "Observation", "Organization", "Patient", "Practitioner", "ResearchStudy", "ResearchSubject", "Specimen":
+		return true
+	default:
+		return false
+	}
+}
+
 func loadRowGenerated(resourceType string, line []byte, project string, stageSeconds map[string]float64) (jsgarango.VertexDocument, []json.RawMessage, error) {
 	switch resourceType {
 	case "BodyStructure":

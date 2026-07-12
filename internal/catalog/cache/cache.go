@@ -98,24 +98,33 @@ func (c *Cache) InvalidateAll() {
 }
 
 func fieldKey(opts catalog.PopulatedFieldOptions) (string, error) {
-	scope, err := authScopeKey(opts.AuthResourcePaths)
+	scope, err := authScopeKey(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s|%s|%t|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.ResourceType), opts.PivotOnly, scope), nil
+	return fmt.Sprintf("%s|%s|%t|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.ResourceType), opts.PivotOnly, scope, datasetGenerationKey(opts.DatasetGeneration)), nil
 }
 
 func referenceKey(opts catalog.PopulatedReferenceOptions) (string, error) {
-	scope, err := authScopeKey(opts.AuthResourcePaths)
+	scope, err := authScopeKey(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.NodeType), strings.TrimSpace(opts.Mode), scope), nil
+	return fmt.Sprintf("%s|%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.NodeType), strings.TrimSpace(opts.Mode), scope, datasetGenerationKey(opts.DatasetGeneration)), nil
 }
 
-func authScopeKey(paths []string) (string, error) {
-	if len(paths) == 0 {
-		return "*", nil
+func datasetGenerationKey(generation string) string {
+	generation = catalog.NormalizeDatasetGeneration(generation)
+	if !catalog.HasDatasetGeneration(generation) {
+		return "legacy"
+	}
+	encoded, _ := json.Marshal(generation)
+	return "generation:" + string(encoded)
+}
+
+func authScopeKey(paths []string, explicitUnrestricted *bool) (string, error) {
+	if catalog.EffectiveAuthResourcePathsUnrestricted(paths, explicitUnrestricted) {
+		return "unrestricted", nil
 	}
 	normalized := append([]string(nil), paths...)
 	sort.Strings(normalized)
@@ -123,7 +132,7 @@ func authScopeKey(paths []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(encoded), nil
+	return "restricted:" + string(encoded), nil
 }
 
 func cloneFields(in []catalog.PopulatedField) []catalog.PopulatedField {

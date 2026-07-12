@@ -11,13 +11,16 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 	nodeVar := sanitizeColumnName(step.Alias) + "_nodes"
 	var let string
 	if parentIsArray {
-		let = fmt.Sprintf("  LET %s = UNIQUE(FLATTEN(FOR __parent IN %s FOR __node, __edge IN 1..1 INBOUND __parent fhir_edge FILTER __edge.project == @project FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s FILTER __node.resourceType == @%s RETURN [__node]))", nodeVar, parentVar, labelBind, toBind)
+		let = fmt.Sprintf("  LET %s = UNIQUE(FLATTEN(FOR __parent IN %s FOR __node, __edge IN 1..1 INBOUND __parent fhir_edge FILTER __edge.project == @project FILTER __node.project == @project FILTER __edge.%s == @%s FILTER __node.%s == @%s FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s FILTER __node.resourceType == @%s RETURN [__node]))", nodeVar, parentVar, datasetGenerationField, datasetGenerationBindKey, datasetGenerationField, datasetGenerationBindKey, labelBind, toBind)
 	} else {
-		let = fmt.Sprintf("  LET %s = UNIQUE(FOR __node, __edge IN 1..1 INBOUND %s fhir_edge FILTER __edge.project == @project FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s FILTER __node.resourceType == @%s RETURN __node)", nodeVar, parentVar, labelBind, toBind)
+		let = fmt.Sprintf("  LET %s = UNIQUE(FOR __node, __edge IN 1..1 INBOUND %s fhir_edge FILTER __edge.project == @project FILTER __node.project == @project FILTER __edge.%s == @%s FILTER __node.%s == @%s FILTER @auth_resource_paths_unrestricted == true OR (__edge.auth_resource_path IN @auth_resource_paths AND __node.auth_resource_path IN @auth_resource_paths) FILTER __edge.label == @%s FILTER __node.resourceType == @%s RETURN __node)", nodeVar, parentVar, datasetGenerationField, datasetGenerationBindKey, datasetGenerationField, datasetGenerationBindKey, labelBind, toBind)
 	}
 	*lets = append(*lets, let)
 	for _, field := range step.Fields {
-		sel, _ := ParseSelector(field.Select)
+		sel, err := ParseSelector(field.Select)
+		if err != nil {
+			return fmt.Errorf("traversal %q field %q selector: %w", step.Alias, field.Name, err)
+		}
 		expr, err := c.compileTraversalFieldSelect(nodeVar, field, sel)
 		if err != nil {
 			return err
@@ -27,8 +30,14 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 		c.columns = append(c.columns, colName)
 	}
 	for _, pivot := range step.Pivots {
-		keySel, _ := ParseSelector(pivot.ColumnSelect)
-		valueSel, _ := ParseSelector(pivot.ValueSelect)
+		keySel, err := ParseSelector(pivot.ColumnSelect)
+		if err != nil {
+			return fmt.Errorf("traversal %q pivot %q key selector: %w", step.Alias, pivot.Name, err)
+		}
+		valueSel, err := ParseSelector(pivot.ValueSelect)
+		if err != nil {
+			return fmt.Errorf("traversal %q pivot %q value selector: %w", step.Alias, pivot.Name, err)
+		}
 		colName := sanitizeColumnName(step.Alias + "__" + pivot.Name)
 		expr, err := c.compileTraversalPivot(nodeVar, keySel, valueSel, pivot.Columns)
 		if err != nil {
@@ -65,6 +74,14 @@ func (c *compiler) compileTraversal(parentVar string, parentIsArray bool, step T
 }
 
 func (c *compiler) compileRootFieldSelect(payloadVar string, field FieldSelect, sel Selector) (string, error) {
+	switch normalizeValueMode(field.ValueMode) {
+	case "ALL":
+		return c.compileSelectorArrayForSelects(payloadVar, append([]string{field.Select}, field.FallbackSelects...)), nil
+	case "DISTINCT":
+		return fmt.Sprintf("SORTED_UNIQUE(%s)", c.compileSelectorArrayForSelects(payloadVar, append([]string{field.Select}, field.FallbackSelects...))), nil
+	case "FIRST":
+		return c.compileFirstNonNullExpr(payloadVar, append([]string{field.Select}, field.FallbackSelects...)), nil
+	}
 	if len(field.FallbackSelects) > 0 {
 		return c.compileFirstNonNullExpr(payloadVar, append([]string{field.Select}, field.FallbackSelects...)), nil
 	}
@@ -79,6 +96,14 @@ func (c *compiler) compileRootField(payloadVar string, sel Selector) (string, er
 }
 
 func (c *compiler) compileTraversalFieldSelect(nodeVar string, field FieldSelect, sel Selector) (string, error) {
+	switch normalizeValueMode(field.ValueMode) {
+	case "FIRST":
+		tmp := DerivedField{Source: nodeVar, Operation: DerivedOpFirstNonNull, Select: field.Select, FallbackSelects: field.FallbackSelects}
+		return c.compileFirstNonNullField("", tmp, map[string]setMode{nodeVar: setModeNode})
+	case "ALL":
+		tmp := DerivedField{Source: nodeVar, Operation: DerivedOpAll, Select: field.Select, FallbackSelects: field.FallbackSelects}
+		return c.compileAllField("", tmp, map[string]setMode{nodeVar: setModeNode})
+	}
 	if len(field.FallbackSelects) > 0 {
 		tmp := DerivedField{
 			Source:          nodeVar,
@@ -91,7 +116,7 @@ func (c *compiler) compileTraversalFieldSelect(nodeVar string, field FieldSelect
 }
 
 func (c *compiler) compileTraversalField(nodeVar string, sel Selector) (string, error) {
-	return fmt.Sprintf("UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compileSelectorArrayExpr("__n.payload", sel, c)), nil
+	return fmt.Sprintf("SORTED_UNIQUE(FLATTEN(FOR __n IN %s RETURN %s))", nodeVar, compileSelectorArrayExpr("__n.payload", sel, c)), nil
 }
 
 func (c *compiler) compileRootPivot(payloadVar string, keySel Selector, valueSel Selector, columns []string) (string, error) {
@@ -177,7 +202,7 @@ func (c *compiler) compilePivotMapExpr(itemLoop string, payloadVar string, keySe
           RETURN { key: __key, values: __values }
     )
       COLLECT __key = __pair.key INTO __group
-      LET __flat_values = UNIQUE(FLATTEN(__group[*].__pair.values))
+		LET __flat_values = SORTED_UNIQUE(FLATTEN(__group[*].__pair.values))
       FILTER LENGTH(__flat_values) > 0
       RETURN { [__key]: FIRST(__flat_values) }
   )`, itemLoop, keyExpr, valueExpr, filterLine), nil

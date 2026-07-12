@@ -89,18 +89,6 @@ func TestLoadAndQueryFixture(t *testing.T) {
 				}
 			}
 
-			outputPath := filepath.Join(t.TempDir(), "query.ndjson")
-			rows, err := runFixtureQuery(ctx, arangostore.ConnectionOptions{
-				URL:      "http://127.0.0.1:8529",
-				Database: database,
-			}, repoPath(t, "queries", "gdc_case_assay_matrix_arango_rows.aql"), outputPath, "ARANGO_PROTO_TEST")
-			if err != nil {
-				t.Fatalf("query fixture: %v", err)
-			}
-			if rows != 1 {
-				t.Fatalf("query rows = %d, want 1", rows)
-			}
-
 			fields, err := catalog.DiscoverPopulatedFields(ctx, catalog.PopulatedFieldOptions{
 				ConnectionOptions: arangostore.ConnectionOptions{
 					URL:      "http://127.0.0.1:8529",
@@ -150,43 +138,4 @@ func repoPath(t *testing.T, elems ...string) string {
 	_, file, _, _ := runtime.Caller(0)
 	base := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	return filepath.Join(append([]string{base}, elems...)...)
-}
-
-func runFixtureQuery(ctx context.Context, connOpts arangostore.ConnectionOptions, queryPath, outputPath, project string) (int, error) {
-	queryBytes, err := os.ReadFile(queryPath)
-	if err != nil {
-		return 0, err
-	}
-	out, err := os.Create(outputPath)
-	if err != nil {
-		return 0, err
-	}
-	defer out.Close()
-	writer := bufio.NewWriter(out)
-	defer writer.Flush()
-
-	client, err := arangostore.Open(ctx, connOpts.URL, connOpts.Database)
-	if err != nil {
-		return 0, err
-	}
-	defer client.Close(ctx)
-
-	rows := 0
-	err = client.QueryRows(ctx, string(queryBytes), 100, map[string]any{
-		"project":                          project,
-		"auth_resource_paths":              []string(nil),
-		"auth_resource_paths_unrestricted": true,
-		"auth_resource_path":               nil,
-	}, func(row map[string]any) error {
-		rows++
-		data, err := sonic.ConfigFastest.Marshal(row)
-		if err != nil {
-			return err
-		}
-		if _, err := writer.Write(data); err != nil {
-			return err
-		}
-		return writer.WriteByte('\n')
-	})
-	return rows, err
 }

@@ -13,7 +13,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY cmd ./cmd
 COPY internal ./internal
-COPY queries ./queries
 COPY schemas ./schemas
 
 ARG TARGETOS=linux
@@ -35,7 +34,6 @@ WORKDIR /app
 
 COPY --from=builder /out/arango-fhir-server /app/arango-fhir-server
 COPY --from=builder /src/schemas /app/schemas
-COPY --from=builder /src/queries /app/queries
 
 USER arango-fhir
 EXPOSE 8080

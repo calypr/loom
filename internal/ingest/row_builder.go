@@ -44,6 +44,9 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 	}
 	if b.authResourcePath != "" {
 		vDoc.AuthResourcePath = b.authResourcePath
+		for i := range eDocs {
+			eDocs[i] = edgeWithAuthResourcePath(eDocs[i], b.authResourcePath)
+		}
 	}
 	marshalStart := time.Now()
 	vBytes, err := sonic.ConfigFastest.Marshal(&vDoc)
@@ -63,6 +66,22 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 		edges:   eDocs,
 		payload: payload,
 	}, "", nil
+}
+
+func edgeWithAuthResourcePath(edge json.RawMessage, authResourcePath string) json.RawMessage {
+	if authResourcePath == "" {
+		return edge
+	}
+	var doc map[string]any
+	if err := sonic.ConfigFastest.Unmarshal(edge, &doc); err != nil {
+		return edge
+	}
+	doc["auth_resource_path"] = authResourcePath
+	out, err := sonic.ConfigFastest.Marshal(doc)
+	if err != nil {
+		return edge
+	}
+	return json.RawMessage(out)
 }
 
 type GenericRowBuilder struct {
@@ -119,6 +138,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	}
 
 	convertedEdges := make([]json.RawMessage, 0, len(gripEdges))
+	authResourcePath, _ := b.extraArgs["auth_resource_path"].(string)
 	for _, generatedEdge := range gripEdges {
 		edge, err := jsgarango.EdgeFromGrip(b.project, resourceType, generatedEdge)
 		if err != nil {
@@ -129,6 +149,9 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 		stageSeconds["edge_marshal"] += time.Since(marshalStart).Seconds()
 		if err != nil {
 			return rowBuildResult{}, rowErrorEdge, err
+		}
+		if authResourcePath != "" {
+			eBytes = edgeWithAuthResourcePath(eBytes, authResourcePath)
 		}
 		convertedEdges = append(convertedEdges, json.RawMessage(eBytes))
 	}

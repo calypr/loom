@@ -15,12 +15,8 @@ func MarshalJSON(v json.RawMessage) graphql.Marshaler {
 	})
 }
 
-func UnmarshalJSON(v any) (json.RawMessage, error) {
-	return json.Marshal(v)
-}
-
 func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (json.RawMessage, error) {
-	return UnmarshalJSON(v)
+	return json.Marshal(v)
 }
 
 func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {

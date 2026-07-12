@@ -70,3 +70,65 @@ func TestCacheDiscoverReferencesSeparatesAuthScopes(t *testing.T) {
 		t.Fatalf("calls = %d, want 2", calls)
 	}
 }
+
+func TestCacheSeparatesRestrictedEmptyScopeFromUnrestrictedScope(t *testing.T) {
+	cache := New()
+	calls := 0
+	discover := cache.DiscoverFields(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		calls++
+		return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
+	})
+
+	unrestricted := catalog.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	restrictedEmpty := catalog.PopulatedFieldOptions{
+		Project:                       "P1",
+		ResourceType:                  "Patient",
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+		AuthResourcePaths:             []string{},
+	}
+
+	if _, err := discover(context.Background(), unrestricted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discover(context.Background(), restrictedEmpty); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want separate unrestricted and restricted-empty cache entries", calls)
+	}
+}
+
+func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
+	cache := New()
+	fieldCalls := 0
+	discoverFields := cache.DiscoverFields(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		fieldCalls++
+		return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
+	})
+	referenceCalls := 0
+	discoverReferences := cache.DiscoverReferences(func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+		referenceCalls++
+		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen"}}, nil
+	})
+
+	fieldBase := catalog.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	referenceBase := catalog.PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: catalog.TraversalModeBuilder}
+	for _, generation := range []string{"", "generation-a", " generation-a ", "generation-b"} {
+		fields := fieldBase
+		fields.DatasetGeneration = generation
+		if _, err := discoverFields(context.Background(), fields); err != nil {
+			t.Fatal(err)
+		}
+		references := referenceBase
+		references.DatasetGeneration = generation
+		if _, err := discoverReferences(context.Background(), references); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fieldCalls != 3 {
+		t.Fatalf("field calls = %d, want legacy + two exact generation namespaces", fieldCalls)
+	}
+	if referenceCalls != 3 {
+		t.Fatalf("reference calls = %d, want legacy + two exact generation namespaces", referenceCalls)
+	}
+}

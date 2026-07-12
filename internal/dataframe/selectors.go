@@ -40,6 +40,24 @@ func sanitizeColumnName(in string) string {
 	return b.String()
 }
 
+func isSafeAQLFieldIdentifier(in string) bool {
+	if in == "" {
+		return false
+	}
+	for index, r := range in {
+		if index == 0 {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '_' {
+				return false
+			}
+			continue
+		}
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
 func quoteKey(key string) string {
 	data, _ := json.Marshal(key)
 	return string(data)

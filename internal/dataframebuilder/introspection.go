@@ -17,30 +17,36 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	resolvedPaths, err := s.resolveAuthResourcePaths(ctx, principal, req.Project, req.AuthResourcePaths)
+	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
+		return nil, err
+	}
+	generation, err := s.resolveActiveGeneration(ctx, req.Project)
 	if err != nil {
 		return nil, err
 	}
-	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
+	scope, err := s.resolveReadScopeForGeneration(ctx, principal, req.Project, generation, req.AuthResourcePaths)
+	if err != nil {
 		return nil, err
 	}
 
 	traversals, err := s.discoverReferences(ctx, catalog.PopulatedReferenceOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           req.Project,
-		AuthResourcePaths: resolvedPaths,
-		NodeType:          req.RootResourceType,
-		Mode:              catalog.TraversalModeBuilder,
+		ConnectionOptions:             s.connOpts,
+		Project:                       req.Project,
+		DatasetGeneration:             generation,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
+		AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths),
+		NodeType:                      req.RootResourceType,
+		Mode:                          catalog.TraversalModeBuilder,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	rootHints, err := s.buildResourceHints(ctx, req.Project, resolvedPaths, req.RootResourceType, traversals, req.IncludePivotOnlyFields)
+	rootHints, err := s.buildResourceHints(ctx, req.Project, generation, scope, req.RootResourceType, traversals, req.IncludePivotOnlyFields)
 	if err != nil {
 		return nil, err
 	}
-	relatedHints, err := s.buildRelatedResourceHints(ctx, req.Project, resolvedPaths, traversals, req.IncludePivotOnlyFields)
+	relatedHints, err := s.buildRelatedResourceHints(ctx, req.Project, generation, scope, traversals, req.IncludePivotOnlyFields)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +54,7 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 	return &IntrospectionResponse{
 		Project:           req.Project,
 		RootResourceType:  req.RootResourceType,
-		AuthResourcePaths: resolvedPaths,
+		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
 		Root:              rootHints,
 		RelatedResources:  relatedHints,
 		Traversals:        rootHints.Traversals,
@@ -57,13 +63,15 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 	}, nil
 }
 
-func (s *Service) buildResourceHints(ctx context.Context, project string, authResourcePaths []string, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
+func (s *Service) buildResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
 	fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           project,
-		AuthResourcePaths: authResourcePaths,
-		ResourceType:      resourceType,
-		PivotOnly:         false,
+		ConnectionOptions:             s.connOpts,
+		Project:                       project,
+		DatasetGeneration:             datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
+		AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths),
+		ResourceType:                  resourceType,
+		PivotOnly:                     false,
 	})
 	if err != nil {
 		return ResourceHints{}, err
@@ -72,11 +80,13 @@ func (s *Service) buildResourceHints(ctx context.Context, project string, authRe
 	pivotFields := []catalog.PopulatedField{}
 	if includePivotOnlyFields {
 		pivotFields, err = s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-			ConnectionOptions: s.connOpts,
-			Project:           project,
-			AuthResourcePaths: authResourcePaths,
-			ResourceType:      resourceType,
-			PivotOnly:         true,
+			ConnectionOptions:             s.connOpts,
+			Project:                       project,
+			DatasetGeneration:             datasetGeneration,
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
+			AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths),
+			ResourceType:                  resourceType,
+			PivotOnly:                     true,
 		})
 		if err != nil {
 			return ResourceHints{}, err
@@ -91,7 +101,7 @@ func (s *Service) buildResourceHints(ctx context.Context, project string, authRe
 	}, nil
 }
 
-func (s *Service) buildRelatedResourceHints(ctx context.Context, project string, authResourcePaths []string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) ([]RelatedResourceHints, error) {
+func (s *Service) buildRelatedResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) ([]RelatedResourceHints, error) {
 	if len(traversals) == 0 {
 		return []RelatedResourceHints{}, nil
 	}
@@ -101,7 +111,7 @@ func (s *Service) buildRelatedResourceHints(ctx context.Context, project string,
 	for _, ref := range traversals {
 		target, ok := typeCache[ref.ToType]
 		if !ok {
-			hints, err := s.buildResourceHints(ctx, project, authResourcePaths, ref.ToType, nil, includePivotOnlyFields)
+			hints, err := s.buildResourceHints(ctx, project, datasetGeneration, scope, ref.ToType, nil, includePivotOnlyFields)
 			if err != nil {
 				return nil, err
 			}

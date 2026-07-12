@@ -147,6 +147,39 @@ func TestCreateImportRejectsUnsupportedMediaType(t *testing.T) {
 	}
 }
 
+func TestCreateImportIsDisabledForGenerationAwareDeployment(t *testing.T) {
+	svc, err := NewService(ServiceConfig{
+		Runner: fakeRunner{summary: ingest.LoadSummary{Files: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, DisableSingleResourceImports: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := newMultipartRequest(t, map[string]string{
+		"project":       "P1",
+		"resource_type": "Patient",
+	}, "file", "Patient.ndjson", []byte(`{"resourceType":"Patient","id":"1"}`+"\n"))
+	resp, err := server.App().Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusConflict, string(body))
+	}
+	var payload errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error.Code != "legacy_import_disabled" {
+		t.Fatalf("error payload = %#v, want legacy_import_disabled", payload)
+	}
+}
+
 func TestApolloSandboxRouteServed(t *testing.T) {
 	svc, err := NewService(ServiceConfig{
 		Runner: fakeRunner{summary: ingest.LoadSummary{Files: 1}},

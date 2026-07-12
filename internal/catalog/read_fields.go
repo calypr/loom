@@ -10,12 +10,14 @@ import (
 const populatedFieldsAQL = `
 FOR d IN fhir_field_catalog
   FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
   FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
   FILTER @resource_type == null OR d.resource_type == @resource_type
   FILTER @pivot_only == false OR d.pivot_candidate == true
   SORT d.resource_type, d.doc_count DESC, d.path
   RETURN {
     project: d.project,
+    dataset_generation: d.dataset_generation,
     auth_resource_path: d.auth_resource_path,
     resource_type: d.resource_type,
     path: d.path,
@@ -47,6 +49,7 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 	emit("go_discovery_start", map[string]any{
 		"database":            opts.Database,
 		"project":             opts.Project,
+		"dataset_generation":  DatasetGenerationBindValue(opts.DatasetGeneration),
 		"resource_type":       opts.ResourceType,
 		"pivot_only":          opts.PivotOnly,
 		"auth_resource_paths": opts.AuthResourcePaths,
@@ -54,22 +57,13 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 		"query":               "populated_fields",
 	})
 
-	bindVars := map[string]any{
-		"project":                          opts.Project,
-		"pivot_only":                       opts.PivotOnly,
-		"auth_resource_paths":              cloneStrings(opts.AuthResourcePaths),
-		"auth_resource_paths_unrestricted": len(opts.AuthResourcePaths) == 0,
-	}
-	if opts.ResourceType != "" {
-		bindVars["resource_type"] = opts.ResourceType
-	} else {
-		bindVars["resource_type"] = nil
-	}
+	bindVars := populatedFieldsBindVars(opts)
 
 	results := make([]PopulatedField, 0, 64)
 	err = client.QueryRows(ctx, populatedFieldsAQL, opts.CursorBatch, bindVars, func(row map[string]any) error {
 		results = append(results, PopulatedField{
 			Project:           stringValue(row["project"]),
+			DatasetGeneration: stringValue(row["dataset_generation"]),
 			AuthResourcePath:  stringValue(row["auth_resource_path"]),
 			ResourceType:      stringValue(row["resource_type"]),
 			Path:              stringValue(row["path"]),
@@ -94,6 +88,7 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 	emit("go_discovery_complete", map[string]any{
 		"database":            opts.Database,
 		"project":             opts.Project,
+		"dataset_generation":  DatasetGenerationBindValue(opts.DatasetGeneration),
 		"resource_type":       opts.ResourceType,
 		"pivot_only":          opts.PivotOnly,
 		"auth_resource_paths": opts.AuthResourcePaths,
@@ -101,4 +96,20 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 		"seconds":             secondsSince(start),
 	})
 	return results, nil
+}
+
+func populatedFieldsBindVars(opts PopulatedFieldOptions) map[string]any {
+	bindVars := map[string]any{
+		"project":                          opts.Project,
+		"dataset_generation":               DatasetGenerationBindValue(opts.DatasetGeneration),
+		"pivot_only":                       opts.PivotOnly,
+		"auth_resource_paths":              cloneStrings(opts.AuthResourcePaths),
+		"auth_resource_paths_unrestricted": EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted),
+	}
+	if opts.ResourceType != "" {
+		bindVars["resource_type"] = opts.ResourceType
+	} else {
+		bindVars["resource_type"] = nil
+	}
+	return bindVars
 }

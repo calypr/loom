@@ -11,58 +11,74 @@ import (
 )
 
 func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, error) {
+	prepared, _, _, err := s.prepareRunInput(ctx, input)
+	return prepared, err
+}
+
+// prepareRunInput resolves field references and returns the effective scope
+// and selected generation alongside the GraphQL-shaped input. The public
+// PrepareRunInput wrapper keeps its compatibility return type, while Run uses
+// this private form so it can carry a restricted empty scope and generation
+// into dataframe.Builder without exposing generation in GraphQL.
+func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	if input.Project == "" {
-		return input, fmt.Errorf("project is required")
+		return input, authscope.ReadScope{}, "", fmt.Errorf("project is required")
 	}
 	if input.RootResourceType == "" {
-		return input, fmt.Errorf("rootResourceType is required")
+		return input, authscope.ReadScope{}, "", fmt.Errorf("rootResourceType is required")
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	resolvedPaths, err := s.resolveAuthResourcePaths(ctx, principal, input.Project, input.AuthResourcePaths)
-	if err != nil {
-		return input, err
-	}
 	if err := authorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
-		return input, err
+		return input, authscope.ReadScope{}, "", err
+	}
+	generation, err := s.resolveActiveGeneration(ctx, input.Project)
+	if err != nil {
+		return input, authscope.ReadScope{}, "", err
+	}
+	scope, err := s.resolveReadScopeForGeneration(ctx, principal, input.Project, generation, input.AuthResourcePaths)
+	if err != nil {
+		return input, authscope.ReadScope{}, "", err
 	}
 
-	input.AuthResourcePaths = resolvedPaths
+	input.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
 	if len(input.AuthResourcePaths) == 0 {
 		input.AuthResourcePaths = nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, input.Project, input.AuthResourcePaths, input.RootResourceType, input.RootFields, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
-		return input, err
+	if err := s.resolveNodeInputRefs(ctx, input.Project, generation, scope, input.RootResourceType, input.RootFields, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
+		return input, authscope.ReadScope{}, "", err
 	}
 	for _, step := range input.Traverse {
-		if err := s.resolveTraversalInputRefs(ctx, input.Project, input.AuthResourcePaths, step); err != nil {
-			return input, err
+		if err := s.resolveTraversalInputRefs(ctx, input.Project, generation, scope, step); err != nil {
+			return input, authscope.ReadScope{}, "", err
 		}
 	}
-	return input, nil
+	return input, scope.Clone(), generation, nil
 }
 
-func (s *Service) resolveTraversalInputRefs(ctx context.Context, project string, authResourcePaths []string, step *model.FhirTraversalStepInput) error {
+func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, step *model.FhirTraversalStepInput) error {
 	if step == nil {
 		return nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, project, authResourcePaths, step.ToResourceType, step.Fields, step.Pivots, step.Aggregates, step.Slices); err != nil {
+	if err := s.resolveNodeInputRefs(ctx, project, datasetGeneration, scope, step.ToResourceType, step.Fields, step.Pivots, step.Aggregates, step.Slices); err != nil {
 		return err
 	}
 	for _, child := range step.Traverse {
-		if err := s.resolveTraversalInputRefs(ctx, project, authResourcePaths, child); err != nil {
+		if err := s.resolveTraversalInputRefs(ctx, project, datasetGeneration, scope, child); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Service) resolveNodeInputRefs(ctx context.Context, project string, authResourcePaths []string, resourceType string, fields []*model.FhirFieldSelectInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
+func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
 	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions: s.connOpts,
-		Project:           project,
-		AuthResourcePaths: authResourcePaths,
-		ResourceType:      resourceType,
+		ConnectionOptions:             s.connOpts,
+		Project:                       project,
+		DatasetGeneration:             datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
+		AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths),
+		ResourceType:                  resourceType,
 	})
 	if err != nil {
 		return err
@@ -197,18 +213,24 @@ func authorizeProject(principal *authscope.Principal, project string, ignorePrin
 	return fmt.Errorf("principal is not authorized for project %q", project)
 }
 
-func (s *Service) resolveAuthResourcePaths(ctx context.Context, principal *authscope.Principal, project string, requested []string) ([]string, error) {
+func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {
 	if s.scopeResolver != nil {
-		return s.scopeResolver.ResolveReadAuthResourcePaths(ctx, principal, project, requested)
+		return s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
 	}
 	if len(requested) == 0 {
 		if principal == nil || len(principal.AuthResourcePaths) == 0 {
-			return nil, nil
+			return authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil
 		}
-		return append([]string(nil), principal.AuthResourcePaths...), nil
+		return authscope.ReadScope{
+			AuthResourcePaths: append([]string(nil), principal.AuthResourcePaths...),
+			Mode:              authscope.ReadScopeRestricted,
+		}, nil
 	}
 	if principal == nil || len(principal.AuthResourcePaths) == 0 {
-		return append([]string(nil), requested...), nil
+		return authscope.ReadScope{
+			AuthResourcePaths: append([]string(nil), requested...),
+			Mode:              authscope.ReadScopeRestricted,
+		}, nil
 	}
 	for _, path := range requested {
 		found := false
@@ -219,10 +241,13 @@ func (s *Service) resolveAuthResourcePaths(ctx context.Context, principal *auths
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("authResourcePath %q is outside caller scope", path)
+			return authscope.ReadScope{}, fmt.Errorf("authResourcePath %q is outside caller scope", path)
 		}
 	}
-	return append([]string(nil), requested...), nil
+	return authscope.ReadScope{
+		AuthResourcePaths: append([]string(nil), requested...),
+		Mode:              authscope.ReadScopeRestricted,
+	}, nil
 }
 
 func selectorInputFromExpression(expression string) *model.FhirFieldSelectorInput {

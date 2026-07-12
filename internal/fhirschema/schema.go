@@ -80,9 +80,11 @@ type generatedDefinition struct {
 type generatedProperty struct {
 	Name           string
 	Kind           string
+	Format         string
 	Ref            string
 	Properties     []generatedProperty
 	ItemKind       string
+	ItemFormat     string
 	ItemRef        string
 	ItemProperties []generatedProperty
 }

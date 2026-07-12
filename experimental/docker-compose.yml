@@ -1,7 +1,7 @@
 services:
   arangodb:
     image: arangodb:3.12
-    container_name: github.com/calypr/loom
+    container_name: arangodb-proto
     environment:
       ARANGO_NO_AUTH: "1"
     ports:
