@@ -1,0 +1,27 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-temporal-filter",
+  "description": "Patient date filtering is type checked from generated FHIR metadata and normalized for ordered comparison",
+  "tags": ["supported", "patient", "filter", "date"],
+  "limit": 25,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Fields": [{"Name": "birth_date", "Select": "birthDate"}],
+    "Filters": [{
+      "fieldRef": "Patient.birth_date",
+      "selector": "birthDate",
+      "fieldKind": "DATE",
+      "operator": "GTE",
+      "values": [{"kind": "DATE", "date": "1980-01-01"}]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "optimizerRules": ["push_down_typed_filters"],
+    "queryContains": ["DATE_TIMESTAMP(", "DATE_TIMESTAMP(@"],
+    "bindVars": {"project": "oracle-project", "limit": 25},
+    "outputColumns": ["birth_date"]
+  }
+}

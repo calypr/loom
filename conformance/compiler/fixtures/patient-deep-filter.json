@@ -1,0 +1,37 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-deep-filter",
+  "description": "Three-hop Patient to Specimen to DocumentReference traversal with a typed child filter",
+  "tags": ["supported", "patient", "deep", "filter", "nested"],
+  "limit": 50,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Fields": [{"Name": "patient_id", "Select": "id"}],
+    "Traversals": [{
+      "Label": "subject_Patient",
+      "ToResourceType": "Specimen",
+      "Alias": "specimen",
+      "Traversals": [{
+        "Label": "subject_Specimen",
+        "ToResourceType": "DocumentReference",
+        "Alias": "file",
+        "Filters": [{
+          "fieldRef": "DocumentReference.file_name",
+          "selector": "content[].attachment.title",
+          "fieldKind": "STRING",
+          "repeated": true,
+          "quantifier": "ANY",
+          "operator": "EXISTS"
+        }],
+        "Fields": [{"Name": "file_name", "Select": "content[].attachment.title"}]
+      }]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "bindVars": {"project": "oracle-project", "limit": 50},
+    "outputColumns": ["patient_id"]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "observation-pivot-filter",
+  "description": "Observation-root pivot with a typed status filter and sparse value columns",
+  "tags": ["supported", "observation", "pivot", "filter"],
+  "limit": 100,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Observation",
+    "Fields": [{"Name": "observation_id", "Select": "id"}],
+    "Filters": [{
+      "fieldRef": "Observation.status",
+      "selector": "status",
+      "fieldKind": "STRING",
+      "operator": "EQUALS",
+      "values": [{"kind": "STRING", "string": "final"}]
+    }],
+    "Pivots": [{
+      "Name": "lab_values",
+      "ColumnSelect": "code.coding[].display",
+      "ValueSelect": "valueQuantity.value",
+      "Columns": ["Hemoglobin", "Platelet Count", "White Blood Cell Count"]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "bindVars": {"project": "oracle-project", "limit": 100},
+    "outputColumns": ["observation_id"]
+  }
+}

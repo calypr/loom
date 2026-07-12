@@ -1,0 +1,19 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-simple-projection",
+  "description": "Patient root-only projection uses the generic FHIR graph plan",
+  "tags": ["supported", "patient", "root-only"],
+  "limit": 25,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Fields": [{"Name": "gender", "Select": "gender"}]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "queryContains": ["FOR root IN @@root_collection", "root.payload.gender"],
+    "bindVars": {"project": "oracle-project", "limit": 25},
+    "outputColumns": ["gender"]
+  }
+}

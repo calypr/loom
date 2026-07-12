@@ -1,0 +1,31 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-specimen-file",
+  "description": "Patient-grain projection through specimen to DocumentReference",
+  "tags": ["supported", "patient", "specimen", "document-reference"],
+  "limit": 25,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Fields": [{"Name": "gender", "Select": "gender"}],
+    "Traversals": [{
+      "Label": "subject_Patient",
+      "ToResourceType": "Specimen",
+      "Alias": "specimen",
+      "Fields": [{"Name": "specimen_type", "Select": "type.coding[].display"}],
+      "Traversals": [{
+        "Label": "subject_Specimen",
+        "ToResourceType": "DocumentReference",
+        "Alias": "file",
+        "Fields": [{"Name": "file_name", "Select": "content[].attachment.title"}]
+      }]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "queryContains": ["FOR root IN @@root_collection", "LIMIT @limit"],
+    "bindVars": {"project": "oracle-project", "limit": 25},
+    "expectedTraversalSets": 2
+  }
+}

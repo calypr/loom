@@ -1,0 +1,23 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-sibling-targets",
+  "description": "Patient dataframe with sibling Condition, Specimen, and Observation routes sharing one edge label",
+  "tags": ["supported", "patient", "sibling", "sharing", "aggregate"],
+  "limit": 100,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Fields": [{"Name": "patient_id", "Select": "id"}],
+    "Traversals": [
+      {"Label": "subject_Patient", "ToResourceType": "Condition", "Alias": "condition", "Aggregates": [{"Name": "condition_count", "Operation": "COUNT"}]},
+      {"Label": "subject_Patient", "ToResourceType": "Specimen", "Alias": "specimen", "Aggregates": [{"Name": "specimen_count", "Operation": "COUNT"}]},
+      {"Label": "subject_Patient", "ToResourceType": "Observation", "Alias": "observation", "Aggregates": [{"Name": "observation_count", "Operation": "COUNT"}]}
+    ]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "bindVars": {"project": "oracle-project", "limit": 100},
+    "outputColumns": ["patient_id", "condition__condition_count", "specimen__specimen_count", "observation__observation_count"]
+  }
+}
