@@ -1,7 +1,6 @@
 name: Go Tests
 
 on:
-  pull_request:
   workflow_call:
 
 jobs:
