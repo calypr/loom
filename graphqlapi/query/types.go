@@ -1,4 +1,4 @@
-package dataframeapi
+package queryapi
 
 import "github.com/calypr/loom/internal/catalog"
 

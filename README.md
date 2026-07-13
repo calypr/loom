@@ -46,7 +46,8 @@ directory contains the local Arango compose setup.
 - [`internal/dataset`](internal/dataset): dataset generation, schema, and scope lifecycle contract
 - [`internal/dataset/arango`](internal/dataset/arango): Arango-backed immutable manifest and active-generation pointer store
 - [`graphqlapi`](graphqlapi): GraphQL schema, request mapping, introspection service, and gqlgen output
-- [`graphqlapi/dataframe`](graphqlapi/dataframe): GraphQL dataframe input translation and builder introspection
+- [`graphqlapi/query`](graphqlapi/query): GraphQL dataframe input translation, discovery, and builder introspection
+- [`graphqlapi/materialization`](graphqlapi/materialization): GraphQL authorization and reads for published ClickHouse dataframes
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
 - [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
 - [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
@@ -233,4 +234,4 @@ What is current and real:
 - GraphQL introspection for populated traversals/fields/pivots
 - GraphQL dataframe execution on Arango
 - generated schema metadata in `fhirschema`
-- derived field aliases in `graphqlapi/dataframe` and explicit lowering rules in `internal/dataframe`
+- derived field aliases in `graphqlapi/query` and explicit lowering rules in `internal/dataframe`

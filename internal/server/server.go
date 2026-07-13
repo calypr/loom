@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"github.com/calypr/loom/graphqlapi"
-	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
+	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe"
@@ -54,7 +54,7 @@ func Run() {
 	}
 
 	// Keep this as an interface, not a typed *datasetarango.Store nil. Passing a
-	// typed nil into dataframeapi.Config makes the interface non-nil and
+	// typed nil into queryapi.Config makes the interface non-nil and
 	// incorrectly activates immutable-generation lookup for legacy META loads.
 	var activeManifestResolver dataset.ActiveManifestResolver
 	if *datasetGenerations {
@@ -111,17 +111,17 @@ func Run() {
 		exitf("create ClickHouse client: %v", err)
 	}
 	defer clickhouse.Close()
-	materializer := &materialization.Service{Dataframes: dataframes, ClickHouse: clickhouse, Registry: registry}
 	materializationReader := &materialization.Reader{ClickHouse: clickhouse, Registry: registry, MaxPage: 1000}
-	resolver := graphqlapi.NewResolver(dataframeapi.Config{
-		ConnectionOptions:      connOpts,
-		DiscoverReferences:     discoverReferences,
-		DiscoverFields:         discoverFields,
-		Dataframes:             dataframes,
-		ScopeResolver:          scopeResolver,
-		ActiveManifestResolver: activeManifestResolver,
-		Materializations:       materializer,
-		MaterializationReader:  materializationReader,
+	resolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
+		DataframeQuery: queryapi.Config{
+			ConnectionOptions:      connOpts,
+			DiscoverReferences:     discoverReferences,
+			DiscoverFields:         discoverFields,
+			Dataframes:             dataframes,
+			ScopeResolver:          scopeResolver,
+			ActiveManifestResolver: activeManifestResolver,
+		},
+		MaterializationReader: materializationReader,
 	})
 
 	importService, err := api.NewService(api.ServiceConfig{

@@ -8,13 +8,14 @@ import (
 	"context"
 	"encoding/json"
 
-	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
+	materializationapi "github.com/calypr/loom/graphqlapi/materialization"
 	"github.com/calypr/loom/graphqlapi/model"
+	queryapi "github.com/calypr/loom/graphqlapi/query"
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
 func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
-	result, err := r.service.Run(ctx, input, limit)
+	result, err := r.query.Run(ctx, input, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +33,7 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 	if input.IncludePivotOnlyFields != nil {
 		includePivotOnlyFields = *input.IncludePivotOnlyFields
 	}
-	resp, err := r.service.Introspect(ctx, dataframeapi.IntrospectionRequest{
+	resp, err := r.query.Introspect(ctx, queryapi.IntrospectionRequest{
 		Project:                input.Project,
 		RootResourceType:       input.RootResourceType,
 		AuthResourcePaths:      input.AuthResourcePaths,
@@ -55,16 +56,16 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 
 // DataframeMaterialization is the resolver for the dataframeMaterialization field.
 func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
-	value, err := r.service.GetMaterialization(ctx, id)
+	value, err := r.materializations.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return materializationModel(*value), nil
+	return materializationapi.Model(*value), nil
 }
 
 // DataframeRows is the resolver for the dataframeRows field.
 func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
-	page, err := r.service.ReadMaterialization(ctx, input)
+	page, err := r.materializations.Rows(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +78,7 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 		cursor = &page.NextCursor
 	}
 	return &model.DataframeRowConnection{
-		Materialization: materializationModel(page.Materialization),
+		Materialization: materializationapi.Model(page.Materialization),
 		Columns:         append([]string(nil), page.Columns...), Rows: rows,
 		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
 	}, nil
@@ -90,11 +91,11 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 	if input.Column != nil {
 		column = *input.Column
 	}
-	result, err := r.service.AggregateMaterialization(ctx, input.MaterializationID, groupBy, input.Filters, input.Operation, column)
+	result, err := r.materializations.Aggregate(ctx, input.MaterializationID, groupBy, input.Filters, input.Operation, column)
 	if err != nil {
 		return nil, err
 	}
-	return &model.DataframeAggregateResult{Materialization: materializationModel(result.Materialization), Columns: result.Columns, Rows: aggregateRows(result.Rows)}, nil
+	return &model.DataframeAggregateResult{Materialization: materializationapi.Model(result.Materialization), Columns: result.Columns, Rows: materializationapi.AggregateRows(result.Rows)}, nil
 }
 
 // Mutation returns MutationResolver implementation.

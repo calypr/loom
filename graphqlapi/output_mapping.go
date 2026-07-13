@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
 	"github.com/calypr/loom/graphqlapi/model"
+	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/catalog"
 )
 
@@ -25,7 +25,7 @@ func traversalHints(in []catalog.PopulatedReference) []*model.DataframeTraversal
 	return out
 }
 
-func fieldHints(in []dataframeapi.FieldHint) []*model.DataframeFieldHint {
+func fieldHints(in []queryapi.FieldHint) []*model.DataframeFieldHint {
 	if len(in) == 0 {
 		return []*model.DataframeFieldHint{}
 	}
@@ -78,7 +78,7 @@ func fieldHints(in []dataframeapi.FieldHint) []*model.DataframeFieldHint {
 	return out
 }
 
-func resourceHints(in dataframeapi.ResourceHints) *model.DataframeResourceHints {
+func resourceHints(in queryapi.ResourceHints) *model.DataframeResourceHints {
 	return &model.DataframeResourceHints{
 		ResourceType: in.ResourceType,
 		Fields:       fieldHints(in.Fields),
@@ -87,7 +87,7 @@ func resourceHints(in dataframeapi.ResourceHints) *model.DataframeResourceHints 
 	}
 }
 
-func relatedResourceHints(in []dataframeapi.RelatedResourceHints) []*model.DataframeRelatedResourceHints {
+func relatedResourceHints(in []queryapi.RelatedResourceHints) []*model.DataframeRelatedResourceHints {
 	if len(in) == 0 {
 		return []*model.DataframeRelatedResourceHints{}
 	}
@@ -106,7 +106,7 @@ func selectorModelFromExpression(expression string) *model.DataframeFieldSelecto
 	if strings.TrimSpace(expression) == "" {
 		return nil
 	}
-	parts := dataframeapi.DecomposeSelector(expression)
+	parts := queryapi.DecomposeSelector(expression)
 
 	var predicate *model.DataframeFieldPredicate
 	if parts.Where != nil {

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	compilerfixture "github.com/calypr/loom/conformance/compiler"
-	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
 	"github.com/calypr/loom/graphqlapi/model"
+	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/dataframe"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -95,7 +95,7 @@ func main() {
 		if payload.Input.Project == "" || payload.Input.RootResourceType == "" {
 			fatalf("GraphQL variables %q do not contain a complete input", *variables)
 		}
-		builder = dataframeapi.BuilderFromInput(payload.Input)
+		builder = queryapi.BuilderFromInput(payload.Input)
 		label = filepath.Base(*variables)
 	} else {
 		fixtures, err := compilerfixture.LoadDir(*fixtureDir)

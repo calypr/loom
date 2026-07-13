@@ -20,8 +20,13 @@ env:
   IMAGE: quay.io/ohsu-comp-bio/arango-fhir-proto
 
 jobs:
+  tests:
+    name: Verify Loom before publishing
+    uses: ./.github/workflows/tests.yaml
+
   build-and-push:
     name: Build ${{ matrix.arch }} image
+    needs: tests
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     strategy:
       fail-fast: false

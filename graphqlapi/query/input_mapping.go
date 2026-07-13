@@ -1,4 +1,4 @@
-package dataframeapi
+package queryapi
 
 import (
 	"strings"

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/graphqlapi"
+	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe"
@@ -19,42 +20,44 @@ import (
 
 func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
-		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			return []catalog.PopulatedReference{
-				{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
-			}, nil
-		},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			if opts.PivotOnly {
+		DataframeQuery: queryapi.Config{
+			ConnectionOptions: arangostore.ConnectionOptions{},
+			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+				return []catalog.PopulatedReference{
+					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
+				}, nil
+			},
+			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+				if opts.PivotOnly {
+					return []catalog.PopulatedField{
+						{
+							ResourceType:      "Patient",
+							Path:              "valueCodeableConcept",
+							Kind:              "codeable_concept",
+							DocCount:          3,
+							SampleCount:       1,
+							PivotCandidate:    true,
+							PivotKind:         "codeable_concept_display_value",
+							PivotColumns:      []string{"Stage IVA"},
+							DistinctValues:    []string{"M0"},
+							DistinctTruncated: false,
+						},
+					}, nil
+				}
 				return []catalog.PopulatedField{
 					{
 						ResourceType:      "Patient",
-						Path:              "valueCodeableConcept",
-						Kind:              "codeable_concept",
-						DocCount:          3,
+						Path:              "identifier[].value",
+						Kind:              "scalar",
+						DocCount:          5,
 						SampleCount:       1,
-						PivotCandidate:    true,
-						PivotKind:         "codeable_concept_display_value",
-						PivotColumns:      []string{"Stage IVA"},
-						DistinctValues:    []string{"M0"},
+						DistinctValues:    []string{"TCGA-01"},
 						DistinctTruncated: false,
+						PivotCandidate:    false,
+						PivotColumns:      []string{},
 					},
 				}, nil
-			}
-			return []catalog.PopulatedField{
-				{
-					ResourceType:      "Patient",
-					Path:              "identifier[].value",
-					Kind:              "scalar",
-					DocCount:          5,
-					SampleCount:       1,
-					DistinctValues:    []string{"TCGA-01"},
-					DistinctTruncated: false,
-					PivotCandidate:    false,
-					PivotColumns:      []string{},
-				},
-			}, nil
+			},
 		},
 	})
 	svc, err := api.NewService(api.ServiceConfig{
@@ -221,36 +224,38 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		},
 	})
 	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			switch opts.ResourceType {
-			case "Patient":
-				return []catalog.PopulatedField{
-					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
-					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
-				}, nil
-			case "Condition":
-				return []catalog.PopulatedField{
-					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
-				}, nil
-			case "Specimen":
-				return []catalog.PopulatedField{
-					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
-				}, nil
-			default:
-				return []catalog.PopulatedField{}, nil
-			}
+		DataframeQuery: queryapi.Config{
+			ConnectionOptions: arangostore.ConnectionOptions{},
+			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+				switch opts.ResourceType {
+				case "Patient":
+					return []catalog.PopulatedField{
+						{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
+						{ResourceType: "Patient", Path: "id", Kind: "scalar"},
+					}, nil
+				case "Condition":
+					return []catalog.PopulatedField{
+						{ResourceType: "Condition", Path: "id", Kind: "scalar"},
+					}, nil
+				case "Specimen":
+					return []catalog.PopulatedField{
+						{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
+					}, nil
+				default:
+					return []catalog.PopulatedField{}, nil
+				}
+			},
+			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+				if opts.NodeType == "Patient" {
+					return []catalog.PopulatedReference{
+						{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
+						{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
+					}, nil
+				}
+				return []catalog.PopulatedReference{}, nil
+			},
+			Dataframes: dfService,
 		},
-		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			if opts.NodeType == "Patient" {
-				return []catalog.PopulatedReference{
-					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
-					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
-				}, nil
-			}
-			return []catalog.PopulatedReference{}, nil
-		},
-		Dataframes: dfService,
 	})
 	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
@@ -355,39 +360,41 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		},
 	})
 	graphResolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			switch opts.ResourceType {
-			case "Patient":
-				return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
-			case "Specimen":
-				return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
-			case "Condition":
-				return []catalog.PopulatedField{{ResourceType: "Condition", Path: "id", Kind: "scalar"}}, nil
-			default:
-				return []catalog.PopulatedField{}, nil
-			}
+		DataframeQuery: queryapi.Config{
+			ConnectionOptions: arangostore.ConnectionOptions{},
+			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+				switch opts.ResourceType {
+				case "Patient":
+					return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+				case "Specimen":
+					return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
+				case "Condition":
+					return []catalog.PopulatedField{{ResourceType: "Condition", Path: "id", Kind: "scalar"}}, nil
+				default:
+					return []catalog.PopulatedField{}, nil
+				}
+			},
+			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+				if opts.NodeType == "Patient" {
+					return []catalog.PopulatedReference{
+						{
+							FromType:  "Patient",
+							Label:     "subject_Patient",
+							ToType:    "Specimen",
+							EdgeCount: 2,
+						},
+						{
+							FromType:  "Patient",
+							Label:     "subject_Patient",
+							ToType:    "Condition",
+							EdgeCount: 1,
+						},
+					}, nil
+				}
+				return []catalog.PopulatedReference{}, nil
+			},
+			Dataframes: dfService,
 		},
-		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			if opts.NodeType == "Patient" {
-				return []catalog.PopulatedReference{
-					{
-						FromType:  "Patient",
-						Label:     "subject_Patient",
-						ToType:    "Specimen",
-						EdgeCount: 2,
-					},
-					{
-						FromType:  "Patient",
-						Label:     "subject_Patient",
-						ToType:    "Condition",
-						EdgeCount: 1,
-					},
-				}, nil
-			}
-			return []catalog.PopulatedReference{}, nil
-		},
-		Dataframes: dfService,
 	})
 	svc, err := api.NewService(api.ServiceConfig{
 		Runner: fakeRunner{},
