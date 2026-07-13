@@ -17,7 +17,7 @@ import (
 )
 
 func BenchmarkValidateAndExtract(b *testing.B) {
-	schemaPath := benchRepoPath(b, "..", "iceberg", "schemas", "graph", "graph-fhir.json")
+	schemaPath := benchRepoPath(b, "schemas", "graph-fhir.json")
 	schema, err := graph.Load(schemaPath)
 	if err != nil {
 		b.Fatalf("failed to load schema: %v", err)

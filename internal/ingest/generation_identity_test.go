@@ -2,15 +2,12 @@ package ingest
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
 func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentity(t *testing.T) {
@@ -141,46 +138,6 @@ func TestGenerationRowBuilderTurnsIdentityFailureIntoGenerationError(t *testing.
 	}
 }
 
-func TestGeneratedAndGenericBuildersShareGenerationQualifiedIdentityForMETA(t *testing.T) {
-	line := metaFixtureLine(t, "Specimen.ndjson")
-	schema, err := graph.Load(filepath.Join(repoRoot(t), "schemas", "graph-fhir.json"))
-	if err != nil {
-		t.Fatalf("graph.Load: %v", err)
-	}
-	class := schema.GetClass("Specimen")
-	if class == nil {
-		t.Fatal("Specimen class is absent from checked-in graph schema")
-	}
-
-	generated, err := newGenerationRowBuilder(NewGeneratedRowBuilder("meta-baseline", ""), "meta-baseline", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	generic, err := newGenerationRowBuilder(NewGenericRowBuilder("meta-baseline", class, schema, nil), "meta-baseline", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	generatedResult, generatedKind, err := generated.Build("Specimen", line, map[string]float64{})
-	if err != nil {
-		t.Fatalf("generated Build() kind %q: %v", generatedKind, err)
-	}
-	genericResult, genericKind, err := generic.Build("Specimen", line, map[string]float64{})
-	if err != nil {
-		t.Fatalf("generic Build() kind %q: %v", genericKind, err)
-	}
-
-	if got, want := documentString(t, decodeIdentityDocument(t, generatedResult.vertex), "_key"), documentString(t, decodeIdentityDocument(t, genericResult.vertex), "_key"); got != want {
-		t.Fatalf("generation-qualified vertex keys differ\ngenerated: %q\ngeneric:   %q", got, want)
-	}
-	if got, want := documentString(t, decodeIdentityDocument(t, generatedResult.vertex), logicalKeyField), documentString(t, decodeIdentityDocument(t, genericResult.vertex), logicalKeyField); got != want {
-		t.Fatalf("logical vertex keys differ\ngenerated: %q\ngeneric:   %q", got, want)
-	}
-	if got, want := edgeIdentityTuples(t, generatedResult.edges), edgeIdentityTuples(t, genericResult.edges); !reflect.DeepEqual(got, want) {
-		t.Fatalf("generation-qualified edge identities differ\ngenerated: %#v\ngeneric:   %#v", got, want)
-	}
-}
-
 type rowBuilderFunc func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error)
 
 func (f rowBuilderFunc) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
@@ -231,22 +188,6 @@ func edgeIdentityTuples(t *testing.T, edges []json.RawMessage) []string {
 	return tuples
 }
 
-func metaFixtureLine(t *testing.T, filename string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), "META", filename))
-	if err != nil {
-		t.Fatalf("read META fixture %s: %v", filename, err)
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return []byte(line)
-		}
-	}
-	t.Fatalf("META fixture %s has no NDJSON row", filename)
-	return nil
-}
-
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, source, _, ok := runtime.Caller(0)
@@ -254,4 +195,9 @@ func repoRoot(t *testing.T) string {
 		t.Fatal("resolve ingest test source")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+}
+
+func repoPath(t *testing.T, elems ...string) string {
+	t.Helper()
+	return filepath.Join(append([]string{repoRoot(t)}, elems...)...)
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	}
 	expectedVertices := 0
 	expectedEdges := 0
-	schema, err := graph.Load(repoPath(t, "..", "iceberg", "schemas", "graph", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load graph schema: %v", err)
 	}
@@ -66,7 +65,7 @@ func TestLoadAndQueryFixture(t *testing.T) {
 					URL:      "http://127.0.0.1:8529",
 					Database: database,
 				},
-				Schema:        repoPath(t, "..", "iceberg", "schemas", "graph", "graph-fhir.json"),
+				Schema:        repoPath(t, "schemas", "graph-fhir.json"),
 				MetaDir:       fixtureDir,
 				Project:       "ARANGO_PROTO_TEST",
 				BatchSize:     100,
@@ -131,11 +130,4 @@ func copyFirstLineFixture(t *testing.T, src, dst string) map[string]any {
 		t.Fatalf("decode fixture %s: %v", src, err)
 	}
 	return payload
-}
-
-func repoPath(t *testing.T, elems ...string) string {
-	t.Helper()
-	_, file, _, _ := runtime.Caller(0)
-	base := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	return filepath.Join(append([]string{base}, elems...)...)
 }
