@@ -71,6 +71,12 @@ make generate-graphql
 make build
 ```
 
+The repository root is also the server command, so a plain build works:
+
+```bash
+go build .
+```
+
 Load the bundled sample dataset:
 
 ```bash
