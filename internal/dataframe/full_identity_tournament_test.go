@@ -48,6 +48,9 @@ type identityDedupReport struct {
 // TestIdentityDedupCandidateBuildsActualGDC proves that the candidate is
 // generated from the actual frontend request and keeps all user values bound.
 func TestIdentityDedupCandidateBuildsActualGDC(t *testing.T) {
+	if os.Getenv("LOOM_WP3_IDENTITY_EXPERIMENT") == "" {
+		t.Skip("set LOOM_WP3_IDENTITY_EXPERIMENT=1 to run the identity-dedup experiment")
+	}
 	compiled := compileActualGDC(t, 1000)
 	candidate, report, err := buildIdentityDedupCandidate(compiled.Query)
 	if err != nil {

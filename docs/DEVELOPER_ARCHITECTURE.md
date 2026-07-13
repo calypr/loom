@@ -58,15 +58,19 @@ The current runtime call path is:
 GraphQL request
   -> graphqlapi resolver
   -> dataframebuilder.Service
-  -> dataframe.Service
-  -> semantic validation and lowering
+  -> dataframe compatibility façade
+  -> dataframe/runtime.Service
+  -> dataframe/compiler semantic validation and lowering
   -> lowered AQL compiler
   -> Arango query execution/streaming
 ```
 
-`internal/dataframe` owns semantics, authorization-aware query compilation,
-and execution. `internal/catalog` owns scoped observed-field and relationship
-facts. `fhirschema` owns generated structural metadata. These
+`internal/dataframe` is now a compatibility façade. Runtime preparation and
+execution live in `internal/dataframe/runtime`; pure semantic/physical
+compilation lives in `internal/dataframe/compiler`; structured transport
+errors live in `internal/dataframe/errors`; and guided templates live in
+`internal/dataframe/template`. `internal/catalog` owns scoped observed-field
+and relationship facts. `fhirschema` owns generated structural metadata. These
 boundaries matter: catalog observations constrain what is populated, while
 schema metadata constrains what a request means.
 
@@ -77,11 +81,14 @@ layout, plus the explicitly proven `ResearchSubject --study--> ResearchStudy`
 sufficient proof; every other forward route remains rejected until it has a
 verified storage contract.
 
-`internal/dataframe/physical_plan.go` and its renderer are a typed diagnostic
-and optimization foundation. They are not yet the execution renderer for all
-selections, filters, aggregates, pivots, and required relationships. Keep them
-as new compiler work rather than treating their current limited runtime
-reachability as dead code.
+The compiler package contains the typed physical plan, lowering, optimizer,
+renderer, and compiler diagnostics. Runtime code may call the compiler, but the
+compiler must never import runtime, catalog, or HTTP/GraphQL transport code.
+The root dataframe import path remains stable through aliases and forwarding
+functions so external callers do not need a flag-day migration.
+
+For the complete ownership map and move history, see
+[`DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md`](DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md).
 
 ## Compatibility tracks and removal order
 
