@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: quay.io/ohsu-comp-bio/arango-fhir-proto
+  IMAGE: quay.io/ohsu-comp-bio/loom
 
 jobs:
   tests:
