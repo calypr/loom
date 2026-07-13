@@ -6,8 +6,9 @@ require (
 	github.com/99designs/gqlgen v0.17.66
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/arangodb/go-driver/v2 v2.3.1
-	github.com/bmeg/jsonschema/v6 v6.0.4
-	github.com/bmeg/jsonschemagraph v0.0.4-0.20250828230703-257ca9afd85a
+	github.com/bmeg/grip v0.0.0-20250915204302-93cb1e8117c8
+	github.com/bmeg/jsonschema/v6 v6.0.5
+	github.com/bmeg/jsonschemagraph v0.0.4
 	github.com/bytedance/sonic v1.15.2
 	github.com/gofiber/fiber/v3 v3.3.0
 	github.com/google/uuid v1.6.0
@@ -19,7 +20,6 @@ require (
 	github.com/agnivade/levenshtein v1.2.0 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/arangodb/go-velocypack v0.0.0-20200318135517-5af53c29c67e // indirect
-	github.com/bmeg/grip v0.0.0-20250915204302-93cb1e8117c8 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -64,7 +64,6 @@ require (
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
@@ -72,7 +71,3 @@ require (
 	google.golang.org/grpc v1.71.0 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
 )
-
-replace github.com/bmeg/jsonschemagraph => /Users/peterkor/Desktop/BMEG/jsonschemagraph
-
-replace github.com/bmeg/jsonschema/v6 => /Users/peterkor/Desktop/BMEG/jsonschema

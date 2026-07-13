@@ -2,10 +2,8 @@ package ingest
 
 import (
 	"encoding/json"
-	"maps"
 	"time"
 
-	"github.com/bmeg/grip/gripql"
 	"github.com/bmeg/jsonschema/v6"
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
@@ -112,7 +110,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	stageSeconds["decode"] += time.Since(decodeStart).Seconds()
 
 	validateStart := time.Now()
-	if err := b.class.Validate(payload); err != nil {
+	if err := b.class.ValidateFast(payload); err != nil {
 		stageSeconds["validate"] += time.Since(validateStart).Seconds()
 		return rowBuildResult{}, rowErrorValidation, err
 	}
@@ -126,22 +124,18 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	}
 
 	edgeStart := time.Now()
-	// Generate is the public jsonschemagraph API. The repository's historical
-	// BuildEdgesWithID helper is not part of the published module, so select the
-	// edge elements from Generate while preserving the same edge conversion and
-	// authorization propagation below.
-	elements, err := b.schema.Generate(resourceType, payload, maps.Clone(b.extraArgs))
+	objectIDStart := time.Now()
+	objectID, err := graphObjectID(payload, b.class)
+	stageSeconds["object_id"] += time.Since(objectIDStart).Seconds()
+	if err != nil {
+		return rowBuildResult{}, rowErrorGeneration, err
+	}
+	gripEdges, err := b.schema.BuildEdgesWithID(resourceType, objectID, payload, b.extraArgs, true)
 	stageSeconds["edge_generation"] += time.Since(edgeStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorGeneration, err
 	}
 
-	gripEdges := make([]*gripql.Edge, 0, len(elements))
-	for _, element := range elements {
-		if element != nil && element.Edge != nil {
-			gripEdges = append(gripEdges, element.Edge)
-		}
-	}
 	convertedEdges := make([]json.RawMessage, 0, len(gripEdges))
 	authResourcePath, _ := b.extraArgs["auth_resource_path"].(string)
 	for _, generatedEdge := range gripEdges {

@@ -7,14 +7,8 @@ ENV CGO_ENABLED=0
 WORKDIR /src
 
 COPY go.mod go.sum ./
-# Local development may replace these modules with sibling checkouts. The
-# server image uses the published module graph; ingest's generic path is kept
-# on the published APIs so this image is reproducible from this repository
-# alone.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go mod edit -dropreplace=github.com/bmeg/jsonschema/v6 \
-      -dropreplace=github.com/bmeg/jsonschemagraph && \
     go mod download
 
 COPY cmd ./cmd
