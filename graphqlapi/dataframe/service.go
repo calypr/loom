@@ -13,12 +13,14 @@ import (
 )
 
 type Service struct {
-	connOpts               arangostore.ConnectionOptions
-	discoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	dataframes             *dataframe.Service
-	scopeResolver          *authscope.ScopeResolver
-	activeManifestResolver dataset.ActiveManifestResolver
+	connOpts                arangostore.ConnectionOptions
+	discoverReferences      func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	discoverFields          func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	dataframes              *dataframe.Service
+	scopeResolver           *authscope.ScopeResolver
+	activeManifestResolver  dataset.ActiveManifestResolver
+	discoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
+	datasetProjectAllowlist []string
 }
 
 type Config struct {
@@ -31,13 +33,24 @@ type Config struct {
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
 	ActiveManifestResolver dataset.ActiveManifestResolver
+	// DatasetProjectAllowlist is the explicit project source used when a
+	// principal does not carry a project list. An empty value never triggers an
+	// unrestricted catalog scan.
+	DatasetProjectAllowlist []string
+	DiscoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
 }
 
 func NewService(cfg Config) *Service {
 	service := &Service{
-		connOpts:               cfg.ConnectionOptions,
-		scopeResolver:          cfg.ScopeResolver,
-		activeManifestResolver: cfg.ActiveManifestResolver,
+		connOpts:                cfg.ConnectionOptions,
+		scopeResolver:           cfg.ScopeResolver,
+		activeManifestResolver:  cfg.ActiveManifestResolver,
+		datasetProjectAllowlist: cloneStrings(cfg.DatasetProjectAllowlist),
+	}
+	if cfg.DiscoverDatasets != nil {
+		service.discoverDatasets = cfg.DiscoverDatasets
+	} else {
+		service.discoverDatasets = catalog.DiscoverDatasetSummaries
 	}
 	if cfg.DiscoverReferences != nil {
 		service.discoverReferences = cfg.DiscoverReferences

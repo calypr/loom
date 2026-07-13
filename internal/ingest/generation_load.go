@@ -175,6 +175,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	manifest = loadingManifest
 
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
+	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	for _, file := range files {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -209,6 +210,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		for name, seconds := range result.StageSeconds {
 			summary.StageSeconds[name] += seconds
 		}
+		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
 		key := generationCatalogKey{
 			project:           opts.Project,
@@ -278,6 +280,17 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return summary, err
 		}
 	}
+	if err = catalog.WriteRelationshipCatalog(
+		ctx,
+		client,
+		catalog.RelationshipCatalogDocuments(relationshipCounts),
+		opts.BatchSize,
+		false,
+		opts.WriteAPI,
+		summary.StageSeconds,
+	); err != nil {
+		return summary, err
+	}
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
@@ -332,24 +345,26 @@ func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*catalog.Prof
 }
 
 type generationFileResult struct {
-	ResourceType     string
-	Rows             int
-	VerticesBuilt    int
-	EdgesBuilt       int
-	VerticesInserted int
-	EdgesInserted    int
-	ValidationErrors int
-	GenerationErrors int
-	EdgeErrors       int
-	VertexBatches    int
-	EdgeBatches      int
-	StageSeconds     map[string]float64
-	Catalog          *catalog.Profiler
+	ResourceType       string
+	Rows               int
+	VerticesBuilt      int
+	EdgesBuilt         int
+	VerticesInserted   int
+	EdgesInserted      int
+	ValidationErrors   int
+	GenerationErrors   int
+	EdgeErrors         int
+	VertexBatches      int
+	EdgeBatches        int
+	StageSeconds       map[string]float64
+	Catalog            *catalog.Profiler
+	RelationshipCounts map[catalog.RelationshipKey]int64
 }
 
 type generationWriteTask struct {
-	collection string
-	docs       []json.RawMessage
+	collection         string
+	docs               []json.RawMessage
+	relationshipCounts map[catalog.RelationshipKey]int64
 }
 
 // loadGenerationFile owns one scanner and closes it with a defer before it
@@ -478,9 +493,14 @@ func loadGenerationFile(
 				if len(edgeBatch) == 0 {
 					return true
 				}
+				relationshipCounts, countErr := catalog.RelationshipCountsFromRawEdges(edgeBatch)
+				if countErr != nil {
+					setPipelineErr(countErr)
+					return false
+				}
 				waitStart := time.Now()
 				select {
-				case writeChan <- generationWriteTask{collection: EdgeCollection, docs: edgeBatch}:
+				case writeChan <- generationWriteTask{collection: EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
 					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
 					localTimings["edge_batches"]++
 					edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -568,12 +588,17 @@ func loadGenerationFile(
 	}()
 
 	var writersWG sync.WaitGroup
-	writerTimingsChan := make(chan map[string]float64, opts.WriterCount)
+	type writerResult struct {
+		timings            map[string]float64
+		relationshipCounts map[catalog.RelationshipKey]int64
+	}
+	writerTimingsChan := make(chan writerResult, opts.WriterCount)
 	for writer := 0; writer < opts.WriterCount; writer++ {
 		writersWG.Add(1)
 		go func() {
 			defer writersWG.Done()
 			localTimings := make(map[string]float64)
+			localRelationships := make(map[catalog.RelationshipKey]int64)
 			for {
 				select {
 				case <-fileCtx.Done():
@@ -581,7 +606,7 @@ func loadGenerationFile(
 				case task, open := <-writeChan:
 					if !open {
 						select {
-						case writerTimingsChan <- localTimings:
+						case writerTimingsChan <- writerResult{timings: localTimings, relationshipCounts: localRelationships}:
 						case <-ctx.Done():
 						}
 						return
@@ -597,6 +622,7 @@ func loadGenerationFile(
 					if task.collection == EdgeCollection {
 						localTimings["edge_insert"] += elapsed
 						atomic.AddInt64(&edgesInserted, int64(len(task.docs)))
+						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 					} else {
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
@@ -630,6 +656,7 @@ func loadGenerationFile(
 	result.GenerationErrors = int(atomic.LoadInt64(&generationErrors))
 	result.EdgeErrors = int(atomic.LoadInt64(&edgeErrors))
 	result.StageSeconds = make(map[string]float64)
+	result.RelationshipCounts = make(map[catalog.RelationshipKey]int64)
 	mergedCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, catalog.NewShapePlanCache())
 	for timings := range workerTimingsChan {
 		for key, value := range timings {
@@ -648,10 +675,11 @@ func loadGenerationFile(
 			return result, fmt.Errorf("merge worker field catalog for %s: %w", resourceType, mergeErr)
 		}
 	}
-	for timings := range writerTimingsChan {
-		for key, value := range timings {
+	for writerResult := range writerTimingsChan {
+		for key, value := range writerResult.timings {
 			result.StageSeconds[key] += value
 		}
+		catalog.MergeRelationshipCounts(result.RelationshipCounts, writerResult.relationshipCounts)
 	}
 	result.Catalog = mergedCatalog
 	return result, nil

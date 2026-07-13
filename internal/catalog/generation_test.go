@@ -22,6 +22,16 @@ func TestCatalogGenerationBindsUseExactOrLegacyNullNamespace(t *testing.T) {
 	if got := references["dataset_generation"]; got != "generation-a" {
 		t.Fatalf("reference dataset_generation bind = %#v, want generation-a", got)
 	}
+	builderReferences := populatedReferencesBindVars(PopulatedReferenceOptions{
+		Project:  "P1",
+		NodeType: "Patient",
+	}, TraversalModeBuilder)
+	if _, ok := builderReferences["from_type"]; ok {
+		t.Fatalf("builder reference binds retained storage-only from_type: %#v", builderReferences)
+	}
+	if _, ok := builderReferences["mode"]; ok {
+		t.Fatalf("reference binds retained obsolete mode parameter: %#v", builderReferences)
+	}
 
 	legacyFields := populatedFieldsBindVars(PopulatedFieldOptions{Project: "P1"})
 	if got, present := legacyFields["dataset_generation"]; !present || got != nil {
@@ -32,13 +42,16 @@ func TestCatalogGenerationBindsUseExactOrLegacyNullNamespace(t *testing.T) {
 		t.Fatalf("legacy reference dataset_generation bind = %#v (present=%t), want explicit nil", got, present)
 	}
 
-	for name, query := range map[string]string{
-		"fields":     populatedFieldsAQL,
-		"references": populatedReferencesAQL,
-		"auth paths": existingAuthResourcePathsAQL,
+	for name, query := range map[string]struct {
+		query  string
+		prefix string
+	}{
+		"fields":     {query: populatedFieldsAQL, prefix: "d"},
+		"references": {query: relationshipCatalogBuilderAQL, prefix: "d"},
+		"auth paths": {query: existingAuthResourcePathsAQL, prefix: "d"},
 	} {
-		if !strings.Contains(query, "FILTER "+map[string]string{"fields": "d", "references": "e", "auth paths": "d"}[name]+".dataset_generation == @dataset_generation") {
-			t.Fatalf("%s query is missing exact dataset-generation predicate:\n%s", name, query)
+		if !strings.Contains(query.query, "FILTER "+query.prefix+".dataset_generation == @dataset_generation") {
+			t.Fatalf("%s query is missing exact dataset-generation predicate:\n%s", name, query.query)
 		}
 	}
 }

@@ -98,8 +98,13 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 	setTwo := strings.Index(rendered.Query, "\n  LET __loom_physical_set_2 = (")
 	parentLoop := strings.Index(rendered.Query, "\n    FOR __loom_physical_parent_2 IN __loom_physical_set_1")
 	secondTraversal := strings.Index(rendered.Query, "\n      FOR node_2, edge_2 IN 1..1 INBOUND __loom_physical_parent_2 @@traversal_2_edge_collection")
+	secondEndpoint := strings.Index(rendered.Query, "\n      FOR edge_2 IN @@traversal_2_edge_collection")
 	outerReturn := strings.LastIndex(rendered.Query, "\nRETURN { [@__loom_physical_projection_0_name]: root._key }")
-	if setOne < 0 || firstTraversal < setOne || setTwo < firstTraversal || parentLoop < setTwo || secondTraversal < parentLoop || outerReturn < secondTraversal {
+	secondTraversalEnd := secondTraversal
+	if secondTraversalEnd < 0 {
+		secondTraversalEnd = secondEndpoint
+	}
+	if setOne < 0 || firstTraversal < setOne || setTwo < firstTraversal || parentLoop < setTwo || secondTraversalEnd < parentLoop || outerReturn < secondTraversalEnd {
 		t.Fatalf("nested traversal sets did not preserve outer root shape:\n%s", rendered.Query)
 	}
 	if strings.Contains(rendered.Query, "\nFOR node_1") || strings.Contains(rendered.Query, "\nFOR node_2") {
@@ -142,6 +147,17 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 	}
 	if got := plan.BindVars["auth_resource_paths"].([]string)[0]; got != "/programs/p1" {
 		t.Fatalf("runtime bind slice mutated plan: %#v", plan.BindVars)
+	}
+}
+
+func TestPruneUnusedRuntimeBindVars(t *testing.T) {
+	bindVars := map[string]any{"used": 1, "unused": 2}
+	got := pruneUnusedRuntimeBindVars(bindVars, "FOR doc IN c FILTER @used == 1 RETURN doc")
+	if _, ok := got["used"]; !ok {
+		t.Fatalf("used bind was pruned: %#v", got)
+	}
+	if _, ok := got["unused"]; ok {
+		t.Fatalf("unused bind was retained: %#v", got)
 	}
 }
 

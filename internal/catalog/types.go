@@ -7,16 +7,17 @@ import (
 )
 
 const (
-	FieldCatalogCollection   = "fhir_field_catalog"
-	fieldCatalogDistinctCap  = 50
-	fieldCatalogPivotCap     = 50
-	fieldKindScalar          = "scalar"
-	fieldKindObject          = "object"
-	fieldKindArray           = "array"
-	fieldKindCodeableConcept = "codeable_concept"
-	fieldKindCoding          = "coding"
-	pivotKindCodeableConcept = "codeable_concept_display_value"
-	pivotKindObservation     = "observation_code_value"
+	FieldCatalogCollection        = "fhir_field_catalog"
+	RelationshipCatalogCollection = "fhir_relationship_catalog"
+	fieldCatalogDistinctCap       = 50
+	fieldCatalogPivotCap          = 50
+	fieldKindScalar               = "scalar"
+	fieldKindObject               = "object"
+	fieldKindArray                = "array"
+	fieldKindCodeableConcept      = "codeable_concept"
+	fieldKindCoding               = "coding"
+	pivotKindCodeableConcept      = "codeable_concept_display_value"
+	pivotKindObservation          = "observation_code_value"
 )
 
 const (
@@ -66,6 +67,48 @@ type PopulatedFieldOptions struct {
 	ResourceType                  string
 	PivotOnly                     bool
 	CursorBatch                   int
+}
+
+// DatasetSummaryOptions describes one scoped dataset-discovery read. The
+// reader accepts an explicit project allowlist; an empty allowlist means no
+// projects are queried. Callers may select a different immutable generation
+// and authorization scope for every project in the allowlist.
+type DatasetSummaryOptions struct {
+	arangostore.ConnectionOptions
+	ProjectAllowlist           []string
+	DatasetGenerationByProject map[string]string
+	AuthScopesByProject        map[string]DatasetAuthScope
+	DatasetStateByProject      map[string]string
+	CursorBatch                int
+}
+
+// DatasetAuthScope is the catalog-facing form of an effective read scope.
+// Unrestricted is authoritative even when AuthResourcePaths is empty, so a
+// restricted caller with no surviving paths cannot be widened accidentally.
+type DatasetAuthScope struct {
+	AuthResourcePaths []string
+	Unrestricted      bool
+}
+
+// DatasetSummary is the persistence-neutral summary advertised to frontend
+// callers. It contains only catalog facts and never exposes Arango collection
+// names or raw catalog documents.
+type DatasetSummary struct {
+	Project           string
+	DatasetGeneration string
+	State             string
+	ResourceTypes     []ResourceTypeSummary
+}
+
+// ResourceTypeSummary contains the visible, populated catalog facts for one
+// FHIR resource type. DocumentCount is the maximum populated field count;
+// this avoids multiplying the estimate when several field paths describe the
+// same documents.
+type ResourceTypeSummary struct {
+	ResourceType        string
+	DocumentCount       int64
+	PopulatedFieldCount int
+	PivotCandidateCount int
 }
 
 type PopulatedField struct {
@@ -118,6 +161,29 @@ type PopulatedReference struct {
 	Label             string `json:"label"`
 	ToType            string `json:"to_type"`
 	EdgeCount         int64  `json:"edge_count"`
+}
+
+// RelationshipCatalogDocument is the ingest-owned edge cardinality row used
+// by builder and storage reference discovery. Auth paths remain part of the
+// identity so restricted readers can aggregate only authorized edges.
+type RelationshipCatalogDocument struct {
+	Key               string `json:"_key"`
+	Project           string `json:"project"`
+	DatasetGeneration string `json:"dataset_generation,omitempty"`
+	AuthResourcePath  string `json:"auth_resource_path,omitempty"`
+	FromType          string `json:"from_type"`
+	Label             string `json:"label"`
+	ToType            string `json:"to_type"`
+	EdgeCount         int64  `json:"edge_count"`
+}
+
+type RelationshipKey struct {
+	Project           string
+	DatasetGeneration string
+	AuthResourcePath  string
+	FromType          string
+	Label             string
+	ToType            string
 }
 
 // Write-side field profiling state.

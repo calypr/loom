@@ -39,6 +39,8 @@ func main() {
 		err = runDiscoverPopulatedReferences(ctx, os.Args[2:])
 	case "discover-populated-fields":
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
+	case "rebuild-relationship-catalog":
+		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -179,6 +181,26 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 	return printJSON(results)
 }
 
+func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("rebuild-relationship-catalog", flag.ExitOnError)
+	opts := catalog.RelationshipRebuildOptions{}
+	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&opts.Database, "database", defaultDatabase, "Arango database")
+	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation; empty selects the legacy namespace")
+	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
+	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
+	fs.IntVar(&opts.BatchSize, "batch-size", 1000, "Catalog write batch size")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	summary, err := catalog.RebuildRelationshipCatalog(ctx, opts)
+	if err != nil {
+		return err
+	}
+	return printJSON(summary)
+}
+
 func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
@@ -187,6 +209,8 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
 	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
+	fs.StringVar(&opts.NodeType, "node-type", "", "Optional builder node/resource type filter, for example Patient")
+	fs.StringVar(&opts.Mode, "mode", catalog.TraversalModeStorage, "Traversal discovery mode: storage or builder")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
 		return catalog.PopulatedReferenceOptions{}, err
@@ -225,6 +249,7 @@ func usage() {
   arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory; no --truncate flag
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
+  arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill
 `)
 }
 

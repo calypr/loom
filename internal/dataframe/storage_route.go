@@ -46,6 +46,21 @@ func (route storageRoute) targetEdgeTypeField() string {
 	}
 }
 
+// endpointLookupFields describes the generic fhir_edge compound-index
+// contract used by the endpoint strategy. It is derived solely from the
+// proven storage direction; callers must still retain native traversal when
+// the metadata is incomplete.
+func (route storageRoute) endpointLookupFields() (parentField, joinField string, indexFields []string, ok bool) {
+	switch route.Direction {
+	case PhysicalInbound:
+		return "_to", "_from", []string{"_to", "project", "dataset_generation", "label", "from_type"}, true
+	case PhysicalOutbound:
+		return "_from", "_to", []string{"_from", "project", "dataset_generation", "label", "to_type"}, true
+	default:
+		return "", "", nil, false
+	}
+}
+
 // resolveStorageRoute accepts generated synthetic reverse routes for which
 // the source resource is provably the reference target. The ingester stores
 // normal FHIR references as child _from -> parent _to, so a parent -> child

@@ -77,6 +77,109 @@ func TestProfileCorpusAgainstArango(t *testing.T) {
 	}
 }
 
+// TestCompoundEdgeIndexExplainAgainstArango audits the endpoint-first
+// persistent indexes without mutating the database. Equality filters should
+// select the complete inbound/outbound compound index. Multi-type filters are
+// recorded as an observation because Arango may choose the edge index for one
+// direction when the IN predicate is less selective.
+func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
+		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run Arango index audit")
+	}
+	url := os.Getenv("LOOM_ARANGO_URL")
+	if url == "" {
+		url = "http://127.0.0.1:8529"
+	}
+	database := os.Getenv("LOOM_ARANGO_DATABASE")
+	if database == "" {
+		database = "fhir_proto"
+	}
+	project := os.Getenv("LOOM_ARANGO_PROJECT")
+	if project == "" {
+		project = "ARANGODB_PROTO"
+	}
+	client, err := Open(context.Background(), url, database)
+	if err != nil {
+		t.Fatalf("open Arango: %v", err)
+	}
+	defer client.Close(context.Background())
+	cases := []struct {
+		name          string
+		query         string
+		bindVars      map[string]any
+		expectedIndex []string
+	}{
+		{
+			name: "inbound-equality",
+			query: `FOR edge IN fhir_edge
+  FILTER edge._to == @root
+  FILTER edge.project == @project
+  FILTER edge.dataset_generation == @generation
+  FILTER edge.label == @label
+  FILTER edge.from_type == @from_type
+  RETURN edge._key`,
+			bindVars:      map[string]any{"root": "Patient/nope", "project": project, "generation": nil, "label": "subject_Patient", "from_type": "Specimen"},
+			expectedIndex: []string{"_to", "project", "dataset_generation", "label", "from_type"},
+		},
+		{
+			name: "outbound-equality",
+			query: `FOR edge IN fhir_edge
+  FILTER edge._from == @root
+  FILTER edge.project == @project
+  FILTER edge.dataset_generation == @generation
+  FILTER edge.label == @label
+  FILTER edge.to_type == @to_type
+  RETURN edge._key`,
+			bindVars:      map[string]any{"root": "ResearchSubject/nope", "project": project, "generation": nil, "label": "study", "to_type": "ResearchStudy"},
+			expectedIndex: []string{"_from", "project", "dataset_generation", "label", "to_type"},
+		},
+		{
+			name: "inbound-multi-type",
+			query: `FOR edge IN fhir_edge
+  FILTER edge._to == @root
+  FILTER edge.project == @project
+  FILTER edge.dataset_generation == @generation
+  FILTER edge.label == @label
+  FILTER edge.from_type IN @from_types
+  RETURN edge._key`,
+			bindVars: map[string]any{"root": "Patient/nope", "project": project, "generation": nil, "label": "subject_Patient", "from_types": []string{"Condition", "Specimen", "Observation"}},
+		},
+		{
+			name: "outbound-multi-type",
+			query: `FOR edge IN fhir_edge
+  FILTER edge._from == @root
+  FILTER edge.project == @project
+  FILTER edge.dataset_generation == @generation
+  FILTER edge.label == @label
+  FILTER edge.to_type IN @to_types
+  RETURN edge._key`,
+			bindVars: map[string]any{"root": "ResearchSubject/nope", "project": project, "generation": nil, "label": "study", "to_types": []string{"ResearchStudy", "DocumentReference"}},
+		},
+	}
+	for _, shape := range cases {
+		shape := shape
+		t.Run(shape.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			explain, err := client.Explain(ctx, ExplainRequest{Query: shape.query, BindVars: shape.bindVars})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assessment := AssessExplainResult(explain)
+			if len(assessment.FullCollectionScans) != 0 {
+				t.Fatalf("compound edge shape used full scan: %#v", assessment.FullCollectionScans)
+			}
+			if len(assessment.Indexes) == 0 {
+				t.Fatalf("compound edge shape selected no index: %#v", assessment)
+			}
+			if len(shape.expectedIndex) != 0 && !assessmentHasExactIndex(assessment, "fhir_edge", shape.expectedIndex) {
+				t.Fatalf("equality shape did not select endpoint-first compound index %v: %#v", shape.expectedIndex, assessment.Indexes)
+			}
+			t.Logf("indexes=%#v plans=%#v optimizer_rules=%#v", assessment.Indexes, assessment.Plans, assessment.AppliedOptimizerRules)
+		})
+	}
+}
+
 func assessmentHasIndexCollection(assessment ExplainAssessment, collection string) bool {
 	for _, index := range assessment.Indexes {
 		if index.Collection == collection {
@@ -95,6 +198,15 @@ func assessmentHasIndexField(assessment ExplainAssessment, collection, field str
 			if candidate == field {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func assessmentHasExactIndex(assessment ExplainAssessment, collection string, fields []string) bool {
+	for _, index := range assessment.Indexes {
+		if index.Collection == collection && strings.Join(index.Fields, "\x00") == strings.Join(fields, "\x00") {
+			return true
 		}
 	}
 	return false

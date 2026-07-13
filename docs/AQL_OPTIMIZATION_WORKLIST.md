@@ -507,8 +507,13 @@ As of the current execution pass:
   decomposition-proven plans.
 - **Complete:** WP3b recursive nested object rendering and recursive object
   cycle validation.
-- **Complete:** WP3/WP4 prepared-set reuse and aggregate/pivot/slice
-  consumer fusion for eligible child sets.
+- **Experimental and disabled:** WP3 prepared-set reuse has a physical operation
+  and renderer, but the live GDC profile was slower and used substantially more
+  memory. It is not part of the production-default optimization policy.
+- **Diagnostics only:** WP4 can classify byte-identical rich consumers, but no
+  fusion lowering or renderer path currently executes fused aggregate, pivot,
+  or slice consumers. The GDC profile also produced no eligible multi-consumer
+  groups under that classifier.
 - **Complete:** WP6 profile-driven Explain/index corpus harness (live execution
   remains opt-in with `LOOM_COMPILER_ARANGO_INTEGRATION=1`).
 - **Complete:** WP5 required-match reuse: duplicate required EXISTS routes are

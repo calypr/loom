@@ -77,13 +77,21 @@ func (s *Service) Run(ctx context.Context, req RunRequest) (*Result, error) {
 }
 
 func (s *Service) compileRunRequestWithDiagnostics(ctx context.Context, req RunRequest) (CompiledQuery, QueryDiagnostics, error) {
+	_, compiled, diagnostics, err := s.prepareAndCompile(ctx, req.Builder, req.Limit)
+	return compiled, diagnostics, err
+}
+
+// prepareAndCompile is the single preparation/compilation boundary shared by
+// execution and execution-independent validation. Keeping it here prevents a
+// frontend validation path from silently accepting shapes that Run rejects.
+func (s *Service) prepareAndCompile(ctx context.Context, builder Builder, requestedLimit int) (Builder, CompiledQuery, QueryDiagnostics, error) {
 	prepareStarted := time.Now()
-	spec, err := s.prepareSpec(ctx, req.Builder)
+	spec, err := s.prepareSpec(ctx, builder)
 	if err != nil {
-		return CompiledQuery{}, QueryDiagnostics{}, err
+		return Builder{}, CompiledQuery{}, QueryDiagnostics{}, err
 	}
 	diagnostics := QueryDiagnostics{RequestPreparation: time.Since(prepareStarted)}
-	limit := req.Limit
+	limit := requestedLimit
 	if limit <= 0 {
 		limit = defaultRowLimit
 	}
@@ -91,11 +99,11 @@ func (s *Service) compileRunRequestWithDiagnostics(ctx context.Context, req RunR
 	compileStarted := time.Now()
 	compiled, err := CompileRequest(spec, limit)
 	if err != nil {
-		return CompiledQuery{}, QueryDiagnostics{}, err
+		return Builder{}, CompiledQuery{}, QueryDiagnostics{}, err
 	}
 	diagnostics.Compilation = time.Since(compileStarted)
 	diagnostics.Plan = compiled.PlanDiagnostics
-	return compiled, diagnostics, nil
+	return spec, compiled, diagnostics, nil
 }
 
 func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, error) {

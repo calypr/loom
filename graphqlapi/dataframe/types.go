@@ -32,3 +32,20 @@ type RelatedResourceHints struct {
 	EdgeCount int64
 	Target    ResourceHints
 }
+
+// DatasetSummary is the frontend-facing discovery DTO. It deliberately
+// contains catalog facts rather than persistence documents or collection
+// names.
+type DatasetSummary struct {
+	Project           string
+	DatasetGeneration string
+	State             string
+	ResourceTypes     []ResourceTypeSummary
+}
+
+type ResourceTypeSummary struct {
+	ResourceType        string
+	DocumentCount       int64
+	PopulatedFieldCount int
+	PivotCandidateCount int
+}

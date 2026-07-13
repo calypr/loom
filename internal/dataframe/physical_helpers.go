@@ -59,6 +59,21 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.Set != nil {
 		setCopy := *operation.Set
 		setCopy.Subplan = clonePhysicalSubplan(operation.Set.Subplan)
+		if operation.Set.Output != nil {
+			outputCopy := *operation.Set.Output
+			outputCopy.Fields = append([]PhysicalSetOutputField(nil), operation.Set.Output.Fields...)
+			setCopy.Output = &outputCopy
+		}
+		if operation.Set.Projection != nil {
+			projectionCopy := *operation.Set.Projection
+			projectionCopy.Fields = append([]PhysicalSetProjectionField(nil), operation.Set.Projection.Fields...)
+			setCopy.Projection = &projectionCopy
+		}
+		if operation.Set.Prepared != nil {
+			preparedCopy := *operation.Set.Prepared
+			preparedCopy.Fields = append([]PhysicalPreparedField(nil), operation.Set.Prepared.Fields...)
+			setCopy.Prepared = &preparedCopy
+		}
 		copy.Set = &setCopy
 	}
 	if operation.DerivedLet != nil {
@@ -132,12 +147,24 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		extract := *expression.Extract
 		extract.Source = clonePhysicalValue(extract.Source)
 		extract.Fallbacks = append([]Selector(nil), extract.Fallbacks...)
+		if extract.Prepared != nil {
+			prepared := *extract.Prepared
+			extract.Prepared = &prepared
+		}
 		copy.Extract = &extract
 	}
 	if expression.Pivot != nil {
 		pivot := *expression.Pivot
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
+		if pivot.PreparedKey != nil {
+			prepared := *pivot.PreparedKey
+			pivot.PreparedKey = &prepared
+		}
+		if pivot.PreparedValue != nil {
+			prepared := *pivot.PreparedValue
+			pivot.PreparedValue = &prepared
+		}
 		copy.Pivot = &pivot
 	}
 	if expression.Aggregate != nil {
@@ -156,7 +183,27 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 			sort := clonePhysicalExpression(*slice.Sort)
 			slice.Sort = &sort
 		}
+		if slice.Predicate != nil {
+			predicate := clonePhysicalPredicateExpression(*slice.Predicate)
+			slice.Predicate = &predicate
+		}
+		slice.Projections = make([]PhysicalExpressionProjection, len(expression.Slice.Projections))
+		for index, projection := range expression.Slice.Projections {
+			projectionCopy := projection
+			projectionCopy.Expression = clonePhysicalExpression(projection.Expression)
+			slice.Projections[index] = projectionCopy
+		}
 		copy.Slice = &slice
+	}
+	if expression.Object != nil {
+		object := *expression.Object
+		object.Fields = make([]PhysicalExpressionProjection, len(expression.Object.Fields))
+		for index, field := range expression.Object.Fields {
+			fieldCopy := field
+			fieldCopy.Expression = clonePhysicalExpression(field.Expression)
+			object.Fields[index] = fieldCopy
+		}
+		copy.Object = &object
 	}
 	return copy
 }

@@ -94,10 +94,26 @@ func RenderPhysicalPlan(plan PhysicalPlan) (RenderedPhysicalPlan, error) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render RETURN: %w", err)
 	}
 	lines = append(lines, "RETURN "+returnExpression)
+	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{
-		Query:    strings.Join(lines, "\n") + "\n",
-		BindVars: renderer.bindVars,
+		Query:    query,
+		BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query),
 	}, nil
+}
+
+// pruneUnusedRuntimeBindVars is required after physical rewrites. Traversal
+// sharing can remove a typed edge predicate while retaining its original
+// logical bind in the cloned plan. Arango rejects undeclared bind variables,
+// so only values referenced by the final rendered AQL may cross the execution
+// boundary.
+func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[string]any {
+	pruned := make(map[string]any, len(bindVars))
+	for key, value := range bindVars {
+		if strings.Contains(query, "@"+key) {
+			pruned[key] = value
+		}
+	}
+	return pruned
 }
 
 func (r *physicalPlanRenderer) renderRootWindowOperation(operation PhysicalOperation, indent string) ([]string, error) {
@@ -261,6 +277,32 @@ func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTra
 	if !ok || collection != "fhir_edge" {
 		return fmt.Errorf("generic navigation traversal must use fhir_edge through its collection bind")
 	}
+	strategy := traversal.Strategy
+	if strategy == "" {
+		strategy = PhysicalTraversalNative
+	}
+	if strategy != PhysicalTraversalNative && strategy != PhysicalTraversalEndpointLookup {
+		return fmt.Errorf("unsupported generic navigation traversal strategy %q", strategy)
+	}
+	if strategy == PhysicalTraversalEndpointLookup {
+		wantEndpoint, wantJoin := "_to", "_from"
+		wantIndexType := "from_type"
+		if traversal.Direction == PhysicalOutbound {
+			wantEndpoint, wantJoin, wantIndexType = "_from", "_to", "to_type"
+		}
+		if traversal.EndpointField != wantEndpoint || traversal.EndpointJoinField != wantJoin {
+			return fmt.Errorf("endpoint lookup %s requires %s -> %s, got %s -> %s", traversal.Direction, wantEndpoint, wantJoin, traversal.EndpointField, traversal.EndpointJoinField)
+		}
+		wantIndex := []string{wantEndpoint, "project", "dataset_generation", "label", wantIndexType}
+		if len(traversal.EndpointIndexFields) != len(wantIndex) {
+			return fmt.Errorf("endpoint lookup requires compound index fields %#v", wantIndex)
+		}
+		for index := range wantIndex {
+			if traversal.EndpointIndexFields[index] != wantIndex[index] {
+				return fmt.Errorf("endpoint lookup index field %d = %q, want %q", index, traversal.EndpointIndexFields[index], wantIndex[index])
+			}
+		}
+	}
 	return nil
 }
 
@@ -387,12 +429,28 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 		lines = append(lines, fmt.Sprintf("    FOR %s IN %s", parentVariable, parentSet))
 		traversalIndent = "      "
 	}
-	lines = append(lines,
-		fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, parentVariable, traversal.EdgeCollectionBindKey),
-		fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-		fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-		fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
-	)
+	strategy := traversal.Strategy
+	if strategy == "" {
+		strategy = PhysicalTraversalNative
+	}
+	if strategy == PhysicalTraversalEndpointLookup {
+		lines = append(lines,
+			fmt.Sprintf("%sFOR %s IN @@%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == %s._id", traversalIndent, traversal.EdgeVariable, traversal.EndpointField, parentVariable),
+			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.EndpointJoinField),
+			fmt.Sprintf("%s  FILTER %s != null", traversalIndent, traversal.TargetVariable),
+			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, parentVariable, traversal.EdgeCollectionBindKey),
+			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+		)
+	}
 	for scopeIndex, operation := range block.scope {
 		line, err := r.renderScopeOperation(operation, traversalIndent+"  ")
 		if err != nil {
@@ -425,9 +483,42 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 		lines = append(lines, fmt.Sprintf("    FOR %s IN %s", parentVariable, parentSet))
 		indent = "      "
 	}
-	lines = append(lines, fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent, t.TargetVariable, t.EdgeVariable, t.Direction, parentVariable, t.EdgeCollectionBindKey), fmt.Sprintf("%s  FILTER %s.label == @%s", indent, t.EdgeVariable, t.EdgeLabelBindKey))
-	if t.EdgeTargetTypeField != "" {
-		lines = append(lines, r.renderTraversalTypeFilters(t, indent)...)
+	strategy := t.Strategy
+	if strategy == "" {
+		strategy = PhysicalTraversalNative
+	}
+	if strategy == PhysicalTraversalEndpointLookup {
+		// The endpoint equality is the first edge predicate so Arango can use
+		// the route's compound endpoint index. The node is materialized only
+		// after edge scope/type predicates have narrowed the candidate set.
+		lines = append(lines,
+			fmt.Sprintf("%sFOR %s IN @@%s", indent, t.EdgeVariable, t.EdgeCollectionBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == %s._id", indent, t.EdgeVariable, t.EndpointField, parentVariable),
+			fmt.Sprintf("%s  FILTER %s.label == @%s", indent, t.EdgeVariable, t.EdgeLabelBindKey),
+		)
+		if t.TargetTypeBindKey != "" && t.EdgeTargetTypeField != "" {
+			if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
+				lines = append(lines, fmt.Sprintf("%s  FILTER POSITION(@%s, %s.%s)", indent, t.TargetTypeBindKey, t.EdgeVariable, t.EdgeTargetTypeField))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey))
+			}
+		}
+		lines = append(lines,
+			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", indent, t.TargetVariable, t.EdgeVariable, t.EndpointJoinField),
+			fmt.Sprintf("%s  FILTER %s != null", indent, t.TargetVariable),
+		)
+		if t.TargetTypeBindKey != "" {
+			if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
+				lines = append(lines, fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey))
+			}
+		}
+	} else {
+		lines = append(lines, fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent, t.TargetVariable, t.EdgeVariable, t.Direction, parentVariable, t.EdgeCollectionBindKey), fmt.Sprintf("%s  FILTER %s.label == @%s", indent, t.EdgeVariable, t.EdgeLabelBindKey))
+		if t.EdgeTargetTypeField != "" {
+			lines = append(lines, r.renderTraversalTypeFilters(t, indent)...)
+		}
 	}
 	for opIndex, operation := range set.Subplan.Operations[1:] {
 		rendered, err := r.renderScopeOperation(operation, indent+"  ")
@@ -437,6 +528,14 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 		lines = append(lines, rendered...)
 	}
 	value, err := r.renderExpression(set.Subplan.Return)
+	if err != nil {
+		return nil, err
+	}
+	if set.Projection != nil {
+		value, err = r.renderPhysicalSetProjection(t.TargetVariable, *set.Projection)
+	} else {
+		value, err = renderPhysicalSetOutput(value, set.Output)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -461,13 +560,61 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 	return lines, nil
 }
 
+func renderPhysicalSetOutput(value string, output *PhysicalSetOutput) (string, error) {
+	if output == nil {
+		return value, nil
+	}
+	fields := make([]string, 0, len(output.Fields))
+	for _, field := range output.Fields {
+		name := string(field)
+		switch field {
+		case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
+			fields = append(fields, fmt.Sprintf("%s: %s.%s", name, value, name))
+		default:
+			return "", fmt.Errorf("unsupported compact set output field %q", field)
+		}
+	}
+	return "{ " + strings.Join(fields, ", ") + " }", nil
+}
+
+func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projection PhysicalSetProjection) (string, error) {
+	if len(projection.Fields) == 0 {
+		return "", fmt.Errorf("set projection requires at least one field")
+	}
+	fields := []string{
+		"_id: " + item + "._id",
+		"_key: " + item + "._key",
+		"id: " + item + ".id",
+		"resourceType: " + item + ".resourceType",
+	}
+	for _, field := range projection.Fields {
+		values, err := r.renderSelectorByMode(item+".payload", field.Selector, field.ExecutionMode)
+		if err != nil {
+			return "", fmt.Errorf("projected field %q: %w", field.Name, err)
+		}
+		fields = append(fields, field.Name+": "+values)
+	}
+	return "{ " + strings.Join(fields, ", ") + " }", nil
+}
+
 func (r *physicalPlanRenderer) renderPreparedSet(prepared PhysicalPreparedSet) ([]string, error) {
 	if r.setVariables[prepared.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("prepared source set %q has not been rendered", prepared.SourceSetVariable)
 	}
 	item := r.newInternalVariable("prepared_item")
 	lines := []string{fmt.Sprintf("  LET %s = (", prepared.Variable), fmt.Sprintf("    FOR %s IN %s", item, prepared.SourceSetVariable)}
-	fields := []string{fmt.Sprintf("_key: %s._key", item), fmt.Sprintf("__loom_prepared_node: %s", item)}
+	// Rich consumers may combine a prepared selector with a direct payload
+	// fallback (slice identity, an unprepared pivot value, or a nested object
+	// field). Preserve the node-facing fields those consumers already read while
+	// adding prepared projections; the optimizer can remove this retention only
+	// after a separate compact-set contract proves it safe.
+	fields := []string{
+		fmt.Sprintf("_key: %s._key", item),
+		fmt.Sprintf("id: %s.id", item),
+		fmt.Sprintf("resourceType: %s.resourceType", item),
+		fmt.Sprintf("payload: %s.payload", item),
+		fmt.Sprintf("__loom_prepared_node: %s", item),
+	}
 	for _, field := range prepared.Fields {
 		values, err := r.renderSelectorArrayFromSource(item+".payload", field.Selector, false)
 		if err != nil {
@@ -485,8 +632,8 @@ func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *PhysicalTraversal, 
 	}
 	if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
 		return []string{
-			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.%s, true)", indent, t.TargetTypeBindKey, t.EdgeVariable, t.EdgeTargetTypeField),
-			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType, true)", indent, t.TargetTypeBindKey, t.TargetVariable),
+			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.%s)", indent, t.TargetTypeBindKey, t.EdgeVariable, t.EdgeTargetTypeField),
+			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable),
 		}
 	}
 	return []string{fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey), fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey)}
@@ -508,6 +655,14 @@ func (r *physicalPlanRenderer) renderSharedSubset(set PhysicalSet) ([]string, er
 	if err != nil {
 		return nil, err
 	}
+	if set.Projection != nil {
+		value, err = r.renderPhysicalSetProjection(set.ItemVariable, *set.Projection)
+	} else {
+		value, err = renderPhysicalSetOutput(value, set.Output)
+	}
+	if err != nil {
+		return nil, err
+	}
 	if set.SortByKey {
 		lines = append(lines, "      SORT "+set.ItemVariable+"._key")
 	}
@@ -517,6 +672,14 @@ func (r *physicalPlanRenderer) renderSharedSubset(set PhysicalSet) ([]string, er
 		lines[len(lines)-1] = "    ))"
 	}
 	r.setVariables[set.Variable] = set.Variable
+	if set.Prepared != nil {
+		prepared, err := r.renderPreparedSet(*set.Prepared)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, prepared...)
+		r.setVariables[set.Prepared.Variable] = set.Prepared.Variable
+	}
 	return lines, nil
 }
 
@@ -601,7 +764,7 @@ func (r *physicalPlanRenderer) renderSelectorPredicate(predicate PhysicalPredica
 	case "NOT_EQUALS":
 		match = valueVar + " != " + right
 	case "IN":
-		match = "POSITION(" + right + ", " + valueVar + ", true)"
+		match = "POSITION(" + right + ", " + valueVar + ")"
 	case "CONTAINS_TEXT":
 		match = "CONTAINS(TO_STRING(" + valueVar + "), " + right + ")"
 	case "GT", "GTE", "LT", "LTE":
@@ -924,7 +1087,7 @@ func (r *physicalPlanRenderer) renderPivot(expression PhysicalExpression) (strin
       LET __pivot_values = %s
       FILTER LENGTH(__pivot_values) > 0
       FOR __pivot_key IN __pivot_keys
-        FILTER POSITION(@%s, __pivot_key, true)
+        FILTER POSITION(@%s, __pivot_key)
         RETURN { key: __pivot_key, values: __pivot_values }
   )
   COLLECT __pivot_key = __pair.key INTO __pivot_group
@@ -1088,6 +1251,26 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 	if err != nil {
 		return "", err
 	}
+	if len(extract.Fallbacks) == 0 && extract.Selector.Filter == nil {
+		switch extract.ExecutionMode {
+		case PhysicalSelectorDirectScalar:
+			if expression.Cardinality != PhysicalArrayCardinality {
+				return compileDirectExpr(source, extract.Selector.Steps), nil
+			}
+		case PhysicalSelectorConditionalArray:
+			values, err := r.renderConditionalSelectorArray(source, extract.Selector)
+			if err != nil {
+				return "", err
+			}
+			if expression.Cardinality == PhysicalArrayCardinality {
+				if extract.Distinct {
+					return "SORTED_UNIQUE(" + values + ")", nil
+				}
+				return values, nil
+			}
+			return "FIRST(" + values + ")", nil
+		}
+	}
 	arrays := make([]string, 0, 1+len(extract.Fallbacks))
 	setSource := extract.Source.Variable != "" && r.setVariables[extract.Source.Variable] != ""
 	for _, selector := range append([]Selector{extract.Selector}, extract.Fallbacks...) {
@@ -1111,6 +1294,39 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 		return compileDirectExpr(source, extract.Selector.Steps), nil
 	}
 	return "FIRST(" + values + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector Selector, mode PhysicalSelectorExecutionMode) (string, error) {
+	if mode == PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
+		return "(FOR __loom_value IN [" + compileDirectExpr(source, selector.Steps) + "] FILTER __loom_value != null RETURN __loom_value)", nil
+	}
+	if mode == PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
+		return r.renderConditionalSelectorArray(source, selector)
+	}
+	return r.renderSelectorArrayFromSource(source, selector, false)
+}
+
+func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector Selector) (string, error) {
+	if len(selector.Steps) == 0 {
+		return "", fmt.Errorf("selector is required")
+	}
+	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
+	lines := make([]string, 0, len(prefix)+3)
+	current := source
+	for index, step := range prefix {
+		next := fmt.Sprintf("__loom_selector_%d", index)
+		switch {
+		case step.Iterate:
+			lines = append(lines, fmt.Sprintf("FOR %s IN (%s.%s ? %s.%s : [])", next, current, step.Field, current, step.Field))
+		case step.Index != nil:
+			lines = append(lines, fmt.Sprintf("LET %s = ((%s.%s ? %s.%s : [])[%d])", next, current, step.Field, current, step.Field, *step.Index), "FILTER "+next+" != null")
+		default:
+			lines = append(lines, fmt.Sprintf("LET %s = %s.%s", next, current, step.Field), "FILTER "+next+" != null")
+		}
+		current = next
+	}
+	lines = append(lines, "LET __value = "+extractFinalExpr(current, last), "FILTER __value != null", "RETURN __value")
+	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
 func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector Selector, setSource bool) (string, error) {

@@ -30,17 +30,24 @@ type CompiledQuery struct {
 // applies semantics-preserving physical rewrites, and renders parameterized
 // AQL. Unsupported shapes fail explicitly.
 func CompileRequest(builder Builder, limit int) (CompiledQuery, error) {
+	return CompileRequestWithPolicy(builder, limit, DefaultPhysicalOptimizationPolicy())
+}
+
+// CompileRequestWithPolicy is the explicit ablation entrypoint used by
+// compiler tests and benchmark tooling. Normal service execution uses
+// CompileRequest and the production default policy.
+func CompileRequestWithPolicy(builder Builder, limit int, policy PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	semantic, err := BuildSemanticPlan(builder)
 	if err != nil {
 		return CompiledQuery{}, err
 	}
 	// The physical route owns navigation-only requests directly from semantic
 	// meaning.
-	physical, err := BuildPhysicalPlan(semantic)
+	physical, err := BuildPhysicalPlanWithPolicy(semantic, policy)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("unsupported physical dataframe shape: %w", err)
 	}
-	physical, err = OptimizePhysicalPlan(physical)
+	physical, err = OptimizePhysicalPlanWithPolicy(physical, policy)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("optimize physical plan: %w", err)
 	}

@@ -95,7 +95,7 @@ func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered.Query, "LET child_set_1 = UNIQUE") || !strings.Contains(rendered.Query, "@child_set_1_filter_1_value") || !strings.Contains(rendered.Query, "FOR __item IN child_set_1") {
+	if !strings.Contains(rendered.Query, "LET child_set_1 = UNIQUE") || !strings.Contains(rendered.Query, "@child_set_1_filter_1_value") || !strings.Contains(rendered.Query, "__loom_projection_0") {
 		t.Fatalf("optional child fields/filter were not rendered:\n%s", rendered.Query)
 	}
 	if rendered.BindVars["child_set_1_filter_1_value"] != wantID {
@@ -130,12 +130,15 @@ func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *t
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"LET child_set_1 = UNIQUE((", "FOR child_set_2_node, child_set_2_edge IN 1..1 INBOUND __loom_physical_parent_set_2 @@child_set_2_edge_collection",
-		"@child_set_2_filter_1_value", "LENGTH(child_set_2)", "FOR __item IN child_set_2",
+		"LET child_set_1 = UNIQUE((",
+		"@child_set_2_filter_1_value", "LENGTH(child_set_2)", "FOR __loom_prepared_value IN child_set_2",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("nested physical query missing %q:\n%s", want, rendered.Query)
 		}
+	}
+	if !strings.Contains(rendered.Query, "FOR child_set_2_node, child_set_2_edge IN 1..1 INBOUND __loom_physical_parent_set_2 @@child_set_2_edge_collection") && !strings.Contains(rendered.Query, "FOR child_set_2_edge IN @@child_set_2_edge_collection") {
+		t.Fatalf("nested physical query lost both native and endpoint traversal forms:\n%s", rendered.Query)
 	}
 	foundNestedName := false
 	for key, value := range rendered.BindVars {
@@ -250,7 +253,8 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 
 func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing.T) {
 	status := Selector{Steps: []SelectorStep{{Field: "id"}}}
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleCompactProjection, false).WithRule(PhysicalOptimizationRulePreparedSelectors, true)
+	plan, err := BuildGenericPhysicalPlanWithPolicy(SemanticPlan{
 		Version: 1, Project: "p", Root: SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Children: []SemanticNode{{
@@ -260,7 +264,7 @@ func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing
 				Slices:     []SemanticSlice{{Name: "representative", Limit: 1, Fields: []SemanticField{{Name: "status", Selector: status}}}},
 			}},
 		},
-	})
+	}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +339,8 @@ func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing
 func TestPreparedSelectorsPreserveFallbackExtraction(t *testing.T) {
 	primary := Selector{Steps: []SelectorStep{{Field: "id"}}}
 	fallback := Selector{Steps: []SelectorStep{{Field: "code"}}}
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRulePreparedSelectors, true)
+	plan, err := BuildGenericPhysicalPlanWithPolicy(SemanticPlan{
 		Version: 1, Project: "p", Root: SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Children: []SemanticNode{{
@@ -344,7 +349,7 @@ func TestPreparedSelectorsPreserveFallbackExtraction(t *testing.T) {
 				Aggregates: []SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &primary}},
 			}},
 		},
-	})
+	}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}

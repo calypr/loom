@@ -76,6 +76,20 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 			t.Fatalf("catalog indexes %#v do not include generation index %#v", catalog.Indexes, required)
 		}
 	}
+	relationships, found := bootstrapCollection(spec, "fhir_relationship_catalog")
+	if !found {
+		t.Fatal("relationship catalog bootstrap collection is missing")
+	}
+	for _, required := range [][]string{
+		{"project", "dataset_generation", "to_type"},
+		{"project", "dataset_generation", "auth_resource_path", "to_type"},
+		{"project", "dataset_generation", "from_type"},
+		{"project", "dataset_generation", "auth_resource_path", "from_type"},
+	} {
+		if !containsIndex(relationships.Indexes, required) {
+			t.Fatalf("relationship catalog indexes %#v do not include %#v", relationships.Indexes, required)
+		}
+	}
 
 }
 

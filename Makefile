@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench compiler-arango-bench dataframe-demo conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench compiler-arango-bench dataframe-demo dataframe-profile conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GOCACHE_DIR ?= $(CURDIR)/.gocache
@@ -14,6 +14,8 @@ DATAFRAME_TIMEOUT ?= 5m
 DATAFRAME_PRINT_RESPONSE ?= false
 DATAFRAME_QUERY ?= examples/meta_gdc_case_matrix.graphql
 DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
+DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
+DATAFRAME_PROFILE_LIMIT ?= 1000
 
 build: build-cli build-server
 
@@ -65,6 +67,12 @@ compiler-arango-bench:
 dataframe-demo:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) run ./cmd/dataframe-query -url $(GRAPHQL_URL) -query $(DATAFRAME_QUERY) -variables $(DATAFRAME_VARIABLES) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
+
+# Requires a loaded META fixture database. Compiles the checked-in GDC fixture,
+# writes exact rendered AQL, then runs Arango EXPLAIN and PROFILE 2.
+dataframe-profile:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) run ./cmd/dataframe-profile -variables $(DATAFRAME_PROFILE_VARIABLES) -limit $(DATAFRAME_PROFILE_LIMIT)
 
 conformance:
 	mkdir -p $(GOCACHE_DIR)

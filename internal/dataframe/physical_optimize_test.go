@@ -39,6 +39,36 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	}
 }
 
+func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing.T) {
+	plan := physicalScopedSiblingPlan(t)
+	for _, set := range physicalSets(plan) {
+		resourceType := valueString(plan.BindVars[set.Subplan.Operations[0].Traversal.TargetTypeBindKey])
+		set.Projection = &PhysicalSetProjection{Fields: []PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
+		set.Output = nil
+	}
+	optimized, err := OptimizePhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var broad, subsets int
+	for _, set := range physicalSets(optimized) {
+		if set.SourceSetVariable == "" {
+			broad++
+			if set.Projection != nil {
+				t.Fatalf("heterogeneous shared set retained consumer projection: %#v", set.Projection)
+			}
+		} else {
+			subsets++
+			if set.Projection == nil {
+				t.Fatalf("typed subset lost consumer projection: %#v", set)
+			}
+		}
+	}
+	if broad != 1 || subsets != 2 {
+		t.Fatalf("shared projection sets = broad %d subsets %d, want 1/2", broad, subsets)
+	}
+}
+
 func TestOptimizePhysicalPlanReportsStructuralCostDecision(t *testing.T) {
 	optimized, err := OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 1})
 	if err != nil {
@@ -113,9 +143,125 @@ func TestDefaultPhysicalOptimizationPolicyDeveloperSwitch(t *testing.T) {
 	}
 	t.Setenv("LOOM_PHYSICAL_COST_POLICY", "on")
 	t.Setenv("LOOM_PHYSICAL_COST_MIN_SAVINGS", "17")
+	t.Setenv("LOOM_PHYSICAL_RULE_TRAVERSAL_SHARING", "off")
+	t.Setenv("LOOM_PHYSICAL_RULE_PREPARED_SELECTORS", "on")
 	policy = DefaultPhysicalOptimizationPolicy()
 	if !policy.Enabled || policy.MinimumSavings != 17 {
 		t.Fatalf("configured environment policy = %#v", policy)
+	}
+	if policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+		t.Fatalf("configured independent rule policy = %#v", policy.RuleOverrides)
+	}
+}
+
+func TestPhysicalOptimizationPolicyResolvesIndependentRules(t *testing.T) {
+	policy := DefaultPhysicalOptimizationPolicy()
+	if !policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(PhysicalOptimizationRuleCompactProjection) || policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+		t.Fatalf("default active rules = %#v", policy)
+	}
+	for _, rule := range []PhysicalOptimizationRule{
+		PhysicalOptimizationRuleNestedSharing,
+		PhysicalOptimizationRuleRichConsumerFusion,
+	} {
+		if policy.RuleEnabled(rule) {
+			t.Fatalf("unimplemented rule %q was enabled by default", rule)
+		}
+	}
+	policy = policy.WithRule(PhysicalOptimizationRuleTraversalSharing, false).WithRule(PhysicalOptimizationRulePreparedSelectors, false)
+	if policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+		t.Fatalf("explicit rule overrides were ignored: %#v", policy.RuleOverrides)
+	}
+}
+
+func TestOptimizePhysicalPlanReportsExplicitRuleDisable(t *testing.T) {
+	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleTraversalSharing, false)
+	optimized, err := OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if optimized.SharedTraversalCount != 0 {
+		t.Fatalf("explicitly disabled sharing changed plan: %d", optimized.SharedTraversalCount)
+	}
+	if len(optimized.OptimizationPolicy.Decisions) != 1 || optimized.OptimizationPolicy.Decisions[0].Reason != "traversal sharing rule disabled" {
+		t.Fatalf("explicit sharing decision = %#v", optimized.OptimizationPolicy.Decisions)
+	}
+	for _, state := range optimized.OptimizationPolicy.RuleStates {
+		if state.Rule == PhysicalOptimizationRuleTraversalSharing && state.Enabled {
+			t.Fatalf("sharing rule state remained enabled: %#v", state)
+		}
+	}
+}
+
+func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
+	status := Selector{Steps: []SelectorStep{{Field: "id"}}}
+	semantic := SemanticPlan{
+		Version: 1, Project: "p", Root: SemanticNode{
+			Alias: "root", ResourceType: "Patient",
+			Children: []SemanticNode{{
+				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
+				Aggregates: []SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
+				Slices:     []SemanticSlice{{Name: "representative", Limit: 1, Fields: []SemanticField{{Name: "status", Selector: status}}}},
+			}},
+		},
+	}
+	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleCompactProjection, false).WithRule(PhysicalOptimizationRulePreparedSelectors, false)
+	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range plan.Operations {
+		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Prepared != nil {
+			t.Fatalf("prepared selector set survived explicit disable: %#v", operation.Set.Prepared)
+		}
+	}
+	rendered, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered.Query, "_prepared") {
+		t.Fatalf("prepared selector variable survived explicit disable:\n%s", rendered.Query)
+	}
+}
+
+func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
+	semantic := SemanticPlan{
+		Version: 1, Project: "p", Root: SemanticNode{
+			Alias: "root", ResourceType: "Patient",
+			Children: []SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Aggregates: []SemanticAggregate{{Name: "count", Operation: "COUNT"}}}},
+		},
+	}
+	fullPolicy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleCompactProjection, false)
+	full, err := BuildGenericPhysicalPlanWithPolicy(semantic, fullPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactPolicy := DefaultPhysicalOptimizationPolicy()
+	compact, err := BuildGenericPhysicalPlanWithPolicy(semantic, compactPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fullSet, compactSet *PhysicalSet
+	for _, operation := range full.Operations {
+		if operation.Kind == PhysicalSetOp {
+			fullSet = operation.Set
+		}
+	}
+	for _, operation := range compact.Operations {
+		if operation.Kind == PhysicalSetOp {
+			compactSet = operation.Set
+		}
+	}
+	if fullSet == nil || fullSet.Output != nil {
+		t.Fatalf("default policy unexpectedly retained compact output: %#v", fullSet)
+	}
+	if compactSet == nil || compactSet.Output == nil {
+		t.Fatalf("compact policy did not define output: %#v", compactSet)
+	}
+	if err := compact.Validate(); err != nil {
+		t.Fatalf("compact plan validation failed: %v", err)
+	}
+	if len(compactSet.Output.Fields) != 4 || compactSet.Output.Fields[0] != PhysicalSetGraphIDField || compactSet.Output.Fields[1] != PhysicalSetKeyField {
+		t.Fatalf("compact output fields = %#v, want graph identity plus metadata", compactSet.Output.Fields)
 	}
 }
 
@@ -129,8 +275,10 @@ func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(rendered.Query, "INBOUND root @@child_set_"); got != 1 {
-		t.Fatalf("rendered sibling group used %d root traversals, want 1:\n%s", got, rendered.Query)
+	nativeRoot := strings.Count(rendered.Query, "INBOUND root @@child_set_")
+	endpointRoot := strings.Count(rendered.Query, "FOR child_set_1_edge IN @@child_set_1_edge_collection")
+	if got := nativeRoot + endpointRoot; got != 1 {
+		t.Fatalf("rendered sibling group used %d root edge operations, want 1 (native=%d endpoint=%d):\n%s", got, nativeRoot, endpointRoot, rendered.Query)
 	}
 	if got := strings.Count(rendered.Query, "child_set_1_edge.auth_resource_path IN @auth_resource_paths"); got != 1 {
 		t.Fatalf("shared traversal did not retain its edge auth scope exactly once:\n%s", rendered.Query)

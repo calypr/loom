@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/calypr/loom/internal/catalog"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -15,7 +16,7 @@ func openBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*aran
 }
 
 func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
-	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+2)
+	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+3)
 	for _, name := range resourceTypes {
 		// Every generated FHIR resource is a possible dataframe root. The
 		// compiler applies project and optional authorization scope before a
@@ -84,6 +85,16 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 				{"project", "dataset_generation", "auth_resource_path", "resource_type", "path"},
 				{"project", "dataset_generation", "resource_type", "pivot_candidate"},
 				{"project", "dataset_generation", "auth_resource_path", "resource_type", "pivot_candidate"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name:     catalog.RelationshipCatalogCollection,
+			Truncate: truncate,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "to_type"},
+				{"project", "dataset_generation", "auth_resource_path", "to_type"},
+				{"project", "dataset_generation", "from_type"},
+				{"project", "dataset_generation", "auth_resource_path", "from_type"},
 			},
 		},
 	)

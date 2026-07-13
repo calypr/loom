@@ -32,6 +32,7 @@ directory contains the local Arango compose setup.
 - [Luna Rich Physical Renderer Execution Plan](docs/LUNA_RICH_PHYSICAL_RENDERER_EXECUTION.md)
 - [Luna Compiler Finalization Plan](docs/LUNA_COMPILER_FINALIZATION_PLAN.md)
 - [Terra Ultra Parallel Execution Plan](docs/TERRA_ULTRA_EXECUTION_PLAN.md)
+- [Part 5 Luna Frontend Enablement Plan](docs/LUNA_FRONTEND_ENABLEMENT_PART_5.md)
 
 ## Current Layout
 

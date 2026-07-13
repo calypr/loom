@@ -306,8 +306,9 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		linesChan := make(chan string, 10000)
 
 		type writeTask struct {
-			collection string
-			docs       []json.RawMessage
+			collection         string
+			docs               []json.RawMessage
+			relationshipCounts map[catalog.RelationshipKey]int64
 		}
 		writeChan := make(chan writeTask, 100)
 
@@ -391,9 +392,14 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 					if len(edgeBatch) == 0 {
 						return true
 					}
+					relationshipCounts, err := catalog.RelationshipCountsFromRawEdges(edgeBatch)
+					if err != nil {
+						setPipelineErr(err)
+						return false
+					}
 					waitStart := time.Now()
 					select {
-					case writeChan <- writeTask{collection: EdgeCollection, docs: edgeBatch}:
+					case writeChan <- writeTask{collection: EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
 						localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
 						localTimings["edge_batches"]++
 						edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -491,13 +497,18 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		// 6. I/O Writer goroutines
 		numWriters := opts.WriterCount
 		var writersWG sync.WaitGroup
-		writerTimingsChan := make(chan map[string]float64, numWriters)
+		type writerResult struct {
+			timings            map[string]float64
+			relationshipCounts map[catalog.RelationshipKey]int64
+		}
+		writerTimingsChan := make(chan writerResult, numWriters)
 
 		for w := 0; w < numWriters; w++ {
 			writersWG.Add(1)
 			go func() {
 				defer writersWG.Done()
 				localTimings := make(map[string]float64)
+				localRelationships := make(map[catalog.RelationshipKey]int64)
 				for {
 					select {
 					case <-fileCtx.Done():
@@ -505,7 +516,7 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 					case task, ok := <-writeChan:
 						if !ok {
 							select {
-							case writerTimingsChan <- localTimings:
+							case writerTimingsChan <- writerResult{timings: localTimings, relationshipCounts: localRelationships}:
 							case <-ctx.Done():
 							}
 							return
@@ -522,6 +533,7 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 						if task.collection == EdgeCollection {
 							localTimings["edge_insert"] += elapsed
 							atomic.AddInt64(&edgesInserted, int64(len(task.docs)))
+							catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 						} else {
 							localTimings["vertex_insert"] += elapsed
 							atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
@@ -576,16 +588,26 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		}
 
 		// Aggregate timings from writers
-		for writerTimings := range writerTimingsChan {
-			for k, v := range writerTimings {
+		mergedRelationships := make(map[catalog.RelationshipKey]int64)
+		for writerResult := range writerTimingsChan {
+			for k, v := range writerResult.timings {
 				summary.StageSeconds[k] += v
 			}
+			catalog.MergeRelationshipCounts(mergedRelationships, writerResult.relationshipCounts)
 		}
 		summary.BatchCounts["vertex_insert"] += fileVertexBatches
 		summary.BatchCounts["edge_insert"] += fileEdgeBatches
 
 		overwrite := !opts.Truncate
 		if err := catalog.WriteFieldCatalog(ctx, client, catalog.FieldCatalogCollection, mergedCatalog.Documents(), opts.BatchSize, overwrite, opts.WriteAPI, summary.StageSeconds); err != nil {
+			return summary, err
+		}
+		relationshipDocs := catalog.RelationshipCatalogDocuments(mergedRelationships)
+		if opts.Truncate {
+			if err := catalog.WriteRelationshipCatalog(ctx, client, relationshipDocs, opts.BatchSize, false, opts.WriteAPI, summary.StageSeconds); err != nil {
+				return summary, err
+			}
+		} else if err := catalog.AccumulateRelationshipCatalog(ctx, client, relationshipDocs, summary.StageSeconds); err != nil {
 			return summary, err
 		}
 

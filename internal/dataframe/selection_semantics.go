@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -161,6 +162,30 @@ func selectorCardinality(resourceType string, selector Selector) (bool, []string
 		}
 	}
 	return len(repeatedPaths) > 0, repeatedPaths, nil
+}
+
+func selectorExecutionMode(resourceType string, selector Selector, fallbacks ...Selector) PhysicalSelectorExecutionMode {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOOM_PHYSICAL_RULE_TYPED_SELECTORS"))) {
+	case "off", "0", "false", "disabled":
+		return PhysicalSelectorGeneric
+	}
+	if len(fallbacks) != 0 {
+		return PhysicalSelectorGeneric
+	}
+	if selector.Filter != nil {
+		return PhysicalSelectorGeneric
+	}
+	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
+	if !ok {
+		return PhysicalSelectorGeneric
+	}
+	if selectorHasNoArrays(selector) && !metadata.Repeated {
+		return PhysicalSelectorDirectScalar
+	}
+	if selectorHasIteratedArray(selector) && metadata.Repeated {
+		return PhysicalSelectorConditionalArray
+	}
+	return PhysicalSelectorGeneric
 }
 
 func sortedUniqueStrings(values []string) []string {

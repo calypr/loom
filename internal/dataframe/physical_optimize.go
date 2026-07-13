@@ -68,8 +68,12 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 		decision.EstimatedBaselineWork = baseline
 		decision.EstimatedOptimizedWork = optimized
 		decision.EstimatedSavings = savings
-		if !policy.Enabled {
-			decision.Reason = "cost policy disabled"
+		if !policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) {
+			if !policy.Enabled {
+				decision.Reason = "cost policy disabled"
+			} else {
+				decision.Reason = "traversal sharing rule disabled"
+			}
 			out.OptimizationPolicy.addDecision(decision)
 			continue
 		}
@@ -78,7 +82,7 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 			out.OptimizationPolicy.addDecision(decision)
 			continue
 		}
-		if err := sharePhysicalSetGroup(&out, indices, types, decompositions); err != nil {
+		if err := sharePhysicalSetGroup(&out, indices, types, decompositions, policy); err != nil {
 			decision.Reason = "rewrite rejected: " + err.Error()
 			out.OptimizationPolicy.addDecision(decision)
 			continue
@@ -93,7 +97,7 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 	return out, nil
 }
 
-func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]PhysicalTraversalPrefixDecomposition) error {
+func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]PhysicalTraversalPrefixDecomposition, policy PhysicalOptimizationPolicy) error {
 	first := indices[0]
 	// The broad set changes its target bind from one type to a type list. Deep
 	// clone before that change: its first consumer must retain the original
@@ -127,14 +131,32 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 	}
 	plan.BindVars[typesKey] = targetTypes
 	t.TargetTypeBindKey = typesKey
+	if policy.RuleEnabled(PhysicalOptimizationRuleEndpointTraversal) {
+		route := storageRoute{Direction: t.Direction}
+		if endpoint, join, fields, ok := route.endpointLookupFields(); ok {
+			t.Strategy = PhysicalTraversalEndpointLookup
+			t.EndpointField, t.EndpointJoinField = endpoint, join
+			t.EndpointIndexFields = append([]string(nil), fields...)
+		}
+	}
 	base.Subplan.Operations[0].Traversal = &t
 	base.Subplan.Operations = clonePhysicalOperations(original.Subplan.Operations[:7])
 	base.Variable = baseName
 	base.SourceSetVariable, base.ItemVariable = "", ""
+	// The broad source must remain a full node because sibling consumers may
+	// require different compact fields. Each typed subset retains its own
+	// proven output contract below; unioning those contracts into the broad
+	// traversal would make sharing resource/cardinality dependent.
+	base.Output = nil
 	// Prepared values belong to typed consumer sets. The broad shared neighbor
 	// set must contain raw nodes only; consumers prepare their own projections
 	// after resource-type filtering.
 	base.Prepared = nil
+	// Traversal-time selector projections are also consumer-specific. Keeping
+	// the first sibling's projection on the broad heterogeneous set evaluates
+	// selectors against the wrong resource payload and leaves typed subsets
+	// with empty values.
+	base.Projection = nil
 	base.Subplan.Return = PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: t.TargetVariable}}
 	// Rebuild operation stream, inserting the broad traversal immediately before
 	// the first consumer and replacing each consumer with a typed subset.
@@ -167,6 +189,14 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 		}
 		set.SourceSetVariable, set.ItemVariable, set.Subplan = baseName, item, sub
 		set.Unique, set.SortByKey = true, true
+		if set.Prepared != nil {
+			// The typed consumer now reads the shared subset rather than the
+			// original traversal set. Rebind the prepared projection's source
+			// to the consumer set so rendering defines it in the same scope.
+			prepared := *set.Prepared
+			prepared.SourceSetVariable = set.Variable
+			set.Prepared = &prepared
+		}
 		newOps = append(newOps, PhysicalOperation{Kind: PhysicalSetOp, Source: op.Source, Set: &set})
 	}
 	plan.Operations = newOps

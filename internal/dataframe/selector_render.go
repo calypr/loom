@@ -16,6 +16,15 @@ func selectorHasNoArrays(sel Selector) bool {
 	return true
 }
 
+func selectorHasIteratedArray(sel Selector) bool {
+	for _, step := range sel.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
+}
+
 func compileDirectExpr(rootVar string, steps []SelectorStep) string {
 	cur := rootVar
 	for _, step := range steps {

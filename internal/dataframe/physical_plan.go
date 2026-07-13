@@ -88,6 +88,17 @@ const (
 	PhysicalAny      PhysicalTraversalDirection = "ANY"
 )
 
+// PhysicalTraversalStrategy selects the execution shape for a validated
+// depth-one relationship. Native graph traversal is the conservative
+// fallback. EndpointLookup is only legal when storage-route metadata proves
+// the endpoint/discriminator fields and their compound index contract.
+type PhysicalTraversalStrategy string
+
+const (
+	PhysicalTraversalNative         PhysicalTraversalStrategy = "NATIVE"
+	PhysicalTraversalEndpointLookup PhysicalTraversalStrategy = "ENDPOINT_LOOKUP"
+)
+
 type PhysicalTraversal struct {
 	SourceVariable        string
 	TargetVariable        string
@@ -101,6 +112,13 @@ type PhysicalTraversal struct {
 	// from_type; for a proven forward OUTBOUND route it is to_type. The node
 	// resourceType check remains independently mandatory.
 	EdgeTargetTypeField string
+	// Strategy is deliberately typed rather than an AQL fragment. Endpoint
+	// fields are supplied by resolveStorageRoute and validated against the
+	// direction before the renderer can use them.
+	Strategy            PhysicalTraversalStrategy
+	EndpointField       string
+	EndpointJoinField   string
+	EndpointIndexFields []string
 }
 
 // PhysicalValue is either a variable/path reference or a bind variable. A
@@ -141,6 +159,17 @@ const (
 	PhysicalObjectExpression    PhysicalExpressionKind = "OBJECT"
 )
 
+// PhysicalSelectorExecutionMode records a schema-proven selector lowering.
+// Generic is the safe fallback for predicates, fallbacks, choice paths, and
+// unknown cardinality.
+type PhysicalSelectorExecutionMode string
+
+const (
+	PhysicalSelectorGeneric          PhysicalSelectorExecutionMode = "GENERIC"
+	PhysicalSelectorDirectScalar     PhysicalSelectorExecutionMode = "DIRECT_SCALAR"
+	PhysicalSelectorConditionalArray PhysicalSelectorExecutionMode = "CONDITIONAL_ARRAY"
+)
+
 // PhysicalExpression is a closed, renderer-independent value tree. It carries
 // no AQL source text: selector paths have already been parsed and all literals
 // are represented by bind values.
@@ -166,7 +195,8 @@ type PhysicalExtract struct {
 	Fallbacks    []Selector
 	// Distinct preserves the explicit DISTINCT projection mode after semantic
 	// lowering. It is meaningful only for an array-valued expression.
-	Distinct bool
+	Distinct      bool
+	ExecutionMode PhysicalSelectorExecutionMode
 	// Prepared points at a selector value projected by a prepared child set.
 	// Source remains the owning set for scope validation and diagnostics.
 	Prepared *PhysicalPreparedReference
@@ -249,6 +279,14 @@ type PhysicalSet struct {
 	Variable string
 	Subplan  PhysicalSubplan
 	Unique   bool
+	// Output describes a compact, identity-safe projection of each set item.
+	// A nil output preserves the full stored document for shared traversal or
+	// other consumers that have not proved a smaller contract.
+	Output *PhysicalSetOutput
+	// Projection describes selector values computed in the original child-set
+	// subquery. It replaces the payload-bearing second prepared array when all
+	// downstream consumers have a projection-safe selector contract.
+	Projection *PhysicalSetProjection
 	// SourceSetVariable is set for a typed subset over an already materialized
 	// shared traversal. Such a set does not begin with TRAVERSAL; ItemVariable
 	// is bound by the renderer while iterating SourceSetVariable.
@@ -258,6 +296,39 @@ type PhysicalSet struct {
 	// relationship materialization must not rely on Arango traversal order.
 	SortByKey bool
 	Prepared  *PhysicalPreparedSet
+}
+
+// PhysicalSetProjection is a single-materialization selector projection. The
+// fields are arrays because selector evaluation preserves repeated FHIR
+// values; scalar consumers apply their normal FIRST/FLATTEN semantics when
+// reading the projected field.
+type PhysicalSetProjection struct {
+	Fields []PhysicalSetProjectionField
+}
+
+type PhysicalSetProjectionField struct {
+	Name          string
+	ResourceType  string
+	Selector      Selector
+	ExecutionMode PhysicalSelectorExecutionMode
+}
+
+// PhysicalSetOutputField names the only stored properties that may survive a
+// compact set projection. The graph identity fields preserve nested traversal
+// and duplicate-edge semantics; payload is retained only when a downstream
+// selector or rich consumer needs it.
+type PhysicalSetOutputField string
+
+const (
+	PhysicalSetGraphIDField      PhysicalSetOutputField = "_id"
+	PhysicalSetKeyField          PhysicalSetOutputField = "_key"
+	PhysicalSetIDField           PhysicalSetOutputField = "id"
+	PhysicalSetResourceTypeField PhysicalSetOutputField = "resourceType"
+	PhysicalSetPayloadField      PhysicalSetOutputField = "payload"
+)
+
+type PhysicalSetOutput struct {
+	Fields []PhysicalSetOutputField
 }
 
 type PhysicalSubplan struct {
@@ -390,6 +461,9 @@ func (p PhysicalPlan) Validate() error {
 			if traversal.EdgeTargetTypeField != "" && !physicalPathPartPattern.MatchString(traversal.EdgeTargetTypeField) {
 				return fmt.Errorf("operation %d: unsafe traversal edge type field %q", i, traversal.EdgeTargetTypeField)
 			}
+			if err := validatePhysicalTraversalStrategy(*traversal); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
 			for _, key := range []string{traversal.EdgeCollectionBindKey, traversal.EdgeLabelBindKey, traversal.TargetTypeBindKey} {
 				if key != "" {
 					if err := requireBind(p.BindVars, key); err != nil {
@@ -471,7 +545,70 @@ func (p PhysicalPlan) Validate() error {
 	return nil
 }
 
+func validatePhysicalTraversalStrategy(traversal PhysicalTraversal) error {
+	strategy := traversal.Strategy
+	if strategy == "" || strategy == PhysicalTraversalNative {
+		return nil
+	}
+	if strategy != PhysicalTraversalEndpointLookup {
+		return fmt.Errorf("unsupported traversal strategy %q", strategy)
+	}
+	if traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalOutbound {
+		return fmt.Errorf("endpoint lookup requires INBOUND or OUTBOUND direction")
+	}
+	if !physicalPathPartPattern.MatchString(traversal.EndpointField) || !physicalPathPartPattern.MatchString(traversal.EndpointJoinField) {
+		return fmt.Errorf("endpoint lookup requires safe endpoint and join fields")
+	}
+	if len(traversal.EndpointIndexFields) == 0 {
+		return fmt.Errorf("endpoint lookup requires declared compound index fields")
+	}
+	for _, field := range traversal.EndpointIndexFields {
+		if !physicalPathPartPattern.MatchString(field) {
+			return fmt.Errorf("endpoint lookup has unsafe index field %q", field)
+		}
+	}
+	return nil
+}
+
 func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[string]any) error {
+	if set.Projection != nil {
+		if len(set.Projection.Fields) == 0 {
+			return fmt.Errorf("set %q projection requires at least one field", set.Variable)
+		}
+		seenProjectionFields := map[string]bool{}
+		for _, field := range set.Projection.Fields {
+			if !physicalVariablePattern.MatchString(field.Name) || seenProjectionFields[field.Name] {
+				return fmt.Errorf("set %q projection field %q is unsafe or duplicated", set.Variable, field.Name)
+			}
+			seenProjectionFields[field.Name] = true
+			if strings.TrimSpace(field.ResourceType) == "" || !fhirschema.HasResource(field.ResourceType) {
+				return fmt.Errorf("set %q projection field %q has invalid resource type %q", set.Variable, field.Name, field.ResourceType)
+			}
+			if err := validatePhysicalSelector(field.ResourceType, field.Selector); err != nil {
+				return fmt.Errorf("set %q projection field %q selector: %w", set.Variable, field.Name, err)
+			}
+		}
+	}
+	if set.Output != nil {
+		if len(set.Output.Fields) == 0 {
+			return fmt.Errorf("set %q compact output requires at least one retained field", set.Variable)
+		}
+		seenOutputFields := map[PhysicalSetOutputField]bool{}
+		for _, field := range set.Output.Fields {
+			switch field {
+			case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
+			default:
+				return fmt.Errorf("set %q compact output field %q is unsupported", set.Variable, field)
+			}
+			if seenOutputFields[field] {
+				return fmt.Errorf("set %q compact output field %q is duplicated", set.Variable, field)
+			}
+			seenOutputFields[field] = true
+		}
+		if !seenOutputFields[PhysicalSetGraphIDField] || !seenOutputFields[PhysicalSetKeyField] {
+			return fmt.Errorf("set %q compact output must retain _id and _key", set.Variable)
+		}
+	}
 	if set.Prepared != nil {
 		prepared := set.Prepared
 		if !physicalVariablePattern.MatchString(prepared.Variable) || !physicalVariablePattern.MatchString(prepared.SourceSetVariable) {
@@ -888,6 +1025,15 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 	if err := validatePhysicalSelector(extract.ResourceType, extract.Selector); err != nil {
 		return fmt.Errorf("extract selector: %w", err)
 	}
+	if extract.ExecutionMode != "" && extract.ExecutionMode != PhysicalSelectorGeneric && extract.ExecutionMode != PhysicalSelectorDirectScalar && extract.ExecutionMode != PhysicalSelectorConditionalArray {
+		return fmt.Errorf("unknown selector execution mode %q", extract.ExecutionMode)
+	}
+	if extract.ExecutionMode == PhysicalSelectorDirectScalar && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !selectorHasNoArrays(extract.Selector)) {
+		return fmt.Errorf("direct scalar selector mode requires one fallback-free non-repeated selector")
+	}
+	if extract.ExecutionMode == PhysicalSelectorConditionalArray && (len(extract.Fallbacks) != 0 || extract.Selector.Filter != nil || !selectorHasIteratedArray(extract.Selector)) {
+		return fmt.Errorf("conditional array selector mode requires one fallback-free repeated selector")
+	}
 	for index, fallback := range extract.Fallbacks {
 		if err := validatePhysicalSelector(extract.ResourceType, fallback); err != nil {
 			return fmt.Errorf("extract fallback %d: %w", index, err)
@@ -1100,6 +1246,9 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			}
 			if traversal.EdgeTargetTypeField != "" && !physicalPathPartPattern.MatchString(traversal.EdgeTargetTypeField) {
 				return fmt.Errorf("subplan operation %d: unsafe traversal edge type field %q", index, traversal.EdgeTargetTypeField)
+			}
+			if err := validatePhysicalTraversalStrategy(*traversal); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
 			}
 			if err := requireCollectionBind(bindVars, traversal.EdgeCollectionBindKey); err != nil {
 				return fmt.Errorf("subplan operation %d: %w", index, err)
