@@ -6,6 +6,7 @@ package graphqlapi
 
 import (
 	"context"
+	"encoding/json"
 
 	dataframeapi "github.com/calypr/loom/graphqlapi/dataframe"
 	"github.com/calypr/loom/graphqlapi/model"
@@ -50,6 +51,50 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 		Fields:            fieldHints(resp.Fields),
 		PivotFields:       fieldHints(resp.PivotFields),
 	}, nil
+}
+
+// DataframeMaterialization is the resolver for the dataframeMaterialization field.
+func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
+	value, err := r.service.GetMaterialization(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return materializationModel(*value), nil
+}
+
+// DataframeRows is the resolver for the dataframeRows field.
+func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
+	page, err := r.service.ReadMaterialization(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := json.Marshal(page.Rows)
+	if err != nil {
+		return nil, err
+	}
+	var cursor *string
+	if page.NextCursor != "" {
+		cursor = &page.NextCursor
+	}
+	return &model.DataframeRowConnection{
+		Materialization: materializationModel(page.Materialization),
+		Columns:         append([]string(nil), page.Columns...), Rows: rows,
+		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
+	}, nil
+}
+
+// DataframeAggregate is the resolver for the dataframeAggregate field.
+func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
+	groupBy := append([]string(nil), input.GroupBy...)
+	column := ""
+	if input.Column != nil {
+		column = *input.Column
+	}
+	result, err := r.service.AggregateMaterialization(ctx, input.MaterializationID, groupBy, input.Filters, input.Operation, column)
+	if err != nil {
+		return nil, err
+	}
+	return &model.DataframeAggregateResult{Materialization: materializationModel(result.Materialization), Columns: result.Columns, Rows: aggregateRows(result.Rows)}, nil
 }
 
 // Mutation returns MutationResolver implementation.

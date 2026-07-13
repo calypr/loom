@@ -1,7 +1,7 @@
 package dataframe
 
-// These aliases keep legacy experiment tests in the root compatibility
-// package while their implementations live in compiler/runtime packages.
+// These aliases keep package-local compiler tests readable while their
+// implementations live in the canonical compiler/runtime packages.
 type storageRoute = StorageRoute
 
 func resolveStorageRoute(fromType, label, toType string) (storageRoute, error) {

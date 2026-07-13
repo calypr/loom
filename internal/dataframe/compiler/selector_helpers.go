@@ -1,10 +1,35 @@
 package compiler
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
 )
+
+func selectorStepText(step SelectorStep) string {
+	switch {
+	case step.Iterate:
+		return step.Field + "[]"
+	case step.Index != nil:
+		return fmt.Sprintf("%s[%d]", step.Field, *step.Index)
+	default:
+		return step.Field
+	}
+}
+
+func sanitizeColumnName(in string) string {
+	var b strings.Builder
+	for _, r := range in {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
 
 func selectorSpecFromSelector(sel Selector) fhirschema.FieldSelectorSpec {
 	sourcePath := ""

@@ -11,8 +11,13 @@ import (
 	"runtime/trace"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/materialization"
+	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
+	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	arangostore "github.com/calypr/loom/internal/store/arango"
+	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 const (
@@ -41,6 +46,8 @@ func main() {
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
 	case "rebuild-relationship-catalog":
 		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
+	case "materialize-dataframe":
+		err = runMaterializeDataframe(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -201,6 +208,91 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	return printJSON(summary)
 }
 
+func runMaterializeDataframe(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("materialize-dataframe", flag.ExitOnError)
+	var requestPath, name, clickhouseURL, clickhouseDatabase string
+	var opts arangostore.ConnectionOptions
+	fs.StringVar(&requestPath, "request", "", "JSON file containing a FhirDataframeInput")
+	fs.StringVar(&name, "name", "", "Published dataframe name")
+	fs.StringVar(&opts.URL, "url", defaultURL, "ArangoDB URL")
+	fs.StringVar(&opts.Database, "database", defaultDatabase, "Arango database")
+	fs.StringVar(&clickhouseURL, "clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL")
+	fs.StringVar(&clickhouseDatabase, "clickhouse-database", "loom", "ClickHouse database")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if requestPath == "" {
+		return fmt.Errorf("--request is required")
+	}
+	if name == "" {
+		return fmt.Errorf("--name is required")
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		return err
+	}
+	var input materializationInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return fmt.Errorf("decode dataframe request: %w", err)
+	}
+	arango, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return err
+	}
+	defer arango.Close(ctx)
+	if err := arango.Bootstrap(ctx, materializationarango.BootstrapSpec()); err != nil {
+		return err
+	}
+	registry, err := materializationarango.New(arango)
+	if err != nil {
+		return err
+	}
+	ch, err := clickhousestore.New(clickhousestore.Options{URL: clickhouseURL, Database: clickhouseDatabase})
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+	if err := ch.EnsureDatabase(ctx); err != nil {
+		return err
+	}
+	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{ConnectionOptions: opts})
+	service := &materialization.Service{Dataframes: dataframes, ClickHouse: ch, Registry: registry}
+	builder := input.Builder()
+	result, err := service.Materialize(ctx, materialization.Request{Name: name, Run: dataframeruntime.RunRequest{Builder: builder}, Schema: input.Schema})
+	if err != nil {
+		return err
+	}
+	return printJSON(result)
+}
+
+// materializationInput is intentionally the operator-facing, compiler-shaped
+// recipe. The browser-facing GraphQL input can be mapped to the same builder
+// by the GraphQL adapter without making this command depend on gqlgen output.
+type materializationInput struct {
+	Project           string                                 `json:"project"`
+	DatasetGeneration string                                 `json:"datasetGeneration"`
+	AuthResourcePaths []string                               `json:"authResourcePaths"`
+	RootResourceType  string                                 `json:"rootResourceType"`
+	RowGrain          dataframeruntime.RowGrain              `json:"rowGrain"`
+	Fields            []dataframeruntime.FieldSelect         `json:"fields"`
+	Filters           []dataframeruntime.TypedFilter         `json:"filters"`
+	Pivots            []dataframeruntime.PivotSelect         `json:"pivots"`
+	Aggregates        []dataframeruntime.AggregateSelect     `json:"aggregates"`
+	Slices            []dataframeruntime.RepresentativeSlice `json:"slices"`
+	Traversals        []dataframeruntime.TraversalStep       `json:"traversals"`
+	Schema            []materialization.SchemaColumn         `json:"schema"`
+}
+
+func (in materializationInput) Builder() dataframeruntime.Builder {
+	return dataframeruntime.Builder{
+		Project: in.Project, DatasetGeneration: in.DatasetGeneration,
+		AuthResourcePaths: in.AuthResourcePaths, RootResourceType: in.RootResourceType,
+		RowGrain: in.RowGrain, Fields: in.Fields, Filters: in.Filters,
+		Pivots: in.Pivots, Aggregates: in.Aggregates, Slices: in.Slices,
+		Traversals: in.Traversals,
+	}
+}
+
 func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
@@ -250,6 +342,7 @@ func usage() {
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
   arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill
+  arango-fhir-proto materialize-dataframe --request dataframe.json --name case-explorer [flags]
 `)
 }
 

@@ -8,7 +8,8 @@ This repo has two main runtime surfaces:
 - `arango-fhir-proto`: CLI for FHIR loading (including immutable complete
   generations) and catalog diagnostics
 - `arango-fhir-server`: Fiber server for compiler-backed GraphQL reads and a
-  temporary one-file import compatibility endpoint
+  temporary one-file import compatibility endpoint. It also exposes published
+  dataframe reads backed by ClickHouse when configured.
 
 The current product direction is:
 
@@ -24,7 +25,9 @@ directory contains the local Arango compose setup.
 ## Docs
 
 - [Quickstart](docs/QUICKSTART.md)
+- Helm local-cluster deployment: `gen3-helm/helm/loom`
 - [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
+- [Compiler Performance](docs/COMPILER_PERFORMANCE.md)
 - [Formal Product Gap Analysis](docs/FORMAL_GAP_ANALYSIS.md)
 - [Compiler-First FHIR/AQL Plan](docs/COMPILER_FIRST_PLAN.md)
 - [Physical Renderer Replacement Plan](docs/PHYSICAL_RENDERER_REPLACEMENT_PLAN.md)
@@ -118,6 +121,59 @@ Then open:
 
 The full step-by-step flow, including a sample GraphQL dataframe mutation, lives
 in [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+## Local cluster deployment
+
+The Helm deployment now lives in the `gen3-helm` repository at
+`helm/loom`. It owns the Loom chart and its official ClickStack dependencies;
+see that repository's README for kind/minikube installation and port
+forwarding instructions.
+
+## Published dataframe materializations
+
+Loom can stream a validated dataframe recipe into a versioned ClickHouse table.
+The operator command accepts a compiler-shaped JSON recipe:
+
+```json
+{
+  "project": "ARANGODB_PROTO",
+  "rootResourceType": "Patient",
+  "fields": [
+    {"name": "patient_id", "select": "id", "valueMode": "FIRST"}
+  ],
+  "schema": [
+    {"name": "patient_id", "clickhouseType": "Nullable(String)"}
+  ]
+}
+```
+
+```bash
+./bin/arango-fhir-proto materialize-dataframe \
+  --request dataframe.json \
+  --name case-explorer \
+  --clickhouse-url clickhouse://127.0.0.1:9000 \
+  --clickhouse-database loom
+```
+
+The server exposes READY materializations through the existing GraphQL endpoint:
+
+```graphql
+query Rows($input: DataframeRowsInput!) {
+  dataframeRows(input: $input) {
+    columns
+    rows
+    pageInfo { hasNextPage endCursor }
+    materialization { id name rowCount columns { name clickhouseType } }
+  }
+}
+```
+
+The browser never receives a ClickHouse table name or SQL capability. Loom
+validates the requested columns, filters, sort, page size, project, generation,
+and materialization state before querying ClickHouse. An explicit `schema`
+preflight validates column names/types before the table is created and rejects
+rows that emit undeclared or incompatible values. Aggregates accept the same
+`EQ` and `CONTAINS` filters as row reads.
 
 If you are starting from a fresh checkout, go there next:
 

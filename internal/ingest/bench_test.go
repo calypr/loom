@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
 	fhir "github.com/calypr/loom/fhirstructs"
+	"github.com/calypr/loom/internal/catalog"
 
-	jsgarango "github.com/bmeg/jsonschemagraph/arango"
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
+	jsgarango "github.com/calypr/loom/internal/graphstore"
 )
 
 func BenchmarkValidateAndExtract(b *testing.B) {

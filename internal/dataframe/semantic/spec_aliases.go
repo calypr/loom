@@ -1,0 +1,39 @@
+package semantic
+
+import "github.com/calypr/loom/internal/dataframe/spec"
+
+type (
+	Builder             = spec.Builder
+	TraversalStep       = spec.TraversalStep
+	RepresentativeSlice = spec.RepresentativeSlice
+	FieldSelect         = spec.FieldSelect
+	PivotSelect         = spec.PivotSelect
+	AggregateSelect     = spec.AggregateSelect
+	RowGrain            = spec.RowGrain
+	ProjectionMode      = spec.ProjectionMode
+	Cardinality         = spec.Cardinality
+	RowIdentity         = spec.RowIdentity
+	TraversalMatchMode  = spec.TraversalMatchMode
+	TypedFilter         = spec.TypedFilter
+	Selector            = spec.Selector
+	SelectorStep        = spec.SelectorStep
+)
+
+const (
+	ProjectionScalar        = spec.ProjectionScalar
+	ProjectionFirst         = spec.ProjectionFirst
+	ProjectionArray         = spec.ProjectionArray
+	ProjectionDistinctArray = spec.ProjectionDistinctArray
+	CardinalityOptionalOne  = spec.CardinalityOptionalOne
+	CardinalityMany         = spec.CardinalityMany
+)
+
+var (
+	ParseSelector                  = spec.ParseSelector
+	ValidateTypedFilterForResource = spec.ValidateTypedFilterForResource
+	InferRowGrain                  = spec.InferRowGrain
+	RootResourceForGrain           = spec.RootResourceForGrain
+	ValidateRootGrain              = spec.ValidateRootGrain
+	DefaultRowIdentity             = spec.DefaultRowIdentity
+	ValidateProjection             = spec.ValidateProjection
+)

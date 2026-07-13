@@ -7,8 +7,8 @@ import (
 
 	fhir "github.com/calypr/loom/fhirstructs"
 
-	jsgarango "github.com/bmeg/jsonschemagraph/arango"
 	"github.com/bytedance/sonic"
+	jsgarango "github.com/calypr/loom/internal/graphstore"
 )
 
 // supportsGeneratedLoad reports whether the optimized generated-loader

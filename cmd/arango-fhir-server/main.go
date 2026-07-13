@@ -14,11 +14,14 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/materialization"
+	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	"github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	api "github.com/calypr/loom/internal/httpapi"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 func main() {
@@ -34,6 +37,8 @@ func main() {
 		// disables the legacy one-file import route because that route cannot
 		// safely construct a complete immutable snapshot.
 		datasetGenerations = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
+		clickhouseURL      = flag.String("clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
+		clickhouseDatabase = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
 	)
 	flag.Parse()
 
@@ -88,6 +93,25 @@ func main() {
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
 	})
+	registryClient, err := arangostore.Open(context.Background(), connOpts.URL, connOpts.Database)
+	if err != nil {
+		exitf("open dataframe registry store: %v", err)
+	}
+	defer registryClient.Close(context.Background())
+	if err := registryClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
+		exitf("bootstrap dataframe registry store: %v", err)
+	}
+	registry, err := materializationarango.New(registryClient)
+	if err != nil {
+		exitf("create dataframe registry: %v", err)
+	}
+	clickhouse, err := clickhousestore.New(clickhousestore.Options{URL: *clickhouseURL, Database: *clickhouseDatabase})
+	if err != nil {
+		exitf("create ClickHouse client: %v", err)
+	}
+	defer clickhouse.Close()
+	materializer := &materialization.Service{Dataframes: dataframes, ClickHouse: clickhouse, Registry: registry}
+	materializationReader := &materialization.Reader{ClickHouse: clickhouse, Registry: registry, MaxPage: 1000}
 	resolver := graphqlapi.NewResolver(dataframeapi.Config{
 		ConnectionOptions:      connOpts,
 		DiscoverReferences:     discoverReferences,
@@ -95,6 +119,8 @@ func main() {
 		Dataframes:             dataframes,
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
+		Materializations:       materializer,
+		MaterializationReader:  materializationReader,
 	})
 
 	importService, err := api.NewService(api.ServiceConfig{

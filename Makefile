@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench compiler-arango-bench dataframe-demo dataframe-profile conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench compiler-arango-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GOCACHE_DIR ?= $(CURDIR)/.gocache
@@ -73,6 +73,13 @@ dataframe-demo:
 dataframe-profile:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) run ./cmd/dataframe-profile -variables $(DATAFRAME_PROFILE_VARIABLES) -limit $(DATAFRAME_PROFILE_LIMIT)
+
+dataframe-boundaries:
+	./scripts/check_dataframe_package_boundaries.sh
+
+dataframe-test: dataframe-boundaries
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=auto $(GO) test $(GOFLAGS) ./internal/dataframe/spec ./internal/dataframe/semantic ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/optimize ./internal/dataframe/compiler/render/aql ./internal/dataframe/compiler ./internal/dataframe/runtime ./internal/dataframe -count=1
 
 conformance:
 	mkdir -p $(GOCACHE_DIR)

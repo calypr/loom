@@ -60,8 +60,13 @@ GraphQL request
   -> dataframebuilder.Service
   -> dataframe compatibility façade
   -> dataframe/runtime.Service
-  -> dataframe/compiler semantic validation and lowering
-  -> lowered AQL compiler
+  -> dataframe/compiler facade
+  -> dataframe/spec request contracts
+  -> dataframe/semantic logical plan
+  -> dataframe/compiler/ir typed physical plan
+  -> dataframe/compiler/lower FHIR storage lowering
+  -> dataframe/compiler/optimize IR rewrites
+  -> dataframe/compiler/render/aql parameterized AQL
   -> Arango query execution/streaming
 ```
 
@@ -81,14 +86,32 @@ layout, plus the explicitly proven `ResearchSubject --study--> ResearchStudy`
 sufficient proof; every other forward route remains rejected until it has a
 verified storage contract.
 
-The compiler package contains the typed physical plan, lowering, optimizer,
-renderer, and compiler diagnostics. Runtime code may call the compiler, but the
-compiler must never import runtime, catalog, or HTTP/GraphQL transport code.
-The root dataframe import path remains stable through aliases and forwarding
-functions so external callers do not need a flag-day migration.
+The compiler facade orchestrates independent `spec`, `semantic`, `compiler/ir`,
+`compiler/lower`, `compiler/optimize`, and `compiler/render/aql` packages.
+`spec` owns request contracts, `semantic` owns backend-independent meaning,
+`ir` owns typed physical operations and scope proofs, `lower` owns FHIR route
+and endpoint decisions, `optimize` owns semantics-preserving IR rewrites, and
+`render/aql` owns serialization only. Runtime code may call the compiler, but
+no compiler child may import runtime, catalog, or HTTP/GraphQL transport code.
+The root dataframe import path remains stable through direct aliases and
+forwarding functions so external callers do not need a flag-day migration.
+
+When adding code, use this lookup table:
+
+| Change | Owner |
+| --- | --- |
+| New request/filter/selector contract | `internal/dataframe/spec` |
+| FHIR schema meaning or logical selection | `internal/dataframe/semantic` |
+| Physical operation or scope invariant | `internal/dataframe/compiler/ir` |
+| FHIR edge route or endpoint lowering | `internal/dataframe/compiler/lower` |
+| Cost-gated physical rewrite | `internal/dataframe/compiler/optimize` |
+| AQL text or bind emission | `internal/dataframe/compiler/render/aql` |
+| Catalog, auth, generation, cursor, or profiling | `internal/dataframe/runtime` |
 
 For the complete ownership map and move history, see
-[`DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md`](DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md).
+[`DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md`](DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md)
+and the current compiler split plan
+[`DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md`](DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md).
 
 ## Compatibility tracks and removal order
 

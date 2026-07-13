@@ -9,6 +9,20 @@ import (
 	"strconv"
 )
 
+type DataframeAggregateInput struct {
+	MaterializationID string                  `json:"materializationId"`
+	GroupBy           []string                `json:"groupBy,omitempty"`
+	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
+	Operation         string                  `json:"operation"`
+	Column            *string                 `json:"column,omitempty"`
+}
+
+type DataframeAggregateResult struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Columns         []string                  `json:"columns"`
+	Rows            json.RawMessage           `json:"rows"`
+}
+
 type DataframeBuilderIntrospection struct {
 	Project           string                           `json:"project"`
 	RootResourceType  string                           `json:"rootResourceType"`
@@ -25,6 +39,11 @@ type DataframeBuilderIntrospectionInput struct {
 	RootResourceType       string   `json:"rootResourceType"`
 	AuthResourcePaths      []string `json:"authResourcePaths,omitempty"`
 	IncludePivotOnlyFields *bool    `json:"includePivotOnlyFields,omitempty"`
+}
+
+type DataframeColumn struct {
+	Name           string `json:"name"`
+	ClickhouseType string `json:"clickhouseType"`
 }
 
 type DataframeCompilerPlanDiagnostics struct {
@@ -70,6 +89,25 @@ type DataframeFieldSelector struct {
 	ValuePath  string                   `json:"valuePath"`
 }
 
+type DataframeFilterInput struct {
+	Column string          `json:"column"`
+	Op     string          `json:"op"`
+	Value  json.RawMessage `json:"value"`
+}
+
+type DataframeMaterialization struct {
+	ID                string                        `json:"id"`
+	Name              string                        `json:"name"`
+	Project           string                        `json:"project"`
+	DatasetGeneration string                        `json:"datasetGeneration"`
+	State             DataframeMaterializationState `json:"state"`
+	Columns           []*DataframeColumn            `json:"columns"`
+	RowCount          int                           `json:"rowCount"`
+	CreatedAt         string                        `json:"createdAt"`
+	ReadyAt           *string                       `json:"readyAt,omitempty"`
+	Error             *string                       `json:"error,omitempty"`
+}
+
 type DataframeOptimizationDecision struct {
 	Rule                   string `json:"rule"`
 	Enabled                bool   `json:"enabled"`
@@ -85,6 +123,11 @@ type DataframeOptimizationPolicy struct {
 	Enabled        bool                             `json:"enabled"`
 	MinimumSavings int                              `json:"minimumSavings"`
 	Decisions      []*DataframeOptimizationDecision `json:"decisions"`
+}
+
+type DataframePageInfo struct {
+	HasNextPage bool    `json:"hasNextPage"`
+	EndCursor   *string `json:"endCursor,omitempty"`
 }
 
 type DataframeQueryDiagnostics struct {
@@ -117,6 +160,27 @@ type DataframeRichSourceReuse struct {
 	PivotConsumers     int    `json:"pivotConsumers"`
 	SliceConsumers     int    `json:"sliceConsumers"`
 	TotalConsumers     int    `json:"totalConsumers"`
+}
+
+type DataframeRowConnection struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Columns         []string                  `json:"columns"`
+	Rows            json.RawMessage           `json:"rows"`
+	PageInfo        *DataframePageInfo        `json:"pageInfo"`
+}
+
+type DataframeRowsInput struct {
+	MaterializationID string                  `json:"materializationId"`
+	Columns           []string                `json:"columns,omitempty"`
+	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
+	Sort              *DataframeSortInput     `json:"sort,omitempty"`
+	First             *int                    `json:"first,omitempty"`
+	After             *string                 `json:"after,omitempty"`
+}
+
+type DataframeSortInput struct {
+	Column string `json:"column"`
+	Desc   *bool  `json:"desc,omitempty"`
 }
 
 type DataframeTraversalHint struct {
@@ -212,6 +276,51 @@ type Mutation struct {
 }
 
 type Query struct {
+}
+
+type DataframeMaterializationState string
+
+const (
+	DataframeMaterializationStatePending DataframeMaterializationState = "PENDING"
+	DataframeMaterializationStateLoading DataframeMaterializationState = "LOADING"
+	DataframeMaterializationStateReady   DataframeMaterializationState = "READY"
+	DataframeMaterializationStateFailed  DataframeMaterializationState = "FAILED"
+)
+
+var AllDataframeMaterializationState = []DataframeMaterializationState{
+	DataframeMaterializationStatePending,
+	DataframeMaterializationStateLoading,
+	DataframeMaterializationStateReady,
+	DataframeMaterializationStateFailed,
+}
+
+func (e DataframeMaterializationState) IsValid() bool {
+	switch e {
+	case DataframeMaterializationStatePending, DataframeMaterializationStateLoading, DataframeMaterializationStateReady, DataframeMaterializationStateFailed:
+		return true
+	}
+	return false
+}
+
+func (e DataframeMaterializationState) String() string {
+	return string(e)
+}
+
+func (e *DataframeMaterializationState) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = DataframeMaterializationState(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid DataframeMaterializationState", str)
+	}
+	return nil
+}
+
+func (e DataframeMaterializationState) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
 type FhirAggregateOperation string

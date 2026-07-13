@@ -2,6 +2,10 @@ type Query {
   dataframeBuilderIntrospection(
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
+
+  dataframeMaterialization(id: ID!): DataframeMaterialization
+  dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
+  dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
 }
 
 scalar JSON
@@ -11,6 +15,77 @@ type Mutation {
     input: FhirDataframeInput!
     limit: Int = 25
   ): FhirDataframeResult!
+}
+
+enum DataframeMaterializationState {
+  PENDING
+  LOADING
+  READY
+  FAILED
+}
+
+type DataframeColumn {
+  name: String!
+  clickhouseType: String!
+}
+
+type DataframeMaterialization {
+  id: ID!
+  name: String!
+  project: String!
+  datasetGeneration: String!
+  state: DataframeMaterializationState!
+  columns: [DataframeColumn!]!
+  rowCount: Int!
+  createdAt: String!
+  readyAt: String
+  error: String
+}
+
+input DataframeFilterInput {
+  column: String!
+  op: String!
+  value: JSON!
+}
+
+input DataframeSortInput {
+  column: String!
+  desc: Boolean = false
+}
+
+input DataframeRowsInput {
+  materializationId: ID!
+  columns: [String!]
+  filters: [DataframeFilterInput!]
+  sort: DataframeSortInput
+  first: Int = 100
+  after: String
+}
+
+type DataframePageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type DataframeRowConnection {
+  materialization: DataframeMaterialization!
+  columns: [String!]!
+  rows: JSON!
+  pageInfo: DataframePageInfo!
+}
+
+input DataframeAggregateInput {
+  materializationId: ID!
+  groupBy: [String!]
+  filters: [DataframeFilterInput!]
+  operation: String!
+  column: String
+}
+
+type DataframeAggregateResult {
+  materialization: DataframeMaterialization!
+  columns: [String!]!
+  rows: JSON!
 }
 
 input DataframeBuilderIntrospectionInput {

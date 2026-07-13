@@ -12,9 +12,9 @@ import (
 
 	fhir "github.com/calypr/loom/fhirstructs"
 
-	jsgarango "github.com/bmeg/jsonschemagraph/arango"
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
+	jsgarango "github.com/calypr/loom/internal/graphstore"
 )
 
 type EdgeDocument = jsgarango.EdgeDocument
