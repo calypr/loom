@@ -3,44 +3,58 @@
 FHIR graph loader and dataframe server, with ArangoDB as the primary execution
 backend.
 
-This repo now has two main runtime surfaces:
+This repo has two main runtime surfaces:
 
-- `arango-fhir-proto`: CLI for load, discovery, query, prepare, and benchmark work
-- `arango-fhir-server`: Fiber + GraphQL/REST server for dataframe reads and bulk ingest
+- `arango-fhir-proto`: CLI for FHIR loading (including immutable complete
+  generations) and catalog diagnostics
+- `arango-fhir-server`: Fiber server for compiler-backed GraphQL reads and a
+  temporary one-file import compatibility endpoint. It also exposes published
+  dataframe reads backed by ClickHouse when configured.
 
 The current product direction is:
 
 - load raw FHIR NDJSON into one collection per resource type
 - store graph edges in `fhir_edge`
 - profile populated fields into `fhir_field_catalog`
-- expose builder introspection and dataframe execution through GraphQL
-- keep bulk ingest as REST, not GraphQL
+- lower typed dataframe requests through the FHIR-aware compiler into scoped AQL
+- expose the current compiler-backed GraphQL transport
 
-ArangoDB is the first-class backend for dataframe execution. SurrealDB and
-Postgres code remains under [`experimental/`](experimental/) for research and
-benchmarking only.
+ArangoDB is the only runtime backend. The tracked [`experimental/`](experimental/)
+directory contains the local Arango compose setup.
 
 ## Docs
 
 - [Quickstart](docs/QUICKSTART.md)
+- Helm local-cluster deployment: `gen3-helm/helm/loom`
 - [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
-- [GraphQL/Dataframe Portability Notes](docs/DATAFRAME_BUILDER_PORTABILITY.md)
-- [Arango vs. Surreal post-mortem](experimental/ARANGO_VS_SURREAL_FHIR_POSTMORTEM.md)
+- [Compiler Performance](docs/COMPILER_PERFORMANCE.md)
+- [Formal Product Gap Analysis](docs/FORMAL_GAP_ANALYSIS.md)
+- [Compiler-First FHIR/AQL Plan](docs/COMPILER_FIRST_PLAN.md)
+- [Physical Renderer Replacement Plan](docs/PHYSICAL_RENDERER_REPLACEMENT_PLAN.md)
+- [Rich Physical Renderer Plan](docs/RICH_PHYSICAL_RENDERER_PLAN.md)
+- [Luna Rich Physical Renderer Execution Plan](docs/LUNA_RICH_PHYSICAL_RENDERER_EXECUTION.md)
+- [Luna Compiler Finalization Plan](docs/LUNA_COMPILER_FINALIZATION_PLAN.md)
+- [Terra Ultra Parallel Execution Plan](docs/TERRA_ULTRA_EXECUTION_PLAN.md)
+- [Part 5 Luna Frontend Enablement Plan](docs/LUNA_FRONTEND_ENABLEMENT_PART_5.md)
 
 ## Current Layout
 
 - [`cmd/arango-fhir-proto/main.go`](cmd/arango-fhir-proto/main.go): CLI entrypoint
 - [`cmd/arango-fhir-server/main.go`](cmd/arango-fhir-server/main.go): HTTP server entrypoint
-- [`internal/proto`](internal/proto): load pipeline and backend bootstrap helpers
+- [`internal/ingest`](internal/ingest): load pipeline and Arango ingest bootstrap/runtime
 - [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
-- [`internal/catalogcache`](internal/catalogcache): per-project discovery cache
-- [`internal/graphqlapi`](internal/graphqlapi): GraphQL schema, request mapping, introspection service
+- [`internal/dataset`](internal/dataset): dataset generation, schema, and scope lifecycle contract
+- [`internal/dataset/arango`](internal/dataset/arango): Arango-backed immutable manifest and active-generation pointer store
+- [`graphqlapi`](graphqlapi): GraphQL schema, request mapping, introspection service, and gqlgen output
+- [`graphqlapi/query`](graphqlapi/query): GraphQL dataframe input translation, discovery, and builder introspection
+- [`graphqlapi/materialization`](graphqlapi/materialization): GraphQL authorization and reads for published ClickHouse dataframes
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
-- [`internal/fhirschema`](internal/fhirschema): generated schema metadata used by planner/validation
-- [`internal/fhirsemantics`](internal/fhirsemantics): friendly `fieldRef`s and semantic lowering hints
-- [`internal/writeapi`](internal/writeapi): REST import API and in-process operation manager
-- [`queries/`](queries/): Arango AQL query artifacts
-- [`experimental/`](experimental/): non-primary backend work and benchmark artifacts
+- [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
+- [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
+- [`internal/graphschema`](internal/graphschema): exact graph-schema identity captured by dataset generations
+- [`internal/httpapi`](internal/httpapi): HTTP host, authenticated GraphQL mounting, and legacy import compatibility wiring
+- [`internal/authscope`](internal/authscope): shared request principal context and auth-resource-path scope resolution
+- [`experimental/`](experimental/): local Arango development compose setup
 
 ## Local Dev
 
@@ -58,10 +72,31 @@ make generate-graphql
 make build
 ```
 
+The repository root is also the server command, so a plain build works:
+
+```bash
+go build .
+```
+
 Load the bundled sample dataset:
 
 ```bash
 ./bin/arango-fhir-proto load \
+  --backend arango \
+  --url http://127.0.0.1:8529 \
+  --database fhir_proto \
+  --meta-dir META \
+  --project ARANGODB_PROTO \
+  --auth-resource-path EllrottLab-GDC_Data
+```
+
+For an immutable, generation-qualified load instead of the mutable prototype
+load above, use a complete `META` directory and an operator-supplied opaque
+generation ID. This command deliberately has no `--truncate` flag:
+
+```bash
+./bin/arango-fhir-proto load-generation \
+  --generation local-meta-2026-07-11 \
   --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
@@ -81,6 +116,10 @@ Start the server in local demo mode:
   --database fhir_proto
 ```
 
+To read the active immutable generation instead, add `--dataset-generations`.
+That mode disables `POST /api/v1/imports`; use `load-generation` (or the future
+bundle/job API) to create a complete snapshot.
+
 Then open:
 
 - Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
@@ -89,6 +128,59 @@ Then open:
 
 The full step-by-step flow, including a sample GraphQL dataframe mutation, lives
 in [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+## Local cluster deployment
+
+The Helm deployment now lives in the `gen3-helm` repository at
+`helm/loom`. It owns the Loom chart and its official ClickStack dependencies;
+see that repository's README for kind/minikube installation and port
+forwarding instructions.
+
+## Published dataframe materializations
+
+Loom can stream a validated dataframe recipe into a versioned ClickHouse table.
+The operator command accepts a compiler-shaped JSON recipe:
+
+```json
+{
+  "project": "ARANGODB_PROTO",
+  "rootResourceType": "Patient",
+  "fields": [
+    {"name": "patient_id", "select": "id", "valueMode": "FIRST"}
+  ],
+  "schema": [
+    {"name": "patient_id", "clickhouseType": "Nullable(String)"}
+  ]
+}
+```
+
+```bash
+./bin/arango-fhir-proto materialize-dataframe \
+  --request dataframe.json \
+  --name case-explorer \
+  --clickhouse-url clickhouse://127.0.0.1:9000 \
+  --clickhouse-database loom
+```
+
+The server exposes READY materializations through the existing GraphQL endpoint:
+
+```graphql
+query Rows($input: DataframeRowsInput!) {
+  dataframeRows(input: $input) {
+    columns
+    rows
+    pageInfo { hasNextPage endCursor }
+    materialization { id name rowCount columns { name clickhouseType } }
+  }
+}
+```
+
+The browser never receives a ClickHouse table name or SQL capability. Loom
+validates the requested columns, filters, sort, page size, project, generation,
+and materialization state before querying ClickHouse. An explicit `schema`
+preflight validates column names/types before the table is created and rejects
+rows that emit undeclared or incompatible values. Aggregates accept the same
+`EQ` and `CONTAINS` filters as row reads.
 
 If you are starting from a fresh checkout, go there next:
 
@@ -105,6 +197,8 @@ Important make targets:
 - `make build-cli`
 - `make graphql-check`
 - `make test`
+- `make conformance`
+- `make compiler-bench`
 
 `make generate-graphql` is important now. The GraphQL schema and generated
 artifacts are not purely static, and the repo includes a small reproducible
@@ -118,11 +212,9 @@ The server mounts:
 - `GET /apollo`
 - `GET /graphql`
 - `POST /graphql`
-- `POST /api/v1/imports`
-- `GET /api/v1/imports/:id`
-- `GET /api/v1/imports/:id/events`
+- `POST /api/v1/imports` (legacy one-file import; disabled with `--dataset-generations`)
 
-Write/import behavior lives in [`internal/writeapi/http.go`](internal/writeapi/http.go).
+HTTP wiring lives in [`internal/httpapi/routes.go`](internal/httpapi/routes.go) and [`internal/httpapi/server.go`](internal/httpapi/server.go).
 
 ## Primary Collections
 
@@ -131,9 +223,9 @@ The loader bootstraps:
 - one collection per FHIR resource type discovered in the NDJSON input
 - `fhir_edge`
 - `fhir_field_catalog`
-- `patient_file_rollup`
+- `loom_dataset_lifecycle` for generation-aware loads (never truncated)
 
-See [`internal/proto/backend.go`](internal/proto/backend.go).
+See [`internal/ingest/backend.go`](internal/ingest/backend.go).
 
 ## Status
 
@@ -141,11 +233,5 @@ What is current and real:
 
 - GraphQL introspection for populated traversals/fields/pivots
 - GraphQL dataframe execution on Arango
-- REST bulk ingest with in-process operation tracking
-- generated schema metadata in `internal/fhirschema`
-- semantic alias/lowering hints in `internal/fhirsemantics`
-
-What is explicitly experimental:
-
-- SurrealDB/Postgres benchmarking and comparison
-- alternate query artifacts under [`experimental/queries/`](experimental/queries/)
+- generated schema metadata in `fhirschema`
+- derived field aliases in `graphqlapi/query` and explicit lowering rules in `internal/dataframe`

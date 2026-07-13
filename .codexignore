@@ -1,0 +1,7 @@
+.gocache/
+bin/
+data/
+META/
+arango-fhir-proto
+arango-fhir-server
+.DS_Store

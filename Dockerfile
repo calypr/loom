@@ -12,8 +12,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY cmd ./cmd
+COPY fhirschema ./fhirschema
+COPY fhirstructs ./fhirstructs
+COPY graphqlapi ./graphqlapi
 COPY internal ./internal
-COPY queries ./queries
 COPY schemas ./schemas
 
 ARG TARGETOS=linux
@@ -21,7 +23,7 @@ ARG TARGETARCH=amd64
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
-    go build \
+    go build -mod=mod \
       -trimpath \
       -ldflags="-s -w" \
       -o /out/arango-fhir-server ./cmd/arango-fhir-server
@@ -35,8 +37,10 @@ WORKDIR /app
 
 COPY --from=builder /out/arango-fhir-server /app/arango-fhir-server
 COPY --from=builder /src/schemas /app/schemas
-COPY --from=builder /src/queries /app/queries
 
 USER arango-fhir
 EXPOSE 8080
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
+  CMD wget -q -O - http://127.0.0.1:8080/healthz >/dev/null || exit 1
 ENTRYPOINT ["/app/arango-fhir-server"]

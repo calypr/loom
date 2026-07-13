@@ -1,0 +1,25 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "research-subject-study-required",
+  "description": "Required outbound ResearchSubject to ResearchStudy relationship",
+  "tags": ["supported", "research-subject", "outbound", "required"],
+  "limit": 25,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "ResearchSubject",
+    "Fields": [{"Name": "status", "Select": "status"}],
+    "Traversals": [{
+      "Label": "study",
+      "ToResourceType": "ResearchStudy",
+      "Alias": "study",
+      "MatchMode": "REQUIRED",
+      "Fields": [{"Name": "study_title", "Select": "title"}]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "bindVars": {"project": "oracle-project", "limit": 25},
+    "outputColumns": ["status", "study__study_title"]
+  }
+}

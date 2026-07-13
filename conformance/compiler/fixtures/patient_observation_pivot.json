@@ -1,0 +1,29 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "patient-observation-pivot",
+  "description": "Patient-grain sparse Observation pivot",
+  "tags": ["supported", "patient", "observation", "pivot"],
+  "limit": 10,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "Patient",
+    "Traversals": [{
+      "Label": "subject_Patient",
+      "ToResourceType": "Observation",
+      "Alias": "observation",
+      "Pivots": [{
+        "Name": "lab_values",
+        "ColumnSelect": "code.coding[].display",
+        "ValueSelect": "valueQuantity.value",
+        "Columns": ["Tumor Purity", "Hemoglobin"]
+      }]
+    }]
+  },
+  "expected": {
+    "supported": true,
+    "planProfile": "generic_fhir_graph",
+    "queryContains": ["MERGE(", "FILTER LENGTH(__pivot_values) > 0"],
+    "bindVars": {"project": "oracle-project", "limit": 10},
+    "expectedTraversalSets": 1
+  }
+}

@@ -66,7 +66,7 @@ What this does:
 - profiles populated fields for builder introspection
 
 The bootstrap and collection definitions live in
-[`internal/proto/backend.go`](../internal/proto/backend.go).
+[`internal/ingest/backend.go`](../internal/ingest/backend.go).
 
 ## 4. Start the HTTP server
 
@@ -348,19 +348,48 @@ Notes:
 - the server validates selectors/traversals against populated-field and populated-reference discovery
 - `fieldRef` is the preferred frontend-friendly path when available
 
-## 7. Optional: test the REST write API
+### Run it and see the timing
 
-The server also exposes a write/import API:
+The checked-in operation and variables above are also runnable without copying
+JSON from this document. With the local server running in `--no-auth` mode:
 
-- `POST /api/v1/imports`
-- `GET /api/v1/imports/:id`
-- `GET /api/v1/imports/:id/events`
+```bash
+make dataframe-demo
+```
 
-The REST surface is for bulk NDJSON ingest. GraphQL is for reads/dataframing.
+This prints the actual GraphQL response plus wall-clock time. To issue the
+same request repeatedly and see min/average/max timing:
 
-The HTTP registration lives in [`internal/writeapi/http.go`](../internal/writeapi/http.go).
+```bash
+make dataframe-demo DATAFRAME_REPEAT=10
+```
 
-## 8. Shut down local Arango
+The command labels the first request as `cold` and the final request as
+`warm`, then reports total HTTP/server time, returned rows, response bytes, and
+rows/second. It also reports server-side field-reference resolution, request
+preparation, physical compilation, Arango cursor time, per-row materialization,
+and result assembly. The remaining wall-clock time is GraphQL serialization and
+HTTP overhead.
+
+The compact example files are
+[`examples/meta_patient_dataframe.graphql`](../examples/meta_patient_dataframe.graphql)
+and
+[`examples/meta_patient_dataframe.variables.json`](../examples/meta_patient_dataframe.variables.json).
+`make dataframe-demo` runs the richer GDC-style case matrix in
+[`examples/meta_gdc_case_matrix.graphql`](../examples/meta_gdc_case_matrix.graphql)
+with [`examples/meta_gdc_case_matrix.variables.json`](../examples/meta_gdc_case_matrix.variables.json):
+diagnoses, specimens, nested files and sample groups, Observation code/value
+pivots, and representative related records.
+For an explicit named GDC operation, run:
+
+```bash
+rtk go run ./cmd/dataframe-query \
+  -query examples/meta_gdc_case_matrix.graphql \
+  -variables examples/meta_gdc_case_matrix.variables.json \
+  -repeat 1
+```
+
+## 7. Shut down local Arango
 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml down

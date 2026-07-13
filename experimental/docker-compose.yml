@@ -1,0 +1,19 @@
+services:
+  arangodb:
+    image: arangodb:3.12
+    container_name: arangodb-proto
+    environment:
+      ARANGO_NO_AUTH: "1"
+    ports:
+      - "8529:8529"
+    volumes:
+      - ./data:/var/lib/arangodb3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    container_name: loom-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./clickhouse-data:/var/lib/clickhouse

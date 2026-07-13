@@ -1,0 +1,16 @@
+{
+  "schema": "loom.compiler-oracle/v1",
+  "id": "unsupported-unknown-root",
+  "description": "Unknown roots fail before AQL collection interpolation",
+  "tags": ["unsupported", "safety"],
+  "limit": 25,
+  "builder": {
+    "Project": "oracle-project",
+    "RootResourceType": "NotAResource",
+    "Fields": [{"Name": "anything", "Select": "anything"}]
+  },
+  "expected": {
+    "supported": false,
+    "errorContains": "not represented by the active generated FHIR schema"
+  }
+}
