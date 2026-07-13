@@ -1,4 +1,4 @@
-name: Build and publish Loom image
+name: Loom CI
 
 on:
   pull_request:
@@ -23,11 +23,11 @@ env:
 
 jobs:
   tests:
-    name: Verify Loom before publishing
+    name: Tests
     uses: ./.github/workflows/tests.yaml
 
   build-and-push:
-    name: Build ${{ matrix.arch }} image
+    name: Build and push ${{ matrix.arch }} image
     needs: tests
     # Never expose Quay credentials to code from a forked pull request.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -90,7 +90,7 @@ jobs:
           retention-days: 1
 
   merge:
-    name: Publish multi-architecture manifest
+    name: Push multi-architecture manifest
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
@@ -129,7 +129,23 @@ jobs:
           DOCKER_METADATA_OUTPUT_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -euo pipefail
-          mapfile -t digests < <(cat /tmp/loom-digests/*.txt)
-          docker buildx imagetools create \
-            $(printf '%s\n' "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 printf -- '-t %s ') \
-            $(printf '%s@%s ' "$IMAGE" "${digests[@]}")
+          tag_args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              tag_args+=("-t" "$tag")
+            fi
+          done <<< "$DOCKER_METADATA_OUTPUT_TAGS"
+
+          sources=()
+          for digest_file in /tmp/loom-digests/*.txt; do
+            digest=$(tr -d '\r\n' < "$digest_file")
+            if [ -n "$digest" ]; then
+              sources+=("${IMAGE}@${digest}")
+            fi
+          done
+
+          if [ "${#sources[@]}" -eq 0 ]; then
+            echo "No image digests were exported" >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
