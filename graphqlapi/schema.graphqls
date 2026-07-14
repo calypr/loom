@@ -6,6 +6,9 @@ type Query {
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
+  dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
+  explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
+  preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
 }
 
 scalar JSON
@@ -15,6 +18,147 @@ type Mutation {
     input: FhirDataframeInput!
     limit: Int = 25
   ): FhirDataframeResult!
+  validateDataframeRecipe(input: ValidateDataframeRecipeInput!): DataframeRecipeValidation!
+  previewDataframeRecipe(input: PreviewDataframeRecipeInput!): DataframeRecipePreview!
+  materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
+}
+
+input DataframeRecipeBindingsInput {
+  project: String!
+  datasetGeneration: String
+  authResourcePaths: [String!]
+  previewLimit: Int = 25
+}
+
+input ValidateDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+}
+
+input ExplainDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+}
+
+input PreflightDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+}
+
+input PreviewDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+  limit: Int = 25
+}
+
+input MaterializeDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+}
+
+type DataframeRecipeValidation {
+  name: String!
+  recipeDigest: String!
+  translationVersion: String!
+  outputs: [DataframeRecipeOutputValidation!]!
+}
+
+type DataframeRecipeOutputValidation {
+  name: String!
+  rootResourceType: String!
+  rowGrain: String!
+  fieldNames: [String!]!
+  dynamicColumns: [String!]!
+}
+
+type DataframeRecipeExplanation {
+  name: String!
+  recipeDigest: String!
+  translationVersion: String!
+  outputs: [DataframeRecipeOutputExplanation!]!
+}
+
+type DataframeRecipeOutputExplanation {
+  name: String!
+  rootResourceType: String!
+  rowGrain: String!
+  fields: [DataframeRecipeExpressionExplanation!]!
+  identity: DataframeRecipeExpressionExplanation
+  expansion: DataframeRecipeExpansionExplanation
+  dynamicMaps: [String!]!
+}
+
+type DataframeRecipeExpressionExplanation {
+  sourcePath: String!
+  context: String!
+  kind: String!
+  valueType: String!
+  repeated: Boolean!
+  nullable: Boolean!
+}
+
+type DataframeRecipeExpansionExplanation {
+  sourcePath: String!
+  alias: String!
+}
+
+type DataframeRecipePreflight {
+  name: String!
+  recipeDigest: String!
+  resolvedSchemaDigest: String!
+  sourceGeneration: String!
+  scopeDigest: String!
+  columns: [DataframeRecipeColumn!]!
+}
+
+type DataframeRecipeColumn {
+  output: String!
+  dynamicName: String!
+  name: String!
+  logicalType: String!
+  repeated: Boolean!
+  nullable: Boolean!
+}
+
+type DataframeRecipePreview {
+  name: String!
+  recipeDigest: String!
+  resolvedSchemaDigest: String!
+  sourceGeneration: String!
+  outputs: [DataframeRecipePreviewOutput!]!
+}
+
+type DataframeRecipePreviewOutput {
+  name: String!
+  columns: [String!]!
+  rows: JSON!
+  rowCount: Int!
+}
+
+enum DataframeRecipeExecutionState {
+  ACCEPTED
+  VALIDATING
+  RUNNING
+  READY
+  FAILED
+}
+
+type DataframeRecipeExecution {
+  id: ID!
+  name: String!
+  recipeDigest: String!
+  resolvedSchemaDigest: String!
+  sourceGeneration: String!
+  state: DataframeRecipeExecutionState!
+  outputs: [DataframeRecipeExecutionOutput!]!
+  error: String
+}
+
+type DataframeRecipeExecutionOutput {
+  name: String!
+  state: DataframeRecipeExecutionState!
+  rowCount: Int
+  error: String
 }
 
 enum DataframeMaterializationState {

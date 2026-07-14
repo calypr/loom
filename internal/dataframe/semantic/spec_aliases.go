@@ -26,6 +26,8 @@ const (
 	ProjectionDistinctArray = spec.ProjectionDistinctArray
 	CardinalityOptionalOne  = spec.CardinalityOptionalOne
 	CardinalityMany         = spec.CardinalityMany
+	TraversalMatchOptional  = spec.TraversalMatchOptional
+	TraversalMatchRequired  = spec.TraversalMatchRequired
 )
 
 var (

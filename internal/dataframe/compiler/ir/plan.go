@@ -153,12 +153,19 @@ const (
 type PhysicalExpressionKind string
 
 const (
-	PhysicalValueExpression     PhysicalExpressionKind = "VALUE"
+	PhysicalValueExpression PhysicalExpressionKind = "VALUE"
+	// PhysicalLiteralExpression is a typed bind-backed constant. Literals are
+	// kept out of generated AQL so recipe authors cannot inject query source.
+	PhysicalLiteralExpression   PhysicalExpressionKind = "LITERAL"
 	PhysicalExtractExpression   PhysicalExpressionKind = "EXTRACT"
 	PhysicalAggregateExpression PhysicalExpressionKind = "AGGREGATE"
 	PhysicalPivotExpression     PhysicalExpressionKind = "PIVOT_MAP"
 	PhysicalSliceExpression     PhysicalExpressionKind = "SLICE"
 	PhysicalObjectExpression    PhysicalExpressionKind = "OBJECT"
+	// PhysicalCallExpression represents a recipe-neutral expression function.
+	// Name is validated against the compiler-owned operator registry and Args
+	// remain typed expressions; neither contains AQL source text.
+	PhysicalCallExpression PhysicalExpressionKind = "CALL"
 )
 
 // PhysicalSelectorExecutionMode records a schema-proven selector lowering.
@@ -180,11 +187,29 @@ type PhysicalExpression struct {
 	Cardinality  PhysicalCardinality
 	NullBehavior PhysicalNullBehavior
 	Value        *PhysicalValue
+	Literal      *PhysicalLiteral
 	Extract      *PhysicalExtract
 	Aggregate    *PhysicalAggregate
 	Pivot        *PhysicalPivotMap
 	Slice        *PhysicalSlice
 	Object       *PhysicalObject
+	Call         *PhysicalCall
+}
+
+// PhysicalLiteral references a value in the plan bind map. BindKey is
+// deliberately required even for primitive constants so all recipe data uses
+// the same parameterized execution boundary.
+type PhysicalLiteral struct {
+	BindKey string
+}
+
+// PhysicalCall is a backend-neutral expression operator. TargetKind is used
+// only by cast and names a logical scalar type (for example "string" or
+// "integer"), never a backend type or query fragment.
+type PhysicalCall struct {
+	Name       string
+	Args       []PhysicalExpression
+	TargetKind string
 }
 
 // PhysicalExtract obtains one FHIR selector from a variable or prior set
@@ -843,6 +868,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Value != nil {
 		payloads++
 	}
+	if expression.Literal != nil {
+		payloads++
+	}
 	if expression.Extract != nil {
 		payloads++
 	}
@@ -858,6 +886,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Object != nil {
 		payloads++
 	}
+	if expression.Call != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("expression must contain exactly one payload")
 	}
@@ -867,6 +898,14 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalValue(*expression.Value, defined, bindVars)
+	case PhysicalLiteralExpression:
+		if expression.Literal == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if err := requireBind(bindVars, expression.Literal.BindKey); err != nil {
+			return err
+		}
+		return nil
 	case PhysicalExtractExpression:
 		if expression.Extract == nil {
 			return fmt.Errorf("expression payload does not match kind")
@@ -892,9 +931,54 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalObject(*expression.Object, defined, bindVars)
+	case PhysicalCallExpression:
+		if expression.Call == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		return validatePhysicalCall(*expression.Call, defined, bindVars)
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
+}
+
+// validatePhysicalCall checks the small, backend-neutral operator vocabulary
+// accepted by the AQL renderer. Keeping this list here prevents a recipe from
+// smuggling arbitrary function or query text through the physical plan.
+func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars map[string]any) error {
+	name := strings.ToLower(strings.TrimSpace(call.Name))
+	if name == "" {
+		return fmt.Errorf("call name is required")
+	}
+	known := map[string]bool{
+		"coalesce": true, "fallback": true, "first": true, "all": true, "distinct": true,
+		"concat": true, "join": true, "cast": true, "reference_id": true,
+		"path_segment": true, "basename": true, "last_segment": true,
+		"sanitize_name": true, "sanitize_graphql_name": true, "uuid3": true, "uuid5": true,
+		"if": true, "case": true, "not": true, "and": true, "or": true,
+		"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true,
+		"contains": true,
+	}
+	if !known[name] {
+		return fmt.Errorf("unsupported call %q", call.Name)
+	}
+	if name == "cast" {
+		if len(call.Args) != 1 || strings.TrimSpace(call.TargetKind) == "" {
+			return fmt.Errorf("cast requires one argument and a target kind")
+		}
+		switch strings.ToLower(strings.TrimSpace(call.TargetKind)) {
+		case "string", "integer", "decimal", "boolean", "date", "date_time", "code", "uuid":
+		default:
+			return fmt.Errorf("cast target kind %q is unsupported", call.TargetKind)
+		}
+	} else if call.TargetKind != "" {
+		return fmt.Errorf("target kind is only valid for cast")
+	}
+	for index, arg := range call.Args {
+		if err := validatePhysicalExpression(arg, defined, bindVars); err != nil {
+			return fmt.Errorf("call %q argument %d: %w", name, index, err)
+		}
+	}
+	return nil
 }
 
 // validatePhysicalExpressionObjectCycles protects the recursive expression
@@ -919,6 +1003,13 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 		if current.Aggregate != nil && current.Aggregate.Value != nil {
 			if err := visitExpression(*current.Aggregate.Value); err != nil {
 				return err
+			}
+		}
+		if current.Call != nil {
+			for index := range current.Call.Args {
+				if err := visitExpression(current.Call.Args[index]); err != nil {
+					return err
+				}
 			}
 		}
 		if current.Aggregate != nil && current.Aggregate.Predicate != nil {

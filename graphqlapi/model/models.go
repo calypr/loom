@@ -141,6 +141,110 @@ type DataframeQueryDiagnostics struct {
 	Plan                 *DataframeCompilerPlanDiagnostics `json:"plan"`
 }
 
+type DataframeRecipeBindingsInput struct {
+	Project           string   `json:"project"`
+	DatasetGeneration *string  `json:"datasetGeneration,omitempty"`
+	AuthResourcePaths []string `json:"authResourcePaths,omitempty"`
+	PreviewLimit      *int     `json:"previewLimit,omitempty"`
+}
+
+type DataframeRecipeColumn struct {
+	Output      string `json:"output"`
+	DynamicName string `json:"dynamicName"`
+	Name        string `json:"name"`
+	LogicalType string `json:"logicalType"`
+	Repeated    bool   `json:"repeated"`
+	Nullable    bool   `json:"nullable"`
+}
+
+type DataframeRecipeExecution struct {
+	ID                   string                            `json:"id"`
+	Name                 string                            `json:"name"`
+	RecipeDigest         string                            `json:"recipeDigest"`
+	ResolvedSchemaDigest string                            `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                            `json:"sourceGeneration"`
+	State                DataframeRecipeExecutionState     `json:"state"`
+	Outputs              []*DataframeRecipeExecutionOutput `json:"outputs"`
+	Error                *string                           `json:"error,omitempty"`
+}
+
+type DataframeRecipeExecutionOutput struct {
+	Name     string                        `json:"name"`
+	State    DataframeRecipeExecutionState `json:"state"`
+	RowCount *int                          `json:"rowCount,omitempty"`
+	Error    *string                       `json:"error,omitempty"`
+}
+
+type DataframeRecipeExpansionExplanation struct {
+	SourcePath string `json:"sourcePath"`
+	Alias      string `json:"alias"`
+}
+
+type DataframeRecipeExplanation struct {
+	Name               string                              `json:"name"`
+	RecipeDigest       string                              `json:"recipeDigest"`
+	TranslationVersion string                              `json:"translationVersion"`
+	Outputs            []*DataframeRecipeOutputExplanation `json:"outputs"`
+}
+
+type DataframeRecipeExpressionExplanation struct {
+	SourcePath string `json:"sourcePath"`
+	Context    string `json:"context"`
+	Kind       string `json:"kind"`
+	ValueType  string `json:"valueType"`
+	Repeated   bool   `json:"repeated"`
+	Nullable   bool   `json:"nullable"`
+}
+
+type DataframeRecipeOutputExplanation struct {
+	Name             string                                  `json:"name"`
+	RootResourceType string                                  `json:"rootResourceType"`
+	RowGrain         string                                  `json:"rowGrain"`
+	Fields           []*DataframeRecipeExpressionExplanation `json:"fields"`
+	Identity         *DataframeRecipeExpressionExplanation   `json:"identity,omitempty"`
+	Expansion        *DataframeRecipeExpansionExplanation    `json:"expansion,omitempty"`
+	DynamicMaps      []string                                `json:"dynamicMaps"`
+}
+
+type DataframeRecipeOutputValidation struct {
+	Name             string   `json:"name"`
+	RootResourceType string   `json:"rootResourceType"`
+	RowGrain         string   `json:"rowGrain"`
+	FieldNames       []string `json:"fieldNames"`
+	DynamicColumns   []string `json:"dynamicColumns"`
+}
+
+type DataframeRecipePreflight struct {
+	Name                 string                   `json:"name"`
+	RecipeDigest         string                   `json:"recipeDigest"`
+	ResolvedSchemaDigest string                   `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                   `json:"sourceGeneration"`
+	ScopeDigest          string                   `json:"scopeDigest"`
+	Columns              []*DataframeRecipeColumn `json:"columns"`
+}
+
+type DataframeRecipePreview struct {
+	Name                 string                          `json:"name"`
+	RecipeDigest         string                          `json:"recipeDigest"`
+	ResolvedSchemaDigest string                          `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                          `json:"sourceGeneration"`
+	Outputs              []*DataframeRecipePreviewOutput `json:"outputs"`
+}
+
+type DataframeRecipePreviewOutput struct {
+	Name     string          `json:"name"`
+	Columns  []string        `json:"columns"`
+	Rows     json.RawMessage `json:"rows"`
+	RowCount int             `json:"rowCount"`
+}
+
+type DataframeRecipeValidation struct {
+	Name               string                             `json:"name"`
+	RecipeDigest       string                             `json:"recipeDigest"`
+	TranslationVersion string                             `json:"translationVersion"`
+	Outputs            []*DataframeRecipeOutputValidation `json:"outputs"`
+}
+
 type DataframeRelatedResourceHints struct {
 	ViaLabel  string                  `json:"viaLabel"`
 	EdgeCount int                     `json:"edgeCount"`
@@ -188,6 +292,11 @@ type DataframeTraversalHint struct {
 	Label     string `json:"label"`
 	ToType    string `json:"toType"`
 	EdgeCount int    `json:"edgeCount"`
+}
+
+type ExplainDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 }
 
 type FhirAggregateInput struct {
@@ -272,10 +381,31 @@ type FhirTraversalStepInput struct {
 	Traverse       []*FhirTraversalStepInput       `json:"traverse,omitempty"`
 }
 
+type MaterializeDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+}
+
 type Mutation struct {
 }
 
+type PreflightDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+}
+
+type PreviewDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+	Limit    *int                          `json:"limit,omitempty"`
+}
+
 type Query struct {
+}
+
+type ValidateDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 }
 
 type DataframeMaterializationState string
@@ -320,6 +450,53 @@ func (e *DataframeMaterializationState) UnmarshalGQL(v any) error {
 }
 
 func (e DataframeMaterializationState) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+type DataframeRecipeExecutionState string
+
+const (
+	DataframeRecipeExecutionStateAccepted   DataframeRecipeExecutionState = "ACCEPTED"
+	DataframeRecipeExecutionStateValidating DataframeRecipeExecutionState = "VALIDATING"
+	DataframeRecipeExecutionStateRunning    DataframeRecipeExecutionState = "RUNNING"
+	DataframeRecipeExecutionStateReady      DataframeRecipeExecutionState = "READY"
+	DataframeRecipeExecutionStateFailed     DataframeRecipeExecutionState = "FAILED"
+)
+
+var AllDataframeRecipeExecutionState = []DataframeRecipeExecutionState{
+	DataframeRecipeExecutionStateAccepted,
+	DataframeRecipeExecutionStateValidating,
+	DataframeRecipeExecutionStateRunning,
+	DataframeRecipeExecutionStateReady,
+	DataframeRecipeExecutionStateFailed,
+}
+
+func (e DataframeRecipeExecutionState) IsValid() bool {
+	switch e {
+	case DataframeRecipeExecutionStateAccepted, DataframeRecipeExecutionStateValidating, DataframeRecipeExecutionStateRunning, DataframeRecipeExecutionStateReady, DataframeRecipeExecutionStateFailed:
+		return true
+	}
+	return false
+}
+
+func (e DataframeRecipeExecutionState) String() string {
+	return string(e)
+}
+
+func (e *DataframeRecipeExecutionState) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = DataframeRecipeExecutionState(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid DataframeRecipeExecutionState", str)
+	}
+	return nil
+}
+
+func (e DataframeRecipeExecutionState) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 

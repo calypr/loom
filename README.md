@@ -49,6 +49,15 @@ directory contains the local Arango compose setup.
 - [`graphqlapi/query`](graphqlapi/query): GraphQL dataframe input translation, discovery, and builder introspection
 - [`graphqlapi/materialization`](graphqlapi/materialization): GraphQL authorization and reads for published ClickHouse dataframes
 - [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
+- [`internal/dataframe/recipe`](internal/dataframe/recipe): strict, versioned recipe documents and the checked-in default translation data
+- [`internal/dataframe/expression`](internal/dataframe/expression): backend-neutral typed expression AST
+- [`internal/dataframe/semantic`](internal/dataframe/semantic): unified typed recipe/GraphQL plans, scope checking, expansion, and resolved discovery schemas
+- [`internal/dataframe/recipeplan`](internal/dataframe/recipeplan): bounded deterministic dynamic-column schema freezing
+- [`internal/dataframe/recipecontrol`](internal/dataframe/recipecontrol): transport-neutral validate, explain, resolve, and preview control-plane service
+- [`internal/dataframe/recipeeval`](internal/dataframe/recipeeval): reference-only interpreter for differential tests; it is not a production server path
+- [`internal/dataframe/recipeexec`](internal/dataframe/recipeexec): immutable recipe registries, durable-store seam, and reference runner
+- [`internal/dataframe/materialization`](internal/dataframe/materialization): ClickHouse materialization and atomic multi-output publication contract
+- [`conformance/legacydataframer`](conformance/legacydataframer): golden NDJSON compatibility oracle harness
 - [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
 - [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
 - [`internal/graphschema`](internal/graphschema): exact graph-schema identity captured by dataset generations
@@ -185,6 +194,24 @@ rows that emit undeclared or incompatible values. Aggregates accept the same
 If you are starting from a fresh checkout, go there next:
 
 - [Continue with the Quickstart](docs/QUICKSTART.md)
+
+## Versioned recipe translation
+
+The default translation is stored as data in
+[`internal/dataframe/recipe/default_aced.json`](internal/dataframe/recipe/default_aced.json).
+It contains the five legacy output shapes and is loaded with
+`recipe.DefaultACEDBundle`; no production Go branch dispatches on those output
+names. `recipeexec.Registry` makes registration immutable by canonical digest,
+and `recipeexec.Runner` evaluates every output before returning a result.
+
+The production boundary is `semantic.BuildRecipePlan` followed by
+`semantic.ResolveRecipePlan` and the typed physical expression lowering under
+`internal/dataframe/compiler/lower`; preview and materialization adapters must
+consume that resolved plan. The generic evaluator remains available only as a
+small reference implementation for differential tests. Compatibility is
+measured with the checked-in manifest under
+[`conformance/legacydataframer`](conformance/legacydataframer), which compares
+legacy and Loom NDJSON by declared identity and exact JSON types.
 
 ## Build Targets
 

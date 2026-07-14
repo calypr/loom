@@ -7,6 +7,7 @@ package graphqlapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	materializationapi "github.com/calypr/loom/graphqlapi/materialization"
 	"github.com/calypr/loom/graphqlapi/model"
@@ -25,6 +26,71 @@ func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.Fhi
 		RowCount:    result.RowCount,
 		Diagnostics: dataframeDiagnostics(result.Diagnostics),
 	}, nil
+}
+
+// ValidateDataframeRecipe is the resolver for the validateDataframeRecipe field.
+func (r *mutationResolver) ValidateDataframeRecipe(ctx context.Context, input model.ValidateDataframeRecipeInput) (*model.DataframeRecipeValidation, error) {
+	bindings, err := graphqlRecipeBindings(input.Bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	validated, err := r.recipeControl.Validate(ctx, input.Name, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	outputs := make([]*model.DataframeRecipeOutputValidation, 0, len(validated.Plan.Outputs))
+	for _, output := range validated.Plan.Outputs {
+		outputs = append(outputs, outputValidation(output))
+	}
+	return &model.DataframeRecipeValidation{Name: input.Name, RecipeDigest: validated.Plan.RecipeDigest, TranslationVersion: validated.Plan.TranslationVersion, Outputs: outputs}, nil
+}
+
+// PreviewDataframeRecipe is the resolver for the previewDataframeRecipe field.
+func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input model.PreviewDataframeRecipeInput) (*model.DataframeRecipePreview, error) {
+	bindings, err := graphqlRecipeBindings(input.Bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if input.Limit != nil {
+		if *input.Limit < 0 {
+			return nil, recipeGraphQLError(fmt.Errorf("preview limit must not be negative"))
+		}
+		bindings.PreviewLimit = *input.Limit
+	}
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	preview, err := r.recipeControl.Preview(ctx, input.Name, bindings, r.previewExecute)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return previewResult(recipePreviewView{plan: preview.Plan, rows: preview.Rows}, input.Name)
+}
+
+// MaterializeDataframeRecipeBundle is the resolver for the materializeDataframeRecipeBundle field.
+func (r *mutationResolver) MaterializeDataframeRecipeBundle(ctx context.Context, input model.MaterializeDataframeRecipeInput) (*model.DataframeRecipeExecution, error) {
+	bindings, err := graphqlRecipeBindings(input.Bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if r.recipeMaterialize == nil {
+		return nil, recipeGraphQLError(fmt.Errorf("recipe materializer is not configured"))
+	}
+	plan, err := r.recipeControl.Resolve(ctx, input.Name, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	execution, err := r.recipeMaterialize(ctx, input.Name, bindings, plan)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return executionModel(execution), nil
 }
 
 // DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.
@@ -96,6 +162,53 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 		return nil, err
 	}
 	return &model.DataframeAggregateResult{Materialization: materializationapi.Model(result.Materialization), Columns: result.Columns, Rows: materializationapi.AggregateRows(result.Rows)}, nil
+}
+
+// DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.
+func (r *queryResolver) DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error) {
+	if r.recipeExecutions == nil {
+		return nil, recipeGraphQLError(fmt.Errorf("recipe execution reader is not configured"))
+	}
+	execution, err := r.recipeExecutions(ctx, id)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if execution == nil {
+		return nil, recipeGraphQLError(fmt.Errorf("recipe execution %q was not found", id))
+	}
+	return executionModel(*execution), nil
+}
+
+// ExplainDataframeRecipe is the resolver for the explainDataframeRecipe field.
+func (r *queryResolver) ExplainDataframeRecipe(ctx context.Context, input model.ExplainDataframeRecipeInput) (*model.DataframeRecipeExplanation, error) {
+	bindings, err := graphqlRecipeBindings(input.Bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	explanation, err := r.recipeControl.Explain(ctx, input.Name, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return planExplanation(explanation, input.Name), nil
+}
+
+// PreflightDataframeRecipe is the resolver for the preflightDataframeRecipe field.
+func (r *queryResolver) PreflightDataframeRecipe(ctx context.Context, input model.PreflightDataframeRecipeInput) (*model.DataframeRecipePreflight, error) {
+	bindings, err := graphqlRecipeBindings(input.Bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	plan, err := r.recipeControl.Resolve(ctx, input.Name, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return preflightResult(plan, input.Name), nil
 }
 
 // Mutation returns MutationResolver implementation.

@@ -159,6 +159,103 @@ type ComplexityRoot struct {
 		TotalMs              func(childComplexity int) int
 	}
 
+	DataframeRecipeColumn struct {
+		DynamicName func(childComplexity int) int
+		LogicalType func(childComplexity int) int
+		Name        func(childComplexity int) int
+		Nullable    func(childComplexity int) int
+		Output      func(childComplexity int) int
+		Repeated    func(childComplexity int) int
+	}
+
+	DataframeRecipeExecution struct {
+		Error                func(childComplexity int) int
+		ID                   func(childComplexity int) int
+		Name                 func(childComplexity int) int
+		Outputs              func(childComplexity int) int
+		RecipeDigest         func(childComplexity int) int
+		ResolvedSchemaDigest func(childComplexity int) int
+		SourceGeneration     func(childComplexity int) int
+		State                func(childComplexity int) int
+	}
+
+	DataframeRecipeExecutionOutput struct {
+		Error    func(childComplexity int) int
+		Name     func(childComplexity int) int
+		RowCount func(childComplexity int) int
+		State    func(childComplexity int) int
+	}
+
+	DataframeRecipeExpansionExplanation struct {
+		Alias      func(childComplexity int) int
+		SourcePath func(childComplexity int) int
+	}
+
+	DataframeRecipeExplanation struct {
+		Name               func(childComplexity int) int
+		Outputs            func(childComplexity int) int
+		RecipeDigest       func(childComplexity int) int
+		TranslationVersion func(childComplexity int) int
+	}
+
+	DataframeRecipeExpressionExplanation struct {
+		Context    func(childComplexity int) int
+		Kind       func(childComplexity int) int
+		Nullable   func(childComplexity int) int
+		Repeated   func(childComplexity int) int
+		SourcePath func(childComplexity int) int
+		ValueType  func(childComplexity int) int
+	}
+
+	DataframeRecipeOutputExplanation struct {
+		DynamicMaps      func(childComplexity int) int
+		Expansion        func(childComplexity int) int
+		Fields           func(childComplexity int) int
+		Identity         func(childComplexity int) int
+		Name             func(childComplexity int) int
+		RootResourceType func(childComplexity int) int
+		RowGrain         func(childComplexity int) int
+	}
+
+	DataframeRecipeOutputValidation struct {
+		DynamicColumns   func(childComplexity int) int
+		FieldNames       func(childComplexity int) int
+		Name             func(childComplexity int) int
+		RootResourceType func(childComplexity int) int
+		RowGrain         func(childComplexity int) int
+	}
+
+	DataframeRecipePreflight struct {
+		Columns              func(childComplexity int) int
+		Name                 func(childComplexity int) int
+		RecipeDigest         func(childComplexity int) int
+		ResolvedSchemaDigest func(childComplexity int) int
+		ScopeDigest          func(childComplexity int) int
+		SourceGeneration     func(childComplexity int) int
+	}
+
+	DataframeRecipePreview struct {
+		Name                 func(childComplexity int) int
+		Outputs              func(childComplexity int) int
+		RecipeDigest         func(childComplexity int) int
+		ResolvedSchemaDigest func(childComplexity int) int
+		SourceGeneration     func(childComplexity int) int
+	}
+
+	DataframeRecipePreviewOutput struct {
+		Columns  func(childComplexity int) int
+		Name     func(childComplexity int) int
+		RowCount func(childComplexity int) int
+		Rows     func(childComplexity int) int
+	}
+
+	DataframeRecipeValidation struct {
+		Name               func(childComplexity int) int
+		Outputs            func(childComplexity int) int
+		RecipeDigest       func(childComplexity int) int
+		TranslationVersion func(childComplexity int) int
+	}
+
 	DataframeRelatedResourceHints struct {
 		EdgeCount func(childComplexity int) int
 		Target    func(childComplexity int) int
@@ -202,25 +299,37 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		RunFhirDataframe func(childComplexity int, input model.FhirDataframeInput, limit *int) int
+		MaterializeDataframeRecipeBundle func(childComplexity int, input model.MaterializeDataframeRecipeInput) int
+		PreviewDataframeRecipe           func(childComplexity int, input model.PreviewDataframeRecipeInput) int
+		RunFhirDataframe                 func(childComplexity int, input model.FhirDataframeInput, limit *int) int
+		ValidateDataframeRecipe          func(childComplexity int, input model.ValidateDataframeRecipeInput) int
 	}
 
 	Query struct {
 		DataframeAggregate            func(childComplexity int, input model.DataframeAggregateInput) int
 		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
 		DataframeMaterialization      func(childComplexity int, id string) int
+		DataframeRecipeExecution      func(childComplexity int, id string) int
 		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
+		ExplainDataframeRecipe        func(childComplexity int, input model.ExplainDataframeRecipeInput) int
+		PreflightDataframeRecipe      func(childComplexity int, input model.PreflightDataframeRecipeInput) int
 	}
 }
 
 type MutationResolver interface {
 	RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error)
+	ValidateDataframeRecipe(ctx context.Context, input model.ValidateDataframeRecipeInput) (*model.DataframeRecipeValidation, error)
+	PreviewDataframeRecipe(ctx context.Context, input model.PreviewDataframeRecipeInput) (*model.DataframeRecipePreview, error)
+	MaterializeDataframeRecipeBundle(ctx context.Context, input model.MaterializeDataframeRecipeInput) (*model.DataframeRecipeExecution, error)
 }
 type QueryResolver interface {
 	DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error)
 	DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error)
 	DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error)
 	DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
+	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
+	ExplainDataframeRecipe(ctx context.Context, input model.ExplainDataframeRecipeInput) (*model.DataframeRecipeExplanation, error)
+	PreflightDataframeRecipe(ctx context.Context, input model.PreflightDataframeRecipeInput) (*model.DataframeRecipePreflight, error)
 }
 
 type executableSchema struct {
@@ -767,6 +876,433 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.DataframeQueryDiagnostics.TotalMs(childComplexity), true
 
+	case "DataframeRecipeColumn.dynamicName":
+		if e.complexity.DataframeRecipeColumn.DynamicName == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.DynamicName(childComplexity), true
+
+	case "DataframeRecipeColumn.logicalType":
+		if e.complexity.DataframeRecipeColumn.LogicalType == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.LogicalType(childComplexity), true
+
+	case "DataframeRecipeColumn.name":
+		if e.complexity.DataframeRecipeColumn.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.Name(childComplexity), true
+
+	case "DataframeRecipeColumn.nullable":
+		if e.complexity.DataframeRecipeColumn.Nullable == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.Nullable(childComplexity), true
+
+	case "DataframeRecipeColumn.output":
+		if e.complexity.DataframeRecipeColumn.Output == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.Output(childComplexity), true
+
+	case "DataframeRecipeColumn.repeated":
+		if e.complexity.DataframeRecipeColumn.Repeated == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeColumn.Repeated(childComplexity), true
+
+	case "DataframeRecipeExecution.error":
+		if e.complexity.DataframeRecipeExecution.Error == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.Error(childComplexity), true
+
+	case "DataframeRecipeExecution.id":
+		if e.complexity.DataframeRecipeExecution.ID == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.ID(childComplexity), true
+
+	case "DataframeRecipeExecution.name":
+		if e.complexity.DataframeRecipeExecution.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.Name(childComplexity), true
+
+	case "DataframeRecipeExecution.outputs":
+		if e.complexity.DataframeRecipeExecution.Outputs == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.Outputs(childComplexity), true
+
+	case "DataframeRecipeExecution.recipeDigest":
+		if e.complexity.DataframeRecipeExecution.RecipeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.RecipeDigest(childComplexity), true
+
+	case "DataframeRecipeExecution.resolvedSchemaDigest":
+		if e.complexity.DataframeRecipeExecution.ResolvedSchemaDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.ResolvedSchemaDigest(childComplexity), true
+
+	case "DataframeRecipeExecution.sourceGeneration":
+		if e.complexity.DataframeRecipeExecution.SourceGeneration == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.SourceGeneration(childComplexity), true
+
+	case "DataframeRecipeExecution.state":
+		if e.complexity.DataframeRecipeExecution.State == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecution.State(childComplexity), true
+
+	case "DataframeRecipeExecutionOutput.error":
+		if e.complexity.DataframeRecipeExecutionOutput.Error == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecutionOutput.Error(childComplexity), true
+
+	case "DataframeRecipeExecutionOutput.name":
+		if e.complexity.DataframeRecipeExecutionOutput.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecutionOutput.Name(childComplexity), true
+
+	case "DataframeRecipeExecutionOutput.rowCount":
+		if e.complexity.DataframeRecipeExecutionOutput.RowCount == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecutionOutput.RowCount(childComplexity), true
+
+	case "DataframeRecipeExecutionOutput.state":
+		if e.complexity.DataframeRecipeExecutionOutput.State == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExecutionOutput.State(childComplexity), true
+
+	case "DataframeRecipeExpansionExplanation.alias":
+		if e.complexity.DataframeRecipeExpansionExplanation.Alias == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpansionExplanation.Alias(childComplexity), true
+
+	case "DataframeRecipeExpansionExplanation.sourcePath":
+		if e.complexity.DataframeRecipeExpansionExplanation.SourcePath == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpansionExplanation.SourcePath(childComplexity), true
+
+	case "DataframeRecipeExplanation.name":
+		if e.complexity.DataframeRecipeExplanation.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExplanation.Name(childComplexity), true
+
+	case "DataframeRecipeExplanation.outputs":
+		if e.complexity.DataframeRecipeExplanation.Outputs == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExplanation.Outputs(childComplexity), true
+
+	case "DataframeRecipeExplanation.recipeDigest":
+		if e.complexity.DataframeRecipeExplanation.RecipeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExplanation.RecipeDigest(childComplexity), true
+
+	case "DataframeRecipeExplanation.translationVersion":
+		if e.complexity.DataframeRecipeExplanation.TranslationVersion == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExplanation.TranslationVersion(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.context":
+		if e.complexity.DataframeRecipeExpressionExplanation.Context == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.Context(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.kind":
+		if e.complexity.DataframeRecipeExpressionExplanation.Kind == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.Kind(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.nullable":
+		if e.complexity.DataframeRecipeExpressionExplanation.Nullable == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.Nullable(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.repeated":
+		if e.complexity.DataframeRecipeExpressionExplanation.Repeated == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.Repeated(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.sourcePath":
+		if e.complexity.DataframeRecipeExpressionExplanation.SourcePath == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.SourcePath(childComplexity), true
+
+	case "DataframeRecipeExpressionExplanation.valueType":
+		if e.complexity.DataframeRecipeExpressionExplanation.ValueType == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeExpressionExplanation.ValueType(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.dynamicMaps":
+		if e.complexity.DataframeRecipeOutputExplanation.DynamicMaps == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.DynamicMaps(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.expansion":
+		if e.complexity.DataframeRecipeOutputExplanation.Expansion == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.Expansion(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.fields":
+		if e.complexity.DataframeRecipeOutputExplanation.Fields == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.Fields(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.identity":
+		if e.complexity.DataframeRecipeOutputExplanation.Identity == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.Identity(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.name":
+		if e.complexity.DataframeRecipeOutputExplanation.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.Name(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.rootResourceType":
+		if e.complexity.DataframeRecipeOutputExplanation.RootResourceType == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.RootResourceType(childComplexity), true
+
+	case "DataframeRecipeOutputExplanation.rowGrain":
+		if e.complexity.DataframeRecipeOutputExplanation.RowGrain == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputExplanation.RowGrain(childComplexity), true
+
+	case "DataframeRecipeOutputValidation.dynamicColumns":
+		if e.complexity.DataframeRecipeOutputValidation.DynamicColumns == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputValidation.DynamicColumns(childComplexity), true
+
+	case "DataframeRecipeOutputValidation.fieldNames":
+		if e.complexity.DataframeRecipeOutputValidation.FieldNames == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputValidation.FieldNames(childComplexity), true
+
+	case "DataframeRecipeOutputValidation.name":
+		if e.complexity.DataframeRecipeOutputValidation.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputValidation.Name(childComplexity), true
+
+	case "DataframeRecipeOutputValidation.rootResourceType":
+		if e.complexity.DataframeRecipeOutputValidation.RootResourceType == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputValidation.RootResourceType(childComplexity), true
+
+	case "DataframeRecipeOutputValidation.rowGrain":
+		if e.complexity.DataframeRecipeOutputValidation.RowGrain == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeOutputValidation.RowGrain(childComplexity), true
+
+	case "DataframeRecipePreflight.columns":
+		if e.complexity.DataframeRecipePreflight.Columns == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.Columns(childComplexity), true
+
+	case "DataframeRecipePreflight.name":
+		if e.complexity.DataframeRecipePreflight.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.Name(childComplexity), true
+
+	case "DataframeRecipePreflight.recipeDigest":
+		if e.complexity.DataframeRecipePreflight.RecipeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.RecipeDigest(childComplexity), true
+
+	case "DataframeRecipePreflight.resolvedSchemaDigest":
+		if e.complexity.DataframeRecipePreflight.ResolvedSchemaDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.ResolvedSchemaDigest(childComplexity), true
+
+	case "DataframeRecipePreflight.scopeDigest":
+		if e.complexity.DataframeRecipePreflight.ScopeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.ScopeDigest(childComplexity), true
+
+	case "DataframeRecipePreflight.sourceGeneration":
+		if e.complexity.DataframeRecipePreflight.SourceGeneration == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreflight.SourceGeneration(childComplexity), true
+
+	case "DataframeRecipePreview.name":
+		if e.complexity.DataframeRecipePreview.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreview.Name(childComplexity), true
+
+	case "DataframeRecipePreview.outputs":
+		if e.complexity.DataframeRecipePreview.Outputs == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreview.Outputs(childComplexity), true
+
+	case "DataframeRecipePreview.recipeDigest":
+		if e.complexity.DataframeRecipePreview.RecipeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreview.RecipeDigest(childComplexity), true
+
+	case "DataframeRecipePreview.resolvedSchemaDigest":
+		if e.complexity.DataframeRecipePreview.ResolvedSchemaDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreview.ResolvedSchemaDigest(childComplexity), true
+
+	case "DataframeRecipePreview.sourceGeneration":
+		if e.complexity.DataframeRecipePreview.SourceGeneration == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreview.SourceGeneration(childComplexity), true
+
+	case "DataframeRecipePreviewOutput.columns":
+		if e.complexity.DataframeRecipePreviewOutput.Columns == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreviewOutput.Columns(childComplexity), true
+
+	case "DataframeRecipePreviewOutput.name":
+		if e.complexity.DataframeRecipePreviewOutput.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreviewOutput.Name(childComplexity), true
+
+	case "DataframeRecipePreviewOutput.rowCount":
+		if e.complexity.DataframeRecipePreviewOutput.RowCount == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreviewOutput.RowCount(childComplexity), true
+
+	case "DataframeRecipePreviewOutput.rows":
+		if e.complexity.DataframeRecipePreviewOutput.Rows == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipePreviewOutput.Rows(childComplexity), true
+
+	case "DataframeRecipeValidation.name":
+		if e.complexity.DataframeRecipeValidation.Name == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeValidation.Name(childComplexity), true
+
+	case "DataframeRecipeValidation.outputs":
+		if e.complexity.DataframeRecipeValidation.Outputs == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeValidation.Outputs(childComplexity), true
+
+	case "DataframeRecipeValidation.recipeDigest":
+		if e.complexity.DataframeRecipeValidation.RecipeDigest == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeValidation.RecipeDigest(childComplexity), true
+
+	case "DataframeRecipeValidation.translationVersion":
+		if e.complexity.DataframeRecipeValidation.TranslationVersion == nil {
+			break
+		}
+
+		return e.complexity.DataframeRecipeValidation.TranslationVersion(childComplexity), true
+
 	case "DataframeRelatedResourceHints.edgeCount":
 		if e.complexity.DataframeRelatedResourceHints.EdgeCount == nil {
 			break
@@ -935,6 +1471,30 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.FhirDataframeResult.Rows(childComplexity), true
 
+	case "Mutation.materializeDataframeRecipeBundle":
+		if e.complexity.Mutation.MaterializeDataframeRecipeBundle == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_materializeDataframeRecipeBundle_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.MaterializeDataframeRecipeBundle(childComplexity, args["input"].(model.MaterializeDataframeRecipeInput)), true
+
+	case "Mutation.previewDataframeRecipe":
+		if e.complexity.Mutation.PreviewDataframeRecipe == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_previewDataframeRecipe_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.PreviewDataframeRecipe(childComplexity, args["input"].(model.PreviewDataframeRecipeInput)), true
+
 	case "Mutation.runFhirDataframe":
 		if e.complexity.Mutation.RunFhirDataframe == nil {
 			break
@@ -946,6 +1506,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.RunFhirDataframe(childComplexity, args["input"].(model.FhirDataframeInput), args["limit"].(*int)), true
+
+	case "Mutation.validateDataframeRecipe":
+		if e.complexity.Mutation.ValidateDataframeRecipe == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_validateDataframeRecipe_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.ValidateDataframeRecipe(childComplexity, args["input"].(model.ValidateDataframeRecipeInput)), true
 
 	case "Query.dataframeAggregate":
 		if e.complexity.Query.DataframeAggregate == nil {
@@ -983,6 +1555,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Query.DataframeMaterialization(childComplexity, args["id"].(string)), true
 
+	case "Query.dataframeRecipeExecution":
+		if e.complexity.Query.DataframeRecipeExecution == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeRecipeExecution_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.DataframeRecipeExecution(childComplexity, args["id"].(string)), true
+
 	case "Query.dataframeRows":
 		if e.complexity.Query.DataframeRows == nil {
 			break
@@ -995,6 +1579,30 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Query.DataframeRows(childComplexity, args["input"].(model.DataframeRowsInput)), true
 
+	case "Query.explainDataframeRecipe":
+		if e.complexity.Query.ExplainDataframeRecipe == nil {
+			break
+		}
+
+		args, err := ec.field_Query_explainDataframeRecipe_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.ExplainDataframeRecipe(childComplexity, args["input"].(model.ExplainDataframeRecipeInput)), true
+
+	case "Query.preflightDataframeRecipe":
+		if e.complexity.Query.PreflightDataframeRecipe == nil {
+			break
+		}
+
+		args, err := ec.field_Query_preflightDataframeRecipe_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.PreflightDataframeRecipe(childComplexity, args["input"].(model.PreflightDataframeRecipeInput)), true
+
 	}
 	return 0, false
 }
@@ -1006,8 +1614,10 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeAggregateInput,
 		ec.unmarshalInputDataframeBuilderIntrospectionInput,
 		ec.unmarshalInputDataframeFilterInput,
+		ec.unmarshalInputDataframeRecipeBindingsInput,
 		ec.unmarshalInputDataframeRowsInput,
 		ec.unmarshalInputDataframeSortInput,
+		ec.unmarshalInputExplainDataframeRecipeInput,
 		ec.unmarshalInputFhirAggregateInput,
 		ec.unmarshalInputFhirDataframeInput,
 		ec.unmarshalInputFhirFieldPredicateInput,
@@ -1016,6 +1626,10 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputFhirPivotInput,
 		ec.unmarshalInputFhirRepresentativeSliceInput,
 		ec.unmarshalInputFhirTraversalStepInput,
+		ec.unmarshalInputMaterializeDataframeRecipeInput,
+		ec.unmarshalInputPreflightDataframeRecipeInput,
+		ec.unmarshalInputPreviewDataframeRecipeInput,
+		ec.unmarshalInputValidateDataframeRecipeInput,
 	)
 	first := true
 
@@ -1132,6 +1746,62 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
 // region    ***************************** args.gotpl *****************************
 
+func (ec *executionContext) field_Mutation_materializeDataframeRecipeBundle_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_materializeDataframeRecipeBundle_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_materializeDataframeRecipeBundle_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (model.MaterializeDataframeRecipeInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal model.MaterializeDataframeRecipeInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNMaterializeDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐMaterializeDataframeRecipeInput(ctx, tmp)
+	}
+
+	var zeroVal model.MaterializeDataframeRecipeInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_previewDataframeRecipe_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_previewDataframeRecipe_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_previewDataframeRecipe_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (model.PreviewDataframeRecipeInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal model.PreviewDataframeRecipeInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNPreviewDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐPreviewDataframeRecipeInput(ctx, tmp)
+	}
+
+	var zeroVal model.PreviewDataframeRecipeInput
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_runFhirDataframe_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1180,6 +1850,34 @@ func (ec *executionContext) field_Mutation_runFhirDataframe_argsLimit(
 	}
 
 	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_validateDataframeRecipe_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_validateDataframeRecipe_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_validateDataframeRecipe_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (model.ValidateDataframeRecipeInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal model.ValidateDataframeRecipeInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNValidateDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐValidateDataframeRecipeInput(ctx, tmp)
+	}
+
+	var zeroVal model.ValidateDataframeRecipeInput
 	return zeroVal, nil
 }
 
@@ -1295,6 +1993,34 @@ func (ec *executionContext) field_Query_dataframeMaterialization_argsID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Query_dataframeRecipeExecution_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_dataframeRecipeExecution_argsID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_dataframeRecipeExecution_argsID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["id"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+	if tmp, ok := rawArgs["id"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Query_dataframeRows_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1320,6 +2046,62 @@ func (ec *executionContext) field_Query_dataframeRows_argsInput(
 	}
 
 	var zeroVal model.DataframeRowsInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_explainDataframeRecipe_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_explainDataframeRecipe_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_explainDataframeRecipe_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (model.ExplainDataframeRecipeInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal model.ExplainDataframeRecipeInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNExplainDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐExplainDataframeRecipeInput(ctx, tmp)
+	}
+
+	var zeroVal model.ExplainDataframeRecipeInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_preflightDataframeRecipe_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_preflightDataframeRecipe_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_preflightDataframeRecipe_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (model.PreflightDataframeRecipeInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal model.PreflightDataframeRecipeInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNPreflightDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐPreflightDataframeRecipeInput(ctx, tmp)
+	}
+
+	var zeroVal model.PreflightDataframeRecipeInput
 	return zeroVal, nil
 }
 
@@ -4930,6 +5712,2771 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_plan(_ contex
 	return fc, nil
 }
 
+func (ec *executionContext) _DataframeRecipeColumn_output(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_output(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Output, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_output(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeColumn_dynamicName(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_dynamicName(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DynamicName, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_dynamicName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeColumn_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeColumn_logicalType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_logicalType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LogicalType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_logicalType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeColumn_repeated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_repeated(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Repeated, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_repeated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeColumn_nullable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumn) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeColumn_nullable(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Nullable, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeColumn_nullable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeColumn",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_id(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_id(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNID2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_recipeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_recipeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RecipeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_recipeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_resolvedSchemaDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_resolvedSchemaDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ResolvedSchemaDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_resolvedSchemaDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_sourceGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_sourceGeneration(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SourceGeneration, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_sourceGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_state(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_state(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.State, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.DataframeRecipeExecutionState)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExecutionState2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionState(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DataframeRecipeExecutionState does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_outputs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_outputs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Outputs, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipeExecutionOutput)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExecutionOutput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionOutputᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_outputs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipeExecutionOutput_name(ctx, field)
+			case "state":
+				return ec.fieldContext_DataframeRecipeExecutionOutput_state(ctx, field)
+			case "rowCount":
+				return ec.fieldContext_DataframeRecipeExecutionOutput_rowCount(ctx, field)
+			case "error":
+				return ec.fieldContext_DataframeRecipeExecutionOutput_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExecutionOutput", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecution_error(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecution) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecution_error(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Error, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecution_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecution",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecutionOutput_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecutionOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput_state(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecutionOutput_state(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.State, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.DataframeRecipeExecutionState)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExecutionState2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionState(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecutionOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DataframeRecipeExecutionState does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput_rowCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecutionOutput_rowCount(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RowCount, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int)
+	fc.Result = res
+	return ec.marshalOInt2ᚖint(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_rowCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecutionOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput_error(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExecutionOutput_error(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Error, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecutionOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpansionExplanation_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpansionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpansionExplanation_sourcePath(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SourcePath, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpansionExplanation_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpansionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpansionExplanation_alias(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpansionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpansionExplanation_alias(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Alias, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpansionExplanation_alias(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpansionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExplanation_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExplanation_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExplanation_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExplanation_recipeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExplanation_recipeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RecipeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExplanation_recipeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExplanation_translationVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExplanation_translationVersion(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TranslationVersion, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExplanation_translationVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExplanation_outputs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExplanation_outputs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Outputs, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipeOutputExplanation)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeOutputExplanation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputExplanationᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExplanation_outputs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_name(ctx, field)
+			case "rootResourceType":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_rootResourceType(ctx, field)
+			case "rowGrain":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_rowGrain(ctx, field)
+			case "fields":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_fields(ctx, field)
+			case "identity":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_identity(ctx, field)
+			case "expansion":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_expansion(ctx, field)
+			case "dynamicMaps":
+				return ec.fieldContext_DataframeRecipeOutputExplanation_dynamicMaps(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeOutputExplanation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_sourcePath(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SourcePath, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_context(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_context(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Context, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_context(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_kind(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_kind(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Kind, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_valueType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_valueType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ValueType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_valueType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_repeated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_repeated(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Repeated, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_repeated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation_nullable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExpressionExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeExpressionExplanation_nullable(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Nullable, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeExpressionExplanation_nullable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExpressionExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_rootResourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_rootResourceType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RootResourceType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_rootResourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_rowGrain(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_rowGrain(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RowGrain, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_rowGrain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_fields(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_fields(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Fields, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipeExpressionExplanation)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExpressionExplanation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanationᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_fields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "sourcePath":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_sourcePath(ctx, field)
+			case "context":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_context(ctx, field)
+			case "kind":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_kind(ctx, field)
+			case "valueType":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_valueType(ctx, field)
+			case "repeated":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_repeated(ctx, field)
+			case "nullable":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_nullable(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExpressionExplanation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_identity(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_identity(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Identity, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeExpressionExplanation)
+	fc.Result = res
+	return ec.marshalODataframeRecipeExpressionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanation(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_identity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "sourcePath":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_sourcePath(ctx, field)
+			case "context":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_context(ctx, field)
+			case "kind":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_kind(ctx, field)
+			case "valueType":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_valueType(ctx, field)
+			case "repeated":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_repeated(ctx, field)
+			case "nullable":
+				return ec.fieldContext_DataframeRecipeExpressionExplanation_nullable(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExpressionExplanation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_expansion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_expansion(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Expansion, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeExpansionExplanation)
+	fc.Result = res
+	return ec.marshalODataframeRecipeExpansionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpansionExplanation(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_expansion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "sourcePath":
+				return ec.fieldContext_DataframeRecipeExpansionExplanation_sourcePath(ctx, field)
+			case "alias":
+				return ec.fieldContext_DataframeRecipeExpansionExplanation_alias(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExpansionExplanation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation_dynamicMaps(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputExplanation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputExplanation_dynamicMaps(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DynamicMaps, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputExplanation_dynamicMaps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputExplanation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputValidation_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputValidation_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation_rootResourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputValidation_rootResourceType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RootResourceType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputValidation_rootResourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation_rowGrain(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputValidation_rowGrain(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RowGrain, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputValidation_rowGrain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation_fieldNames(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputValidation_fieldNames(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FieldNames, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputValidation_fieldNames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation_dynamicColumns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeOutputValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeOutputValidation_dynamicColumns(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DynamicColumns, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeOutputValidation_dynamicColumns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeOutputValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_recipeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_recipeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RecipeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_recipeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_resolvedSchemaDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_resolvedSchemaDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ResolvedSchemaDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_resolvedSchemaDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_sourceGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_sourceGeneration(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SourceGeneration, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_sourceGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_scopeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_scopeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ScopeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_scopeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreflight_columns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreflight) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreflight_columns(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Columns, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipeColumn)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeColumnᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreflight_columns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreflight",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "output":
+				return ec.fieldContext_DataframeRecipeColumn_output(ctx, field)
+			case "dynamicName":
+				return ec.fieldContext_DataframeRecipeColumn_dynamicName(ctx, field)
+			case "name":
+				return ec.fieldContext_DataframeRecipeColumn_name(ctx, field)
+			case "logicalType":
+				return ec.fieldContext_DataframeRecipeColumn_logicalType(ctx, field)
+			case "repeated":
+				return ec.fieldContext_DataframeRecipeColumn_repeated(ctx, field)
+			case "nullable":
+				return ec.fieldContext_DataframeRecipeColumn_nullable(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumn", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreview_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreview) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreview_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreview_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreview_recipeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreview) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreview_recipeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RecipeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreview_recipeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreview_resolvedSchemaDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreview) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreview_resolvedSchemaDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ResolvedSchemaDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreview_resolvedSchemaDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreview_sourceGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreview) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreview_sourceGeneration(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SourceGeneration, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreview_sourceGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreview_outputs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreview) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreview_outputs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Outputs, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipePreviewOutput)
+	fc.Result = res
+	return ec.marshalNDataframeRecipePreviewOutput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreviewOutputᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreview_outputs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipePreviewOutput_name(ctx, field)
+			case "columns":
+				return ec.fieldContext_DataframeRecipePreviewOutput_columns(ctx, field)
+			case "rows":
+				return ec.fieldContext_DataframeRecipePreviewOutput_rows(ctx, field)
+			case "rowCount":
+				return ec.fieldContext_DataframeRecipePreviewOutput_rowCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipePreviewOutput", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreviewOutput_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreviewOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreviewOutput_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreviewOutput_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreviewOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreviewOutput_columns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreviewOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreviewOutput_columns(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Columns, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreviewOutput_columns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreviewOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreviewOutput_rows(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreviewOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreviewOutput_rows(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Rows, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(json.RawMessage)
+	fc.Result = res
+	return ec.marshalNJSON2encodingᚋjsonᚐRawMessage(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreviewOutput_rows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreviewOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipePreviewOutput_rowCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipePreviewOutput) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipePreviewOutput_rowCount(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RowCount, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipePreviewOutput_rowCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipePreviewOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeValidation_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeValidation_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeValidation_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeValidation_recipeDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeValidation_recipeDigest(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RecipeDigest, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeValidation_recipeDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeValidation_translationVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeValidation_translationVersion(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TranslationVersion, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeValidation_translationVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeRecipeValidation_outputs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeValidation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DataframeRecipeValidation_outputs(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Outputs, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.DataframeRecipeOutputValidation)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeOutputValidation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputValidationᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DataframeRecipeValidation_outputs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeValidation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipeOutputValidation_name(ctx, field)
+			case "rootResourceType":
+				return ec.fieldContext_DataframeRecipeOutputValidation_rootResourceType(ctx, field)
+			case "rowGrain":
+				return ec.fieldContext_DataframeRecipeOutputValidation_rowGrain(ctx, field)
+			case "fieldNames":
+				return ec.fieldContext_DataframeRecipeOutputValidation_fieldNames(ctx, field)
+			case "dynamicColumns":
+				return ec.fieldContext_DataframeRecipeOutputValidation_dynamicColumns(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeOutputValidation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DataframeRelatedResourceHints_viaLabel(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRelatedResourceHints) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DataframeRelatedResourceHints_viaLabel(ctx, field)
 	if err != nil {
@@ -6185,6 +9732,211 @@ func (ec *executionContext) fieldContext_Mutation_runFhirDataframe(ctx context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_validateDataframeRecipe(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_validateDataframeRecipe(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().ValidateDataframeRecipe(rctx, fc.Args["input"].(model.ValidateDataframeRecipeInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeValidation)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeValidation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeValidation(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_validateDataframeRecipe(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipeValidation_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipeValidation_recipeDigest(ctx, field)
+			case "translationVersion":
+				return ec.fieldContext_DataframeRecipeValidation_translationVersion(ctx, field)
+			case "outputs":
+				return ec.fieldContext_DataframeRecipeValidation_outputs(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeValidation", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_validateDataframeRecipe_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_previewDataframeRecipe(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_previewDataframeRecipe(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().PreviewDataframeRecipe(rctx, fc.Args["input"].(model.PreviewDataframeRecipeInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipePreview)
+	fc.Result = res
+	return ec.marshalNDataframeRecipePreview2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreview(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_previewDataframeRecipe(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipePreview_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipePreview_recipeDigest(ctx, field)
+			case "resolvedSchemaDigest":
+				return ec.fieldContext_DataframeRecipePreview_resolvedSchemaDigest(ctx, field)
+			case "sourceGeneration":
+				return ec.fieldContext_DataframeRecipePreview_sourceGeneration(ctx, field)
+			case "outputs":
+				return ec.fieldContext_DataframeRecipePreview_outputs(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipePreview", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_previewDataframeRecipe_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_materializeDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_materializeDataframeRecipeBundle(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().MaterializeDataframeRecipeBundle(rctx, fc.Args["input"].(model.MaterializeDataframeRecipeInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeExecution)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExecution2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecution(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_materializeDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DataframeRecipeExecution_id(ctx, field)
+			case "name":
+				return ec.fieldContext_DataframeRecipeExecution_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipeExecution_recipeDigest(ctx, field)
+			case "resolvedSchemaDigest":
+				return ec.fieldContext_DataframeRecipeExecution_resolvedSchemaDigest(ctx, field)
+			case "sourceGeneration":
+				return ec.fieldContext_DataframeRecipeExecution_sourceGeneration(ctx, field)
+			case "state":
+				return ec.fieldContext_DataframeRecipeExecution_state(ctx, field)
+			case "outputs":
+				return ec.fieldContext_DataframeRecipeExecution_outputs(ctx, field)
+			case "error":
+				return ec.fieldContext_DataframeRecipeExecution_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExecution", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_materializeDataframeRecipeBundle_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_dataframeBuilderIntrospection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query_dataframeBuilderIntrospection(ctx, field)
 	if err != nil {
@@ -6454,6 +10206,210 @@ func (ec *executionContext) fieldContext_Query_dataframeAggregate(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeAggregate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeRecipeExecution(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_dataframeRecipeExecution(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().DataframeRecipeExecution(rctx, fc.Args["id"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeExecution)
+	fc.Result = res
+	return ec.marshalODataframeRecipeExecution2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecution(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_dataframeRecipeExecution(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DataframeRecipeExecution_id(ctx, field)
+			case "name":
+				return ec.fieldContext_DataframeRecipeExecution_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipeExecution_recipeDigest(ctx, field)
+			case "resolvedSchemaDigest":
+				return ec.fieldContext_DataframeRecipeExecution_resolvedSchemaDigest(ctx, field)
+			case "sourceGeneration":
+				return ec.fieldContext_DataframeRecipeExecution_sourceGeneration(ctx, field)
+			case "state":
+				return ec.fieldContext_DataframeRecipeExecution_state(ctx, field)
+			case "outputs":
+				return ec.fieldContext_DataframeRecipeExecution_outputs(ctx, field)
+			case "error":
+				return ec.fieldContext_DataframeRecipeExecution_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExecution", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeRecipeExecution_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_explainDataframeRecipe(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_explainDataframeRecipe(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().ExplainDataframeRecipe(rctx, fc.Args["input"].(model.ExplainDataframeRecipeInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipeExplanation)
+	fc.Result = res
+	return ec.marshalNDataframeRecipeExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExplanation(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_explainDataframeRecipe(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipeExplanation_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipeExplanation_recipeDigest(ctx, field)
+			case "translationVersion":
+				return ec.fieldContext_DataframeRecipeExplanation_translationVersion(ctx, field)
+			case "outputs":
+				return ec.fieldContext_DataframeRecipeExplanation_outputs(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeExplanation", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_explainDataframeRecipe_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_preflightDataframeRecipe(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_preflightDataframeRecipe(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().PreflightDataframeRecipe(rctx, fc.Args["input"].(model.PreflightDataframeRecipeInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.DataframeRecipePreflight)
+	fc.Result = res
+	return ec.marshalNDataframeRecipePreflight2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreflight(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_preflightDataframeRecipe(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DataframeRecipePreflight_name(ctx, field)
+			case "recipeDigest":
+				return ec.fieldContext_DataframeRecipePreflight_recipeDigest(ctx, field)
+			case "resolvedSchemaDigest":
+				return ec.fieldContext_DataframeRecipePreflight_resolvedSchemaDigest(ctx, field)
+			case "sourceGeneration":
+				return ec.fieldContext_DataframeRecipePreflight_sourceGeneration(ctx, field)
+			case "scopeDigest":
+				return ec.fieldContext_DataframeRecipePreflight_scopeDigest(ctx, field)
+			case "columns":
+				return ec.fieldContext_DataframeRecipePreflight_columns(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DataframeRecipePreflight", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_preflightDataframeRecipe_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8690,6 +12646,58 @@ func (ec *executionContext) unmarshalInputDataframeFilterInput(ctx context.Conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputDataframeRecipeBindingsInput(ctx context.Context, obj any) (model.DataframeRecipeBindingsInput, error) {
+	var it model.DataframeRecipeBindingsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["previewLimit"]; !present {
+		asMap["previewLimit"] = 25
+	}
+
+	fieldsInOrder := [...]string{"project", "datasetGeneration", "authResourcePaths", "previewLimit"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "project":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("project"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Project = data
+		case "datasetGeneration":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("datasetGeneration"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DatasetGeneration = data
+		case "authResourcePaths":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authResourcePaths"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AuthResourcePaths = data
+		case "previewLimit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("previewLimit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PreviewLimit = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context, obj any) (model.DataframeRowsInput, error) {
 	var it model.DataframeRowsInput
 	asMap := map[string]any{}
@@ -8788,6 +12796,40 @@ func (ec *executionContext) unmarshalInputDataframeSortInput(ctx context.Context
 				return it, err
 			}
 			it.Desc = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputExplainDataframeRecipeInput(ctx context.Context, obj any) (model.ExplainDataframeRecipeInput, error) {
+	var it model.ExplainDataframeRecipeInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "bindings"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "bindings":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bindings"))
+			data, err := ec.unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Bindings = data
 		}
 	}
 
@@ -9347,6 +13389,153 @@ func (ec *executionContext) unmarshalInputFhirTraversalStepInput(ctx context.Con
 				return it, err
 			}
 			it.Traverse = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputMaterializeDataframeRecipeInput(ctx context.Context, obj any) (model.MaterializeDataframeRecipeInput, error) {
+	var it model.MaterializeDataframeRecipeInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "bindings"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "bindings":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bindings"))
+			data, err := ec.unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Bindings = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputPreflightDataframeRecipeInput(ctx context.Context, obj any) (model.PreflightDataframeRecipeInput, error) {
+	var it model.PreflightDataframeRecipeInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "bindings"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "bindings":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bindings"))
+			data, err := ec.unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Bindings = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputPreviewDataframeRecipeInput(ctx context.Context, obj any) (model.PreviewDataframeRecipeInput, error) {
+	var it model.PreviewDataframeRecipeInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["limit"]; !present {
+		asMap["limit"] = 25
+	}
+
+	fieldsInOrder := [...]string{"name", "bindings", "limit"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "bindings":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bindings"))
+			data, err := ec.unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Bindings = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputValidateDataframeRecipeInput(ctx context.Context, obj any) (model.ValidateDataframeRecipeInput, error) {
+	var it model.ValidateDataframeRecipeInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "bindings"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "bindings":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bindings"))
+			data, err := ec.unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Bindings = data
 		}
 	}
 
@@ -10117,6 +14306,704 @@ func (ec *executionContext) _DataframeQueryDiagnostics(ctx context.Context, sel 
 	return out
 }
 
+var dataframeRecipeColumnImplementors = []string{"DataframeRecipeColumn"}
+
+func (ec *executionContext) _DataframeRecipeColumn(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeColumn) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeColumnImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeColumn")
+		case "output":
+			out.Values[i] = ec._DataframeRecipeColumn_output(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "dynamicName":
+			out.Values[i] = ec._DataframeRecipeColumn_dynamicName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._DataframeRecipeColumn_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "logicalType":
+			out.Values[i] = ec._DataframeRecipeColumn_logicalType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "repeated":
+			out.Values[i] = ec._DataframeRecipeColumn_repeated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "nullable":
+			out.Values[i] = ec._DataframeRecipeColumn_nullable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeExecutionImplementors = []string{"DataframeRecipeExecution"}
+
+func (ec *executionContext) _DataframeRecipeExecution(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeExecution) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeExecutionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeExecution")
+		case "id":
+			out.Values[i] = ec._DataframeRecipeExecution_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._DataframeRecipeExecution_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "recipeDigest":
+			out.Values[i] = ec._DataframeRecipeExecution_recipeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedSchemaDigest":
+			out.Values[i] = ec._DataframeRecipeExecution_resolvedSchemaDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceGeneration":
+			out.Values[i] = ec._DataframeRecipeExecution_sourceGeneration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "state":
+			out.Values[i] = ec._DataframeRecipeExecution_state(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputs":
+			out.Values[i] = ec._DataframeRecipeExecution_outputs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._DataframeRecipeExecution_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeExecutionOutputImplementors = []string{"DataframeRecipeExecutionOutput"}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeExecutionOutput) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeExecutionOutputImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeExecutionOutput")
+		case "name":
+			out.Values[i] = ec._DataframeRecipeExecutionOutput_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "state":
+			out.Values[i] = ec._DataframeRecipeExecutionOutput_state(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rowCount":
+			out.Values[i] = ec._DataframeRecipeExecutionOutput_rowCount(ctx, field, obj)
+		case "error":
+			out.Values[i] = ec._DataframeRecipeExecutionOutput_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeExpansionExplanationImplementors = []string{"DataframeRecipeExpansionExplanation"}
+
+func (ec *executionContext) _DataframeRecipeExpansionExplanation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeExpansionExplanation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeExpansionExplanationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeExpansionExplanation")
+		case "sourcePath":
+			out.Values[i] = ec._DataframeRecipeExpansionExplanation_sourcePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "alias":
+			out.Values[i] = ec._DataframeRecipeExpansionExplanation_alias(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeExplanationImplementors = []string{"DataframeRecipeExplanation"}
+
+func (ec *executionContext) _DataframeRecipeExplanation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeExplanation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeExplanationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeExplanation")
+		case "name":
+			out.Values[i] = ec._DataframeRecipeExplanation_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "recipeDigest":
+			out.Values[i] = ec._DataframeRecipeExplanation_recipeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "translationVersion":
+			out.Values[i] = ec._DataframeRecipeExplanation_translationVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputs":
+			out.Values[i] = ec._DataframeRecipeExplanation_outputs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeExpressionExplanationImplementors = []string{"DataframeRecipeExpressionExplanation"}
+
+func (ec *executionContext) _DataframeRecipeExpressionExplanation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeExpressionExplanation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeExpressionExplanationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeExpressionExplanation")
+		case "sourcePath":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_sourcePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "context":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_context(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valueType":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_valueType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "repeated":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_repeated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "nullable":
+			out.Values[i] = ec._DataframeRecipeExpressionExplanation_nullable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeOutputExplanationImplementors = []string{"DataframeRecipeOutputExplanation"}
+
+func (ec *executionContext) _DataframeRecipeOutputExplanation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeOutputExplanation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeOutputExplanationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeOutputExplanation")
+		case "name":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rootResourceType":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_rootResourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rowGrain":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_rowGrain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fields":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_fields(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "identity":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_identity(ctx, field, obj)
+		case "expansion":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_expansion(ctx, field, obj)
+		case "dynamicMaps":
+			out.Values[i] = ec._DataframeRecipeOutputExplanation_dynamicMaps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeOutputValidationImplementors = []string{"DataframeRecipeOutputValidation"}
+
+func (ec *executionContext) _DataframeRecipeOutputValidation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeOutputValidation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeOutputValidationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeOutputValidation")
+		case "name":
+			out.Values[i] = ec._DataframeRecipeOutputValidation_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rootResourceType":
+			out.Values[i] = ec._DataframeRecipeOutputValidation_rootResourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rowGrain":
+			out.Values[i] = ec._DataframeRecipeOutputValidation_rowGrain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fieldNames":
+			out.Values[i] = ec._DataframeRecipeOutputValidation_fieldNames(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "dynamicColumns":
+			out.Values[i] = ec._DataframeRecipeOutputValidation_dynamicColumns(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipePreflightImplementors = []string{"DataframeRecipePreflight"}
+
+func (ec *executionContext) _DataframeRecipePreflight(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipePreflight) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipePreflightImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipePreflight")
+		case "name":
+			out.Values[i] = ec._DataframeRecipePreflight_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "recipeDigest":
+			out.Values[i] = ec._DataframeRecipePreflight_recipeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedSchemaDigest":
+			out.Values[i] = ec._DataframeRecipePreflight_resolvedSchemaDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceGeneration":
+			out.Values[i] = ec._DataframeRecipePreflight_sourceGeneration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "scopeDigest":
+			out.Values[i] = ec._DataframeRecipePreflight_scopeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "columns":
+			out.Values[i] = ec._DataframeRecipePreflight_columns(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipePreviewImplementors = []string{"DataframeRecipePreview"}
+
+func (ec *executionContext) _DataframeRecipePreview(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipePreview) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipePreviewImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipePreview")
+		case "name":
+			out.Values[i] = ec._DataframeRecipePreview_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "recipeDigest":
+			out.Values[i] = ec._DataframeRecipePreview_recipeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedSchemaDigest":
+			out.Values[i] = ec._DataframeRecipePreview_resolvedSchemaDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceGeneration":
+			out.Values[i] = ec._DataframeRecipePreview_sourceGeneration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputs":
+			out.Values[i] = ec._DataframeRecipePreview_outputs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipePreviewOutputImplementors = []string{"DataframeRecipePreviewOutput"}
+
+func (ec *executionContext) _DataframeRecipePreviewOutput(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipePreviewOutput) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipePreviewOutputImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipePreviewOutput")
+		case "name":
+			out.Values[i] = ec._DataframeRecipePreviewOutput_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "columns":
+			out.Values[i] = ec._DataframeRecipePreviewOutput_columns(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rows":
+			out.Values[i] = ec._DataframeRecipePreviewOutput_rows(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rowCount":
+			out.Values[i] = ec._DataframeRecipePreviewOutput_rowCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dataframeRecipeValidationImplementors = []string{"DataframeRecipeValidation"}
+
+func (ec *executionContext) _DataframeRecipeValidation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeValidation) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeValidationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeValidation")
+		case "name":
+			out.Values[i] = ec._DataframeRecipeValidation_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "recipeDigest":
+			out.Values[i] = ec._DataframeRecipeValidation_recipeDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "translationVersion":
+			out.Values[i] = ec._DataframeRecipeValidation_translationVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputs":
+			out.Values[i] = ec._DataframeRecipeValidation_outputs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var dataframeRelatedResourceHintsImplementors = []string{"DataframeRelatedResourceHints"}
 
 func (ec *executionContext) _DataframeRelatedResourceHints(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRelatedResourceHints) graphql.Marshaler {
@@ -10467,6 +15354,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "validateDataframeRecipe":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_validateDataframeRecipe(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "previewDataframeRecipe":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_previewDataframeRecipe(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "materializeDataframeRecipeBundle":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_materializeDataframeRecipeBundle(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -10582,6 +15490,69 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_dataframeAggregate(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeRecipeExecution":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeRecipeExecution(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "explainDataframeRecipe":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_explainDataframeRecipe(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "preflightDataframeRecipe":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_preflightDataframeRecipe(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -11250,6 +16221,415 @@ func (ec *executionContext) marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋ
 	return ec._DataframeQueryDiagnostics(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeBindingsInput(ctx context.Context, v any) (*model.DataframeRecipeBindingsInput, error) {
+	res, err := ec.unmarshalInputDataframeRecipeBindingsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeColumn) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeColumn(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeColumn(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeColumn) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeColumn(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExecution2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecution(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeExecution) graphql.Marshaler {
+	return ec._DataframeRecipeExecution(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExecution2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecution(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExecution) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExecution(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExecutionOutput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionOutputᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeExecutionOutput) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipeExecutionOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionOutput(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExecutionOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionOutput(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExecutionOutput) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExecutionOutput(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNDataframeRecipeExecutionState2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionState(ctx context.Context, v any) (model.DataframeRecipeExecutionState, error) {
+	var res model.DataframeRecipeExecutionState
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExecutionState2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecutionState(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeExecutionState) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExplanation2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExplanation(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeExplanation) graphql.Marshaler {
+	return ec._DataframeRecipeExplanation(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExplanation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExplanation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExplanation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExpressionExplanation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeExpressionExplanation) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipeExpressionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanation(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeExpressionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExpressionExplanation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExpressionExplanation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeOutputExplanation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputExplanationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeOutputExplanation) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipeOutputExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputExplanation(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeOutputExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputExplanation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeOutputExplanation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeOutputExplanation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeOutputValidation2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputValidationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeOutputValidation) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipeOutputValidation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputValidation(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeOutputValidation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeOutputValidation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeOutputValidation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeOutputValidation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreflight2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreflight(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipePreflight) graphql.Marshaler {
+	return ec._DataframeRecipePreflight(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreflight2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreflight(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipePreflight) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipePreflight(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreview2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreview(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipePreview) graphql.Marshaler {
+	return ec._DataframeRecipePreview(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreview2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreview(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipePreview) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipePreview(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreviewOutput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreviewOutputᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipePreviewOutput) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDataframeRecipePreviewOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreviewOutput(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipePreviewOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipePreviewOutput(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipePreviewOutput) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipePreviewOutput(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeValidation2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeValidation(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeValidation) graphql.Marshaler {
+	return ec._DataframeRecipeValidation(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeValidation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeValidation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeValidation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeValidation(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNDataframeRelatedResourceHints2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRelatedResourceHintsᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRelatedResourceHints) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -11441,6 +16821,11 @@ func (ec *executionContext) marshalNDataframeTraversalHint2ᚖgithubᚗcomᚋcal
 	return ec._DataframeTraversalHint(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNExplainDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐExplainDataframeRecipeInput(ctx context.Context, v any) (model.ExplainDataframeRecipeInput, error) {
+	res, err := ec.unmarshalInputExplainDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNFhirAggregateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐFhirAggregateInput(ctx context.Context, v any) (*model.FhirAggregateInput, error) {
 	res, err := ec.unmarshalInputFhirAggregateInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
@@ -11614,6 +16999,21 @@ func (ec *executionContext) marshalNJSON2encodingᚋjsonᚐRawMessage(ctx contex
 	return ec._JSON(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNMaterializeDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐMaterializeDataframeRecipeInput(ctx context.Context, v any) (model.MaterializeDataframeRecipeInput, error) {
+	res, err := ec.unmarshalInputMaterializeDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNPreflightDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐPreflightDataframeRecipeInput(ctx context.Context, v any) (model.PreflightDataframeRecipeInput, error) {
+	res, err := ec.unmarshalInputPreflightDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNPreviewDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐPreviewDataframeRecipeInput(ctx context.Context, v any) (model.PreviewDataframeRecipeInput, error) {
+	res, err := ec.unmarshalInputPreviewDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {
 	res, err := graphql.UnmarshalString(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -11659,6 +17059,11 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalNValidateDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐValidateDataframeRecipeInput(ctx context.Context, v any) (model.ValidateDataframeRecipeInput, error) {
+	res, err := ec.unmarshalInputValidateDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {
@@ -11979,6 +17384,27 @@ func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋc
 		return graphql.Null
 	}
 	return ec._DataframeMaterialization(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalODataframeRecipeExecution2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExecution(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExecution) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExecution(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalODataframeRecipeExpansionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpansionExplanation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExpansionExplanation) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExpansionExplanation(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalODataframeRecipeExpressionExplanation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeRecipeExpressionExplanation(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeExpressionExplanation) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DataframeRecipeExpressionExplanation(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeSortInput(ctx context.Context, v any) (*model.DataframeSortInput, error) {

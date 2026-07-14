@@ -25,6 +25,7 @@ type HTTPConfig struct {
 	// a complete staged bundle loader instead: one uploaded resource file can
 	// never safely become an immutable active dataset generation.
 	DisableSingleResourceImports bool
+	RawExporter                  RawExporter
 }
 
 type HTTPServer struct {
@@ -37,6 +38,7 @@ type HTTPServer struct {
 	cfgGraphQLPlaygroundHandler  http.Handler
 	cfgApolloSandboxHandler      http.Handler
 	disableSingleResourceImports bool
+	rawExporter                  RawExporter
 }
 
 type apiError struct {
@@ -86,6 +88,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		cfgGraphQLPlaygroundHandler:  cfg.GraphQLPlaygroundHandler,
 		cfgApolloSandboxHandler:      cfg.ApolloSandboxHandler,
 		disableSingleResourceImports: cfg.DisableSingleResourceImports,
+		rawExporter:                  cfg.RawExporter,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:      cfg.BodyLimit,

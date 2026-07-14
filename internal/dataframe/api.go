@@ -8,6 +8,14 @@ package dataframe
 import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/materialization"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipecompile"
+	"github.com/calypr/loom/internal/dataframe/recipecontrol"
+	"github.com/calypr/loom/internal/dataframe/recipeengine"
+	"github.com/calypr/loom/internal/dataframe/recipeexec"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 )
 
@@ -53,6 +61,44 @@ type (
 	Selector                = compiler.Selector
 	SelectorStep            = compiler.SelectorStep
 	ContainsFilter          = compiler.ContainsFilter
+
+	RecipeBundle             = recipe.Bundle
+	RecipeOutput             = recipe.Output
+	RecipeRuntimeBindings    = recipe.RuntimeBindings
+	RecipeExpression         = recipe.Expression
+	RecipeRegistry           = recipeexec.Registry
+	RecipeRunner             = recipeexec.Runner
+	RecipeResult             = recipeexec.Result
+	RecipePlan               = compiler.RecipePlan
+	RecipeOutputPlan         = compiler.OutputPlan
+	RecipeResolvedPlan       = compiler.ResolvedRecipePlan
+	RecipeResolvedColumn     = compiler.ResolvedColumn
+	RecipeDiscoveryCandidate = compiler.DiscoveryCandidate
+	RecipeFrozenSchema       = recipeplan.FrozenSchema
+	RecipeDynamicSpec        = recipeplan.DynamicSpec
+	RecipeColumnCandidate    = recipeplan.Candidate
+	RecipePlanColumn         = recipeplan.Column
+	RecipePhysicalPlan       = compiler.RecipePhysicalPlan
+	RecipePhysicalOutput     = compiler.RecipePhysicalOutput
+	RecipePhysicalExpansion  = compiler.RecipePhysicalExpansion
+	RecipePhysicalProjection = compiler.RecipePhysicalProjection
+	RecipePhysicalDynamicMap = compiler.RecipePhysicalDynamicMap
+	RecipePhysicalTraversal  = compiler.RecipePhysicalTraversal
+	RecipeControlService     = recipecontrol.Service
+	RecipeValidation         = recipecontrol.Validation
+	RecipePreview            = recipecontrol.Preview
+	RecipeEngine             = recipeengine.Engine
+	RecipeEngineControl      = recipeengine.Control
+	RecipeEngineConfig       = recipeengine.Config
+	RecipeEngineResolved     = recipeengine.Resolved
+	RecipeOutputStream       = recipeengine.OutputStream
+	RecipeEngineStreamResult = recipeengine.StreamResult
+	BundleOutput             = materialization.BundleOutput
+	AtomicBundleStore        = materialization.AtomicBundleStore
+	AtomicBundleTx           = materialization.AtomicBundleTx
+	Expression               = expression.Expression
+	ExpressionType           = expression.Type
+	CheckedExpression        = expression.CheckedExpression
 
 	PhysicalOptimizationPolicy             = compiler.PhysicalOptimizationPolicy
 	PhysicalOptimizationRule               = compiler.PhysicalOptimizationRule
@@ -259,32 +305,44 @@ var (
 	OptimizePhysicalPlanWithPolicy     = compiler.OptimizePhysicalPlanWithPolicy
 	RenderPhysicalPlan                 = compiler.RenderPhysicalPlan
 	ParseSelector                      = compiler.ParseSelector
-	ValidateTypedFilterForResource     = compiler.ValidateTypedFilterForResource
-	NormalizeSelectionPlan             = compiler.NormalizeSelectionPlan
-	ResolveSemanticField               = compiler.ResolveSemanticField
-	InferRowGrain                      = compiler.InferRowGrain
-	RootResourceForGrain               = compiler.RootResourceForGrain
-	ValidateRootGrain                  = compiler.ValidateRootGrain
-	DefaultRowIdentity                 = compiler.DefaultRowIdentity
-	ValidateProjection                 = compiler.ValidateProjection
-	OperatorSupportsKind               = compiler.OperatorSupportsKind
-	ValidateGenericPhysicalPlanScope   = compiler.ValidateGenericPhysicalPlanScope
-	DecomposePhysicalTraversalPrefix   = compiler.DecomposePhysicalTraversalPrefix
-	ResolveStorageRoute                = compiler.ResolveStorageRoute
-	AsUserError                        = dataframeerrors.AsUserError
-	Normalize                          = dataframeerrors.Normalize
-	PublicMessage                      = dataframeerrors.PublicMessage
-	NewError                           = dataframeerrors.NewError
-	Wrap                               = dataframeerrors.Wrap
-	WithFieldPath                      = dataframeerrors.WithFieldPath
-	WithDetails                        = dataframeerrors.WithDetails
-	WithRetryable                      = dataframeerrors.WithRetryable
-	WithCause                          = dataframeerrors.WithCause
-	IsUserCorrectable                  = dataframeerrors.IsUserCorrectable
-	IsRetryableCode                    = dataframeerrors.IsRetryableCode
-	IsOperatorFailure                  = dataframeerrors.IsOperatorFailure
-	Errorf                             = dataframeerrors.Errorf
-	AllErrorCodes                      = dataframeerrors.AllErrorCodes
-	ErrBackendUnavailable              = dataframeerrors.ErrBackendUnavailable
-	ErrClientCanceled                  = dataframeerrors.ErrClientCanceled
+	ParseRecipe                        = recipe.Parse
+	CompileRecipeBundle                = recipecompile.CompileBundle
+	BuildRecipePlan                    = compiler.BuildRecipePlan
+	BuildRecipePlanFromBuilder         = compiler.BuildRecipePlanFromBuilder
+	ResolveRecipePlan                  = compiler.ResolveRecipePlan
+	LowerResolvedRecipePlan            = compiler.LowerResolvedRecipePlan
+	NewRecipeControlService            = func(registry recipecontrol.Registry) recipecontrol.Service {
+		return recipecontrol.Service{Registry: registry}
+	}
+	NewRecipeEngine                  = recipeengine.New
+	PublishRecipeBundle              = materialization.PublishBundle
+	NewRecipeRegistry                = recipeexec.NewRegistry
+	ValidateTypedFilterForResource   = compiler.ValidateTypedFilterForResource
+	NormalizeSelectionPlan           = compiler.NormalizeSelectionPlan
+	ResolveSemanticField             = compiler.ResolveSemanticField
+	InferRowGrain                    = compiler.InferRowGrain
+	RootResourceForGrain             = compiler.RootResourceForGrain
+	ValidateRootGrain                = compiler.ValidateRootGrain
+	DefaultRowIdentity               = compiler.DefaultRowIdentity
+	ValidateProjection               = compiler.ValidateProjection
+	OperatorSupportsKind             = compiler.OperatorSupportsKind
+	ValidateGenericPhysicalPlanScope = compiler.ValidateGenericPhysicalPlanScope
+	DecomposePhysicalTraversalPrefix = compiler.DecomposePhysicalTraversalPrefix
+	ResolveStorageRoute              = compiler.ResolveStorageRoute
+	AsUserError                      = dataframeerrors.AsUserError
+	Normalize                        = dataframeerrors.Normalize
+	PublicMessage                    = dataframeerrors.PublicMessage
+	NewError                         = dataframeerrors.NewError
+	Wrap                             = dataframeerrors.Wrap
+	WithFieldPath                    = dataframeerrors.WithFieldPath
+	WithDetails                      = dataframeerrors.WithDetails
+	WithRetryable                    = dataframeerrors.WithRetryable
+	WithCause                        = dataframeerrors.WithCause
+	IsUserCorrectable                = dataframeerrors.IsUserCorrectable
+	IsRetryableCode                  = dataframeerrors.IsRetryableCode
+	IsOperatorFailure                = dataframeerrors.IsOperatorFailure
+	Errorf                           = dataframeerrors.Errorf
+	AllErrorCodes                    = dataframeerrors.AllErrorCodes
+	ErrBackendUnavailable            = dataframeerrors.ErrBackendUnavailable
+	ErrClientCanceled                = dataframeerrors.ErrClientCanceled
 )

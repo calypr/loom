@@ -1,0 +1,130 @@
+package recipe
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+const validDocument = `{
+  "recipeSchemaVersion": 1,
+  "name": "example",
+  "translationVersion": "1",
+  "outputs": [{
+    "name": "members",
+    "rootResourceType": "Group",
+    "rowGrain": "group_member",
+    "expand": {"from": {"select": "member[]"}, "as": "member"},
+    "identity": {"name": "id", "expr": {"call": "uuid5", "args": [
+      {"literal": "example"},
+      {"literal": "group"},
+      {"select": "member.id"}
+    ]}},
+    "fields": [
+      {"name": "group_id", "expr": {"select": "root.id"}},
+      {"name": "member_id", "expr": {"call": "reference_id", "args": [{"select": "member.reference"}]}}
+    ]
+  }]
+}`
+
+func TestParseCanonicalDigestIgnoresFormatting(t *testing.T) {
+	b, err := Parse([]byte(validDocument))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := b.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(canonical) || bytes.ContainsAny(canonical, " \n\t") {
+		t.Fatalf("canonical JSON is not compact: %s", canonical)
+	}
+	other := strings.ReplaceAll(strings.ReplaceAll(validDocument, " ", ""), "\n", "")
+	b2, err := Parse([]byte(other))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1, err := b.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := b2.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d1 != d2 {
+		t.Fatalf("formatting changed digest: %s != %s", d1, d2)
+	}
+}
+
+func TestParseRejectsDuplicateUnknownAndStorageFields(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		code string
+	}{
+		{"duplicate", `{"recipeSchemaVersion":1,"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[]}`, "duplicate_field"},
+		{"unknown", `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[],"unexpected":true}`, "parse_error"},
+		{"storage", `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[],"sql":"select 1"}`, "forbidden_storage_binding"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.json))
+			if err == nil || !strings.HasPrefix(err.Error(), tc.code+" ") {
+				t.Fatalf("expected %s, got %v", tc.code, err)
+			}
+		})
+	}
+}
+
+func TestValidationRejectsVersionNamesAndArity(t *testing.T) {
+	bad := []string{
+		`{"recipeSchemaVersion":2,"name":"x","translationVersion":"1","outputs":[]}`,
+		`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"R","rowGrain":"r","fields":[{"name":"a","expr":{"call":"join","args":[{"literal":"one"}]}}]}]}`,
+		`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"R","rowGrain":"r","fields":[{"name":"a","expr":{"call":"does_not_exist"}}]}]}`,
+	}
+	for _, input := range bad {
+		if _, err := Parse([]byte(input)); err == nil {
+			t.Fatalf("expected validation failure for %s", input)
+		}
+	}
+}
+
+func TestExplainContainsNoPhysicalDetails(t *testing.T) {
+	b, err := Parse([]byte(validDocument))
+	if err != nil {
+		t.Fatal(err)
+	}
+	explanation, err := b.Explain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explanation.Digest == "" || len(explanation.Outputs) != 1 || !explanation.Outputs[0].Expanded {
+		t.Fatalf("unexpected explanation: %#v", explanation)
+	}
+	raw, _ := json.Marshal(explanation)
+	if bytes.Contains(raw, []byte("collection")) || bytes.Contains(raw, []byte("table")) || bytes.Contains(raw, []byte("aql")) {
+		t.Fatalf("explanation contains physical details: %s", raw)
+	}
+}
+
+func TestRuntimeBindingsAreNotDigestContent(t *testing.T) {
+	var b RuntimeBindings
+	if b.Project != "" || b.DatasetGeneration != "" {
+		t.Fatal("zero runtime bindings should be empty")
+	}
+}
+
+func TestDefaultACEDBundleIsRecipeData(t *testing.T) {
+	bundle, err := DefaultACEDBundle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Outputs) != 5 || bundle.Name != "aced-meta-default" {
+		t.Fatalf("unexpected default bundle: %#v", bundle)
+	}
+	if _, err := bundle.Digest(); err != nil {
+		t.Fatal(err)
+	}
+}

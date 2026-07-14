@@ -32,6 +32,12 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{
 		Name:    Collection,
 		Indexes: [][]string{{"project", "state"}, {"project", "datasetGeneration"}, {"state"}},
+	}, {
+		Name:    BundleExecutionsCollection,
+		Indexes: [][]string{{"key"}, {"state"}, {"name", "state"}},
+	}, {
+		Name:    BundlePointersCollection,
+		Indexes: [][]string{{"executionId"}},
 	}}}
 }
 

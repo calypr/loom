@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -38,12 +39,15 @@ type SemanticNode struct {
 	ResourceType string
 	EdgeLabel    string
 	MatchMode    TraversalMatchMode
-	Fields       []SemanticField
-	Filters      []TypedFilter
-	Pivots       []SemanticPivot
-	Aggregates   []SemanticAggregate
-	Slices       []SemanticSlice
-	Children     []SemanticNode
+	// From is an optional logical relationship source expression supplied by a
+	// persisted recipe. Existing GraphQL traversals leave it nil.
+	From       *SemanticExpression
+	Fields     []SemanticField
+	Filters    []TypedFilter
+	Pivots     []SemanticPivot
+	Aggregates []SemanticAggregate
+	Slices     []SemanticSlice
+	Children   []SemanticNode
 }
 
 type SemanticField struct {
@@ -52,6 +56,12 @@ type SemanticField struct {
 	Selector  Selector
 	Fallbacks []Selector
 	ValueMode string
+	// Expr is populated when the field came from a persisted recipe or the
+	// GraphQL semantic adapter. Legacy selector consumers continue to use
+	// Selector; physical expression lowering consumes the checked expression.
+	Expr       *expression.Expression
+	ExprType   expression.Type
+	SourcePath string
 }
 
 type SemanticPivot struct {

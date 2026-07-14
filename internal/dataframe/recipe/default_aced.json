@@ -1,0 +1,96 @@
+{
+  "recipeSchemaVersion": 1,
+  "name": "aced-meta-default",
+  "translationVersion": "gen3-util-development-d461f11c7f0ccb078128349ccffd377e4014b62a",
+  "outputs": [
+    {
+      "name": "DocumentReference",
+      "rootResourceType": "DocumentReference",
+      "rowGrain": "file",
+      "collisionPolicy": "overwrite",
+      "fields": [
+        {"name": "id", "expr": {"select": "root.id"}},
+        {"name": "identifier", "expr": {"call": "first", "args": [{"select": "root.identifier[].value"}]}},
+        {"name": "status", "expr": {"select": "root.status"}},
+        {"name": "subject", "expr": {"call": "reference_id", "args": [{"select": "root.subject.reference"}]}},
+        {"name": "based_on", "expr": {"call": "all", "args": [{"select": "root.basedOn[].reference"}]}}
+      ],
+      "traversals": [
+        {
+          "name": "focus_DocumentReference",
+          "toResourceType": "Observation",
+          "alias": "observation",
+          "fields": [
+            {"name": "observation_code", "expr": {"call": "coalesce", "args": [{"select": "observation.code.text"}, {"call": "first", "args": [{"select": "observation.code.coding[].display"}]}]}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ResearchSubject",
+      "rootResourceType": "ResearchSubject",
+      "rowGrain": "study_enrollment",
+      "collisionPolicy": "overwrite",
+      "fields": [
+        {"name": "id", "expr": {"select": "root.id"}},
+        {"name": "identifier", "expr": {"call": "first", "args": [{"select": "root.identifier[].value"}]}},
+        {"name": "status", "expr": {"select": "root.status"}}
+      ],
+      "traversals": [
+        {"name": "subject_Patient", "toResourceType": "Patient", "alias": "patient", "fields": [
+          {"name": "patient_id", "expr": {"select": "patient.id"}},
+          {"name": "patient_identifier", "expr": {"call": "first", "args": [{"select": "patient.identifier[].value"}]}}
+        ]}
+      ]
+    },
+    {
+      "name": "MedicationAdministration",
+      "rootResourceType": "MedicationAdministration",
+      "rowGrain": "resource",
+      "collisionPolicy": "overwrite",
+      "fields": [
+        {"name": "id", "expr": {"select": "root.id"}},
+        {"name": "status", "expr": {"select": "root.status"}},
+        {"name": "total_dosage", "expr": {"select": "root.dosage.dose.value"}}
+      ],
+      "traversals": [
+        {"name": "subject_Patient", "toResourceType": "Patient", "alias": "patient", "fields": [
+          {"name": "patient_id", "expr": {"select": "patient.id"}},
+          {"name": "patient_identifier", "expr": {"call": "first", "args": [{"select": "patient.identifier[].value"}]}}
+        ]}
+      ]
+    },
+    {
+      "name": "Specimen",
+      "rootResourceType": "Specimen",
+      "rowGrain": "specimen",
+      "collisionPolicy": "overwrite",
+      "fields": [
+        {"name": "id", "expr": {"select": "root.id"}},
+        {"name": "identifier", "expr": {"call": "first", "args": [{"select": "root.identifier[].value"}]}},
+        {"name": "parent", "expr": {"call": "join", "args": [{"select": "root.parent[].reference"}, {"literal": ","}]}}
+      ],
+      "traversals": [
+        {"name": "subject_Patient", "toResourceType": "Patient", "alias": "patient", "fields": [
+          {"name": "patient_id", "expr": {"select": "patient.id"}},
+          {"name": "patient_identifier", "expr": {"call": "first", "args": [{"select": "patient.identifier[].value"}]}}
+        ]},
+        {"name": "focus_Specimen", "toResourceType": "Observation", "alias": "observation", "fields": [
+          {"name": "observation_code", "expr": {"call": "coalesce", "args": [{"select": "observation.code.text"}, {"call": "first", "args": [{"select": "observation.code.coding[].display"}]}]}}
+        ]}
+      ]
+    },
+    {
+      "name": "GroupMember",
+      "rootResourceType": "Group",
+      "rowGrain": "expanded",
+      "collisionPolicy": "overwrite",
+      "expand": {"from": {"select": "root.member[]"}, "as": "member"},
+      "identity": {"name": "id", "expr": {"call": "uuid5", "args": [{"literal": "aced-idp.org"}, {"select": "root.id"}, {"call": "concat", "args": [{"literal": ","}, {"call": "reference_id", "args": [{"select": "member.entity.reference"}]}]}]}},
+      "fields": [
+        {"name": "group_id", "expr": {"select": "root.id"}},
+        {"name": "member_id", "expr": {"call": "reference_id", "args": [{"select": "member.entity.reference"}]}}
+      ]
+    }
+  ]
+}

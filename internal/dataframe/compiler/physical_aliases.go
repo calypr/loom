@@ -17,6 +17,8 @@ type (
 	PhysicalExpressionKind                 = ir.PhysicalExpressionKind
 	PhysicalSelectorExecutionMode          = ir.PhysicalSelectorExecutionMode
 	PhysicalExpression                     = ir.PhysicalExpression
+	PhysicalLiteral                        = ir.PhysicalLiteral
+	PhysicalCall                           = ir.PhysicalCall
 	PhysicalExtract                        = ir.PhysicalExtract
 	PhysicalPreparedReference              = ir.PhysicalPreparedReference
 	PhysicalPreparedSet                    = ir.PhysicalPreparedSet
@@ -79,11 +81,13 @@ const (
 	PhysicalOmitNulls                          = ir.PhysicalOmitNulls
 	PhysicalEmptyOnNull                        = ir.PhysicalEmptyOnNull
 	PhysicalValueExpression                    = ir.PhysicalValueExpression
+	PhysicalLiteralExpression                  = ir.PhysicalLiteralExpression
 	PhysicalExtractExpression                  = ir.PhysicalExtractExpression
 	PhysicalAggregateExpression                = ir.PhysicalAggregateExpression
 	PhysicalPivotExpression                    = ir.PhysicalPivotExpression
 	PhysicalSliceExpression                    = ir.PhysicalSliceExpression
 	PhysicalObjectExpression                   = ir.PhysicalObjectExpression
+	PhysicalCallExpression                     = ir.PhysicalCallExpression
 	PhysicalSelectorGeneric                    = ir.PhysicalSelectorGeneric
 	PhysicalSelectorDirectScalar               = ir.PhysicalSelectorDirectScalar
 	PhysicalSelectorConditionalArray           = ir.PhysicalSelectorConditionalArray

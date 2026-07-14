@@ -10,6 +10,14 @@ func (s *HTTPServer) register() {
 	s.registerHealthRoutes()
 	s.registerGraphQLRoutes()
 	s.registerImportRoutes()
+	s.registerGenerationRoutes()
+}
+
+func (s *HTTPServer) registerGenerationRoutes() {
+	s.app.Post("/api/v1/datasets/:project/generations/:generation", s.createGeneration)
+	if s.rawExporter != nil {
+		s.app.Get("/api/v1/datasets/:project/generations/:generation/export", s.exportGeneration)
+	}
 }
 
 func (s *HTTPServer) registerHealthRoutes() {
