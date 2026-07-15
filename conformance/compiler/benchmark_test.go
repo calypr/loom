@@ -6,13 +6,15 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
 	"github.com/calypr/loom/fhirschema"
+	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type compilerBenchmarkCase struct {
 	name    string
-	builder dataframe.Builder
+	recipe  recipe.Bundle
+	project string
 	limit   int
 }
 
@@ -33,7 +35,7 @@ func BenchmarkCompilerOracle(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				benchmarkCompiled, benchmarkErr = dataframe.CompileRequest(testCase.builder, testCase.limit)
+				benchmarkCompiled, benchmarkErr = compileRecipe(testCase.recipe, testCase.project, testCase.limit, dataframe.DefaultPhysicalOptimizationPolicy())
 			}
 		})
 	}
@@ -83,18 +85,17 @@ func loadCompilerBenchmarkCases(t benchmarkTestingT) []compilerBenchmarkCase {
 	for _, fixture := range fixtures {
 		cases = append(cases, compilerBenchmarkCase{
 			name:    "fixture/" + fixture.ID,
-			builder: fixture.Builder,
+			recipe:  fixture.Recipe,
+			project: fixture.Project,
 			limit:   fixture.Limit,
 		})
 	}
 	for _, resourceType := range fhirschema.ResourceTypes() {
 		cases = append(cases, compilerBenchmarkCase{
-			name: "generated-root/" + resourceType,
-			builder: dataframe.Builder{
-				Project:          "compiler-benchmark",
-				RootResourceType: resourceType,
-			},
-			limit: 1,
+			name:    "generated-root/" + resourceType,
+			recipe:  rootRecipe(resourceType),
+			project: "compiler-benchmark",
+			limit:   1,
 		})
 	}
 	return cases
@@ -109,4 +110,14 @@ func benchmarkCaseNames(cases []compilerBenchmarkCase) []string {
 		names[index] = testCase.name
 	}
 	return names
+}
+
+func rootRecipe(resourceType string) recipe.Bundle {
+	grain, ok := dataframe.InferRowGrain(resourceType)
+	if !ok {
+		// Keep malformed/abstract roots structurally valid long enough for the
+		// schema-backed compiler to emit the intended root rejection.
+		grain = dataframe.RowGrain("resource")
+	}
+	return recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "generated_" + resourceType, TranslationVersion: "benchmark", Outputs: []recipe.Output{{Name: "root", RootResourceType: resourceType, RowGrain: string(grain)}}}
 }

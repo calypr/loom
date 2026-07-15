@@ -43,11 +43,52 @@ func TestRenderGenericPhysicalCallsParameterizeLiterals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "JOIN([@left], @delimiter)" {
+	if got != "CONCAT_SEPARATOR(@delimiter, [@left])" {
 		t.Fatalf("join = %q", got)
 	}
-	if strings.Contains(got, "A") || strings.Contains(got, "B") {
+	if strings.Contains(got, `"A"`) || strings.Contains(got, `"B"`) {
 		t.Fatalf("literal values leaked into AQL: %q", got)
+	}
+}
+
+func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{},
+		collectionKeys: map[string]struct{}{},
+		setVariables:   map[string]string{"child_set_1": "child_set_1"},
+		reservedVars:   map[string]struct{}{},
+	}
+	expression := PhysicalExpression{
+		Kind:        PhysicalExtractExpression,
+		Cardinality: PhysicalArrayCardinality,
+		Extract: &PhysicalExtract{
+			Source:        PhysicalValue{Variable: "child_set_1", Path: []string{"payload"}},
+			Selector:      Selector{Steps: []SelectorStep{{Field: "identifier", Iterate: true}, {Field: "value"}}},
+			ExecutionMode: PhysicalSelectorGeneric,
+		},
+	}
+	got, err := renderer.renderExpression(expression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "IN child_set_1.payload") || !strings.Contains(got, "IN child_set_1") {
+		t.Fatalf("set selector iterated the collection payload instead of each item: %q", got)
+	}
+}
+
+func TestRenderGenericCoalesceStringPreservesNulls(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{"number": 7, "text": "seven"},
+		collectionKeys: map[string]struct{}{},
+		setVariables:   map[string]string{},
+		reservedVars:   map[string]struct{}{},
+	}
+	got, err := renderer.renderExpression(callExpression("coalesce_string", scalarLiteral("number"), scalarLiteral("text")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "TO_STRING(@number)") || !strings.Contains(got, "TO_STRING(@text)") || !strings.Contains(got, "== null") {
+		t.Fatalf("coalesce_string = %q", got)
 	}
 }
 

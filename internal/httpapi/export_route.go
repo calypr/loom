@@ -16,17 +16,20 @@ func (s *HTTPServer) exportGeneration(c fiber.Ctx) error {
 	if project == "" || generation == "" {
 		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_generation_identity", Message: "project and generation are required"}
 	}
-	parts := strings.SplitN(project, "-", 2)
-	authResourcePath := ""
-	if len(parts) == 2 {
-		authResourcePath = "/programs/" + parts[0] + "/projects/" + parts[1]
-	}
 	principal, _ := c.Locals("principal").(*authscope.Principal)
-	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	if s.scopeResolver != nil {
+		resolved, err := s.scopeResolver.ResolveReadScopeForGeneration(c.Context(), principal, project, generation, nil)
+		if err != nil {
+			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+		}
+		if resolved.Mode == authscope.ReadScopeRestricted && len(resolved.AuthResourcePaths) == 0 {
+			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "caller has no read access to project"}
+		}
+		scope = resolved
 	}
 	c.Set(fiber.HeaderContentType, "application/x-ndjson")
-	if err := s.rawExporter.ExportRaw(c.Context(), project, generation, c); err != nil {
+	if err := s.rawExporter.ExportRaw(c.Context(), project, generation, scope, c); err != nil {
 		return &apiError{Status: fiber.StatusBadRequest, Code: "export_failed", Message: err.Error()}
 	}
 	return nil

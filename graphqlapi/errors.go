@@ -1,8 +1,6 @@
 package graphqlapi
 
 import (
-	"errors"
-
 	"github.com/calypr/loom/internal/dataframe"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -46,11 +44,4 @@ func ExtensionsForError(err error, requestID string) map[string]any {
 		extensions["requestId"] = requestID
 	}
 	return extensions
-}
-
-// IsUserError is useful to adapters that need to preserve the semantic error
-// while adding transport context.
-func IsUserError(err error) bool {
-	var userErr dataframe.UserError
-	return errors.As(err, &userErr)
 }

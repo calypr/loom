@@ -18,6 +18,7 @@ type Mutation {
     input: FhirDataframeInput!
     limit: Int = 25
   ): FhirDataframeResult!
+  runDataframeRecipe(input: RunDataframeRecipeInput!): DataframeRecipeResult!
   validateDataframeRecipe(input: ValidateDataframeRecipeInput!): DataframeRecipeValidation!
   previewDataframeRecipe(input: PreviewDataframeRecipeInput!): DataframeRecipePreview!
   materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
@@ -38,6 +39,7 @@ input ValidateDataframeRecipeInput {
 input ExplainDataframeRecipeInput {
   name: String!
   bindings: DataframeRecipeBindingsInput!
+  live: Boolean = false
 }
 
 input PreflightDataframeRecipeInput {
@@ -49,6 +51,13 @@ input PreviewDataframeRecipeInput {
   name: String!
   bindings: DataframeRecipeBindingsInput!
   limit: Int = 25
+  outputs: [String!]
+}
+
+input RunDataframeRecipeInput {
+  name: String!
+  bindings: DataframeRecipeBindingsInput!
+  outputs: [String!]
 }
 
 input MaterializeDataframeRecipeInput {
@@ -76,6 +85,87 @@ type DataframeRecipeExplanation {
   recipeDigest: String!
   translationVersion: String!
   outputs: [DataframeRecipeOutputExplanation!]!
+  physical: DataframeRecipePhysicalExplanation
+}
+
+type DataframeRecipePhysicalExplanation {
+  outputs: [DataframeRecipePhysicalOutputExplanation!]!
+}
+
+type DataframeRecipePhysicalOutputExplanation {
+  name: String!
+  planFingerprint: String!
+  columns: [String!]!
+  traversalSets: Int!
+  endpointTraversalCount: Int!
+  nativeTraversalCount: Int!
+  sharedTraversalCount: Int!
+  requiredMatchReuseCount: Int!
+  optimization: DataframeRecipeOptimizationExplanation!
+  live: DataframeRecipeArangoAssessment
+}
+
+type DataframeRecipeOptimizationExplanation {
+  policy: String!
+  enabled: Boolean!
+  minimumSavings: Int!
+  rules: [DataframeRecipeOptimizationRuleState!]!
+  decisions: [DataframeRecipeOptimizationDecision!]!
+}
+
+type DataframeRecipeOptimizationRuleState {
+  rule: String!
+  enabled: Boolean!
+  reason: String!
+}
+
+type DataframeRecipeOptimizationDecision {
+  rule: String!
+  enabled: Boolean!
+  candidateSets: Int!
+  estimatedBaselineWork: Int!
+  estimatedOptimizedWork: Int!
+  estimatedSavings: Int!
+  reason: String!
+}
+
+type DataframeRecipeArangoAssessment {
+  plans: [DataframeRecipeExplainPlanEstimate!]!
+  fullCollectionScans: [DataframeRecipeExplainCollectionScan!]!
+  indexes: [DataframeRecipeExplainIndexSummary!]!
+  warnings: [DataframeRecipeExplainWarning!]!
+  appliedOptimizerRules: [String!]!
+}
+
+type DataframeRecipeExplainPlanEstimate {
+  plan: Int!
+  estimatedCost: Float!
+  estimatedNrItems: Float!
+}
+
+type DataframeRecipeExplainCollectionScan {
+  plan: Int!
+  nodeId: Int!
+  collection: String!
+}
+
+type DataframeRecipeExplainIndexSummary {
+  collection: String!
+  id: String!
+  name: String!
+  type: String!
+  fields: [String!]!
+  uses: [DataframeRecipeExplainIndexLocation!]!
+}
+
+type DataframeRecipeExplainIndexLocation {
+  plan: Int!
+  nodeId: Int!
+}
+
+type DataframeRecipeExplainWarning {
+  code: Int!
+  message: String!
 }
 
 type DataframeRecipeOutputExplanation {
@@ -86,6 +176,7 @@ type DataframeRecipeOutputExplanation {
   identity: DataframeRecipeExpressionExplanation
   expansion: DataframeRecipeExpansionExplanation
   dynamicMaps: [String!]!
+  catalogProjections: [String!]!
 }
 
 type DataframeRecipeExpressionExplanation {
@@ -132,6 +223,23 @@ type DataframeRecipePreviewOutput {
   name: String!
   columns: [String!]!
   rows: JSON!
+  csv: String
+  rowCount: Int!
+}
+
+type DataframeRecipeResult {
+  name: String!
+  recipeDigest: String!
+  resolvedSchemaDigest: String!
+  sourceGeneration: String!
+  outputs: [DataframeRecipeResultOutput!]!
+}
+
+type DataframeRecipeResultOutput {
+  name: String!
+  columns: [String!]!
+  rows: JSON!
+  csv: String
   rowCount: Int!
 }
 
@@ -339,12 +447,92 @@ enum FhirValueMode {
   DISTINCT
 }
 
+# Typed, storage-independent dataframe predicates. `select` is a FHIR path
+# (or a resolved catalog selector), while `fieldRef` is optional frontend
+# provenance used during scoped field resolution. Values are a strict tagged
+# union; exactly one member matching `kind` is accepted by recipe validation.
+enum FhirFilterOperator {
+  EQUALS
+  NOT_EQUALS
+  IN
+  EXISTS
+  MISSING
+  CONTAINS_TEXT
+  GT
+  GTE
+  LT
+  LTE
+}
+
+enum FhirFilterQuantifier {
+  ANY
+  ALL
+  NONE
+}
+
+enum FhirFilterValueKind {
+  STRING
+  CODE
+  BOOLEAN
+  INTEGER
+  DECIMAL
+  DATE
+  DATE_TIME
+}
+
+input FhirCodeValueInput {
+  system: String
+  code: String!
+  display: String
+}
+
+input FhirFilterValueInput {
+  kind: FhirFilterValueKind!
+  string: String
+  code: FhirCodeValueInput
+  boolean: Boolean
+  integer: Int
+  decimal: Float
+  date: String
+  dateTime: String
+}
+
+input FhirFilterInput {
+  select: String!
+  fieldRef: String
+  operator: FhirFilterOperator!
+  quantifier: FhirFilterQuantifier = ANY
+  values: [FhirFilterValueInput!]! = []
+}
+
 input FhirPivotInput {
   name: String!
   fieldRef: String
   columnSelector: FhirFieldSelectorInput
   valueSelector: FhirFieldSelectorInput
   columns: [String!]! = []
+  discovery: FhirPivotDiscoveryInput
+}
+
+input FhirPivotDiscoveryInput {
+  family: String
+  path: String
+  maxColumns: Int!
+}
+
+enum FhirColumnNaming {
+  PATH
+  PATH_SUFFIX
+}
+
+input FhirCatalogProjectionInput {
+  name: String!
+  includePaths: [String!]! = []
+  excludePaths: [String!]! = []
+  kinds: [String!]! = []
+  naming: FhirColumnNaming! = PATH
+  valueMode: FhirValueMode! = FIRST
+  maxColumns: Int!
 }
 
 enum FhirAggregateOperation {
@@ -378,11 +566,19 @@ input FhirTraversalStepInput {
   edgeLabel: String!
   toResourceType: String!
   alias: String!
+  matchMode: FhirTraversalMatchMode = OPTIONAL
   fields: [FhirFieldSelectInput!]! = []
+  filters: [FhirFilterInput!] = []
   pivots: [FhirPivotInput!] = []
   aggregates: [FhirAggregateInput!] = []
   slices: [FhirRepresentativeSliceInput!] = []
+  catalogProjections: [FhirCatalogProjectionInput!] = []
   traverse: [FhirTraversalStepInput!] = []
+}
+
+enum FhirTraversalMatchMode {
+  OPTIONAL
+  REQUIRED
 }
 
 input FhirDataframeInput {
@@ -390,10 +586,13 @@ input FhirDataframeInput {
   authResourcePath: String
   authResourcePaths: [String!]
   rootResourceType: String!
+  rowGrain: String
   rootFields: [FhirFieldSelectInput!]
+  rootFilters: [FhirFilterInput!]
   rootPivots: [FhirPivotInput!]
   rootAggregates: [FhirAggregateInput!]
   rootSlices: [FhirRepresentativeSliceInput!]
+  rootCatalogProjections: [FhirCatalogProjectionInput!]
   traverse: [FhirTraversalStepInput!]
   limit: Int
   cursor: String

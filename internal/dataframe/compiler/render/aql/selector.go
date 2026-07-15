@@ -1,19 +1,6 @@
 package aql
 
-import (
-	"fmt"
-)
-
-func selectorStepText(step SelectorStep) string {
-	switch {
-	case step.Iterate:
-		return step.Field + "[]"
-	case step.Index != nil:
-		return fmt.Sprintf("%s[%d]", step.Field, *step.Index)
-	default:
-		return step.Field
-	}
-}
+import "fmt"
 
 // selectorHasNoArrays and the helpers below are shared by the physical
 // renderer and typed-filter compiler. They deliberately render only validated

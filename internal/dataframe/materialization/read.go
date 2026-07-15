@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/store/clickhouse"
@@ -341,21 +340,4 @@ func jsonLiteral(value any) (string, error) {
 		return "", err
 	}
 	return string(data), nil
-}
-func encodeOffset(value int) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(value)))
-}
-func decodeOffset(cursor string) (int, error) {
-	if cursor == "" {
-		return 0, nil
-	}
-	data, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return 0, fmt.Errorf("invalid dataframe cursor: %w", err)
-	}
-	value, err := strconv.Atoi(string(data))
-	if err != nil || value < 0 {
-		return 0, fmt.Errorf("invalid dataframe cursor")
-	}
-	return value, nil
 }

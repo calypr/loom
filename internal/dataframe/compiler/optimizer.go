@@ -10,12 +10,3 @@ const (
 	// post-projection filters.
 	OptimizerRuleRelationshipSemiJoin = "root_relationship_semi_join"
 )
-
-func containsOptimizerRule(rules []string, want string) bool {
-	for _, rule := range rules {
-		if rule == want {
-			return true
-		}
-	}
-	return false
-}

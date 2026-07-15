@@ -204,42 +204,6 @@ func ParseExplainResult(data []byte) (ExplainResult, error) {
 
 // ExtractPlanIndexes returns deterministic, deduplicated index uses from the
 // single plan followed by any alternative plans.
-func ExtractPlanIndexes(result ExplainResult) []ExplainIndexUse {
-	plans := make([]ExplainPlan, 0, 1+len(result.Plans))
-	if result.Plan != nil {
-		plans = append(plans, *result.Plan)
-	}
-	plans = append(plans, result.Plans...)
-
-	uses := make([]ExplainIndexUse, 0)
-	seen := map[string]bool{}
-	for planIndex, plan := range plans {
-		for _, node := range plan.Nodes {
-			for _, index := range node.Indexes {
-				collection := explainIndexCollection(node, index)
-				key := fmt.Sprintf("%d\x00%d\x00%s\x00%s\x00%s", planIndex, node.ID, collection, index.ID, index.Name)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				uses = append(uses, ExplainIndexUse{Plan: planIndex, NodeID: node.ID, NodeType: node.Type, Collection: collection, Index: index})
-			}
-		}
-	}
-	sort.SliceStable(uses, func(i, j int) bool {
-		if uses[i].Plan != uses[j].Plan {
-			return uses[i].Plan < uses[j].Plan
-		}
-		if uses[i].NodeID != uses[j].NodeID {
-			return uses[i].NodeID < uses[j].NodeID
-		}
-		if uses[i].Collection != uses[j].Collection {
-			return uses[i].Collection < uses[j].Collection
-		}
-		return uses[i].Index.Name < uses[j].Index.Name
-	})
-	return uses
-}
 
 // explainIndexCollection resolves the collection that owns an index across
 // Arango's node shapes. Traversal nodes typically omit `collection` and put

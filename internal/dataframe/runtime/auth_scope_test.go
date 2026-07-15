@@ -7,6 +7,8 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type restrictedEmptyResourceAccess struct{}
@@ -25,18 +27,8 @@ func restrictedEmptyScopeResolver() *authscope.ScopeResolver {
 }
 
 func TestServiceRestrictedEmptyScopeStaysRestrictedInCatalogAndAQL(t *testing.T) {
-	catalogCalls := 0
 	svc := NewService(ServiceConfig{
 		ScopeResolver: restrictedEmptyScopeResolver(),
-		DiscoverReferences: func(_ context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			assertRestrictedEmptyReferenceOptions(t, opts)
-			return []catalog.PopulatedReference{}, nil
-		},
-		DiscoverFields: func(_ context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			catalogCalls++
-			assertRestrictedEmptyFieldOptions(t, opts)
-			return []catalog.PopulatedField{}, nil
-		},
 		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, query string, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 				t.Fatalf("dataframe unrestricted bind = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
@@ -52,27 +44,21 @@ func TestServiceRestrictedEmptyScopeStaysRestrictedInCatalogAndAQL(t *testing.T)
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		AuthorizationHeader: "Bearer header.payload.signature",
 	})
-	result, err := svc.Run(ctx, RunRequest{Builder: Builder{
-		Project:          "P1",
-		RootResourceType: "Patient",
-	}})
+	result, err := svc.Run(ctx, RunRequest{Recipe: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "scope", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}}, Bindings: recipe.RuntimeBindings{Project: "P1"}})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if result.RowCount != 0 {
 		t.Fatalf("result row count = %d, want no rows from the scoped executor", result.RowCount)
 	}
-	if catalogCalls == 0 {
-		t.Fatal("expected scope-aware catalog validation calls")
-	}
 }
 
 func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := compiler.BuildGenericPhysicalPlan(compiler.SemanticPlan{
 		Version:       1,
 		Project:       "P1",
 		AuthScopeMode: authscope.ReadScopeRestricted,
-		Root:          SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:          compiler.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -80,31 +66,11 @@ func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
 	if got, ok := plan.BindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 		t.Fatalf("physical unrestricted bind = %#v, want false", plan.BindVars["auth_resource_paths_unrestricted"])
 	}
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := compiler.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := rendered.BindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 		t.Fatalf("rendered physical unrestricted bind = %#v, want false", rendered.BindVars["auth_resource_paths_unrestricted"])
-	}
-}
-
-func assertRestrictedEmptyFieldOptions(t *testing.T, opts catalog.PopulatedFieldOptions) {
-	t.Helper()
-	if opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted {
-		t.Fatalf("field catalog scope mode = %#v, want explicit false", opts.AuthResourcePathsUnrestricted)
-	}
-	if len(opts.AuthResourcePaths) != 0 {
-		t.Fatalf("field catalog paths = %#v, want empty", opts.AuthResourcePaths)
-	}
-}
-
-func assertRestrictedEmptyReferenceOptions(t *testing.T, opts catalog.PopulatedReferenceOptions) {
-	t.Helper()
-	if opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted {
-		t.Fatalf("reference catalog scope mode = %#v, want explicit false", opts.AuthResourcePathsUnrestricted)
-	}
-	if len(opts.AuthResourcePaths) != 0 {
-		t.Fatalf("reference catalog paths = %#v, want empty", opts.AuthResourcePaths)
 	}
 }

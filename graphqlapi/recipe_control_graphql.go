@@ -1,12 +1,16 @@
 package graphqlapi
 
 import (
+	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/control"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -52,17 +56,6 @@ func outputValidation(output semantic.OutputPlan) *model.DataframeRecipeOutputVa
 	}
 }
 
-func expressionExplanation(value semantic.SemanticExpression) *model.DataframeRecipeExpressionExplanation {
-	return &model.DataframeRecipeExpressionExplanation{
-		SourcePath: value.SourcePath,
-		Context:    value.Context,
-		Kind:       string(value.Expression.Kind),
-		ValueType:  string(value.Type.Kind),
-		Repeated:   value.Type.Cardinality == "many",
-		Nullable:   value.Type.Cardinality == "optional_one" || value.Type.Cardinality == "many",
-	}
-}
-
 func planExplanation(plan semantic.RecipePlanExplanation, name string) *model.DataframeRecipeExplanation {
 	outputs := make([]*model.DataframeRecipeOutputExplanation, 0, len(plan.Outputs))
 	for _, output := range plan.Outputs {
@@ -88,10 +81,71 @@ func planExplanation(plan semantic.RecipePlanExplanation, name string) *model.Da
 		}
 		outputs = append(outputs, &model.DataframeRecipeOutputExplanation{
 			Name: output.Name, RootResourceType: output.Root, RowGrain: string(output.RowGrain),
-			Fields: fields, Identity: identity, Expansion: expansion, DynamicMaps: append([]string(nil), output.DynamicMap...),
+			Fields: fields, Identity: identity, Expansion: expansion, DynamicMaps: append([]string(nil), output.DynamicMap...), CatalogProjections: append([]string(nil), output.CatalogProjections...),
 		})
 	}
 	return &model.DataframeRecipeExplanation{Name: name, RecipeDigest: plan.RecipeDigest, TranslationVersion: plan.TranslationVersion, Outputs: outputs}
+}
+
+func physicalExplanation(value control.PhysicalExplanation) *model.DataframeRecipePhysicalExplanation {
+	outputs := make([]*model.DataframeRecipePhysicalOutputExplanation, 0, len(value.Outputs))
+	for _, output := range value.Outputs {
+		diagnostics := output.Diagnostics
+		states := make([]*model.DataframeRecipeOptimizationRuleState, 0, len(diagnostics.OptimizationPolicy.RuleStates))
+		for _, state := range diagnostics.OptimizationPolicy.RuleStates {
+			states = append(states, &model.DataframeRecipeOptimizationRuleState{Rule: string(state.Rule), Enabled: state.Enabled, Reason: state.Reason})
+		}
+		decisions := make([]*model.DataframeRecipeOptimizationDecision, 0, len(diagnostics.OptimizationPolicy.Decisions))
+		for _, decision := range diagnostics.OptimizationPolicy.Decisions {
+			decisions = append(decisions, &model.DataframeRecipeOptimizationDecision{
+				Rule: decision.Rule, Enabled: decision.Enabled, CandidateSets: decision.CandidateSets,
+				EstimatedBaselineWork: decision.EstimatedBaselineWork, EstimatedOptimizedWork: decision.EstimatedOptimizedWork,
+				EstimatedSavings: decision.EstimatedSavings, Reason: decision.Reason,
+			})
+		}
+		optimization := &model.DataframeRecipeOptimizationExplanation{
+			Policy: diagnostics.OptimizationPolicy.Policy, Enabled: diagnostics.OptimizationPolicy.Enabled,
+			MinimumSavings: diagnostics.OptimizationPolicy.MinimumSavings, Rules: states, Decisions: decisions,
+		}
+		mapped := &model.DataframeRecipePhysicalOutputExplanation{
+			Name: output.Name, PlanFingerprint: output.PlanFingerprint, Columns: append([]string(nil), output.Columns...),
+			TraversalSets: diagnostics.TraversalSets, EndpointTraversalCount: diagnostics.EndpointTraversalCount,
+			NativeTraversalCount: diagnostics.NativeTraversalCount, SharedTraversalCount: diagnostics.SharedTraversalCount,
+			RequiredMatchReuseCount: diagnostics.RequiredMatchReuseCount, Optimization: optimization,
+		}
+		if output.Live != nil {
+			mapped.Live = arangoAssessment(*output.Live)
+		}
+		outputs = append(outputs, mapped)
+	}
+	return &model.DataframeRecipePhysicalExplanation{Outputs: outputs}
+}
+
+func arangoAssessment(value control.ExplainAssessment) *model.DataframeRecipeArangoAssessment {
+	result := &model.DataframeRecipeArangoAssessment{
+		Plans:                 make([]*model.DataframeRecipeExplainPlanEstimate, 0, len(value.Plans)),
+		FullCollectionScans:   make([]*model.DataframeRecipeExplainCollectionScan, 0, len(value.FullCollectionScans)),
+		Indexes:               make([]*model.DataframeRecipeExplainIndexSummary, 0, len(value.Indexes)),
+		Warnings:              make([]*model.DataframeRecipeExplainWarning, 0, len(value.Warnings)),
+		AppliedOptimizerRules: append([]string(nil), value.AppliedOptimizerRules...),
+	}
+	for _, plan := range value.Plans {
+		result.Plans = append(result.Plans, &model.DataframeRecipeExplainPlanEstimate{Plan: plan.Plan, EstimatedCost: plan.EstimatedCost, EstimatedNrItems: plan.EstimatedNrItems})
+	}
+	for _, scan := range value.FullCollectionScans {
+		result.FullCollectionScans = append(result.FullCollectionScans, &model.DataframeRecipeExplainCollectionScan{Plan: scan.Plan, NodeID: int(scan.NodeID), Collection: scan.Collection})
+	}
+	for _, index := range value.Indexes {
+		mapped := &model.DataframeRecipeExplainIndexSummary{Collection: index.Collection, ID: index.ID, Name: index.Name, Type: index.Type, Fields: append([]string(nil), index.Fields...), Uses: make([]*model.DataframeRecipeExplainIndexLocation, 0, len(index.Uses))}
+		for _, use := range index.Uses {
+			mapped.Uses = append(mapped.Uses, &model.DataframeRecipeExplainIndexLocation{Plan: use.Plan, NodeID: int(use.NodeID)})
+		}
+		result.Indexes = append(result.Indexes, mapped)
+	}
+	for _, warning := range value.Warnings {
+		result.Warnings = append(result.Warnings, &model.DataframeRecipeExplainWarning{Code: warning.Code, Message: warning.Message})
+	}
+	return result
 }
 
 func preflightResult(plan semantic.ResolvedRecipePlan, name string) *model.DataframeRecipePreflight {
@@ -126,20 +180,22 @@ func preflightResult(plan semantic.ResolvedRecipePlan, name string) *model.Dataf
 }
 
 func previewResult(preview recipePreviewView, name string) (*model.DataframeRecipePreview, error) {
-	outputs := make([]*model.DataframeRecipePreviewOutput, 0, len(preview.rows))
-	outputNames := make([]string, 0, len(preview.rows))
-	for outputName := range preview.rows {
-		outputNames = append(outputNames, outputName)
+	if len(preview.outputs) == 0 {
+		return nil, fmt.Errorf("compiler output schema is missing")
 	}
-	sort.Strings(outputNames)
-	for _, outputName := range outputNames {
-		rows := logicalPreviewRows(preview.rows[outputName])
-		columns := previewColumns(preview.plan, outputName, rows)
+	outputs := make([]*model.DataframeRecipePreviewOutput, 0, len(preview.outputs))
+	for _, output := range preview.outputs {
+		columns := append([]string(nil), output.Columns...)
+		rows := logicalPreviewRows(columns, output.Rows)
 		encoded, err := json.Marshal(rows)
 		if err != nil {
-			return nil, fmt.Errorf("marshal preview output %q: %w", outputName, err)
+			return nil, fmt.Errorf("marshal preview output %q: %w", output.Name, err)
 		}
-		outputs = append(outputs, &model.DataframeRecipePreviewOutput{Name: outputName, Columns: columns, Rows: encoded, RowCount: len(rows)})
+		csvValue, err := dataframeCSV(columns, rows)
+		if err != nil {
+			return nil, fmt.Errorf("marshal preview CSV output %q: %w", output.Name, err)
+		}
+		outputs = append(outputs, &model.DataframeRecipePreviewOutput{Name: output.Name, Columns: columns, Rows: encoded, CSV: &csvValue, RowCount: len(rows)})
 	}
 	return &model.DataframeRecipePreview{
 		Name: name, RecipeDigest: preview.plan.SemanticPlan.RecipeDigest,
@@ -148,15 +204,81 @@ func previewResult(preview recipePreviewView, name string) (*model.DataframeReci
 	}, nil
 }
 
-func logicalPreviewRows(rows []map[string]any) []map[string]any {
-	result := make([]map[string]any, 0, len(rows))
+func fullRecipeResult(result recipePreviewView, name string) (*model.DataframeRecipeResult, error) {
+	if len(result.outputs) == 0 {
+		return nil, fmt.Errorf("compiler output schema is missing")
+	}
+	outputs := make([]*model.DataframeRecipeResultOutput, 0, len(result.outputs))
+	for _, output := range result.outputs {
+		columns := append([]string(nil), output.Columns...)
+		rows := logicalPreviewRows(columns, output.Rows)
+		encoded, err := json.Marshal(rows)
+		if err != nil {
+			return nil, fmt.Errorf("marshal dataframe output %q: %w", output.Name, err)
+		}
+		csvValue, err := dataframeCSV(columns, rows)
+		if err != nil {
+			return nil, fmt.Errorf("marshal dataframe CSV output %q: %w", output.Name, err)
+		}
+		outputs = append(outputs, &model.DataframeRecipeResultOutput{Name: output.Name, Columns: columns, Rows: encoded, CSV: &csvValue, RowCount: len(rows)})
+	}
+	return &model.DataframeRecipeResult{
+		Name: name, RecipeDigest: result.plan.SemanticPlan.RecipeDigest,
+		ResolvedSchemaDigest: result.plan.ResolvedSchemaDigest, SourceGeneration: result.plan.SourceGeneration,
+		Outputs: outputs,
+	}, nil
+}
+
+// dataframeCSV serializes one logical output using the compiler-resolved
+// column order. Repeated and object values are represented as JSON in one CSV
+// cell so the flat export remains lossless.
+func dataframeCSV(columns []string, rows []map[string]any) (string, error) {
+	var buffer bytes.Buffer
+	writer := csv.NewWriter(&buffer)
+	if err := writer.Write(columns); err != nil {
+		return "", err
+	}
 	for _, row := range rows {
-		copy := make(map[string]any, len(row))
-		for key, value := range row {
-			if key == "__loom_row_id" {
+		record := make([]string, len(columns))
+		for index, column := range columns {
+			value, ok := row[column]
+			if !ok || value == nil {
 				continue
 			}
-			copy[key] = value
+			switch typed := value.(type) {
+			case string:
+				record[index] = typed
+			case bool:
+				record[index] = strconv.FormatBool(typed)
+			case int:
+				record[index] = strconv.Itoa(typed)
+			default:
+				encoded, err := json.Marshal(typed)
+				if err != nil {
+					return "", err
+				}
+				record[index] = string(encoded)
+			}
+		}
+		if err := writer.Write(record); err != nil {
+			return "", err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
+}
+
+func logicalPreviewRows(columns []string, rows []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		copy := make(map[string]any, len(columns))
+		for _, column := range columns {
+			if value, ok := row[column]; ok {
+				copy[column] = value
+			}
 		}
 		result = append(result, copy)
 	}
@@ -164,48 +286,8 @@ func logicalPreviewRows(rows []map[string]any) []map[string]any {
 }
 
 type recipePreviewView struct {
-	plan semantic.ResolvedRecipePlan
-	rows map[string][]map[string]any
-}
-
-func previewColumns(plan semantic.ResolvedRecipePlan, outputName string, rows []map[string]any) []string {
-	for _, output := range plan.SemanticPlan.Outputs {
-		if output.Name != outputName {
-			continue
-		}
-		columns := append([]string(nil), output.DeclaredOrder...)
-		if len(columns) == 0 {
-			for _, field := range output.Fields {
-				columns = append(columns, field.Name)
-			}
-		}
-		seen := make(map[string]struct{}, len(columns))
-		for _, column := range columns {
-			seen[column] = struct{}{}
-		}
-		for _, resolved := range plan.ResolvedColumns {
-			for _, column := range resolved {
-				if column.Output == outputName {
-					if _, ok := seen[column.Column.Name]; !ok {
-						columns = append(columns, column.Column.Name)
-						seen[column.Column.Name] = struct{}{}
-					}
-				}
-			}
-		}
-		return columns
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	columns := make([]string, 0, len(rows[0]))
-	for name := range rows[0] {
-		seen[name] = struct{}{}
-		columns = append(columns, name)
-	}
-	sort.Strings(columns)
-	return columns
+	plan    semantic.ResolvedRecipePlan
+	outputs []control.OutputRows
 }
 
 func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {

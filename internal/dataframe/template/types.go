@@ -193,29 +193,6 @@ func (d Definition) clone() Definition {
 	return d
 }
 
-func (a Availability) clone() Availability {
-	a.CommonColumns = append([]SelectedColumn(nil), a.CommonColumns...)
-	a.AdvancedColumns = append([]SelectedColumn(nil), a.AdvancedColumns...)
-	a.Traversals = append([]SelectedTraversal(nil), a.Traversals...)
-	a.Pivots = append([]SelectedPivot(nil), a.Pivots...)
-	for i := range a.Pivots {
-		a.Pivots[i].Columns = cloneStrings(a.Pivots[i].Columns)
-	}
-	a.Missing = append([]MissingCapability(nil), a.Missing...)
-	a.Reasons = cloneStrings(a.Reasons)
-	a.Starter = StarterRequest{
-		RootResourceType: a.Starter.RootResourceType,
-		RowGrain:         a.Starter.RowGrain,
-		Fields:           append([]SelectedColumn(nil), a.Starter.Fields...),
-		Traversals:       append([]SelectedTraversal(nil), a.Starter.Traversals...),
-		Pivots:           append([]SelectedPivot(nil), a.Starter.Pivots...),
-	}
-	for i := range a.Starter.Pivots {
-		a.Starter.Pivots[i].Columns = cloneStrings(a.Starter.Pivots[i].Columns)
-	}
-	return a
-}
-
 func cloneStrings(in []string) []string {
 	if len(in) == 0 {
 		return []string{}

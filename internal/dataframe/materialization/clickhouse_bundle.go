@@ -292,31 +292,6 @@ var bundleOutputRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(value) }
 
-// PublishBundleFor is the identity-aware variant used by production recipe
-// execution. It preserves the compatibility PublishBundle API above.
-func PublishBundleFor(ctx context.Context, store IdentityBundleStore, identity BundleIdentity, outputs []BundleOutput) error {
-	tx, err := store.BeginBundleFor(ctx, identity)
-	if err != nil {
-		return err
-	}
-	for _, output := range outputs {
-		columns := toClickHouseColumns(output.Columns)
-		if err := tx.CreateOutput(ctx, output.Name, columns); err != nil {
-			_ = tx.Rollback(context.Background())
-			return err
-		}
-		if err := tx.InsertRows(ctx, output.Name, columns, output.Rows); err != nil {
-			_ = tx.Rollback(context.Background())
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		_ = tx.Rollback(context.Background())
-		return err
-	}
-	return nil
-}
-
 // Reconcile marks abandoned executions failed and removes their staging
 // tables. It is safe to call repeatedly during server startup; READY pointers
 // are never touched.

@@ -33,10 +33,6 @@ func ResolveStorageRoute(fromType, label, toType string) (StorageRoute, error) {
 	return resolveStorageRoute(fromType, label, toType)
 }
 
-func (route storageRoute) namedSetDirection() string {
-	return string(route.Direction)
-}
-
 // targetEdgeTypeField returns the fhir_edge type discriminator for the node
 // reached by this route. It is deliberately direction-aware: forward FHIR
 // references store their target in to_type, while the generated builder route
@@ -74,13 +70,11 @@ func (route storageRoute) endpointLookupFields() (parentField, joinField string,
 // normal FHIR references as child _from -> parent _to, so a parent -> child
 // dataframe route is an INBOUND fhir_edge traversal.
 //
-// It also accepts one explicit forward route: ResearchSubject --study-->
-// ResearchStudy. The checked-in graph schema proves the logical FHIR target
-// (an exact ResearchStudy/* hint, OUTBOUND direction, and has_one
-// multiplicity), and the generated edge-extractor regression proves that it
-// is materialized as ResearchSubject _from -> ResearchStudy _to in fhir_edge.
-// Other generated forward metadata remains deliberately non-executable until
-// it has the same storage proof.
+// It also accepts generated forward routes when the schema gives an exact
+// target hint and an outbound logical reference. EdgeFromGrip (the single
+// edge adapter used by ingest) materializes every such reference as source
+// _from -> referenced target _to in fhir_edge, so the generated target hint is
+// the storage proof; no resource-specific allowlist is needed.
 func resolveStorageRoute(fromType, edgeLabel, toType string) (storageRoute, error) {
 	if !fhirschema.HasResource(fromType) {
 		return storageRoute{}, unsupportedStorageRouteError(fromType, edgeLabel, toType, "source resource type is not represented by the active generated FHIR schema")
@@ -113,18 +107,15 @@ func resolveStorageRoute(fromType, edgeLabel, toType string) (storageRoute, erro
 		return storageRoute{Relationship: relationship, Direction: PhysicalInbound}, nil
 	}
 
-	if isProvenResearchSubjectStudyOutboundRoute(spec, relationship) {
+	if isProvenExactOutboundRoute(spec, relationship) {
 		return storageRoute{Relationship: relationship, Direction: PhysicalOutbound}, nil
 	}
 
-	return storageRoute{}, unsupportedStorageRouteError(fromType, edgeLabel, toType, fmt.Sprintf("is not a proven stored route: generated reverse/builder routes require RegexMatch %q; generated forward routes require an explicit fhir_edge contract (got %s)", fromType+"/*", formatRegexMatchHints(spec.RegexMatch)))
+	return storageRoute{}, unsupportedStorageRouteError(fromType, edgeLabel, toType, fmt.Sprintf("is not a proven stored route: reverse routes require RegexMatch %q; outbound references require an exact target hint (got %s)", fromType+"/*", formatRegexMatchHints(spec.RegexMatch)))
 }
 
-func isProvenResearchSubjectStudyOutboundRoute(spec fhirschema.TraversalSpec, relationship fhirschema.CompilerTraversal) bool {
-	if spec.FromType != "ResearchSubject" || spec.EdgeLabel != "study" || spec.ToType != "ResearchStudy" {
-		return false
-	}
-	if relationship.Direction != fhirschema.TraversalOutbound || relationship.Multiplicity != fhirschema.TraversalOne {
+func isProvenExactOutboundRoute(spec fhirschema.TraversalSpec, relationship fhirschema.CompilerTraversal) bool {
+	if relationship.Direction != fhirschema.TraversalOutbound {
 		return false
 	}
 	return hasExactStorageTargetHint(spec.RegexMatch, spec.ToType)

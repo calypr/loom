@@ -2,18 +2,45 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "specimen-root-projection",
   "description": "Specimen root-only projection uses the generic FHIR graph plan",
-  "tags": ["supported", "specimen", "root-only"],
+  "tags": [
+    "supported",
+    "specimen",
+    "root-only"
+  ],
   "limit": 25,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Specimen",
-    "Fields": [{"Name": "specimen_type", "Select": "type.coding[].display"}]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Specimen",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Specimen",
+        "rootResourceType": "Specimen",
+        "rowGrain": "specimen",
+        "fields": [
+          {
+            "name": "specimen_type",
+            "expr": {
+              "select": "type.coding[].display"
+            }
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "queryContains": ["FOR root IN @@root_collection"],
-    "bindVars": {"project": "oracle-project", "limit": 25},
-    "outputColumns": ["specimen_type"]
+    "planProfile": "generic_fhir_graph_recipe",
+    "queryContains": [
+      "FOR root IN @@root_collection"
+    ],
+    "bindVars": {
+      "limit": 25,
+      "project": "oracle-project"
+    },
+    "outputColumns": [
+      "specimen_type"
+    ]
   }
 }

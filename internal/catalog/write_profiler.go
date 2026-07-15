@@ -131,21 +131,25 @@ func (p *Profiler) Merge(other *Profiler) error {
 		stat, ok := p.stats[path]
 		if !ok {
 			stat = &fieldCatalogStats{
-				path:              otherStat.path,
-				kind:              otherStat.kind,
-				pivotCandidate:    otherStat.pivotCandidate,
-				pivotKind:         otherStat.pivotKind,
-				pivotFamily:       otherStat.pivotFamily,
-				pivotColumnSelect: otherStat.pivotColumnSelect,
-				pivotValueSelect:  otherStat.pivotValueSelect,
-				distinctSet:       make(map[string]struct{}),
-				pivotColumnSet:    make(map[string]struct{}),
+				path:                  otherStat.path,
+				kind:                  otherStat.kind,
+				pivotCandidate:        otherStat.pivotCandidate,
+				pivotKind:             otherStat.pivotKind,
+				pivotFamily:           otherStat.pivotFamily,
+				pivotColumnSelect:     otherStat.pivotColumnSelect,
+				pivotValueSelect:      otherStat.pivotValueSelect,
+				pivotItemSource:       otherStat.pivotItemSource,
+				pivotItemResourceType: otherStat.pivotItemResourceType,
+				pivotValueSelectors:   append([]string(nil), otherStat.pivotValueSelectors...),
+				distinctSet:           make(map[string]struct{}),
+				pivotColumnSet:        make(map[string]struct{}),
 			}
 			p.stats[path] = stat
 		}
 		stat.docCount += otherStat.docCount
 		stat.distinctTruncated = stat.distinctTruncated || otherStat.distinctTruncated
 		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
+		stat.setPivotScope(otherStat.pivotItemSource, otherStat.pivotItemResourceType, otherStat.pivotValueSelectors)
 		for _, value := range otherStat.distinctValues {
 			stat.addDistinct(value)
 		}
@@ -171,23 +175,26 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
 		out = append(out, FieldCatalogDocument{
-			Key:               fieldCatalogKeyForGeneration(p.project, datasetGeneration, p.authResourcePath, p.resourceType, stat.path),
-			Project:           p.project,
-			DatasetGeneration: datasetGeneration,
-			AuthResourcePath:  p.authResourcePath,
-			ResourceType:      p.resourceType,
-			Path:              stat.path,
-			Kind:              stat.kind,
-			DocCount:          stat.docCount,
-			SampleCount:       len(distinctValues),
-			DistinctValues:    distinctValues,
-			DistinctTruncated: stat.distinctTruncated,
-			PivotCandidate:    stat.pivotCandidate,
-			PivotKind:         stat.pivotKind,
-			PivotColumns:      pivotColumns,
-			PivotFamily:       stat.pivotFamily,
-			PivotColumnSelect: stat.pivotColumnSelect,
-			PivotValueSelect:  stat.pivotValueSelect,
+			Key:                   fieldCatalogKeyForGeneration(p.project, datasetGeneration, p.authResourcePath, p.resourceType, stat.path),
+			Project:               p.project,
+			DatasetGeneration:     datasetGeneration,
+			AuthResourcePath:      p.authResourcePath,
+			ResourceType:          p.resourceType,
+			Path:                  stat.path,
+			Kind:                  stat.kind,
+			DocCount:              stat.docCount,
+			SampleCount:           len(distinctValues),
+			DistinctValues:        distinctValues,
+			DistinctTruncated:     stat.distinctTruncated,
+			PivotCandidate:        stat.pivotCandidate,
+			PivotKind:             stat.pivotKind,
+			PivotColumns:          pivotColumns,
+			PivotFamily:           stat.pivotFamily,
+			PivotColumnSelect:     stat.pivotColumnSelect,
+			PivotValueSelect:      stat.pivotValueSelect,
+			PivotItemSource:       stat.pivotItemSource,
+			PivotItemResourceType: stat.pivotItemResourceType,
+			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
 		})
 	}
 	return out
@@ -210,6 +217,9 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 			stat.pivotFamily = spec.Family
 			stat.pivotColumnSelect = fhirschema.SelectorExpression(spec.ColumnSelector)
 			stat.pivotValueSelect = fhirschema.SelectorExpression(spec.ValueSelector)
+			stat.pivotItemSource = spec.ItemSourcePath
+			stat.pivotItemResourceType = spec.ItemResourceType
+			stat.pivotValueSelectors = selectorExpressions(spec.ValueSelectors)
 		}
 	}
 	p.stats[field.Path] = stat
@@ -258,6 +268,28 @@ func (s *fieldCatalogStats) setPivotDefaults(family string, columnSelector strin
 	if strings.TrimSpace(valueSelector) != "" {
 		s.pivotValueSelect = valueSelector
 	}
+}
+
+func (s *fieldCatalogStats) setPivotScope(itemSource, itemResourceType string, valueSelectors []string) {
+	if strings.TrimSpace(itemSource) != "" {
+		s.pivotItemSource = itemSource
+	}
+	if strings.TrimSpace(itemResourceType) != "" {
+		s.pivotItemResourceType = itemResourceType
+	}
+	if len(valueSelectors) > 0 {
+		s.pivotValueSelectors = append([]string(nil), valueSelectors...)
+	}
+}
+
+func selectorExpressions(selectors []fhirschema.FieldSelectorSpec) []string {
+	result := make([]string, 0, len(selectors))
+	for _, selector := range selectors {
+		if value := strings.TrimSpace(fhirschema.SelectorExpression(selector)); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func (c *ShapePlanCache) getOrBuild(fingerprint string, payload map[string]any) *shapePlan {
@@ -412,7 +444,11 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	}
 	stat.pivotCandidate = true
 	stat.pivotKind = pivotKindObservation
-	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, "code.coding[].display", valueSelector)
+	columnSelector := "code.coding[].display"
+	if _, hasText := codeValue["text"]; hasText {
+		columnSelector = "code.text"
+	}
+	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
 	for _, col := range codeableConceptColumns(codeValue) {
 		stat.addPivotColumn(col)
 	}

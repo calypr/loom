@@ -2,60 +2,28 @@ package compiler
 
 import "fmt"
 
+// publicOutputColumns returns the ordered transport schema owned by the
+// compiler. Physical identity and executor-validation projections are kept in
+// OutputSchema but never leak into dataframe JSON/CSV/publication columns.
+func publicOutputColumns(schema []CompiledOutputColumn) []string {
+	columns := make([]string, 0, len(schema))
+	for _, column := range schema {
+		if column.Internal {
+			continue
+		}
+		columns = append(columns, column.Name)
+	}
+	return columns
+}
+
+// PublicOutputColumns returns a copy of the compiler-owned transport schema.
+// It is used by recipe execution adapters that need to carry the schema with
+// streamed rows without re-walking semantic recipe nodes.
+func PublicOutputColumns(schema []CompiledOutputColumn) []string {
+	return publicOutputColumns(schema)
+}
+
 const genericPhysicalExecutionLimitBind = "limit"
-
-// compilePhysicalExecution renders a validated semantic physical plan. Its
-// caller has already established that the plan represents the complete
-// request, so it never needs compatibility named sets or string lowering.
-func compilePhysicalExecution(physical PhysicalPlan, semantic SemanticPlan, limit int) (CompiledQuery, error) {
-	var err error
-	physical, err = withGenericPhysicalExecutionWindow(physical, limit)
-	if err != nil {
-		return CompiledQuery{}, err
-	}
-	rendered, err := RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledQuery{}, fmt.Errorf("render generic physical execution plan: %w", err)
-	}
-
-	columns, pivotFields := physicalProjectionMetadata(physical)
-	return CompiledQuery{
-		Project:           semantic.Project,
-		DatasetGeneration: normalizeDatasetGeneration(semantic.DatasetGeneration),
-		RootResourceType:  semantic.Root.ResourceType,
-		AuthResourcePaths: cloneStrings(semantic.AuthResourcePaths),
-		PlanMode:          "physical",
-		PlanProfile:       "generic_fhir_graph",
-		TraversalCount:    physicalTraversalCount(physical),
-		OptimizationRules: physicalOptimizationRules(semantic.Root),
-		RowIdentity:       cloneRowIdentity(semantic.RowIdentity),
-		Query:             rendered.Query,
-		BindVars:          rendered.BindVars,
-		Columns:           columns,
-		PivotFields:       pivotFields,
-		Limit:             limit,
-		PlanDiagnostics:   physicalPlanDiagnostics(physical),
-	}, nil
-}
-
-func physicalOptimizationRules(node SemanticNode) []string {
-	rules := make([]string, 0, 2)
-	if len(node.Filters) != 0 {
-		rules = append(rules, OptimizerRuleFilterPushdown)
-	}
-	for _, child := range node.Children {
-		if child.MatchMode.Required() {
-			rules = appendUniqueRule(rules, OptimizerRuleRelationshipSemiJoin)
-		}
-		for _, rule := range physicalOptimizationRules(child) {
-			rules = appendUniqueRule(rules, rule)
-		}
-	}
-	if len(rules) == 0 {
-		return nil
-	}
-	return rules
-}
 
 func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
 	for _, operation := range plan.Operations {
@@ -65,6 +33,9 @@ func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
 		columns := make([]string, 0, len(operation.Return.Projections))
 		var pivots []string
 		for _, projection := range operation.Return.Projections {
+			if projection.Hidden {
+				continue
+			}
 			columns = append(columns, projection.Name)
 			if projection.Expression != nil && projection.Expression.Kind == PhysicalPivotExpression {
 				pivots = append(pivots, projection.Name)
@@ -100,6 +71,13 @@ func withGenericPhysicalExecutionWindow(plan PhysicalPlan, limit int) (PhysicalP
 	// to the first traversal or terminal return. BuildGenericPhysicalPlan has
 	// already proven that the whole prefix scopes the root correctly.
 	insertAt := physicalScopeWindowEnd(plan.Operations, 1)
+	// Shared expression LETs are deliberately emitted immediately before
+	// RETURN for root-only plans. Put the root execution window before them so
+	// AQL can discard rows before evaluating the family maps, while traversal
+	// plans still insert the window before their first child SET.
+	for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == PhysicalExpressionLetOp {
+		insertAt--
+	}
 	if insertAt <= 1 || insertAt >= len(plan.Operations) {
 		return PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")
 	}

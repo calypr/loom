@@ -1,7 +1,6 @@
 package semantic
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,8 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	planpkg "github.com/calypr/loom/internal/dataframe/recipe/plan"
 )
 
 // ResolvedColumn is a discovered output column whose name and logical value
@@ -19,7 +17,7 @@ import (
 type ResolvedColumn struct {
 	Output      string
 	DynamicName string
-	Column      recipeplan.Column
+	Column      planpkg.Column
 }
 
 // ResolvedRecipePlan is the only recipe representation accepted by a
@@ -33,31 +31,20 @@ type ResolvedRecipePlan struct {
 	SourceGeneration     string
 }
 
-// DiscoveryCandidate is the backend-neutral result of one scoped discovery
-// query. The discovery implementation owns authorization and generation
-// predicates; the resolver only freezes its deterministic result.
-type DiscoveryCandidate struct {
-	Key       string
-	ValueType string
-}
-
-// DiscoverFunc is called once per dynamic map. It must use the same project,
-// generation, and authorization scope as row execution.
-type DiscoverFunc func(context.Context, OutputPlan, SemanticDynamicMap, recipe.RuntimeBindings) ([]DiscoveryCandidate, error)
-
 // ResolveRecipePlan freezes all dynamic schemas and records the scope and
 // source generation used to obtain them. A plan with no dynamic maps still
-// receives a deterministic schema digest.
-func ResolveRecipePlan(ctx context.Context, plan RecipePlan, scopeDigest, sourceGeneration string, discover DiscoverFunc) (ResolvedRecipePlan, error) {
+// receives a deterministic schema digest. Dynamic schemas must already have
+// been resolved by the catalog-backed recipe resolver before this boundary.
+func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (ResolvedRecipePlan, error) {
 	if strings.TrimSpace(sourceGeneration) == "" {
 		sourceGeneration = plan.Bindings.DatasetGeneration
 	}
-	if strings.TrimSpace(sourceGeneration) == "" {
-		return ResolvedRecipePlan{}, fmt.Errorf("source dataset generation is required")
-	}
+	// An empty generation is the intentional legacy-null dataset namespace. It
+	// remains a precise scope when the catalog resolver used the same empty
+	// generation during discovery; physical lowering renders the nil bind.
 	if strings.TrimSpace(scopeDigest) == "" {
 		for _, output := range plan.Outputs {
-			if len(output.DynamicMaps) > 0 {
+			if outputHasDynamicMaps(output.Root) || len(output.DynamicMaps) > 0 {
 				return ResolvedRecipePlan{}, fmt.Errorf("scoped authorization digest is required for dynamic discovery")
 			}
 		}
@@ -70,36 +57,44 @@ func ResolveRecipePlan(ctx context.Context, plan RecipePlan, scopeDigest, source
 		SourceGeneration: sourceGeneration,
 	}
 	for _, output := range plan.Outputs {
-		for _, dynamic := range output.DynamicMaps {
-			if discover == nil && len(dynamic.Columns) == 0 {
-				return ResolvedRecipePlan{}, fmt.Errorf("output %q dynamic map %q requires scoped discovery", output.Name, dynamic.Name)
-			}
-			candidates := make([]recipeplan.Candidate, 0, len(dynamic.Columns))
-			if discover != nil {
-				observed, err := discover(ctx, output, dynamic, plan.Bindings)
-				if err != nil {
-					return ResolvedRecipePlan{}, fmt.Errorf("output %q dynamic map %q discovery: %w", output.Name, dynamic.Name, err)
+		var walk func(SemanticNode) error
+		walk = func(node SemanticNode) error {
+			for _, dynamic := range node.DynamicMaps {
+				if dynamic.Columns == nil {
+					return fmt.Errorf("output %q dynamic map %q is unresolved; resolve it through the catalog-backed recipe resolver first", output.Name, dynamic.Name)
 				}
-				for _, candidate := range observed {
-					candidates = append(candidates, recipeplan.Candidate{Key: candidate.Key, ValueType: candidate.ValueType})
+				if len(dynamic.Columns) == 0 {
+					// An empty catalog result is a valid optional family. The
+					// resolver has already frozen it to zero columns, so there is
+					// no schema or physical lookup to attach to this node.
+					continue
 				}
-			} else {
+				candidates := make([]planpkg.Candidate, 0, len(dynamic.Columns))
 				for _, column := range dynamic.Columns {
-					candidates = append(candidates, recipeplan.Candidate{Key: column, ValueType: "unknown"})
+					candidates = append(candidates, planpkg.Candidate{Key: column, ValueType: "unknown"})
+				}
+				schema, err := planpkg.Freeze(planpkg.DynamicSpec{
+					Name: dynamic.Name, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
+				}, candidates)
+				if err != nil {
+					return fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)
+				}
+				key := dynamicMapKey(output.Name, dynamic)
+				columns := make([]ResolvedColumn, 0, len(schema.Columns))
+				for _, column := range schema.Columns {
+					columns = append(columns, ResolvedColumn{Output: output.Name, DynamicName: dynamic.Name, Column: column})
+				}
+				resolved.ResolvedColumns[key] = columns
+			}
+			for _, child := range node.Children {
+				if err := walk(child); err != nil {
+					return err
 				}
 			}
-			schema, err := recipeplan.Freeze(recipeplan.DynamicSpec{
-				Name: dynamic.Name, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
-			}, candidates)
-			if err != nil {
-				return ResolvedRecipePlan{}, fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)
-			}
-			key := output.Name + ":" + dynamic.Name
-			columns := make([]ResolvedColumn, 0, len(schema.Columns))
-			for _, column := range schema.Columns {
-				columns = append(columns, ResolvedColumn{Output: output.Name, DynamicName: dynamic.Name, Column: column})
-			}
-			resolved.ResolvedColumns[key] = columns
+			return nil
+		}
+		if err := walk(output.Root); err != nil {
+			return ResolvedRecipePlan{}, err
 		}
 	}
 	// Marshal map keys deterministically by normalizing through sorted keys.
@@ -128,4 +123,23 @@ func ResolveRecipePlan(ctx context.Context, plan RecipePlan, scopeDigest, source
 	sum := sha256.Sum256(canonical)
 	resolved.ResolvedSchemaDigest = hex.EncodeToString(sum[:])
 	return resolved, nil
+}
+
+func dynamicMapKey(output string, dynamic SemanticDynamicMap) string {
+	if strings.TrimSpace(dynamic.ScopeAlias) == "" || dynamic.ScopeAlias == "root" {
+		return output + ":" + dynamic.Name
+	}
+	return output + ":" + dynamic.ScopeAlias + ":" + dynamic.Name
+}
+
+func outputHasDynamicMaps(node SemanticNode) bool {
+	if len(node.DynamicMaps) > 0 {
+		return true
+	}
+	for _, child := range node.Children {
+		if outputHasDynamicMaps(child) {
+			return true
+		}
+	}
+	return false
 }

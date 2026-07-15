@@ -36,16 +36,6 @@ type StreamPublishConfig struct {
 	BatchBytes int
 }
 
-func (c StreamPublishConfig) normalized() StreamPublishConfig {
-	if c.BatchRows <= 0 {
-		c.BatchRows = 1000
-	}
-	if c.BatchBytes <= 0 {
-		c.BatchBytes = 4 << 20
-	}
-	return c
-}
-
 type AtomicBundleStore interface {
 	BeginBundle(context.Context) (AtomicBundleTx, error)
 }
@@ -75,6 +65,7 @@ type BundleIdentity struct {
 	Name, Project, DatasetGeneration string
 	RecipeDigest, SchemaDigest       string
 	ScopeDigest, EngineVersion       string
+	AuthResourcePaths                []string `json:"authResourcePaths,omitempty"`
 }
 
 func (i BundleIdentity) Key() string {
@@ -168,75 +159,6 @@ func PublishBundle(ctx context.Context, store AtomicBundleStore, outputs []Bundl
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return rollback(fmt.Errorf("bundle commit: %w", err))
-	}
-	return nil
-}
-
-// PublishStreamBundle stages each output while consuming it once. Its memory
-// use is bounded by StreamPublishConfig and it advances the logical pointer
-// only after every output stream has completed.
-func PublishStreamBundle(ctx context.Context, store IdentityBundleStore, identity BundleIdentity, outputs []StreamOutput, config StreamPublishConfig) error {
-	if store == nil {
-		return fmt.Errorf("identity bundle store is required")
-	}
-	if len(outputs) == 0 {
-		return fmt.Errorf("bundle must contain at least one output")
-	}
-	config = config.normalized()
-	tx, err := store.BeginBundleFor(ctx, identity)
-	if err != nil {
-		return err
-	}
-	fail := func(cause error) error {
-		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-			return fmt.Errorf("%w (bundle rollback failed: %v)", cause, rollbackErr)
-		}
-		return cause
-	}
-	for _, output := range outputs {
-		if strings.TrimSpace(output.Name) == "" || output.Stream == nil {
-			return fail(fmt.Errorf("stream output name and callback are required"))
-		}
-		if err := tx.CreateOutput(ctx, output.Name, output.Columns); err != nil {
-			return fail(fmt.Errorf("output %q create: %w", output.Name, err))
-		}
-		batch := make([]map[string]any, 0, config.BatchRows)
-		batchBytes := 0
-		flush := func() error {
-			if len(batch) == 0 {
-				return nil
-			}
-			if err := tx.InsertRows(ctx, output.Name, output.Columns, batch); err != nil {
-				return err
-			}
-			batch = batch[:0]
-			batchBytes = 0
-			return nil
-		}
-		err := output.Stream(ctx, func(row map[string]any) error {
-			encoded, err := json.Marshal(row)
-			if err != nil {
-				return fmt.Errorf("output %q encode row: %w", output.Name, err)
-			}
-			if len(encoded) > config.BatchBytes {
-				return fmt.Errorf("output %q row exceeds batch byte limit %d", output.Name, config.BatchBytes)
-			}
-			batch = append(batch, row)
-			batchBytes += len(encoded)
-			if len(batch) >= config.BatchRows || batchBytes >= config.BatchBytes {
-				return flush()
-			}
-			return nil
-		})
-		if err != nil {
-			return fail(fmt.Errorf("output %q stream: %w", output.Name, err))
-		}
-		if err := flush(); err != nil {
-			return fail(fmt.Errorf("output %q final batch: %w", output.Name, err))
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fail(fmt.Errorf("bundle commit: %w", err))
 	}
 	return nil
 }

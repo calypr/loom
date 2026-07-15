@@ -24,16 +24,6 @@ const (
 type AnalysisVersion string
 
 // NewAnalysisVersion validates a non-empty opaque analysis-version value.
-func NewAnalysisVersion(value string) (AnalysisVersion, error) {
-	version := AnalysisVersion(value)
-	if !version.IsSet() {
-		return "", fmt.Errorf("%w: value is required", ErrInvalidAnalysisVersion)
-	}
-	if err := version.Validate(); err != nil {
-		return "", err
-	}
-	return version, nil
-}
 
 // IsSet reports whether a finalized analysis version is present.
 func (v AnalysisVersion) IsSet() bool { return v != "" }

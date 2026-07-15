@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
 	"github.com/calypr/loom/fhirschema"
+	"github.com/calypr/loom/internal/dataframe"
 )
 
 func TestPublicCompilerAcceptsEveryGeneratedFHIRRoot(t *testing.T) {
@@ -21,16 +21,13 @@ func TestPublicCompilerAcceptsEveryGeneratedFHIRRoot(t *testing.T) {
 	}
 	for _, resourceType := range resourceTypes {
 		t.Run(resourceType, func(t *testing.T) {
-			compiled, err := dataframe.CompileRequest(dataframe.Builder{
-				Project:          "compiler-oracle",
-				RootResourceType: resourceType,
-			}, 1)
+			compiled, err := compileRecipe(rootRecipe(resourceType), "compiler-oracle", 1, dataframe.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
-				t.Fatalf("CompileRequest(%s): %v", resourceType, err)
+				t.Fatalf("compile recipe root %s: %v", resourceType, err)
 			}
 			assertOnlyValidatedRootCollection(t, compiled, resourceType)
-			if compiled.PlanProfile != "generic_fhir_graph" {
-				t.Fatalf("plan profile = %q, want generic_fhir_graph", compiled.PlanProfile)
+			if compiled.PlanProfile != "generic_fhir_graph_recipe" {
+				t.Fatalf("plan profile = %q, want generic_fhir_graph_recipe", compiled.PlanProfile)
 			}
 		})
 	}
@@ -44,21 +41,13 @@ func TestPublicCompilerAcceptsEveryGeneratedBuilderTraversal(t *testing.T) {
 	for _, traversal := range traversals {
 		name := traversal.FromType + "__" + traversal.EdgeLabel + "__" + traversal.ToType
 		t.Run(name, func(t *testing.T) {
-			compiled, err := dataframe.CompileRequest(dataframe.Builder{
-				Project:          "compiler-oracle",
-				RootResourceType: traversal.FromType,
-				Traversals: []dataframe.TraversalStep{{
-					Label:          traversal.EdgeLabel,
-					ToResourceType: traversal.ToType,
-					Alias:          "related",
-				}},
-			}, 1)
+			compiled, err := compileRecipe(recipeWithTraversal(traversal.FromType, traversal.EdgeLabel, traversal.ToType), "compiler-oracle", 1, dataframe.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
-				t.Fatalf("CompileRequest(%s -> %s via %s): %v", traversal.FromType, traversal.ToType, traversal.EdgeLabel, err)
+				t.Fatalf("compile recipe %s -> %s via %s: %v", traversal.FromType, traversal.ToType, traversal.EdgeLabel, err)
 			}
 			assertOnlyValidatedRootCollection(t, compiled, traversal.FromType)
-			if compiled.PlanProfile != "generic_fhir_graph" {
-				t.Fatalf("plan profile = %q, want generic_fhir_graph", compiled.PlanProfile)
+			if compiled.PlanProfile != "generic_fhir_graph_recipe" {
+				t.Fatalf("plan profile = %q, want generic_fhir_graph_recipe", compiled.PlanProfile)
 			}
 			if !bindVarsContain(compiled.BindVars, traversal.ToType) {
 				t.Fatalf("target resource type %q is not represented as a bind value: %#v", traversal.ToType, compiled.BindVars)
@@ -72,10 +61,7 @@ func TestPublicCompilerRejectsUnadvertisedRootBeforeRenderingAQL(t *testing.T) {
 	if fhirschema.HasResource(malicious) {
 		t.Fatal("test root unexpectedly advertised by schema")
 	}
-	compiled, err := dataframe.CompileRequest(dataframe.Builder{
-		Project:          "compiler-oracle",
-		RootResourceType: malicious,
-	}, 1)
+	compiled, err := compileRecipe(rootRecipe(malicious), "compiler-oracle", 1, dataframe.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "not represented by the active generated FHIR schema") {
 		t.Fatalf("error = %v, want generated-schema rejection", err)
 	}

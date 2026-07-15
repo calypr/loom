@@ -14,6 +14,7 @@ type HTTPConfig struct {
 	Service                  *Service
 	Authenticator            authscope.Authenticator
 	Authorizer               authscope.Authorizer
+	ScopeResolver            *authscope.ScopeResolver
 	GraphQLHandler           http.Handler
 	GraphQLPlaygroundHandler http.Handler
 	ApolloSandboxHandler     http.Handler
@@ -33,6 +34,7 @@ type HTTPServer struct {
 	service                      *Service
 	authn                        authscope.Authenticator
 	authz                        authscope.Authorizer
+	scopeResolver                *authscope.ScopeResolver
 	logger                       *slog.Logger
 	cfgGraphQLHandler            http.Handler
 	cfgGraphQLPlaygroundHandler  http.Handler
@@ -83,6 +85,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		service:                      cfg.Service,
 		authn:                        cfg.Authenticator,
 		authz:                        cfg.Authorizer,
+		scopeResolver:                cfg.ScopeResolver,
 		logger:                       cfg.Logger,
 		cfgGraphQLHandler:            cfg.GraphQLHandler,
 		cfgGraphQLPlaygroundHandler:  cfg.GraphQLPlaygroundHandler,

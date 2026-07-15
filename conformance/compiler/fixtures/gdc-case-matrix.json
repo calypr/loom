@@ -2,101 +2,281 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "gdc-case-matrix",
   "description": "GDC-style patient dataframe with diagnoses, samples, files, groups, observations, pivots, slices, and nested traversal sets",
-  "tags": ["supported", "gdc", "patient", "nested", "aggregate", "pivot", "slice"],
+  "tags": [
+    "supported",
+    "gdc",
+    "patient",
+    "nested",
+    "aggregate",
+    "pivot",
+    "slice"
+  ],
   "limit": 25,
-  "builder": {
-    "Project": "ARANGODB_PROTO",
-    "RootResourceType": "Patient",
-    "Fields": [
-      {"Name": "patient_id", "Select": "id", "ValueMode": "AUTO"},
-      {"Name": "case_identifier", "Select": "identifier[].value", "ValueMode": "AUTO"},
-      {"Name": "gender", "Select": "gender", "ValueMode": "AUTO"}
-    ],
-    "Traversals": [
+  "project": "ARANGODB_PROTO",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Patient",
+    "translationVersion": "fixture",
+    "outputs": [
       {
-        "Label": "subject_Patient",
-        "ToResourceType": "Condition",
-        "Alias": "diagnosis",
-        "Aggregates": [
-          {"Name": "diagnosis_count", "Operation": "COUNT"},
-          {"Name": "diagnosis_values", "Operation": "DISTINCT_VALUES", "Select": "code.coding[].display", "ValueMode": "AUTO"}
-        ],
-        "Slices": [
-          {"Name": "representative_diagnoses", "Limit": 3, "Fields": [
-            {"Name": "diagnosis_id", "Select": "id", "ValueMode": "AUTO"},
-            {"Name": "diagnosis", "Select": "code.coding[].display", "ValueMode": "AUTO"}
-          ]}
-        ]
-      },
-      {
-        "Label": "subject_Patient",
-        "ToResourceType": "Specimen",
-        "Alias": "sample",
-        "Aggregates": [
-          {"Name": "sample_count", "Operation": "COUNT"},
-          {"Name": "sample_types", "Operation": "DISTINCT_VALUES", "Select": "type.coding[].display", "ValueMode": "AUTO"}
-        ],
-        "Slices": [
-          {"Name": "representative_samples", "Limit": 5, "Fields": [
-            {"Name": "sample_id", "Select": "id", "ValueMode": "AUTO"},
-            {"Name": "sample_type", "Select": "type.coding[].display", "ValueMode": "AUTO"}
-          ]}
-        ],
-        "Traversals": [
+        "name": "Patient",
+        "rootResourceType": "Patient",
+        "rowGrain": "patient",
+        "fields": [
           {
-            "Label": "subject_Specimen",
-            "ToResourceType": "DocumentReference",
-            "Alias": "file",
-            "Aggregates": [
-              {"Name": "file_count", "Operation": "COUNT"},
-              {"Name": "file_names", "Operation": "DISTINCT_VALUES", "Select": "content[].attachment.title", "ValueMode": "AUTO"},
-              {"Name": "file_formats", "Operation": "DISTINCT_VALUES", "Select": "type.coding[].display", "ValueMode": "AUTO"}
+            "name": "patient_id",
+            "expr": {
+              "select": "id"
+            },
+            "valueMode": "AUTO"
+          },
+          {
+            "name": "case_identifier",
+            "expr": {
+              "select": "identifier[].value"
+            },
+            "valueMode": "AUTO"
+          },
+          {
+            "name": "gender",
+            "expr": {
+              "select": "gender"
+            },
+            "valueMode": "AUTO"
+          }
+        ],
+        "traversals": [
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Condition",
+            "alias": "diagnosis",
+            "aggregates": [
+              {
+                "name": "diagnosis_count",
+                "operation": "COUNT"
+              },
+              {
+                "name": "diagnosis_values",
+                "operation": "DISTINCT_VALUES",
+                "expr": {
+                  "select": "code.coding[].display"
+                },
+                "valueMode": "AUTO"
+              }
             ],
-            "Slices": [
-              {"Name": "representative_files", "Limit": 10, "Fields": [
-                {"Name": "file_id", "Select": "id", "ValueMode": "AUTO"},
-                {"Name": "file_name", "Select": "content[].attachment.title", "ValueMode": "AUTO"},
-                {"Name": "file_url", "Select": "content[].attachment.url", "ValueMode": "AUTO"},
-                {"Name": "file_size", "Select": "content[].attachment.size", "ValueMode": "AUTO"},
-                {"Name": "file_format", "Select": "type.coding[].display", "ValueMode": "AUTO"}
-              ]}
+            "slices": [
+              {
+                "name": "representative_diagnoses",
+                "limit": 3,
+                "fields": [
+                  {
+                    "name": "diagnosis_id",
+                    "expr": {
+                      "select": "id"
+                    },
+                    "valueMode": "AUTO"
+                  },
+                  {
+                    "name": "diagnosis",
+                    "expr": {
+                      "select": "code.coding[].display"
+                    },
+                    "valueMode": "AUTO"
+                  }
+                ]
+              }
             ]
           },
           {
-            "Label": "member_entity_Specimen",
-            "ToResourceType": "Group",
-            "Alias": "sample_group",
-            "Aggregates": [{"Name": "sample_group_count", "Operation": "COUNT"}],
-            "Traversals": [{
-              "Label": "subject_Group",
-              "ToResourceType": "DocumentReference",
-              "Alias": "group_file",
-              "Aggregates": [{"Name": "group_file_count", "Operation": "COUNT"}]
-            }]
+            "name": "subject_Patient",
+            "toResourceType": "Specimen",
+            "alias": "sample",
+            "aggregates": [
+              {
+                "name": "sample_count",
+                "operation": "COUNT"
+              },
+              {
+                "name": "sample_types",
+                "operation": "DISTINCT_VALUES",
+                "expr": {
+                  "select": "type.coding[].display"
+                },
+                "valueMode": "AUTO"
+              }
+            ],
+            "slices": [
+              {
+                "name": "representative_samples",
+                "limit": 5,
+                "fields": [
+                  {
+                    "name": "sample_id",
+                    "expr": {
+                      "select": "id"
+                    },
+                    "valueMode": "AUTO"
+                  },
+                  {
+                    "name": "sample_type",
+                    "expr": {
+                      "select": "type.coding[].display"
+                    },
+                    "valueMode": "AUTO"
+                  }
+                ]
+              }
+            ],
+            "traversals": [
+              {
+                "name": "subject_Specimen",
+                "toResourceType": "DocumentReference",
+                "alias": "file",
+                "aggregates": [
+                  {
+                    "name": "file_count",
+                    "operation": "COUNT"
+                  },
+                  {
+                    "name": "file_names",
+                    "operation": "DISTINCT_VALUES",
+                    "expr": {
+                      "select": "content[].attachment.title"
+                    },
+                    "valueMode": "AUTO"
+                  },
+                  {
+                    "name": "file_formats",
+                    "operation": "DISTINCT_VALUES",
+                    "expr": {
+                      "select": "type.coding[].display"
+                    },
+                    "valueMode": "AUTO"
+                  }
+                ],
+                "slices": [
+                  {
+                    "name": "representative_files",
+                    "limit": 10,
+                    "fields": [
+                      {
+                        "name": "file_id",
+                        "expr": {
+                          "select": "id"
+                        },
+                        "valueMode": "AUTO"
+                      },
+                      {
+                        "name": "file_name",
+                        "expr": {
+                          "select": "content[].attachment.title"
+                        },
+                        "valueMode": "AUTO"
+                      },
+                      {
+                        "name": "file_url",
+                        "expr": {
+                          "select": "content[].attachment.url"
+                        },
+                        "valueMode": "AUTO"
+                      },
+                      {
+                        "name": "file_size",
+                        "expr": {
+                          "select": "content[].attachment.size"
+                        },
+                        "valueMode": "AUTO"
+                      },
+                      {
+                        "name": "file_format",
+                        "expr": {
+                          "select": "type.coding[].display"
+                        },
+                        "valueMode": "AUTO"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "member_entity_Specimen",
+                "toResourceType": "Group",
+                "alias": "sample_group",
+                "aggregates": [
+                  {
+                    "name": "sample_group_count",
+                    "operation": "COUNT"
+                  }
+                ],
+                "traversals": [
+                  {
+                    "name": "subject_Group",
+                    "toResourceType": "DocumentReference",
+                    "alias": "group_file",
+                    "aggregates": [
+                      {
+                        "name": "group_file_count",
+                        "operation": "COUNT"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Observation",
+            "alias": "observation",
+            "pivots": [
+              {
+                "name": "observation_values",
+                "columnExpr": {
+                  "select": "code.coding[].display"
+                },
+                "valueExpr": {
+                  "select": "valueQuantity.value"
+                },
+                "columns": [
+                  "Tumor Purity",
+                  "Hemoglobin",
+                  "Platelet Count",
+                  "White Blood Cell Count"
+                ]
+              }
+            ],
+            "aggregates": [
+              {
+                "name": "observation_count",
+                "operation": "COUNT"
+              },
+              {
+                "name": "observation_codes",
+                "operation": "DISTINCT_VALUES",
+                "expr": {
+                  "select": "code.coding[].display"
+                },
+                "valueMode": "AUTO"
+              }
+            ]
           }
         ]
-      },
-      {
-        "Label": "subject_Patient",
-        "ToResourceType": "Observation",
-        "Alias": "observation",
-        "Aggregates": [
-          {"Name": "observation_count", "Operation": "COUNT"},
-          {"Name": "observation_codes", "Operation": "DISTINCT_VALUES", "Select": "code.coding[].display", "ValueMode": "AUTO"}
-        ],
-        "Pivots": [{
-          "Name": "observation_values",
-          "ColumnSelect": "code.coding[].display",
-          "ValueSelect": "valueQuantity.value",
-          "Columns": ["Tumor Purity", "Hemoglobin", "Platelet Count", "White Blood Cell Count"]
-        }]
       }
     ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "bindVars": {"project": "ARANGODB_PROTO", "limit": 25},
-    "outputColumns": ["patient_id", "case_identifier", "gender", "sample__sample_count", "observation__observation_count"]
+    "planProfile": "generic_fhir_graph_recipe",
+    "bindVars": {
+      "limit": 25,
+      "project": "ARANGODB_PROTO"
+    },
+    "outputColumns": [
+      "patient_id",
+      "case_identifier",
+      "gender",
+      "sample__sample_count",
+      "observation__observation_count"
+    ]
   }
 }

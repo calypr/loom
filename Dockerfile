@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.3-alpine3.22 AS builder
+FROM golang:1.26.5-alpine3.22 AS builder
 RUN apk add --no-cache git ca-certificates tzdata
 
 ENV CGO_ENABLED=0

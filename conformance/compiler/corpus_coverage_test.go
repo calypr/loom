@@ -15,7 +15,7 @@ func TestGenericFHIRCorpusCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"patient-sibling-targets":          "sibling",
+		"patient-sibling-targets":         "sibling",
 		"research-subject-study-required": "outbound",
 		"patient-deep-filter":             "deep",
 		"specimen-aggregate-slice":        "reuse",

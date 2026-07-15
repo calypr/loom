@@ -45,7 +45,7 @@ func TestFixtureValidationRejectsContradictoryExpectation(t *testing.T) {
 		ID:          "contradictory",
 		Description: "invalid fixture",
 		Limit:       1,
-		Builder:     validBuilder(),
+		Recipe:      rootRecipe("Patient"),
 		Expected: Expected{
 			Supported:     true,
 			ErrorContains: "failure",

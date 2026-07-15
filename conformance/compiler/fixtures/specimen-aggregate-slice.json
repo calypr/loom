@@ -2,30 +2,87 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "specimen-aggregate-slice",
   "description": "Specimen dataframe combining child count, distinct values, and a bounded representative file slice",
-  "tags": ["supported", "specimen", "aggregate", "slice", "reuse"],
+  "tags": [
+    "supported",
+    "specimen",
+    "aggregate",
+    "slice",
+    "reuse"
+  ],
   "limit": 100,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Specimen",
-    "Fields": [{"Name": "specimen_id", "Select": "id"}],
-    "Traversals": [{
-      "Label": "subject_Specimen",
-      "ToResourceType": "DocumentReference",
-      "Alias": "file",
-      "Aggregates": [
-        {"Name": "file_count", "Operation": "COUNT"},
-        {"Name": "file_formats", "Operation": "DISTINCT_VALUES", "Select": "type.coding[].display", "ValueMode": "AUTO"}
-      ],
-      "Slices": [{"Name": "representative_files", "Limit": 3, "Fields": [
-        {"Name": "file_id", "Select": "id"},
-        {"Name": "file_name", "Select": "content[].attachment.title"}
-      ]}]
-    }]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Specimen",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Specimen",
+        "rootResourceType": "Specimen",
+        "rowGrain": "specimen",
+        "fields": [
+          {
+            "name": "specimen_id",
+            "expr": {
+              "select": "id"
+            }
+          }
+        ],
+        "traversals": [
+          {
+            "name": "subject_Specimen",
+            "toResourceType": "DocumentReference",
+            "alias": "file",
+            "aggregates": [
+              {
+                "name": "file_count",
+                "operation": "COUNT"
+              },
+              {
+                "name": "file_formats",
+                "operation": "DISTINCT_VALUES",
+                "expr": {
+                  "select": "type.coding[].display"
+                },
+                "valueMode": "AUTO"
+              }
+            ],
+            "slices": [
+              {
+                "name": "representative_files",
+                "limit": 3,
+                "fields": [
+                  {
+                    "name": "file_id",
+                    "expr": {
+                      "select": "id"
+                    }
+                  },
+                  {
+                    "name": "file_name",
+                    "expr": {
+                      "select": "content[].attachment.title"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "bindVars": {"project": "oracle-project", "limit": 100},
-    "outputColumns": ["specimen_id", "file__file_count", "file__file_formats"]
+    "planProfile": "generic_fhir_graph_recipe",
+    "bindVars": {
+      "limit": 100,
+      "project": "oracle-project"
+    },
+    "outputColumns": [
+      "specimen_id",
+      "file__file_count",
+      "file__file_formats"
+    ]
   }
 }

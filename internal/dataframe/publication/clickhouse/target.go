@@ -1,0 +1,112 @@
+// Package clickhouse adapts Loom's existing atomic ClickHouse bundle store to
+// the backend-neutral publication runner.
+package clickhouse
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/materialization"
+	"github.com/calypr/loom/internal/dataframe/publication"
+	store "github.com/calypr/loom/internal/store/clickhouse"
+)
+
+type Target struct {
+	Store materialization.IdentityBundleStore
+}
+
+func New(store materialization.IdentityBundleStore) (*Target, error) {
+	if store == nil {
+		return nil, fmt.Errorf("ClickHouse bundle store is required")
+	}
+	return &Target{Store: store}, nil
+}
+
+func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
+	bundleIdentity := materialization.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	tx, err := t.Store.BeginBundleFor(ctx, bundleIdentity)
+	if err != nil {
+		return nil, err
+	}
+	result := &transaction{tx: tx, columns: make(map[string][]store.Column, len(schemas))}
+	for _, schema := range schemas {
+		columns, err := toColumns(schema.Columns)
+		if err != nil {
+			_ = tx.Rollback(context.Background())
+			return nil, fmt.Errorf("output %q schema: %w", schema.Name, err)
+		}
+		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
+			_ = tx.Rollback(context.Background())
+			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
+		}
+		result.columns[schema.Name] = columns
+	}
+	return result, nil
+}
+
+type transaction struct {
+	tx      materialization.AtomicBundleTx
+	columns map[string][]store.Column
+	closed  bool
+}
+
+func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[string]any) error {
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	columns, ok := t.columns[output]
+	if !ok {
+		return fmt.Errorf("output %q was not declared", output)
+	}
+	return t.tx.InsertRows(ctx, output, columns, rows)
+}
+
+func (t *transaction) Validate(context.Context) error {
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	return nil
+}
+
+func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {
+	if t.closed {
+		return nil, fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	if err := t.tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	t.closed = true
+	return nil, nil
+}
+
+func (t *transaction) Rollback(ctx context.Context) error {
+	if t.closed {
+		return nil
+	}
+	t.closed = true
+	return t.tx.Rollback(ctx)
+}
+
+func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {
+	result := make([]store.Column, 0, len(columns))
+	for _, column := range columns {
+		kind := strings.ToLower(strings.TrimSpace(column.Kind))
+		columnType := "String"
+		switch kind {
+		case "boolean":
+			columnType = "Bool"
+		case "integer":
+			columnType = "Int64"
+		case "decimal":
+			columnType = "Float64"
+		case "object":
+			return nil, fmt.Errorf("object-valued column %q is not supported", column.Name)
+		}
+		if column.Repeated {
+			columnType = "Array(" + columnType + ")"
+		}
+		result = append(result, store.Column{Name: column.Name, Type: columnType})
+	}
+	return result, nil
+}

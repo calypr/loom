@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bmeg/grip/gripql"
+	"github.com/bmeg/jsonschemagraph/model"
 )
 
 var validKeyPart = regexp.MustCompile(`[^A-Za-z0-9_\-:.@()+,=;$!*'%]`)
@@ -34,10 +34,6 @@ type EdgeDocument struct {
 	Project  string `json:"project"`
 	FromType string `json:"from_type"`
 	ToType   string `json:"to_type"`
-}
-
-func VertexFromFHIR(project, resourceType string, payload map[string]any) (VertexDocument, error) {
-	return VertexFromFHIRWithExtra(project, resourceType, payload, nil)
 }
 
 func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs map[string]any) (VertexDocument, error) {
@@ -63,7 +59,7 @@ func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs ma
 	}, nil
 }
 
-func EdgeFromGrip(project, sourceType string, edge *gripql.Edge) (EdgeDocument, error) {
+func EdgeFromGrip(project, sourceType string, edge *model.Edge) (EdgeDocument, error) {
 	if edge == nil {
 		return EdgeDocument{}, fmt.Errorf("nil edge")
 	}

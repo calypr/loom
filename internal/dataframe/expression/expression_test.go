@@ -19,18 +19,16 @@ func TestCheckSelectorUsesBoundSchemaType(t *testing.T) {
 
 func TestCheckOperationTypes(t *testing.T) {
 	stringOne := Constant(Type{Kind: KindString, Cardinality: RequiredOne}, "x")
-	stringOptional := Select(SelectorRef{Path: "root.alt"})
 	ctx := TypeContext{Selectors: map[string]Type{"root.alt": {Kind: KindString, Cardinality: OptionalOne}}}
 	tests := []struct {
 		name string
 		expr Expression
 		want Type
 	}{
-		{"coalesce", Coalesce(stringOptional, stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
+		{"coalesce_string", Function("coalesce_string", Constant(Type{Kind: KindInteger, Cardinality: OptionalOne}, int64(3)), stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"concat", Function("concat", stringOne, stringOne), Type{Kind: KindString, Cardinality: RequiredOne}},
 		{"first", Function("first", Function("all", stringOne)), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"uuid5", Function("uuid5", stringOne, stringOne), Type{Kind: KindUUID, Cardinality: RequiredOne}},
-		{"if", Function("if", Constant(Type{Kind: KindBoolean, Cardinality: RequiredOne}, true), stringOne, Null()), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"case", Function("case", Constant(Type{Kind: KindBoolean, Cardinality: RequiredOne}, true), stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"eq", Function("eq", stringOne, stringOne), Type{Kind: KindBoolean, Cardinality: OptionalOne}},
 	}
@@ -92,18 +90,6 @@ func TestCheckUsesResolverAndLimitsTree(t *testing.T) {
 	}
 	if err := deep.Validate(TypeContext{MaxDepth: 2}); err == nil || !strings.Contains(err.Error(), "depth limit") {
 		t.Fatalf("depth error = %v", err)
-	}
-}
-
-func TestCastRequiresTargetType(t *testing.T) {
-	value := Constant(Type{Kind: KindString, Cardinality: OptionalOne}, "42")
-	casted := Cast(value, Type{Kind: KindInteger, Cardinality: RequiredOne})
-	checked, err := casted.Check(TypeContext{})
-	if err != nil {
-		t.Fatalf("cast: %v", err)
-	}
-	if checked.Type != (Type{Kind: KindInteger, Cardinality: OptionalOne}) {
-		t.Fatalf("cast type = %s", checked.Type)
 	}
 }
 

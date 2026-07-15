@@ -2,22 +2,82 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "patient-sibling-targets",
   "description": "Patient dataframe with sibling Condition, Specimen, and Observation routes sharing one edge label",
-  "tags": ["supported", "patient", "sibling", "sharing", "aggregate"],
+  "tags": [
+    "supported",
+    "patient",
+    "sibling",
+    "sharing",
+    "aggregate"
+  ],
   "limit": 100,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Patient",
-    "Fields": [{"Name": "patient_id", "Select": "id"}],
-    "Traversals": [
-      {"Label": "subject_Patient", "ToResourceType": "Condition", "Alias": "condition", "Aggregates": [{"Name": "condition_count", "Operation": "COUNT"}]},
-      {"Label": "subject_Patient", "ToResourceType": "Specimen", "Alias": "specimen", "Aggregates": [{"Name": "specimen_count", "Operation": "COUNT"}]},
-      {"Label": "subject_Patient", "ToResourceType": "Observation", "Alias": "observation", "Aggregates": [{"Name": "observation_count", "Operation": "COUNT"}]}
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Patient",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Patient",
+        "rootResourceType": "Patient",
+        "rowGrain": "patient",
+        "fields": [
+          {
+            "name": "patient_id",
+            "expr": {
+              "select": "id"
+            }
+          }
+        ],
+        "traversals": [
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Condition",
+            "alias": "condition",
+            "aggregates": [
+              {
+                "name": "condition_count",
+                "operation": "COUNT"
+              }
+            ]
+          },
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Specimen",
+            "alias": "specimen",
+            "aggregates": [
+              {
+                "name": "specimen_count",
+                "operation": "COUNT"
+              }
+            ]
+          },
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Observation",
+            "alias": "observation",
+            "aggregates": [
+              {
+                "name": "observation_count",
+                "operation": "COUNT"
+              }
+            ]
+          }
+        ]
+      }
     ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "bindVars": {"project": "oracle-project", "limit": 100},
-    "outputColumns": ["patient_id", "condition__condition_count", "specimen__specimen_count", "observation__observation_count"]
+    "planProfile": "generic_fhir_graph_recipe",
+    "bindVars": {
+      "limit": 100,
+      "project": "oracle-project"
+    },
+    "outputColumns": [
+      "patient_id",
+      "condition__condition_count",
+      "specimen__specimen_count",
+      "observation__observation_count"
+    ]
   }
 }

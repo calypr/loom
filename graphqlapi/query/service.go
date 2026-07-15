@@ -2,12 +2,16 @@ package queryapi
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -67,8 +71,6 @@ func NewService(cfg Config) *Service {
 	} else {
 		service.dataframes = dataframe.NewService(dataframe.ServiceConfig{
 			ConnectionOptions:      cfg.ConnectionOptions,
-			DiscoverReferences:     service.discoverReferences,
-			DiscoverFields:         service.discoverFields,
 			ScopeResolver:          cfg.ScopeResolver,
 			ActiveManifestResolver: cfg.ActiveManifestResolver,
 		})
@@ -82,29 +84,56 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	if err != nil {
 		return nil, err
 	}
+	inputResolutionDuration := time.Since(started)
 	rowLimit := 0
 	if limit != nil {
 		rowLimit = *limit
 	} else if normalizedInput.Limit != nil {
 		rowLimit = *normalizedInput.Limit
 	}
-	builder := BuilderFromInput(normalizedInput)
-	builder.DatasetGeneration = generation
-	// Preserve the scope mode that resolved the catalog references above. This
-	// matters when no catalog paths survive a restricted caller's intersection:
-	// an empty list alone would otherwise be legacy-unrestricted downstream.
-	builder.AuthScopeMode = scope.Mode
-	result, err := s.dataframes.Run(ctx, dataframe.RunRequest{
-		Builder: builder,
-		Limit:   rowLimit,
-	})
+	if rowLimit <= 0 {
+		rowLimit = 25
+	}
+	preparationStarted := time.Now()
+	bundle, err := RecipeBundleFromInput(normalizedInput)
 	if err != nil {
 		return nil, err
 	}
-	result.Diagnostics.InputResolution = time.Since(started) - result.Diagnostics.Total
-	if result.Diagnostics.InputResolution < 0 {
-		result.Diagnostics.InputResolution = 0
+	bindings := recipe.RuntimeBindings{
+		Project:           normalizedInput.Project,
+		DatasetGeneration: generation,
+		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
+		AuthScopeMode:     scope.Mode,
+		PreviewLimit:      rowLimit,
 	}
+	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
+	if err != nil {
+		return nil, err
+	}
+	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "", generation)
+	if err != nil {
+		return nil, err
+	}
+	requestPreparationDuration := time.Since(preparationStarted)
+	compileStarted := time.Now()
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, compiler.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		return nil, fmt.Errorf("compile GraphQL recipe: %w", err)
+	}
+	if len(queries) != 1 {
+		return nil, fmt.Errorf("GraphQL dataframe recipe produced %d outputs, want 1", len(queries))
+	}
+	result, err := s.dataframes.RunCompiled(ctx, queries[0])
+	if err != nil {
+		return nil, err
+	}
+	result.Diagnostics.Compilation = time.Since(compileStarted)
+	result.Diagnostics.InputResolution = inputResolutionDuration
+	result.Diagnostics.RequestPreparation = requestPreparationDuration
 	result.Diagnostics.Total = time.Since(started)
 	return result, nil
 }

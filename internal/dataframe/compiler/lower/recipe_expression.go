@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -56,6 +57,16 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 		if err != nil {
 			return ir.PhysicalExpression{}, fmt.Errorf("parse selector %q: %w", selectorPath, err)
 		}
+		// Semantic recipe plans normally carry a checked expression type, but
+		// the narrow public lowering entrypoint also accepts the persisted AST.
+		// Recover repetition from generated schema metadata in that case so a
+		// repeated FHIR selector cannot silently become a scalar physical value.
+		if !input.Type.Valid() {
+			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath()); ok && metadata.Repeated {
+				cardinality = ir.PhysicalArrayCardinality
+			}
+		}
+		result.Cardinality = cardinality
 		variable := strings.TrimSpace(input.Selector.Context)
 		if variable == "" {
 			variable = "root"
@@ -65,7 +76,7 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 			Source:        ir.PhysicalValue{Variable: variable, Path: []string{"payload"}},
 			ResourceType:  resourceType,
 			Selector:      selector,
-			ExecutionMode: ir.PhysicalSelectorGeneric,
+			ExecutionMode: selectorExecutionModeForExpression(resourceType, selector, nil, ir.PhysicalValue{Variable: variable, Path: []string{"payload"}}, cardinality, behavior),
 		}
 		return result, nil
 	case expression.LiteralNode:

@@ -65,6 +65,25 @@ func TestCreateImportAccepted(t *testing.T) {
 	}
 }
 
+func TestHealthzDoesNotRequireAuthentication(t *testing.T) {
+	svc, err := NewService(ServiceConfig{Runner: fakeRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := server.App().Test(httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health status = %d", resp.StatusCode)
+	}
+}
+
 func TestCreateImportRejectsMissingProject(t *testing.T) {
 	svc, err := NewService(ServiceConfig{
 		Runner: fakeRunner{summary: ingest.LoadSummary{Files: 1}},

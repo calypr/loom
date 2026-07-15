@@ -40,6 +40,7 @@ const (
 	PhysicalTraversalOp                       = ir.PhysicalTraversalOp
 	PhysicalOptimizationRuleTraversalSharing  = ir.PhysicalOptimizationRuleTraversalSharing
 	PhysicalOptimizationRuleEndpointTraversal = ir.PhysicalOptimizationRuleEndpointTraversal
+	PhysicalOptimizationRuleKeyedMapSharing   = ir.PhysicalOptimizationRuleKeyedMapSharing
 	PhysicalTraversalEndpointLookup           = ir.PhysicalTraversalEndpointLookup
 	PhysicalValueExpression                   = ir.PhysicalValueExpression
 	PhysicalObjectCardinality                 = ir.PhysicalObjectCardinality
@@ -48,8 +49,9 @@ const (
 )
 
 var (
-	DefaultPhysicalOptimizationPolicy = ir.DefaultPhysicalOptimizationPolicy
-	DecomposePhysicalTraversalPrefix  = ir.DecomposePhysicalTraversalPrefix
+	DefaultPhysicalOptimizationPolicy  = ir.DefaultPhysicalOptimizationPolicy
+	DecomposePhysicalTraversalPrefix   = ir.DecomposePhysicalTraversalPrefix
+	DecomposePhysicalTraversalPrefixAt = ir.DecomposePhysicalTraversalPrefixAt
 )
 
 func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan { return ir.ClonePhysicalPlan(plan) }

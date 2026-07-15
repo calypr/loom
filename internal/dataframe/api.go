@@ -1,8 +1,9 @@
-// Package dataframe is Loom's stable dataframe compatibility facade.
+// Package dataframe is Loom's stable dataframe facade.
 //
 // Runtime orchestration, compiler contracts, and user errors are re-exported
-// from their canonical packages here so existing GraphQL, CLI, and
-// conformance callers do not depend on implementation layout.
+// from their canonical packages here so GraphQL, CLI, and conformance callers
+// share one recipe/compiler contract without depending on implementation
+// layout.
 package dataframe
 
 import (
@@ -11,11 +12,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipecompile"
-	"github.com/calypr/loom/internal/dataframe/recipecontrol"
-	"github.com/calypr/loom/internal/dataframe/recipeengine"
-	"github.com/calypr/loom/internal/dataframe/recipeexec"
-	"github.com/calypr/loom/internal/dataframe/recipeplan"
+	"github.com/calypr/loom/internal/dataframe/recipe/control"
+	"github.com/calypr/loom/internal/dataframe/recipe/engine"
+	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/recipe/plan"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 )
 
@@ -31,12 +31,6 @@ type (
 	QueryDiagnostics    = runtime.QueryDiagnostics
 	StreamResult        = runtime.StreamResult
 
-	Builder                 = compiler.Builder
-	TraversalStep           = compiler.TraversalStep
-	RepresentativeSlice     = compiler.RepresentativeSlice
-	FieldSelect             = compiler.FieldSelect
-	PivotSelect             = compiler.PivotSelect
-	AggregateSelect         = compiler.AggregateSelect
 	CompiledQuery           = compiler.CompiledQuery
 	SemanticPlan            = compiler.SemanticPlan
 	SemanticNode            = compiler.SemanticNode
@@ -66,33 +60,26 @@ type (
 	RecipeOutput             = recipe.Output
 	RecipeRuntimeBindings    = recipe.RuntimeBindings
 	RecipeExpression         = recipe.Expression
-	RecipeRegistry           = recipeexec.Registry
-	RecipeRunner             = recipeexec.Runner
-	RecipeResult             = recipeexec.Result
+	RecipeRegistry           = exec.Registry
+	RecipeRunner             = exec.Runner
+	RecipeResult             = exec.Result
 	RecipePlan               = compiler.RecipePlan
 	RecipeOutputPlan         = compiler.OutputPlan
 	RecipeResolvedPlan       = compiler.ResolvedRecipePlan
 	RecipeResolvedColumn     = compiler.ResolvedColumn
-	RecipeDiscoveryCandidate = compiler.DiscoveryCandidate
-	RecipeFrozenSchema       = recipeplan.FrozenSchema
-	RecipeDynamicSpec        = recipeplan.DynamicSpec
-	RecipeColumnCandidate    = recipeplan.Candidate
-	RecipePlanColumn         = recipeplan.Column
-	RecipePhysicalPlan       = compiler.RecipePhysicalPlan
-	RecipePhysicalOutput     = compiler.RecipePhysicalOutput
-	RecipePhysicalExpansion  = compiler.RecipePhysicalExpansion
-	RecipePhysicalProjection = compiler.RecipePhysicalProjection
-	RecipePhysicalDynamicMap = compiler.RecipePhysicalDynamicMap
-	RecipePhysicalTraversal  = compiler.RecipePhysicalTraversal
-	RecipeControlService     = recipecontrol.Service
-	RecipeValidation         = recipecontrol.Validation
-	RecipePreview            = recipecontrol.Preview
-	RecipeEngine             = recipeengine.Engine
-	RecipeEngineControl      = recipeengine.Control
-	RecipeEngineConfig       = recipeengine.Config
-	RecipeEngineResolved     = recipeengine.Resolved
-	RecipeOutputStream       = recipeengine.OutputStream
-	RecipeEngineStreamResult = recipeengine.StreamResult
+	RecipeFrozenSchema       = plan.FrozenSchema
+	RecipeDynamicSpec        = plan.DynamicSpec
+	RecipeColumnCandidate    = plan.Candidate
+	RecipePlanColumn         = plan.Column
+	RecipeControlService     = control.Service
+	RecipeValidation         = control.Validation
+	RecipePreview            = control.Preview
+	RecipeEngine             = engine.Engine
+	RecipeEngineControl      = engine.Control
+	RecipeEngineConfig       = engine.Config
+	RecipeEngineResolved     = engine.Resolved
+	RecipeOutputStream       = engine.OutputStream
+	RecipeEngineStreamResult = engine.StreamResult
 	BundleOutput             = materialization.BundleOutput
 	AtomicBundleStore        = materialization.AtomicBundleStore
 	AtomicBundleTx           = materialization.AtomicBundleTx
@@ -288,35 +275,30 @@ const (
 )
 
 var (
-	NewService                         = runtime.NewService
-	ExecuteQueryRows                   = runtime.ExecuteQueryRows
-	ExplainCompiledQuery               = runtime.ExplainCompiledQuery
-	ProfileCompiledQuery               = runtime.ProfileCompiledQuery
-	DefaultPhysicalOptimizationPolicy  = compiler.DefaultPhysicalOptimizationPolicy
-	CompileRequest                     = compiler.CompileRequest
-	CompileRequestWithPolicy           = compiler.CompileRequestWithPolicy
-	BuildSemanticPlan                  = compiler.BuildSemanticPlan
-	ValidateSemanticGraph              = compiler.ValidateSemanticGraph
-	BuildPhysicalPlan                  = compiler.BuildPhysicalPlan
-	BuildPhysicalPlanWithPolicy        = compiler.BuildPhysicalPlanWithPolicy
-	BuildGenericPhysicalPlan           = compiler.BuildGenericPhysicalPlan
-	BuildGenericPhysicalPlanWithPolicy = compiler.BuildGenericPhysicalPlanWithPolicy
-	OptimizePhysicalPlan               = compiler.OptimizePhysicalPlan
-	OptimizePhysicalPlanWithPolicy     = compiler.OptimizePhysicalPlanWithPolicy
-	RenderPhysicalPlan                 = compiler.RenderPhysicalPlan
-	ParseSelector                      = compiler.ParseSelector
-	ParseRecipe                        = recipe.Parse
-	CompileRecipeBundle                = recipecompile.CompileBundle
-	BuildRecipePlan                    = compiler.BuildRecipePlan
-	BuildRecipePlanFromBuilder         = compiler.BuildRecipePlanFromBuilder
-	ResolveRecipePlan                  = compiler.ResolveRecipePlan
-	LowerResolvedRecipePlan            = compiler.LowerResolvedRecipePlan
-	NewRecipeControlService            = func(registry recipecontrol.Registry) recipecontrol.Service {
-		return recipecontrol.Service{Registry: registry}
+	NewService                          = runtime.NewService
+	ExecuteQueryRows                    = runtime.ExecuteQueryRows
+	ExplainCompiledQuery                = runtime.ExplainCompiledQuery
+	ProfileCompiledQuery                = runtime.ProfileCompiledQuery
+	DefaultPhysicalOptimizationPolicy   = compiler.DefaultPhysicalOptimizationPolicy
+	ValidateSemanticGraph               = compiler.ValidateSemanticGraph
+	BuildPhysicalPlan                   = compiler.BuildPhysicalPlan
+	BuildPhysicalPlanWithPolicy         = compiler.BuildPhysicalPlanWithPolicy
+	BuildGenericPhysicalPlan            = compiler.BuildGenericPhysicalPlan
+	BuildGenericPhysicalPlanWithPolicy  = compiler.BuildGenericPhysicalPlanWithPolicy
+	OptimizePhysicalPlan                = compiler.OptimizePhysicalPlan
+	OptimizePhysicalPlanWithPolicy      = compiler.OptimizePhysicalPlanWithPolicy
+	RenderPhysicalPlan                  = compiler.RenderPhysicalPlan
+	ParseSelector                       = compiler.ParseSelector
+	ParseRecipe                         = recipe.Parse
+	BuildRecipePlan                     = compiler.BuildRecipePlan
+	CompileResolvedRecipePlanWithPolicy = compiler.CompileResolvedRecipePlanWithPolicy
+	ResolveRecipePlan                   = compiler.ResolveRecipePlan
+	NewRecipeControlService             = func(registry control.Registry) control.Service {
+		return control.Service{Registry: registry}
 	}
-	NewRecipeEngine                  = recipeengine.New
+	NewRecipeEngine                  = engine.New
 	PublishRecipeBundle              = materialization.PublishBundle
-	NewRecipeRegistry                = recipeexec.NewRegistry
+	NewRecipeRegistry                = exec.NewRegistry
 	ValidateTypedFilterForResource   = compiler.ValidateTypedFilterForResource
 	NormalizeSelectionPlan           = compiler.NormalizeSelectionPlan
 	ResolveSemanticField             = compiler.ResolveSemanticField

@@ -34,14 +34,12 @@ func dataframeBuilderRestrictedEmptyContext() context.Context {
 func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	resolver := dataframeBuilderRestrictedEmptyScopeResolver()
 	preparedCatalogCalls := 0
-	dataframeCatalogCalls := 0
 
 	dataframes := dataframe.NewService(dataframe.ServiceConfig{
-		// This intentionally has no ScopeResolver. It proves the marker carried
-		// by dataframebuilder survives into a separately configured dataframe
-		// service instead of being reinterpreted as unrestricted.
+		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
+		// is already catalog- and scope-resolved before reaching execution, so
+		// the runtime must not perform a second recipe preparation pass.
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			dataframeCatalogCalls++
 			assertRestrictedEmptyFieldScope(t, options)
 			return []catalog.PopulatedField{}, nil
 		},
@@ -76,8 +74,8 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	if result.RowCount != 0 {
 		t.Fatalf("result row count = %d, want no fake rows", result.RowCount)
 	}
-	if preparedCatalogCalls == 0 || dataframeCatalogCalls == 0 {
-		t.Fatalf("catalog calls = prepared %d dataframe %d, want both paths", preparedCatalogCalls, dataframeCatalogCalls)
+	if preparedCatalogCalls == 0 {
+		t.Fatalf("prepared catalog calls = %d, want scoped preparation", preparedCatalogCalls)
 	}
 }
 

@@ -152,17 +152,6 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 	}
 }
 
-func TestPruneUnusedRuntimeBindVars(t *testing.T) {
-	bindVars := map[string]any{"used": 1, "unused": 2}
-	got := pruneUnusedRuntimeBindVars(bindVars, "FOR doc IN c FILTER @used == 1 RETURN doc")
-	if _, ok := got["used"]; !ok {
-		t.Fatalf("used bind was pruned: %#v", got)
-	}
-	if _, ok := got["unused"]; ok {
-		t.Fatalf("unused bind was retained: %#v", got)
-	}
-}
-
 func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
 	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},

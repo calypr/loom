@@ -2,28 +2,59 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "patient-observation-pivot",
   "description": "Patient-grain sparse Observation pivot",
-  "tags": ["supported", "patient", "observation", "pivot"],
+  "tags": [
+    "supported",
+    "patient",
+    "observation",
+    "pivot"
+  ],
   "limit": 10,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Patient",
-    "Traversals": [{
-      "Label": "subject_Patient",
-      "ToResourceType": "Observation",
-      "Alias": "observation",
-      "Pivots": [{
-        "Name": "lab_values",
-        "ColumnSelect": "code.coding[].display",
-        "ValueSelect": "valueQuantity.value",
-        "Columns": ["Tumor Purity", "Hemoglobin"]
-      }]
-    }]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Patient",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Patient",
+        "rootResourceType": "Patient",
+        "rowGrain": "patient",
+        "traversals": [
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Observation",
+            "alias": "observation",
+            "pivots": [
+              {
+                "name": "lab_values",
+                "columnExpr": {
+                  "select": "code.coding[].display"
+                },
+                "valueExpr": {
+                  "select": "valueQuantity.value"
+                },
+                "columns": [
+                  "Tumor Purity",
+                  "Hemoglobin"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "queryContains": ["MERGE(", "FILTER LENGTH(__pivot_values) > 0"],
-    "bindVars": {"project": "oracle-project", "limit": 10},
+    "planProfile": "generic_fhir_graph_recipe",
+    "queryContains": [
+      "FIRST(",
+      "FILTER LENGTH(__pivot_values) \u003e 0"
+    ],
+    "bindVars": {
+      "limit": 10,
+      "project": "oracle-project"
+    },
     "expectedTraversalSets": 1
   }
 }

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/materialization"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -18,13 +17,6 @@ const (
 // optional preserves the small fake Client used by existing registry tests.
 type AQLExecutor interface {
 	ExecuteAQL(context.Context, string, map[string]interface{}) error
-}
-
-func BundleBootstrapSpec() arangostore.BootstrapSpec {
-	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
-		{Name: BundleExecutionsCollection, Indexes: [][]string{{"key"}, {"state"}, {"name", "state"}}},
-		{Name: BundlePointersCollection, Indexes: [][]string{{"executionId"}}},
-	}}
 }
 
 func (r *Registry) SaveExecution(ctx context.Context, execution materialization.BundleExecution) error {

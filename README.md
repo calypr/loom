@@ -52,12 +52,14 @@ directory contains the local Arango compose setup.
 - [`internal/dataframe/recipe`](internal/dataframe/recipe): strict, versioned recipe documents and the checked-in default translation data
 - [`internal/dataframe/expression`](internal/dataframe/expression): backend-neutral typed expression AST
 - [`internal/dataframe/semantic`](internal/dataframe/semantic): unified typed recipe/GraphQL plans, scope checking, expansion, and resolved discovery schemas
-- [`internal/dataframe/recipeplan`](internal/dataframe/recipeplan): bounded deterministic dynamic-column schema freezing
-- [`internal/dataframe/recipecontrol`](internal/dataframe/recipecontrol): transport-neutral validate, explain, resolve, and preview control-plane service
-- [`internal/dataframe/recipeeval`](internal/dataframe/recipeeval): reference-only interpreter for differential tests; it is not a production server path
-- [`internal/dataframe/recipeexec`](internal/dataframe/recipeexec): immutable recipe registries, durable-store seam, and reference runner
+- [`internal/dataframe/recipe/plan`](internal/dataframe/recipe/plan): bounded deterministic dynamic-column schema freezing
+- [`internal/dataframe/recipe/control`](internal/dataframe/recipe/control): transport-neutral validate, explain, resolve, and preview control-plane service
+- [`internal/dataframe/recipe/reference`](internal/dataframe/recipe/reference): reference-only interpreter for differential tests; it is not a production server path
+- [`internal/dataframe/recipe/exec`](internal/dataframe/recipe/exec): immutable recipe registries, durable-store seam, and reference runner
+- [`internal/dataframe/recipe/engine`](internal/dataframe/recipe/engine): production resolve, compile, stream, and materialization seam
+- [`internal/dataframe/recipe/schema`](internal/dataframe/recipe/schema): catalog-backed recipe schema resolution
 - [`internal/dataframe/materialization`](internal/dataframe/materialization): ClickHouse materialization and atomic multi-output publication contract
-- [`conformance/legacydataframer`](conformance/legacydataframer): golden NDJSON compatibility oracle harness
+- `conformance/compiler`: canonical recipe compiler conformance corpus
 - [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
 - [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
 - [`internal/graphschema`](internal/graphschema): exact graph-schema identity captured by dataset generations
@@ -201,17 +203,17 @@ The default translation is stored as data in
 [`internal/dataframe/recipe/default_aced.json`](internal/dataframe/recipe/default_aced.json).
 It contains the five legacy output shapes and is loaded with
 `recipe.DefaultACEDBundle`; no production Go branch dispatches on those output
-names. `recipeexec.Registry` makes registration immutable by canonical digest,
-and `recipeexec.Runner` evaluates every output before returning a result.
+names. `recipe/exec.Registry` makes registration immutable by canonical digest,
+and `recipe/reference` evaluates every output before returning a result.
 
 The production boundary is `semantic.BuildRecipePlan` followed by
 `semantic.ResolveRecipePlan` and the typed physical expression lowering under
 `internal/dataframe/compiler/lower`; preview and materialization adapters must
 consume that resolved plan. The generic evaluator remains available only as a
-small reference implementation for differential tests. Compatibility is
-measured with the checked-in manifest under
-[`conformance/legacydataframer`](conformance/legacydataframer), which compares
-legacy and Loom NDJSON by declared identity and exact JSON types.
+small reference implementation for differential tests. Conformance is
+measured with the canonical recipe compiler corpus under
+`conformance/compiler`, covering validation, lowering, optimization, and AQL
+rendering.
 
 ## Build Targets
 
@@ -242,6 +244,19 @@ The server mounts:
 - `POST /api/v1/imports` (legacy one-file import; disabled with `--dataset-generations`)
 
 HTTP wiring lives in [`internal/httpapi/routes.go`](internal/httpapi/routes.go) and [`internal/httpapi/server.go`](internal/httpapi/server.go).
+
+## Authorization
+
+The production server accepts `--config /path/config.yaml`. Authentication is
+Basic by default and requires `LOOM_AUTH_BASIC_USERNAME` and
+`LOOM_AUTH_BASIC_PASSWORD` (or `auth.basic` values in the config). Gen3
+deployments select `auth.mode: calypr`; Loom forwards the bearer token to the
+issuer-derived `/user/user` endpoint and scopes every project read by the
+returned `auth_resource_path` grants. CSV/JSON dataframe responses are reads;
+ClickHouse/Elasticsearch publication and dataset ingestion require `write`.
+
+For local development only, pass `--no-auth`. The flag creates an explicit
+unrestricted operator principal and should not be used in a deployed chart.
 
 ## Primary Collections
 

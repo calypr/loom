@@ -1,5 +1,35 @@
 package ir
 
+import "encoding/json"
+
+func cloneStrings(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	return append([]string(nil), in...)
+}
+
+func clonePhysicalBindValue(value any) any {
+	switch value := value.(type) {
+	case []any:
+		out := make([]any, len(value))
+		for i, item := range value {
+			out[i] = clonePhysicalBindValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), value...)
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, item := range value {
+			out[key] = clonePhysicalBindValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
 func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	copy := plan
 	copy.BindVars = clonePhysicalBindVars(plan.BindVars)
@@ -17,9 +47,6 @@ func ClonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 }
 func ClonePhysicalOperations(operations []PhysicalOperation) []PhysicalOperation {
 	return clonePhysicalOperations(operations)
-}
-func ClonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
-	return clonePhysicalPredicate(predicate)
 }
 func ClonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) PhysicalPredicateExpression {
 	return clonePhysicalPredicateExpression(predicate)
@@ -81,13 +108,27 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		}
 		copy.Set = &setCopy
 	}
+	if operation.Unnest != nil {
+		unnestCopy := *operation.Unnest
+		unnestCopy.Expression = clonePhysicalExpression(operation.Unnest.Expression)
+		copy.Unnest = &unnestCopy
+	}
 	if operation.DerivedLet != nil {
 		derivedCopy := *operation.DerivedLet
 		derivedCopy.Inputs = make([]PhysicalValue, len(operation.DerivedLet.Inputs))
 		for index, input := range operation.DerivedLet.Inputs {
 			derivedCopy.Inputs[index] = clonePhysicalValue(input)
 		}
+		if operation.DerivedLet.Expression != nil {
+			expression := clonePhysicalExpression(*operation.DerivedLet.Expression)
+			derivedCopy.Expression = &expression
+		}
 		copy.DerivedLet = &derivedCopy
+	}
+	if operation.ExpressionLet != nil {
+		expressionCopy := *operation.ExpressionLet
+		expressionCopy.Expression = clonePhysicalExpression(operation.ExpressionLet.Expression)
+		copy.ExpressionLet = &expressionCopy
 	}
 	if operation.Sort != nil {
 		sortCopy := *operation.Sort
@@ -104,6 +145,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		for index, projection := range operation.Return.Projections {
 			projectionCopy := projection
 			projectionCopy.Value = clonePhysicalValue(projection.Value)
+			if projection.Expression != nil {
+				expression := clonePhysicalExpression(*projection.Expression)
+				projectionCopy.Expression = &expression
+			}
 			returnCopy.Projections[index] = projectionCopy
 		}
 		copy.Return = &returnCopy
@@ -161,6 +206,8 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Pivot != nil {
 		pivot := *expression.Pivot
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
+		pivot.ItemSource.Steps = append([]SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
+		pivot.ValueFallbacks = append([]Selector(nil), expression.Pivot.ValueFallbacks...)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
 		if pivot.PreparedKey != nil {
 			prepared := *pivot.PreparedKey
@@ -200,6 +247,38 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Slice = &slice
 	}
+	if expression.Lookup != nil {
+		lookup := *expression.Lookup
+		lookup.Source = clonePhysicalExpression(expression.Lookup.Source)
+		lookup.ItemKey = clonePhysicalExpression(expression.Lookup.ItemKey)
+		lookup.ItemValue = clonePhysicalExpression(expression.Lookup.ItemValue)
+		copy.Lookup = &lookup
+	}
+	if expression.ObjectLookup != nil {
+		lookup := *expression.ObjectLookup
+		copy.ObjectLookup = &lookup
+	}
+	if expression.KeyedMap != nil {
+		keyed := *expression.KeyedMap
+		keyed.Source = clonePhysicalExpression(expression.KeyedMap.Source)
+		keyed.ItemKey = clonePhysicalExpression(expression.KeyedMap.ItemKey)
+		keyed.ItemValue = clonePhysicalExpression(expression.KeyedMap.ItemValue)
+		keyed.ValueFallbacks = make([]PhysicalExpression, len(expression.KeyedMap.ValueFallbacks))
+		for index := range expression.KeyedMap.ValueFallbacks {
+			keyed.ValueFallbacks[index] = clonePhysicalExpression(expression.KeyedMap.ValueFallbacks[index])
+		}
+		copy.KeyedMap = &keyed
+	}
+	if expression.ObjectKeys != nil {
+		keys := *expression.ObjectKeys
+		copy.ObjectKeys = &keys
+	}
+	if expression.KeySet != nil {
+		keySet := *expression.KeySet
+		keySet.Source = clonePhysicalExpression(expression.KeySet.Source)
+		keySet.ItemKey = clonePhysicalExpression(expression.KeySet.ItemKey)
+		copy.KeySet = &keySet
+	}
 	if expression.Object != nil {
 		object := *expression.Object
 		object.Fields = make([]PhysicalExpressionProjection, len(expression.Object.Fields))
@@ -211,6 +290,20 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		copy.Object = &object
 	}
 	return copy
+}
+
+// PhysicalExpressionFingerprint returns a deterministic structural identity
+// for optimizer reuse decisions. It intentionally includes typed bind keys
+// and cardinality/null contracts but never bind values.
+func PhysicalExpressionFingerprint(expression PhysicalExpression) (string, error) {
+	if err := validatePhysicalExpressionObjectCycles(expression); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(expression)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
