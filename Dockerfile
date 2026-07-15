@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.5-alpine3.22 AS builder
-RUN apk add --no-cache git ca-certificates tzdata
+FROM golang:1.26.5-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV CGO_ENABLED=0
 
