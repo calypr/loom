@@ -84,7 +84,7 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity Bun
 	if err := s.Catalog.SaveExecution(ctx, execution); err != nil {
 		return nil, err
 	}
-	return &clickHouseBundleTx{store: s, execution: execution, expectedPointer: s.pointer(ctx, identity.Name)}, nil
+	return &clickHouseBundleTx{store: s, execution: execution, expectedPointer: s.pointer(ctx, identity.PointerName())}, nil
 }
 
 func (s *ClickHouseBundleStore) pointer(ctx context.Context, name string) string {
@@ -240,7 +240,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
 	if err := t.save(ctx); err != nil {
 		return err
 	}
-	if err := t.store.Catalog.CompareAndSwapPointer(ctx, t.execution.Name, t.expectedPointer, t.execution.ID); err != nil {
+	if err := t.store.Catalog.CompareAndSwapPointer(ctx, t.execution.PointerName(), t.expectedPointer, t.execution.ID); err != nil {
 		return t.fail(ctx, fmt.Errorf("publish bundle pointer: %w", err))
 	}
 	t.closed = true

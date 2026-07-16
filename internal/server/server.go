@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -17,6 +16,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/graphqlapi"
+	clickhousegraphql "github.com/calypr/loom/graphqlapi/clickhouse"
+	materializationapi "github.com/calypr/loom/graphqlapi/materialization"
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -25,7 +26,6 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
-	publicationelasticsearch "github.com/calypr/loom/internal/dataframe/publication/elasticsearch"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -36,8 +36,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
-	elasticsearchstore "github.com/calypr/loom/internal/store/elasticsearch"
-	"github.com/google/uuid"
 )
 
 // Run starts the Loom HTTP server using the process command-line flags.
@@ -54,14 +52,11 @@ func Run() {
 		// active manifest before dataframe discovery or execution. This mode
 		// disables the legacy one-file import route because that route cannot
 		// safely construct a complete immutable snapshot.
-		datasetGenerations  = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
-		clickhouseURL       = flag.String("clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
-		clickhouseDatabase  = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
-		recipeBatchRows     = flag.Int("recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
-		recipeBatchBytes    = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
-		publicationTarget   = flag.String("publication-target", "clickhouse", "recipe publication target: clickhouse or elasticsearch")
-		elasticsearchURL    = flag.String("elasticsearch-url", os.Getenv("LOOM_ELASTICSEARCH_URL"), "Elasticsearch/OpenSearch URL for direct recipe publication")
-		elasticsearchPrefix = flag.String("elasticsearch-index-prefix", "loom", "prefix for staged Elasticsearch/OpenSearch indices and aliases")
+		datasetGenerations = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
+		clickhouseURL      = flag.String("clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
+		clickhouseDatabase = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
+		recipeBatchRows    = flag.Int("recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
+		recipeBatchBytes   = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
 	)
 	flag.Parse()
 
@@ -80,9 +75,6 @@ func Run() {
 		*clickhouseDatabase = serverConfig.Server.ClickHouse.Database
 		*recipeBatchRows = serverConfig.Server.RecipeBatchRows
 		*recipeBatchBytes = serverConfig.Server.RecipeBatchBytes
-		*publicationTarget = serverConfig.Server.PublicationTarget
-		*elasticsearchURL = serverConfig.Server.Elasticsearch.URL
-		*elasticsearchPrefix = serverConfig.Server.Elasticsearch.IndexPrefix
 		*noAuth = serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
 	}
 	if *noAuth {
@@ -186,7 +178,13 @@ func Run() {
 		exitf("create ClickHouse client: %v", err)
 	}
 	defer clickhouse.Close()
-	materializationReader := &materialization.Reader{ClickHouse: clickhouse, Registry: registry, MaxPage: 1000}
+	// The Arango-backed dataframe loader publishes into this database. Create
+	// it during server startup so a fresh ClickHouse instance does not require
+	// an operator to run a separate DDL/API step before materialization.
+	if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
+		exitf("ensure ClickHouse database %q: %v", *clickhouseDatabase, err)
+	}
+	materializationReader := &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
 		ResolveBundle: recipeSchemaResolver(connOpts, discoveryCache),
@@ -217,30 +215,6 @@ func Run() {
 	if err != nil {
 		exitf("create dataframe publication target: %v", err)
 	}
-	var directTarget publication.Target = bundleTarget
-	directElasticsearch := false
-	switch strings.ToLower(strings.TrimSpace(*publicationTarget)) {
-	case "clickhouse":
-	case "elasticsearch":
-		if strings.TrimSpace(*elasticsearchURL) == "" {
-			exitf("elasticsearch publication target requires -elasticsearch-url or LOOM_ELASTICSEARCH_URL")
-		}
-		esClient, err := elasticsearchstore.New(elasticsearchstore.Options{
-			URL: *elasticsearchURL, Username: os.Getenv("LOOM_ELASTICSEARCH_USERNAME"), Password: os.Getenv("LOOM_ELASTICSEARCH_PASSWORD"),
-			RequestTimeout: 30 * time.Second, MaxRetries: 3,
-		})
-		if err != nil {
-			exitf("create Elasticsearch client: %v", err)
-		}
-		esTarget, err := publicationelasticsearch.New(publicationelasticsearch.Options{Client: esClient, IndexPrefix: *elasticsearchPrefix, MaxRetries: 3})
-		if err != nil {
-			exitf("create Elasticsearch publication target: %v", err)
-		}
-		directTarget = esTarget
-		directElasticsearch = true
-	default:
-		exitf("unsupported publication target %q", *publicationTarget)
-	}
 	resolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			ConnectionOptions:      connOpts,
@@ -255,6 +229,7 @@ func Run() {
 		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
 		RecipeExecutions:      graphqlapi.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
 		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphqlapi.RecipeExecution, error) {
+			bindings.IncludeAuthResourcePath = true
 			var identity materialization.BundleIdentity
 			_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
 				streams, err := recipeEngine.Streams(ctx, full)
@@ -277,10 +252,7 @@ func Run() {
 					})
 				}
 				publicationIdentity := publication.PublicationIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
-				if directElasticsearch {
-					return publishDirectElasticsearch(ctx, registry, directTarget, publicationIdentity, streamInputs, publication.Limits{BatchRows: *recipeBatchRows, BatchBytes: *recipeBatchBytes})
-				}
-				_, err = publication.Publish(ctx, directTarget, publicationIdentity, streamInputs, publication.Limits{BatchRows: *recipeBatchRows, BatchBytes: *recipeBatchBytes})
+				_, err = publication.Publish(ctx, bundleTarget, publicationIdentity, streamInputs, publication.Limits{BatchRows: *recipeBatchRows, BatchBytes: *recipeBatchBytes})
 				return err
 			})
 			if err != nil {
@@ -292,6 +264,11 @@ func Run() {
 			}
 			return graphqlapi.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
 		},
+	})
+	clickhouseService := materializationapi.NewService(materializationapi.Config{
+		Reader:                 materializationReader,
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: activeManifestResolver,
 	})
 
 	importService, err := api.NewService(api.ServiceConfig{
@@ -321,8 +298,9 @@ func Run() {
 		Authorizer:                   authorizer,
 		ScopeResolver:                scopeResolver,
 		GraphQLHandler:               graphqlapi.NewHandler(resolver),
-		GraphQLPlaygroundHandler:     graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:         graphqlapi.NewApolloSandboxHandler("/graphql"),
+		ClickHouseGraphQLHandler:     clickhousegraphql.NewHandler(clickhouseService),
+		GraphQLPlaygroundHandler:     graphqlapi.NewPlaygroundHandler("/graphql/graph"),
+		ApolloSandboxHandler:         graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 		DisableSingleResourceImports: *datasetGenerations,
 		RawExporter:                  api.ArangoRawExporter{Query: lifecycleClient, Manifests: lifecycleStore},
 		Logger:                       logger,
@@ -358,49 +336,6 @@ func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
 	sort.Strings(paths)
 	hash := sha256.Sum256([]byte(bindings.Project + "\x00" + bindings.DatasetGeneration + "\x00" + strings.Join(paths, "\x00")))
 	return hex.EncodeToString(hash[:])
-}
-
-func publishDirectElasticsearch(ctx context.Context, catalog materialization.BundleCatalog, target publication.Target, identity publication.PublicationIdentity, outputs []publication.OutputStream, limits publication.Limits) error {
-	if catalog == nil {
-		return fmt.Errorf("publication execution catalog is required")
-	}
-	key := materialization.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}.Key()
-	if existing, err := catalog.FindExecutionByKey(ctx, key); err == nil {
-		if existing.State == materialization.BundleReady {
-			return nil
-		}
-		if existing.State != materialization.BundleFailed {
-			return fmt.Errorf("identical Elasticsearch publication is already in state %s", existing.State)
-		}
-	} else if !errors.Is(err, materialization.ErrBundleNotFound) {
-		return err
-	}
-	now := time.Now().UTC()
-	execution := materialization.BundleExecution{
-		ID: uuid.NewString(), Key: key,
-		BundleIdentity: materialization.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)},
-		State:          materialization.BundleLoading, CreatedAt: now, UpdatedAt: now,
-	}
-	if err := catalog.SaveExecution(ctx, execution); err != nil {
-		return err
-	}
-	result, err := publication.Publish(ctx, target, identity, outputs, limits)
-	if err != nil {
-		execution.State = materialization.BundleFailed
-		execution.Error = err.Error()
-		execution.UpdatedAt = time.Now().UTC()
-		_ = catalog.SaveExecution(context.Background(), execution)
-		return err
-	}
-	execution.State = materialization.BundleReady
-	readyAt := time.Now().UTC()
-	execution.ReadyAt = &readyAt
-	execution.UpdatedAt = readyAt
-	execution.Outputs = make([]materialization.BundleOutputRecord, 0, len(result.Outputs))
-	for _, output := range result.Outputs {
-		execution.Outputs = append(execution.Outputs, materialization.BundleOutputRecord{Name: output.Name, PhysicalTable: output.PhysicalName, RowCount: output.RowCount, ByteCount: output.ByteCount, State: materialization.BundleReady})
-	}
-	return catalog.SaveExecution(ctx, execution)
 }
 
 // recipeOutputLogicalColumns is the one conversion point from the finalized

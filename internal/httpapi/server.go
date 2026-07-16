@@ -16,6 +16,7 @@ type HTTPConfig struct {
 	Authorizer               authscope.Authorizer
 	ScopeResolver            *authscope.ScopeResolver
 	GraphQLHandler           http.Handler
+	ClickHouseGraphQLHandler http.Handler
 	GraphQLPlaygroundHandler http.Handler
 	ApolloSandboxHandler     http.Handler
 	Logger                   *slog.Logger
@@ -37,6 +38,7 @@ type HTTPServer struct {
 	scopeResolver                *authscope.ScopeResolver
 	logger                       *slog.Logger
 	cfgGraphQLHandler            http.Handler
+	cfgClickHouseGraphQLHandler  http.Handler
 	cfgGraphQLPlaygroundHandler  http.Handler
 	cfgApolloSandboxHandler      http.Handler
 	disableSingleResourceImports bool
@@ -88,6 +90,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		scopeResolver:                cfg.ScopeResolver,
 		logger:                       cfg.Logger,
 		cfgGraphQLHandler:            cfg.GraphQLHandler,
+		cfgClickHouseGraphQLHandler:  cfg.ClickHouseGraphQLHandler,
 		cfgGraphQLPlaygroundHandler:  cfg.GraphQLPlaygroundHandler,
 		cfgApolloSandboxHandler:      cfg.ApolloSandboxHandler,
 		disableSingleResourceImports: cfg.DisableSingleResourceImports,

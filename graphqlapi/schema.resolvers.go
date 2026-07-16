@@ -164,6 +164,28 @@ func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string)
 	return materializationapi.Model(*value), nil
 }
 
+// DataframeDatasets is the resolver for the dataframeDatasets field.
+func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error) {
+	values, err := r.materializations.Datasets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*model.DataframeMaterialization, 0, len(values))
+	for _, value := range values {
+		result = append(result, materializationapi.Model(value))
+	}
+	return result, nil
+}
+
+// DataframeDataset is the resolver for the dataframeDataset field.
+func (r *queryResolver) DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error) {
+	value, err := r.materializations.Dataset(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return materializationapi.Model(*value), nil
+}
+
 // DataframeRows is the resolver for the dataframeRows field.
 func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
 	page, err := r.materializations.Rows(ctx, input)
@@ -178,21 +200,17 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 	if page.NextCursor != "" {
 		cursor = &page.NextCursor
 	}
+	totalCount := int(page.TotalCount)
 	return &model.DataframeRowConnection{
 		Materialization: materializationapi.Model(page.Materialization),
-		Columns:         append([]string(nil), page.Columns...), Rows: rows,
+		Columns:         append([]string(nil), page.Columns...), Rows: rows, TotalCount: &totalCount,
 		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
 	}, nil
 }
 
 // DataframeAggregate is the resolver for the dataframeAggregate field.
 func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
-	groupBy := append([]string(nil), input.GroupBy...)
-	column := ""
-	if input.Column != nil {
-		column = *input.Column
-	}
-	result, err := r.materializations.Aggregate(ctx, input.MaterializationID, groupBy, input.Filters, input.Operation, column)
+	result, err := r.materializations.AggregateInput(ctx, input)
 	if err != nil {
 		return nil, err
 	}

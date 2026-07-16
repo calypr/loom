@@ -40,6 +40,17 @@ type Request struct {
 	Schema []SchemaColumn
 }
 
+const authResourcePathColumn = "auth_resource_path"
+
+func withReservedAuthColumn(columns []Column) ([]Column, error) {
+	for _, column := range columns {
+		if column.Name == authResourcePathColumn {
+			return nil, fmt.Errorf("schema column %q is reserved by Loom", authResourcePathColumn)
+		}
+	}
+	return append([]Column{{Name: authResourcePathColumn, ClickHouse: "Nullable(String)"}}, columns...), nil
+}
+
 // Preflight validates an explicit output schema before any ClickHouse table
 // is created. An empty schema preserves the original inference behavior.
 func (s *Service) Preflight(req Request) ([]Column, error) {
@@ -64,7 +75,7 @@ func (s *Service) Preflight(req Request) ([]Column, error) {
 		seen[column.Name] = struct{}{}
 		result = append(result, column)
 	}
-	return result, nil
+	return withReservedAuthColumn(result)
 }
 
 func (s *Service) Materialize(ctx context.Context, req Request) (Materialization, error) {
@@ -138,6 +149,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	streamResult, err := s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
 		rowCount++
 		row = cloneMap(row)
+		if _, ok := row[authResourcePathColumn]; !ok {
+			if len(req.Run.Bindings.AuthResourcePaths) == 1 {
+				row[authResourcePathColumn] = req.Run.Bindings.AuthResourcePaths[0]
+			} else {
+				row[authResourcePathColumn] = ""
+			}
+		}
 		row["__loom_row_id"] = rowCount
 		newColumns := make([]Column, 0)
 		for name, value := range row {

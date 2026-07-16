@@ -15,19 +15,17 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen               string              `yaml:"listen"`
-	Backend              string              `yaml:"backend"`
-	URL                  string              `yaml:"url"`
-	Database             string              `yaml:"database"`
-	Schema               string              `yaml:"schema"`
-	Arango               ArangoConfig        `yaml:"arango"`
-	DatasetGenerations   bool                `yaml:"dataset_generations"`
-	ClickHouse           ClickHouseConfig    `yaml:"clickhouse"`
-	PublicationTarget    string              `yaml:"publication_target"`
-	Elasticsearch        ElasticsearchConfig `yaml:"elasticsearch"`
-	RecipeBatchRows      int                 `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes     int                 `yaml:"recipe_batch_bytes"`
-	AllowUnauthenticated bool                `yaml:"allow_unauthenticated"`
+	Listen               string           `yaml:"listen"`
+	Backend              string           `yaml:"backend"`
+	URL                  string           `yaml:"url"`
+	Database             string           `yaml:"database"`
+	Schema               string           `yaml:"schema"`
+	Arango               ArangoConfig     `yaml:"arango"`
+	DatasetGenerations   bool             `yaml:"dataset_generations"`
+	ClickHouse           ClickHouseConfig `yaml:"clickhouse"`
+	RecipeBatchRows      int              `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes     int              `yaml:"recipe_batch_bytes"`
+	AllowUnauthenticated bool             `yaml:"allow_unauthenticated"`
 }
 
 type ArangoConfig struct {
@@ -38,13 +36,6 @@ type ArangoConfig struct {
 type ClickHouseConfig struct {
 	URL      string `yaml:"url"`
 	Database string `yaml:"database"`
-}
-
-type ElasticsearchConfig struct {
-	URL         string `yaml:"url"`
-	IndexPrefix string `yaml:"index_prefix"`
-	Username    string `yaml:"username"`
-	Password    string `yaml:"password"`
 }
 
 type AuthConfig struct {
@@ -69,8 +60,7 @@ func DefaultConfig() Config {
 		Server: ServerConfig{
 			Listen: ":8080", Backend: "arango", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{URL: "clickhouse://127.0.0.1:9000", Database: "loom"},
-			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, PublicationTarget: "clickhouse",
-			Elasticsearch: ElasticsearchConfig{IndexPrefix: "loom"},
+			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -105,15 +95,6 @@ func applyEnvironment(cfg Config) Config {
 	}
 	if cfg.Auth.Basic.Password == "" {
 		cfg.Auth.Basic.Password = os.Getenv("LOOM_AUTH_BASIC_PASSWORD")
-	}
-	if cfg.Server.Elasticsearch.URL == "" {
-		cfg.Server.Elasticsearch.URL = os.Getenv("LOOM_ELASTICSEARCH_URL")
-	}
-	if cfg.Server.Elasticsearch.Username == "" {
-		cfg.Server.Elasticsearch.Username = os.Getenv("LOOM_ELASTICSEARCH_USERNAME")
-	}
-	if cfg.Server.Elasticsearch.Password == "" {
-		cfg.Server.Elasticsearch.Password = os.Getenv("LOOM_ELASTICSEARCH_PASSWORD")
 	}
 	return cfg
 }

@@ -18,7 +18,11 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if len(outputs) == 0 {
 		return Result{}, fmt.Errorf("publication requires at least one output")
 	}
-	schemas, err := validateOutputs(outputs)
+	normalizedOutputs, err := injectAuthResourcePath(identity, outputs)
+	if err != nil {
+		return Result{}, err
+	}
+	schemas, err := validateOutputs(normalizedOutputs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -33,8 +37,8 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		}
 		return Result{}, cause
 	}
-	stats := make(map[string]PublishedOutput, len(outputs))
-	for _, output := range outputs {
+	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
+	for _, output := range normalizedOutputs {
 		stat := PublishedOutput{Name: output.Name}
 		batch := make([]map[string]any, 0, limits.BatchRows)
 		batchBytes := 0
@@ -89,7 +93,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	}
 	if len(published) == 0 {
 		published = make([]PublishedOutput, 0, len(outputs))
-		for _, output := range outputs {
+		for _, output := range normalizedOutputs {
 			published = append(published, stats[output.Name])
 		}
 	} else {
@@ -101,6 +105,46 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		}
 	}
 	return Result{Outputs: published}, nil
+}
+
+func injectAuthResourcePath(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
+	result := make([]OutputStream, 0, len(outputs))
+	for _, output := range outputs {
+		for _, column := range output.Columns {
+			if column.Name == "auth_resource_path" {
+				return nil, fmt.Errorf("output %q column %q is reserved by Loom", output.Name, column.Name)
+			}
+		}
+		copyOutput := output
+		copyOutput.Columns = append([]LogicalColumn{{Name: "auth_resource_path", Kind: "string", Nullable: true}}, output.Columns...)
+		originalStream := output.Stream
+		copyOutput.Stream = func(ctx context.Context, visit func(map[string]any) error) error {
+			return originalStream(ctx, func(row map[string]any) error {
+				if row == nil {
+					return visit(nil)
+				}
+				if _, ok := row["auth_resource_path"]; !ok {
+					row = cloneRow(row)
+					if len(identity.AuthResourcePaths) == 1 {
+						row["auth_resource_path"] = identity.AuthResourcePaths[0]
+					} else {
+						row["auth_resource_path"] = ""
+					}
+				}
+				return visit(row)
+			})
+		}
+		result = append(result, copyOutput)
+	}
+	return result, nil
+}
+
+func cloneRow(row map[string]any) map[string]any {
+	copy := make(map[string]any, len(row)+1)
+	for key, value := range row {
+		copy[key] = value
+	}
+	return copy
 }
 
 func validateOutputs(outputs []OutputStream) ([]OutputSchema, error) {

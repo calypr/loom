@@ -37,7 +37,7 @@ func (t *fakeTarget) Begin(_ context.Context, _ PublicationIdentity, schemas []O
 
 func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	target := &fakeTarget{}
-	result, err := Publish(context.Background(), target, PublicationIdentity{Name: "r"}, []OutputStream{{
+	result, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", AuthResourcePaths: []string{"/programs/p1"}}, []OutputStream{{
 		Name:    "patients",
 		Columns: []LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}, {Name: "id", Kind: "string"}},
 		Stream: func(_ context.Context, visit func(map[string]any) error) error {
@@ -57,6 +57,12 @@ func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	}
 	if result.Outputs[0].RowCount != 3 || result.Outputs[0].PhysicalName != "staged_patients" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if len(target.schemas) != 1 || target.schemas[0].Columns[0].Name != "auth_resource_path" {
+		t.Fatalf("reserved auth column missing: %#v", target.schemas)
+	}
+	if got := target.tx.batches[0][0]["auth_resource_path"]; got != "/programs/p1" {
+		t.Fatalf("auth resource path = %#v", got)
 	}
 }
 

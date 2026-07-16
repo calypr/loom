@@ -70,15 +70,15 @@ func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 		Service:                  svc,
 		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
 		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
-		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
+		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql/graph"),
+		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	queryBody := `{"query":"query($input: DataframeBuilderIntrospectionInput!) { dataframeBuilderIntrospection(input: $input) { project rootResourceType authResourcePaths root { resourceType fields { resourceType fieldRef label path selector { sourcePath where { path op value } valuePath } kind } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } traversals { fromType label toType edgeCount } } relatedResources { viaLabel edgeCount target { resourceType fields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } kind } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } } } traversals { fromType label toType edgeCount } fields { resourceType fieldRef label path selector { sourcePath where { path op value } valuePath } kind docCount sampleCount distinctValues distinctTruncated pivotCandidate pivotKind pivotColumns } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } } }","variables":{"input":{"project":"P1","rootResourceType":"Patient"}}}`
-	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := server.App().Test(req)
@@ -141,15 +141,15 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 		Service:                  svc,
 		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1"}},
 		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
-		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
+		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql/graph"),
+		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	queryBody := `{"query":"query { __schema { queryType { name } mutationType { name } } }"}`
-	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := server.App().Test(req)
@@ -267,15 +267,15 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		Service:                  svc,
 		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
 		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
-		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
+		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql/graph"),
+		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows rowCount diagnostics { inputResolutionMs requestPreparationMs compilationMs arangoQueryMs rowMaterializationMs resultAssemblyMs totalMs plan { traversalSets sharedTraversalCount scopedSharingCandidateGroups scopedSharingCandidateSets richSourceReuse { sourceSet aggregateConsumers pivotConsumers sliceConsumers totalConsumers } } } } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}],"traverse":[{"edgeLabel":"subject_Patient","toResourceType":"Condition","alias":"condition","aggregates":[{"name":"condition_count","operation":"COUNT"}]},{"edgeLabel":"subject_Patient","toResourceType":"Specimen","alias":"specimen","aggregates":[{"name":"specimen_count","operation":"COUNT"}]}]}}}`
-	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := server.App().Test(req)
@@ -406,15 +406,15 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		Service:                  svc,
 		Authenticator:            authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}},
 		GraphQLHandler:           graphqlapi.NewHandler(graphResolver),
-		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql"),
-		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql"),
+		GraphQLPlaygroundHandler: graphqlapi.NewPlaygroundHandler("/graphql/graph"),
+		ApolloSandboxHandler:     graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	queryBody := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rows rowCount } }","variables":{"limit":25,"input":{"project":"P1","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"},"valueMode":"AUTO"}],"traverse":[{"edgeLabel":"subject_Patient","toResourceType":"Specimen","alias":"specimen","aggregates":[{"name":"specimen_count","operation":"COUNT"},{"name":"specimen_types","operation":"DISTINCT_VALUES","fhirPath":"type[].coding[].display","valueMode":"AUTO"}]},{"edgeLabel":"subject_Patient","toResourceType":"Condition","alias":"condition","aggregates":[{"name":"condition_count","operation":"COUNT"}]}]}}}`
-	req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := server.App().Test(req)

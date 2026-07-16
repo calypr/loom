@@ -11,7 +11,8 @@ import (
 )
 
 type DataframeAggregateInput struct {
-	MaterializationID string                  `json:"materializationId"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
 	GroupBy           []string                `json:"groupBy,omitempty"`
 	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
 	Operation         string                  `json:"operation"`
@@ -45,6 +46,12 @@ type DataframeBuilderIntrospectionInput struct {
 type DataframeColumn struct {
 	Name           string `json:"name"`
 	ClickhouseType string `json:"clickhouseType"`
+	LogicalType    string `json:"logicalType"`
+	Nullable       bool   `json:"nullable"`
+	Repeated       bool   `json:"repeated"`
+	Filterable     bool   `json:"filterable"`
+	Sortable       bool   `json:"sortable"`
+	Aggregatable   bool   `json:"aggregatable"`
 }
 
 type DataframeCompilerPlanDiagnostics struct {
@@ -57,6 +64,10 @@ type DataframeCompilerPlanDiagnostics struct {
 	PotentialSharingOpportunitySets   int                          `json:"potentialSharingOpportunitySets"`
 	OptimizationPolicy                *DataframeOptimizationPolicy `json:"optimizationPolicy"`
 	RichSourceReuse                   []*DataframeRichSourceReuse  `json:"richSourceReuse"`
+}
+
+type DataframeDatasetInput struct {
+	DataType string `json:"dataType"`
 }
 
 type DataframeFieldHint struct {
@@ -97,16 +108,15 @@ type DataframeFilterInput struct {
 }
 
 type DataframeMaterialization struct {
-	ID                string                        `json:"id"`
-	Name              string                        `json:"name"`
-	Project           string                        `json:"project"`
-	DatasetGeneration string                        `json:"datasetGeneration"`
-	State             DataframeMaterializationState `json:"state"`
-	Columns           []*DataframeColumn            `json:"columns"`
-	RowCount          int                           `json:"rowCount"`
-	CreatedAt         string                        `json:"createdAt"`
-	ReadyAt           *string                       `json:"readyAt,omitempty"`
-	Error             *string                       `json:"error,omitempty"`
+	ID        string                        `json:"id"`
+	Name      string                        `json:"name"`
+	Revision  string                        `json:"revision"`
+	State     DataframeMaterializationState `json:"state"`
+	Columns   []*DataframeColumn            `json:"columns"`
+	RowCount  int                           `json:"rowCount"`
+	CreatedAt string                        `json:"createdAt"`
+	ReadyAt   *string                       `json:"readyAt,omitempty"`
+	Error     *string                       `json:"error,omitempty"`
 }
 
 type DataframeOptimizationDecision struct {
@@ -370,11 +380,13 @@ type DataframeRowConnection struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
+	TotalCount      *int                      `json:"totalCount,omitempty"`
 	PageInfo        *DataframePageInfo        `json:"pageInfo"`
 }
 
 type DataframeRowsInput struct {
-	MaterializationID string                  `json:"materializationId"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
 	Columns           []string                `json:"columns,omitempty"`
 	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
 	Sort              *DataframeSortInput     `json:"sort,omitempty"`

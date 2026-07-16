@@ -28,13 +28,16 @@ func (s *HTTPServer) registerHealthRoutes() {
 
 func (s *HTTPServer) registerGraphQLRoutes() {
 	if s.cfgGraphQLPlaygroundHandler != nil {
-		s.app.Get("/graphql", adaptor.HTTPHandlerWithContext(s.cfgGraphQLPlaygroundHandler))
+		s.app.Get("/graphql/graph", adaptor.HTTPHandlerWithContext(s.cfgGraphQLPlaygroundHandler))
 	}
 	if s.cfgApolloSandboxHandler != nil {
 		s.app.Get("/apollo", adaptor.HTTPHandlerWithContext(s.cfgApolloSandboxHandler))
 	}
 	if s.cfgGraphQLHandler != nil {
-		s.app.Post("/graphql", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
+		s.app.Post("/graphql/graph", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
+	}
+	if s.cfgClickHouseGraphQLHandler != nil {
+		s.app.Post("/graphql/flat", adaptor.HTTPHandlerWithContext(s.cfgClickHouseGraphQLHandler))
 	}
 }
 

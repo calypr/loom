@@ -100,6 +100,14 @@ func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {
 			columnType = "Int64"
 		case "decimal":
 			columnType = "Float64"
+		case "date":
+			columnType = "Date"
+		case "date-time":
+			columnType = "DateTime64(3)"
+		case "uuid":
+			columnType = "UUID"
+		case "code":
+			columnType = "String"
 		case "object":
 			return nil, fmt.Errorf("object-valued column %q is not supported", column.Name)
 		}

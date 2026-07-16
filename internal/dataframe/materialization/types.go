@@ -29,6 +29,7 @@ type SchemaColumn = Column
 type Materialization struct {
 	ID                string                  `json:"id"`
 	Name              string                  `json:"name"`
+	Revision          string                  `json:"revision,omitempty"`
 	Project           string                  `json:"project"`
 	DatasetGeneration string                  `json:"datasetGeneration"`
 	State             State                   `json:"state"`

@@ -4,6 +4,8 @@ type Query {
   ): DataframeBuilderIntrospection!
 
   dataframeMaterialization(id: ID!): DataframeMaterialization
+  dataframeDatasets: [DataframeMaterialization!]!
+  dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
@@ -279,19 +281,28 @@ enum DataframeMaterializationState {
 type DataframeColumn {
   name: String!
   clickhouseType: String!
+  logicalType: String!
+  nullable: Boolean!
+  repeated: Boolean!
+  filterable: Boolean!
+  sortable: Boolean!
+  aggregatable: Boolean!
 }
 
 type DataframeMaterialization {
   id: ID!
   name: String!
-  project: String!
-  datasetGeneration: String!
+  revision: String!
   state: DataframeMaterializationState!
   columns: [DataframeColumn!]!
   rowCount: Int!
   createdAt: String!
   readyAt: String
   error: String
+}
+
+input DataframeDatasetInput {
+  dataType: String!
 }
 
 input DataframeFilterInput {
@@ -306,7 +317,8 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
-  materializationId: ID!
+  materializationId: ID
+  dataType: String!
   columns: [String!]
   filters: [DataframeFilterInput!]
   sort: DataframeSortInput
@@ -323,11 +335,13 @@ type DataframeRowConnection {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+  totalCount: Int
   pageInfo: DataframePageInfo!
 }
 
 input DataframeAggregateInput {
-  materializationId: ID!
+  materializationId: ID
+  dataType: String!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
   operation: String!

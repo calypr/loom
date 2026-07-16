@@ -9,7 +9,7 @@ SCHEMA_PATH ?= schemas/graph-fhir.json
 IMAGE ?= arango-fhir-proto:local
 BENCH_TIME ?= 10x
 BENCH_COUNT ?= 5
-GRAPHQL_URL ?= http://127.0.0.1:8080/graphql
+GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/graph
 DATAFRAME_REPEAT ?= 1
 DATAFRAME_LIMIT ?= 0
 DATAFRAME_TIMEOUT ?= 5m
@@ -32,12 +32,14 @@ build-server:
 generate-graphql:
 	mkdir -p $(GOCACHE_DIR)
 	@status=0; fix_status=0; \
-	GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate || status=$$?; \
-	if [ -f graphqlapi/generated.go ]; then \
-		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix graphqlapi/generated.go || fix_status=$$?; \
-	fi; \
+	for config in gqlgen.yml graphqlapi/clickhouse/gqlgen.yml; do \
+		GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config $$config || status=$$?; \
+	done; \
+	for generated in graphqlapi/generated.go graphqlapi/clickhouse/generated.go; do \
+		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix $$generated || fix_status=$$?; \
+	done; \
 	test $$fix_status -eq 0; \
-	test $$status -eq 0 -o -f graphqlapi/generated.go
+	test $$status -eq 0
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)

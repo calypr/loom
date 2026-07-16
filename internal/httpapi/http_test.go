@@ -84,6 +84,43 @@ func TestHealthzDoesNotRequireAuthentication(t *testing.T) {
 	}
 }
 
+func TestNamedGraphQLBackendRoutes(t *testing.T) {
+	svc, err := NewService(ServiceConfig{Runner: fakeRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server, err := NewHTTPServer(HTTPConfig{
+		Service:                  svc,
+		GraphQLHandler:           handler,
+		ClickHouseGraphQLHandler: handler,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/graphql/graph", "/graphql/flat"} {
+		resp, err := server.App().Test(httptest.NewRequest(http.MethodPost, path, nil))
+		if err != nil {
+			t.Fatalf("request %s: %v", path, err)
+		}
+		if resp.StatusCode != http.StatusNoContent {
+			resp.Body.Close()
+			t.Fatalf("request %s status = %d", path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	resp, err := server.App().Test(httptest.NewRequest(http.MethodPost, "/graphql", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		t.Fatalf("legacy /graphql unexpectedly served the GraphQL handler")
+	}
+}
+
 func TestCreateImportRejectsMissingProject(t *testing.T) {
 	svc, err := NewService(ServiceConfig{
 		Runner: fakeRunner{summary: ingest.LoadSummary{Files: 1}},

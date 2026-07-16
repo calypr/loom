@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		fail("fix JSON unmarshal return: %v", err)
 	}
-	source, err = replaceInFunction(source,
+	source, err = replaceInFunctionIfPresent(source,
 		"func (ec *executionContext) unmarshalNFhirAggregateInput",
 		"return res, graphql.ErrorOnPath(ctx, err)",
 		"return &res, graphql.ErrorOnPath(ctx, err)",
@@ -38,6 +38,13 @@ func main() {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		fail("write %s: %v", path, err)
 	}
+}
+
+func replaceInFunctionIfPresent(contents, signature, old, replacement string) (string, error) {
+	if !strings.Contains(contents, signature) {
+		return contents, nil
+	}
+	return replaceInFunction(contents, signature, old, replacement)
 }
 
 func replaceInFunction(contents, signature, old, replacement string) (string, error) {

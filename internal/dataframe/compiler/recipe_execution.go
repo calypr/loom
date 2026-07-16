@@ -44,6 +44,11 @@ func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
 	}
+	if bindings.IncludeAuthResourcePath {
+		if err := appendAuthResourcePathProjection(&physical); err != nil {
+			return CompiledQuery{}, err
+		}
+	}
 	rendered, err := RenderPhysicalPlan(physical)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
@@ -81,6 +86,26 @@ func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.
 		Limit:             limit,
 		PlanDiagnostics:   physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+func appendAuthResourcePathProjection(physical *PhysicalPlan) error {
+	for index := range physical.Operations {
+		operation := &physical.Operations[index]
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "auth_resource_path" {
+				return nil
+			}
+		}
+		operation.Return.Projections = append(operation.Return.Projections, PhysicalProjection{
+			Name: "auth_resource_path", Hidden: true,
+			Value: PhysicalValue{Variable: "root", Path: []string{"auth_resource_path"}},
+		})
+		return nil
+	}
+	return fmt.Errorf("canonical plan has no RETURN operation for auth_resource_path projection")
 }
 
 func recipeOptimizationRules(plan PhysicalPlan) []string {

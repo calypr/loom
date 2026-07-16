@@ -56,8 +56,14 @@ type ComplexityRoot struct {
 	}
 
 	DataframeColumn struct {
+		Aggregatable   func(childComplexity int) int
 		ClickhouseType func(childComplexity int) int
+		Filterable     func(childComplexity int) int
+		LogicalType    func(childComplexity int) int
 		Name           func(childComplexity int) int
+		Nullable       func(childComplexity int) int
+		Repeated       func(childComplexity int) int
+		Sortable       func(childComplexity int) int
 	}
 
 	DataframeCompilerPlanDiagnostics struct {
@@ -104,16 +110,15 @@ type ComplexityRoot struct {
 	}
 
 	DataframeMaterialization struct {
-		Columns           func(childComplexity int) int
-		CreatedAt         func(childComplexity int) int
-		DatasetGeneration func(childComplexity int) int
-		Error             func(childComplexity int) int
-		ID                func(childComplexity int) int
-		Name              func(childComplexity int) int
-		Project           func(childComplexity int) int
-		ReadyAt           func(childComplexity int) int
-		RowCount          func(childComplexity int) int
-		State             func(childComplexity int) int
+		Columns   func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		Error     func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Name      func(childComplexity int) int
+		ReadyAt   func(childComplexity int) int
+		Revision  func(childComplexity int) int
+		RowCount  func(childComplexity int) int
+		State     func(childComplexity int) int
 	}
 
 	DataframeOptimizationDecision struct {
@@ -371,6 +376,7 @@ type ComplexityRoot struct {
 		Materialization func(childComplexity int) int
 		PageInfo        func(childComplexity int) int
 		Rows            func(childComplexity int) int
+		TotalCount      func(childComplexity int) int
 	}
 
 	DataframeTraversalHint struct {
@@ -398,6 +404,8 @@ type ComplexityRoot struct {
 	Query struct {
 		DataframeAggregate            func(childComplexity int, input model.DataframeAggregateInput) int
 		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
+		DataframeDataset              func(childComplexity int, input model.DataframeDatasetInput) int
+		DataframeDatasets             func(childComplexity int) int
 		DataframeMaterialization      func(childComplexity int, id string) int
 		DataframeRecipeExecution      func(childComplexity int, id string) int
 		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
@@ -420,6 +428,8 @@ type MutationResolver interface {
 type QueryResolver interface {
 	DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error)
 	DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error)
+	DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error)
+	DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error)
 	DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error)
 	DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
 	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
@@ -513,18 +523,54 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeBuilderIntrospection.Traversals(childComplexity), true
 
+	case "DataframeColumn.aggregatable":
+		if e.ComplexityRoot.DataframeColumn.Aggregatable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.Aggregatable(childComplexity), true
 	case "DataframeColumn.clickhouseType":
 		if e.ComplexityRoot.DataframeColumn.ClickhouseType == nil {
 			break
 		}
 
 		return e.ComplexityRoot.DataframeColumn.ClickhouseType(childComplexity), true
+	case "DataframeColumn.filterable":
+		if e.ComplexityRoot.DataframeColumn.Filterable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.Filterable(childComplexity), true
+	case "DataframeColumn.logicalType":
+		if e.ComplexityRoot.DataframeColumn.LogicalType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.LogicalType(childComplexity), true
 	case "DataframeColumn.name":
 		if e.ComplexityRoot.DataframeColumn.Name == nil {
 			break
 		}
 
 		return e.ComplexityRoot.DataframeColumn.Name(childComplexity), true
+	case "DataframeColumn.nullable":
+		if e.ComplexityRoot.DataframeColumn.Nullable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.Nullable(childComplexity), true
+	case "DataframeColumn.repeated":
+		if e.ComplexityRoot.DataframeColumn.Repeated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.Repeated(childComplexity), true
+	case "DataframeColumn.sortable":
+		if e.ComplexityRoot.DataframeColumn.Sortable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.Sortable(childComplexity), true
 
 	case "DataframeCompilerPlanDiagnostics.optimizationPolicy":
 		if e.ComplexityRoot.DataframeCompilerPlanDiagnostics.OptimizationPolicy == nil {
@@ -728,12 +774,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeMaterialization.CreatedAt(childComplexity), true
-	case "DataframeMaterialization.datasetGeneration":
-		if e.ComplexityRoot.DataframeMaterialization.DatasetGeneration == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeMaterialization.DatasetGeneration(childComplexity), true
 	case "DataframeMaterialization.error":
 		if e.ComplexityRoot.DataframeMaterialization.Error == nil {
 			break
@@ -752,18 +792,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeMaterialization.Name(childComplexity), true
-	case "DataframeMaterialization.project":
-		if e.ComplexityRoot.DataframeMaterialization.Project == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeMaterialization.Project(childComplexity), true
 	case "DataframeMaterialization.readyAt":
 		if e.ComplexityRoot.DataframeMaterialization.ReadyAt == nil {
 			break
 		}
 
 		return e.ComplexityRoot.DataframeMaterialization.ReadyAt(childComplexity), true
+	case "DataframeMaterialization.revision":
+		if e.ComplexityRoot.DataframeMaterialization.Revision == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeMaterialization.Revision(childComplexity), true
 	case "DataframeMaterialization.rowCount":
 		if e.ComplexityRoot.DataframeMaterialization.RowCount == nil {
 			break
@@ -1757,6 +1797,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRowConnection.Rows(childComplexity), true
+	case "DataframeRowConnection.totalCount":
+		if e.ComplexityRoot.DataframeRowConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRowConnection.TotalCount(childComplexity), true
 
 	case "DataframeTraversalHint.edgeCount":
 		if e.ComplexityRoot.DataframeTraversalHint.EdgeCount == nil {
@@ -1886,6 +1932,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeBuilderIntrospection(childComplexity, args["input"].(model.DataframeBuilderIntrospectionInput)), true
+	case "Query.dataframeDataset":
+		if e.ComplexityRoot.Query.DataframeDataset == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeDataset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeDataset(childComplexity, args["input"].(model.DataframeDatasetInput)), true
+	case "Query.dataframeDatasets":
+		if e.ComplexityRoot.Query.DataframeDatasets == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.DataframeDatasets(childComplexity), true
 	case "Query.dataframeMaterialization":
 		if e.ComplexityRoot.Query.DataframeMaterialization == nil {
 			break
@@ -1953,6 +2016,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputDataframeAggregateInput,
 		ec.unmarshalInputDataframeBuilderIntrospectionInput,
+		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
 		ec.unmarshalInputDataframeRowsInput,
@@ -2110,6 +2174,18 @@ func (ec *executionContext) childFields_DataframeColumn(ctx context.Context, fie
 		return ec.fieldContext_DataframeColumn_name(ctx, field)
 	case "clickhouseType":
 		return ec.fieldContext_DataframeColumn_clickhouseType(ctx, field)
+	case "logicalType":
+		return ec.fieldContext_DataframeColumn_logicalType(ctx, field)
+	case "nullable":
+		return ec.fieldContext_DataframeColumn_nullable(ctx, field)
+	case "repeated":
+		return ec.fieldContext_DataframeColumn_repeated(ctx, field)
+	case "filterable":
+		return ec.fieldContext_DataframeColumn_filterable(ctx, field)
+	case "sortable":
+		return ec.fieldContext_DataframeColumn_sortable(ctx, field)
+	case "aggregatable":
+		return ec.fieldContext_DataframeColumn_aggregatable(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeColumn", field.Name)
 }
@@ -2206,10 +2282,8 @@ func (ec *executionContext) childFields_DataframeMaterialization(ctx context.Con
 		return ec.fieldContext_DataframeMaterialization_id(ctx, field)
 	case "name":
 		return ec.fieldContext_DataframeMaterialization_name(ctx, field)
-	case "project":
-		return ec.fieldContext_DataframeMaterialization_project(ctx, field)
-	case "datasetGeneration":
-		return ec.fieldContext_DataframeMaterialization_datasetGeneration(ctx, field)
+	case "revision":
+		return ec.fieldContext_DataframeMaterialization_revision(ctx, field)
 	case "state":
 		return ec.fieldContext_DataframeMaterialization_state(ctx, field)
 	case "columns":
@@ -2734,6 +2808,8 @@ func (ec *executionContext) childFields_DataframeRowConnection(ctx context.Conte
 		return ec.fieldContext_DataframeRowConnection_columns(ctx, field)
 	case "rows":
 		return ec.fieldContext_DataframeRowConnection_rows(ctx, field)
+	case "totalCount":
+		return ec.fieldContext_DataframeRowConnection_totalCount(ctx, field)
 	case "pageInfo":
 		return ec.fieldContext_DataframeRowConnection_pageInfo(ctx, field)
 	}
@@ -2996,6 +3072,20 @@ func (ec *executionContext) field_Query_dataframeBuilderIntrospection_args(ctx c
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeBuilderIntrospectionInput, error) {
 			return ec.unmarshalNDataframeBuilderIntrospectionInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeBuilderIntrospectionInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
+			return ec.unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeDatasetInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -3485,6 +3575,144 @@ func (ec *executionContext) _DataframeColumn_clickhouseType(ctx context.Context,
 }
 func (ec *executionContext) fieldContext_DataframeColumn_clickhouseType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_logicalType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_logicalType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LogicalType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_logicalType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_nullable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_nullable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Nullable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_nullable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_repeated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_repeated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Repeated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_repeated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_filterable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_filterable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Filterable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_filterable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_sortable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_sortable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sortable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_sortable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeColumn_aggregatable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeColumn_aggregatable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Aggregatable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeColumn_aggregatable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeCompilerPlanDiagnostics_traversalSets(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
@@ -4300,16 +4528,16 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_name(_ context
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_project(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_revision(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeMaterialization_project(ctx, field)
+			return ec.fieldContext_DataframeMaterialization_revision(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Project, nil
+			return obj.Revision, nil
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
@@ -4319,30 +4547,7 @@ func (ec *executionContext) _DataframeMaterialization_project(ctx context.Contex
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_DataframeMaterialization_project(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeMaterialization_datasetGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeMaterialization_datasetGeneration(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DatasetGeneration, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeMaterialization_datasetGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_DataframeMaterialization_revision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
@@ -8347,6 +8552,29 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_rows(_ context.C
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
+func (ec *executionContext) _DataframeRowConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRowConnection_totalCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *int) graphql.Marshaler {
+			return ec.marshalOInt2ᚖint(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRowConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
 func (ec *executionContext) _DataframeRowConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8874,6 +9102,82 @@ func (ec *executionContext) fieldContext_Query_dataframeMaterialization(ctx cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeMaterialization_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeDatasets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeDatasets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().DataframeDatasets(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterializationᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeDatasets(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeMaterialization(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeDataset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeDataset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DataframeDataset(ctx, fc.Args["input"].(model.DataframeDatasetInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeDataset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeMaterialization(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeDataset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10246,7 +10550,7 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"materializationId", "groupBy", "filters", "operation", "column"}
+	fieldsInOrder := [...]string{"materializationId", "dataType", "groupBy", "filters", "operation", "column"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -10255,11 +10559,18 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 		switch k {
 		case "materializationId":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("materializationId"))
-			data, err := ec.unmarshalNID2string(ctx, v)
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.MaterializationID = data
+		case "dataType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DataType = data
 		case "groupBy":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("groupBy"))
 			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
@@ -10343,6 +10654,36 @@ func (ec *executionContext) unmarshalInputDataframeBuilderIntrospectionInput(ctx
 				return it, err
 			}
 			it.IncludePivotOnlyFields = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Context, obj any) (model.DataframeDatasetInput, error) {
+	var it model.DataframeDatasetInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"dataType"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "dataType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DataType = data
 		}
 	}
 	return it, nil
@@ -10462,7 +10803,7 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 		asMap["first"] = 100
 	}
 
-	fieldsInOrder := [...]string{"materializationId", "columns", "filters", "sort", "first", "after"}
+	fieldsInOrder := [...]string{"materializationId", "dataType", "columns", "filters", "sort", "first", "after"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -10471,11 +10812,18 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 		switch k {
 		case "materializationId":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("materializationId"))
-			data, err := ec.unmarshalNID2string(ctx, v)
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.MaterializationID = data
+		case "dataType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DataType = data
 		case "columns":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("columns"))
 			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
@@ -11927,6 +12275,36 @@ func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.Select
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "logicalType":
+			out.Values[i] = ec._DataframeColumn_logicalType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "nullable":
+			out.Values[i] = ec._DataframeColumn_nullable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "repeated":
+			out.Values[i] = ec._DataframeColumn_repeated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "filterable":
+			out.Values[i] = ec._DataframeColumn_filterable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sortable":
+			out.Values[i] = ec._DataframeColumn_sortable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "aggregatable":
+			out.Values[i] = ec._DataframeColumn_aggregatable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -12257,13 +12635,8 @@ func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel a
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "project":
-			out.Values[i] = ec._DataframeMaterialization_project(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "datasetGeneration":
-			out.Values[i] = ec._DataframeMaterialization_datasetGeneration(ctx, field, obj)
+		case "revision":
+			out.Values[i] = ec._DataframeMaterialization_revision(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -14171,6 +14544,11 @@ func (ec *executionContext) _DataframeRowConnection(ctx context.Context, sel ast
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "totalCount":
+			out.Values[i] = ec._DataframeRowConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "pageInfo":
 			out.Values[i] = ec._DataframeRowConnection_pageInfo(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -14431,6 +14809,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_dataframeMaterialization(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeDatasets":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeDatasets(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeDataset":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeDataset(ctx, field)
 				if res == graphql.RequiredNull {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15070,6 +15492,11 @@ func (ec *executionContext) marshalNDataframeCompilerPlanDiagnostics2ᚖgithub�
 	return ec._DataframeCompilerPlanDiagnostics(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeDatasetInput(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
+	res, err := ec.unmarshalInputDataframeDatasetInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeFieldHintᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -15109,6 +15536,22 @@ func (ec *executionContext) marshalNDataframeFieldSelector2ᚖgithubᚗcomᚋcal
 func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeFilterInput(ctx context.Context, v any) (*model.DataframeFilterInput, error) {
 	res, err := ec.unmarshalInputDataframeFilterInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterializationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
@@ -16562,6 +17005,24 @@ func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel as
 	_ = sel
 	res := graphql.MarshalFloatContext(*v)
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) unmarshalOID2ᚖstring(ctx context.Context, v any) (*string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalID(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOID2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalID(*v)
+	return res
 }
 
 func (ec *executionContext) unmarshalOInt2ᚖint(ctx context.Context, v any) (*int, error) {

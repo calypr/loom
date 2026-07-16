@@ -352,6 +352,10 @@ type RuntimeBindings struct {
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
 	PreviewLimit      int
+	// IncludeAuthResourcePath is set only for ClickHouse publication streams.
+	// It keeps the reserved row-level authorization field out of ordinary
+	// dataframe previews while ensuring published rows carry their source path.
+	IncludeAuthResourcePath bool
 	// OutputNames limits execution to named outputs for preview requests. An
 	// empty list preserves the bundle's all-output behavior and is not part of
 	// recipe or schema identity.

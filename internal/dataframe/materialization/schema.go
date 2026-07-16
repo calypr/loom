@@ -9,7 +9,7 @@ import (
 
 var schemaIdentifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-var supportedSchemaScalarRE = regexp.MustCompile(`^(String|Bool|Int8|Int16|Int32|Int64|Int128|Int256|UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Float32|Float64|Date|Date32|DateTime|DateTime64(\([^)]*\))?)$`)
+var supportedSchemaScalarRE = regexp.MustCompile(`^(String|UUID|Bool|Int8|Int16|Int32|Int64|Int128|Int256|UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Float32|Float64|Date|Date32|DateTime|DateTime64(\([^)]*\))?)$`)
 
 func validateSchemaColumn(column Column) error {
 	if column.Name == "" || !schemaIdentifierRE.MatchString(column.Name) || column.Name == "__loom_row_id" {
@@ -73,6 +73,10 @@ func validateScalar(name, typ string, value any) error {
 	case typ == "String":
 		if _, ok := value.(string); !ok {
 			return fmt.Errorf("column %q expects String but received %T", name, value)
+		}
+	case typ == "UUID":
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("column %q expects UUID text but received %T", name, value)
 		}
 	case typ == "Bool":
 		if _, ok := value.(bool); !ok {

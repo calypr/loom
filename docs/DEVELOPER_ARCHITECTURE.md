@@ -22,6 +22,16 @@ READY generation and rejects the legacy one-file HTTP import endpoint.
 The GraphQL dataframe mutation is the live compiler transport. Do not add a
 second query compiler or hand-maintained AQL path behind another endpoint.
 
+The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
+Arango control-plane GraphQL endpoint, while `/graphql/flat` is the dedicated
+published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
+dynamic-data contract defined in
+[`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
+Only registered READY publication outputs are exposed; adding a dataset or
+column must not require GraphQL regeneration or a Loom restart. Publication
+and published-data reads are ClickHouse-only; Loom has no Elasticsearch
+publication or reader fallback.
+
 ## Load and storage model
 
 `internal/ingest` reads an NDJSON directory, preflights it against the local

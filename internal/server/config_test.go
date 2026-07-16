@@ -43,3 +43,20 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 		t.Fatal("unknown config field unexpectedly accepted")
 	}
 }
+
+func TestLoadConfigRejectsRemovedPublicationBackends(t *testing.T) {
+	for name, contents := range map[string]string{
+		"publication target": "server:\n  publication_target: elasticsearch\n",
+		"elasticsearch":      "server:\n  elasticsearch:\n    url: http://elasticsearch:9200\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil {
+				t.Fatal("removed publication backend configuration unexpectedly accepted")
+			}
+		})
+	}
+}

@@ -198,10 +198,10 @@ func (c *Client) InsertRows(ctx context.Context, table string, columns []Column,
 	return nil
 }
 
-// QueryRows executes a SELECT and decodes each row through ClickHouse's native
-// driver. The tuple JSON projection preserves arrays and mixed scalar types
-// while keeping the generic dataframe result shape map[string]any.
-func (c *Client) QueryRows(ctx context.Context, query string, columns []string) ([]map[string]any, error) {
+// QueryRowsArgs executes a SELECT with driver-bound positional arguments and
+// decodes each row through ClickHouse's native driver. Query-controlled values
+// must be supplied as args rather than interpolated into query text.
+func (c *Client) QueryRowsArgs(ctx context.Context, query string, columns []string, args ...any) ([]map[string]any, error) {
 	if len(columns) == 0 {
 		return nil, fmt.Errorf("ClickHouse query columns are required")
 	}
@@ -214,7 +214,7 @@ func (c *Client) QueryRows(ctx context.Context, query string, columns []string) 
 		quoted[i] = fmt.Sprintf("`%s`", column)
 	}
 	wrapped := fmt.Sprintf("SELECT toJSONString(tuple(%s)) AS __loom_json FROM (%s) AS __loom_rows", strings.Join(quoted, ", "), base)
-	rows, err := c.conn.Query(ctx, wrapped)
+	rows, err := c.conn.Query(ctx, wrapped, args...)
 	if err != nil {
 		return nil, err
 	}

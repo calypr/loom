@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,12 +20,9 @@ import (
 	"github.com/calypr/loom/graphqlapi/model"
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/dataframe"
-	"github.com/calypr/loom/internal/dataframe/publication"
-	elasticpublication "github.com/calypr/loom/internal/dataframe/publication/elasticsearch"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-	esstore "github.com/calypr/loom/internal/store/elasticsearch"
 )
 
 type profileReport struct {
@@ -45,7 +41,6 @@ type profileReport struct {
 	ProfileWallSeconds     float64                           `json:"profile_wall_seconds"`
 	ProfileColdWallSeconds float64                           `json:"profile_cold_wall_seconds"`
 	Expected               expectedReport                    `json:"expected,omitempty"`
-	Elasticsearch          elasticsearchReport               `json:"elasticsearch"`
 }
 
 type expectedReport struct {
@@ -55,16 +50,6 @@ type expectedReport struct {
 	RowsMatch    bool     `json:"rows_match"`
 	ColumnsMatch bool     `json:"columns_match"`
 	Compared     bool     `json:"compared"`
-}
-
-type elasticsearchReport struct {
-	URL           string `json:"url,omitempty"`
-	Configured    bool   `json:"configured"`
-	Reachable     bool   `json:"reachable"`
-	Status        int    `json:"status,omitempty"`
-	Published     bool   `json:"published"`
-	PublishedRows int    `json:"published_rows,omitempty"`
-	Error         string `json:"error,omitempty"`
 }
 
 type explainReport struct {
@@ -89,19 +74,17 @@ type profileReportDetails struct {
 
 func main() {
 	var (
-		fixtureDir           = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
-		fixtureID            = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
-		variables            = flag.String("variables", "", "GraphQL variables JSON; when set, compile its input instead of the fixture builder")
-		limit                = flag.Int("limit", 1000, "root row limit")
-		url                  = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
-		database             = flag.String("database", "fhir_proto", "ArangoDB database")
-		aqlPath              = flag.String("aql-out", "", "write exact rendered AQL to this path (default: <fixture>-<hash>.aql)")
-		reportPath           = flag.String("report-out", "", "write JSON profile report to this path")
-		profile              = flag.Int("profile", 2, "Arango profile level")
-		batchSize            = flag.Int("batch-size", 10000, "Arango profile cursor batch size")
-		expectedCSV          = flag.String("expected-csv", "", "optional legacy CSV used for row/column parity")
-		elasticsearchURL     = flag.String("elasticsearch-url", os.Getenv("LOOM_ELASTICSEARCH_URL"), "optional Elasticsearch/OpenSearch URL to probe")
-		publishElasticsearch = flag.Bool("publish-elasticsearch", false, "publish profiled rows to Elasticsearch (requires -elasticsearch-url)")
+		fixtureDir  = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
+		fixtureID   = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
+		variables   = flag.String("variables", "", "GraphQL variables JSON; when set, compile its input instead of the fixture builder")
+		limit       = flag.Int("limit", 1000, "root row limit")
+		url         = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
+		database    = flag.String("database", "fhir_proto", "ArangoDB database")
+		aqlPath     = flag.String("aql-out", "", "write exact rendered AQL to this path (default: <fixture>-<hash>.aql)")
+		reportPath  = flag.String("report-out", "", "write JSON profile report to this path")
+		profile     = flag.Int("profile", 2, "Arango profile level")
+		batchSize   = flag.Int("batch-size", 10000, "Arango profile cursor batch size")
+		expectedCSV = flag.String("expected-csv", "", "optional legacy CSV used for row/column parity")
 	)
 	flag.Parse()
 	if *limit <= 0 {
@@ -114,7 +97,6 @@ func main() {
 	var (
 		fixture  compilerfixture.Fixture
 		bundle   recipe.Bundle
-		project  string
 		bindings recipe.RuntimeBindings
 		label    = *fixtureID
 	)
@@ -136,8 +118,7 @@ func main() {
 		if err != nil {
 			fatalf("convert GraphQL variables to recipe: %v", err)
 		}
-		project = payload.Input.Project
-		bindings = recipe.RuntimeBindings{Project: project, AuthResourcePaths: payload.Input.AuthResourcePaths}
+		bindings = recipe.RuntimeBindings{Project: payload.Input.Project, AuthResourcePaths: payload.Input.AuthResourcePaths}
 		label = filepath.Base(*variables)
 	} else {
 		fixtures, err := compilerfixture.LoadDir(*fixtureDir)
@@ -154,8 +135,7 @@ func main() {
 			fatalf("fixture %q not found in %s", *fixtureID, *fixtureDir)
 		}
 		bundle = fixture.Recipe
-		project = fixture.Project
-		bindings = recipe.RuntimeBindings{Project: project}
+		bindings = recipe.RuntimeBindings{Project: fixture.Project}
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
@@ -251,22 +231,8 @@ func main() {
 		AQLPath:                *aqlPath,
 		ProfileWallSeconds:     warmSeconds,
 		ProfileColdWallSeconds: coldSeconds,
-		Elasticsearch:          probeElasticsearch(ctx, *elasticsearchURL),
 	}
 	report.Expected = compareExpectedCSV(*expectedCSV, compiled.Columns, profileResult.Count)
-	if *publishElasticsearch {
-		if !report.Elasticsearch.Reachable {
-			report.Elasticsearch.Error = "Elasticsearch is not reachable; publication was not attempted"
-		} else {
-			published, err := publishProfileRows(ctx, *elasticsearchURL, project, label, compiled, profileResult.Result)
-			if err != nil {
-				report.Elasticsearch.Error = err.Error()
-			} else {
-				report.Elasticsearch.Published = true
-				report.Elasticsearch.PublishedRows = published
-			}
-		}
-	}
 	if report.Expected.Compared && (!report.Expected.RowsMatch || !report.Expected.ColumnsMatch) {
 		report.Status = "live-arango-parity-mismatch"
 	}
@@ -347,77 +313,6 @@ func sameStrings(left, right []string) bool {
 		}
 	}
 	return true
-}
-
-func probeElasticsearch(ctx context.Context, endpoint string) elasticsearchReport {
-	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
-	result := elasticsearchReport{URL: endpoint, Configured: endpoint != ""}
-	if endpoint == "" {
-		return result
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
-	if err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	defer response.Body.Close()
-	result.Status = response.StatusCode
-	result.Reachable = response.StatusCode >= 200 && response.StatusCode < 500
-	if !result.Reachable {
-		result.Error = response.Status
-	}
-	return result
-}
-
-func publishProfileRows(ctx context.Context, endpoint, project, name string, compiled dataframe.CompiledQuery, rawRows []json.RawMessage) (int, error) {
-	client, err := esstore.New(esstore.Options{URL: endpoint, RequestTimeout: 30 * time.Second})
-	if err != nil {
-		return 0, err
-	}
-	target, err := elasticpublication.New(elasticpublication.Options{Client: client, IndexPrefix: "loom-parity", TargetName: "parity"})
-	if err != nil {
-		return 0, err
-	}
-	rows := make([]map[string]any, 0, len(rawRows))
-	for i, raw := range rawRows {
-		var row map[string]any
-		if err := json.Unmarshal(raw, &row); err != nil {
-			return 0, fmt.Errorf("decode profiled row %d: %w", i, err)
-		}
-		if _, ok := row["__loom_row_id"]; !ok {
-			if key, ok := row["_key"]; ok && fmt.Sprint(key) != "" {
-				row["__loom_row_id"] = fmt.Sprint(key)
-			} else {
-				row["__loom_row_id"] = fmt.Sprintf("parity-%d", i)
-			}
-		}
-		rows = append(rows, row)
-	}
-	columns := make([]publication.LogicalColumn, 0, len(compiled.Columns))
-	for _, column := range compiled.Columns {
-		columns = append(columns, publication.LogicalColumn{Name: column, Kind: "string", Nullable: true})
-	}
-	identity := publication.PublicationIdentity{Name: name, Project: project, DatasetGeneration: compiled.DatasetGeneration, EngineVersion: "loom-parity/v1"}
-	result, err := publication.Publish(ctx, target, identity, []publication.OutputStream{{Name: name, Columns: columns, Stream: func(_ context.Context, visit func(map[string]any) error) error {
-		for _, row := range rows {
-			if err := visit(row); err != nil {
-				return err
-			}
-		}
-		return nil
-	}}}, publication.Limits{BatchRows: 1000, BatchBytes: 4 << 20})
-	if err != nil {
-		return 0, err
-	}
-	if len(result.Outputs) != 1 {
-		return 0, fmt.Errorf("Elasticsearch publication returned %d outputs", len(result.Outputs))
-	}
-	return int(result.Outputs[0].RowCount), nil
 }
 
 func fatalf(format string, args ...any) {

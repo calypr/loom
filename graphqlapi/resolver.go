@@ -97,8 +97,9 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 	return &Resolver{
 		query: queryapi.NewService(cfg.DataframeQuery),
 		materializations: materializationapi.NewService(materializationapi.Config{
-			Reader:        cfg.MaterializationReader,
-			ScopeResolver: cfg.DataframeQuery.ScopeResolver,
+			Reader:                 cfg.MaterializationReader,
+			ScopeResolver:          cfg.DataframeQuery.ScopeResolver,
+			ActiveManifestResolver: cfg.DataframeQuery.ActiveManifestResolver,
 		}),
 		recipeControl:     cfg.RecipeControl,
 		previewExecute:    cfg.RecipePreviewExecute,

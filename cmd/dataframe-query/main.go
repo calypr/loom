@@ -32,7 +32,7 @@ func main() {
 		timeout       time.Duration
 		printResponse bool
 	)
-	flag.StringVar(&url, "url", "http://127.0.0.1:8080/graphql", "GraphQL endpoint")
+	flag.StringVar(&url, "url", "http://127.0.0.1:8080/graphql/graph", "GraphQL endpoint")
 	flag.StringVar(&queryPath, "query", "examples/meta_patient_dataframe.graphql", "GraphQL operation file")
 	flag.StringVar(&variablesPath, "variables", "examples/meta_patient_dataframe.variables.json", "GraphQL variables JSON file")
 	flag.IntVar(&repeat, "repeat", 1, "number of sequential requests; only the final response is printed")
