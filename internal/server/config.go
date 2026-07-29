@@ -34,8 +34,11 @@ type ArangoConfig struct {
 }
 
 type ClickHouseConfig struct {
+	Enabled  bool   `yaml:"enabled"`
 	URL      string `yaml:"url"`
 	Database string `yaml:"database"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type AuthConfig struct {
@@ -59,7 +62,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
 			Listen: ":8080", Backend: "arango", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
-			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{URL: "clickhouse://127.0.0.1:9000", Database: "loom"},
+			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},

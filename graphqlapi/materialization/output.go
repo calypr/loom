@@ -36,6 +36,14 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 }
 
+func FederatedMaterialization(dataset materialization.FederatedDataset) *model.DataframeMaterialization {
+	return Model(materialization.Materialization{
+		ID: "federated:" + dataset.Name, Name: dataset.Name, Revision: dataset.Revision,
+		DatasetGeneration: "federated:" + dataset.Revision, State: materialization.StateReady,
+		Columns: dataset.Columns, RowCount: dataset.RowCount,
+	})
+}
+
 func columnCapabilities(clickHouseType string) (logical string, nullable, repeated, filterable, sortable, aggregatable bool) {
 	typ := clickHouseType
 	if strings.HasPrefix(typ, "Nullable(") && strings.HasSuffix(typ, ")") {

@@ -52,6 +52,8 @@ type SemanticPivot struct {
 	ColumnSelector   Selector
 	ValueSelector    Selector
 	ValueFallbacks   []Selector
+	ValueKind        expression.ValueKind
+	StringifyValue   bool
 	ItemSource       Selector
 	ItemResourceType string
 	Columns          []string

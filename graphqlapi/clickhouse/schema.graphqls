@@ -5,6 +5,7 @@ type Query {
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
+  dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
 }
 
 type DataframeMaterialization {
@@ -86,4 +87,25 @@ type DataframeAggregateResult {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+}
+
+input DataframeAggregationSpecInput {
+  name: String!
+  kind: String!
+  column: String!
+  size: Int
+  interval: Float
+  dateInterval: Int
+  excludeSelfFilter: Boolean = false
+}
+
+input DataframeAggregationsInput {
+  dataType: String!
+  filters: [DataframeFilterInput!]
+  specs: [DataframeAggregationSpecInput!]!
+}
+
+type DataframeAggregationsResult {
+  materialization: DataframeMaterialization!
+  aggregations: JSON!
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -36,5 +37,37 @@ func TestEnsureStableRowIdentityPreservesCompiledIdentity(t *testing.T) {
 	}
 	if row["__loom_row_id"] != "recipe-id" {
 		t.Fatalf("compiled identity changed: %#v", row)
+	}
+}
+
+func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
+	stream := OutputStream{
+		Name:        "DocumentReference",
+		Columns:     []string{"id"},
+		RowIdentity: &compiler.RowIdentity{Fields: []string{"_key"}},
+		stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			return visit(map[string]any{
+				"_key":                        "internal-key",
+				"__loom_dynamic_runtime_keys": map[string]any{"family": []string{"x"}},
+				"auth_resource_path":          "HTAN_INT-BForePC",
+				"id":                          "document-1",
+			})
+		},
+	}
+	var got map[string]any
+	if _, err := stream.Stream(context.Background(), func(row map[string]any) error {
+		got = row
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got["id"] != "document-1" || got["auth_resource_path"] != "HTAN_INT-BForePC" || got["__loom_row_id"] == nil {
+		t.Fatalf("public row lost required values: %#v", got)
+	}
+	if _, ok := got["_key"]; ok {
+		t.Fatalf("public row leaked _key: %#v", got)
+	}
+	if _, ok := got["__loom_dynamic_runtime_keys"]; ok {
+		t.Fatalf("public row leaked dynamic runtime keys: %#v", got)
 	}
 }

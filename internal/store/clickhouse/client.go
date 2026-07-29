@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -186,7 +187,11 @@ func (c *Client) InsertRows(ctx context.Context, table string, columns []Column,
 	for _, row := range rows {
 		values := make([]any, len(columns))
 		for i, column := range columns {
-			values[i] = row[column.Name]
+			value, err := normalizeInsertValue(column, row[column.Name])
+			if err != nil {
+				return err
+			}
+			values[i] = value
 		}
 		if err := batch.Append(values...); err != nil {
 			return fmt.Errorf("append ClickHouse batch row: %w", err)
@@ -198,36 +203,113 @@ func (c *Client) InsertRows(ctx context.Context, table string, columns []Column,
 	return nil
 }
 
+func normalizeInsertValue(column Column, value any) (any, error) {
+	columnType := strings.TrimSpace(column.Type)
+	baseType := unwrapClickHouseType(columnType, "Nullable")
+	if value == nil {
+		if strings.HasPrefix(baseType, "Array(") {
+			return []any{}, nil
+		}
+		return nil, nil
+	}
+	if itemType, ok := wrappedClickHouseType(baseType, "Array"); ok {
+		items := reflect.ValueOf(value)
+		if items.Kind() != reflect.Array && items.Kind() != reflect.Slice {
+			return nil, fmt.Errorf("ClickHouse column %q expects %s, got %T", column.Name, columnType, value)
+		}
+		normalized := make([]any, items.Len())
+		for index := 0; index < items.Len(); index++ {
+			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+			if err != nil {
+				return nil, err
+			}
+			normalized[index] = item
+		}
+		return normalized, nil
+	}
+	text, isString := value.(string)
+	if !isString {
+		return value, nil
+	}
+	switch {
+	case baseType == "Date":
+		parsed, err := time.Parse("2006-01-02", text)
+		if err != nil {
+			return nil, fmt.Errorf("ClickHouse column %q parse Date %q: %w", column.Name, text, err)
+		}
+		return parsed, nil
+	case strings.HasPrefix(baseType, "DateTime"):
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+			if parsed, err := time.Parse(layout, text); err == nil {
+				return parsed, nil
+			}
+		}
+		return nil, fmt.Errorf("ClickHouse column %q parse DateTime %q: unsupported timestamp format", column.Name, text)
+	}
+	return value, nil
+}
+
+func unwrapClickHouseType(value, wrapper string) string {
+	if inner, ok := wrappedClickHouseType(value, wrapper); ok {
+		return inner
+	}
+	return value
+}
+
+func wrappedClickHouseType(value, wrapper string) (string, bool) {
+	prefix := wrapper + "("
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, ")") {
+		return "", false
+	}
+	return strings.TrimSpace(value[len(prefix) : len(value)-1]), true
+}
+
 // QueryRowsArgs executes a SELECT with driver-bound positional arguments and
 // decodes each row through ClickHouse's native driver. Query-controlled values
 // must be supplied as args rather than interpolated into query text.
 func (c *Client) QueryRowsArgs(ctx context.Context, query string, columns []string, args ...any) ([]map[string]any, error) {
+	result := make([]map[string]any, 0)
+	if err := c.QueryRowsArgsVisit(ctx, query, columns, func(row map[string]any) error {
+		result = append(result, row)
+		return nil
+	}, args...); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// QueryRowsArgsVisit executes a SELECT and visits decoded rows as they arrive.
+// The callback must not retain the map after returning unless it makes a copy.
+// Query-controlled values remain driver-bound positional arguments.
+func (c *Client) QueryRowsArgsVisit(ctx context.Context, query string, columns []string, visit func(map[string]any) error, args ...any) error {
 	if len(columns) == 0 {
-		return nil, fmt.Errorf("ClickHouse query columns are required")
+		return fmt.Errorf("ClickHouse query columns are required")
+	}
+	if visit == nil {
+		return fmt.Errorf("ClickHouse row visitor is required")
 	}
 	base := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), "FORMAT JSONEachRow"))
 	quoted := make([]string, len(columns))
 	for i, column := range columns {
 		if err := validateIdentifier(column); err != nil {
-			return nil, err
+			return err
 		}
 		quoted[i] = fmt.Sprintf("`%s`", column)
 	}
 	wrapped := fmt.Sprintf("SELECT toJSONString(tuple(%s)) AS __loom_json FROM (%s) AS __loom_rows", strings.Join(quoted, ", "), base)
 	rows, err := c.conn.Query(ctx, wrapped, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	out := []map[string]any{}
 	for rows.Next() {
 		var encoded string
 		if err := rows.Scan(&encoded); err != nil {
-			return nil, fmt.Errorf("scan ClickHouse dataframe row: %w", err)
+			return fmt.Errorf("scan ClickHouse dataframe row: %w", err)
 		}
 		var values []any
 		if err := json.Unmarshal([]byte(encoded), &values); err != nil {
-			return nil, fmt.Errorf("decode ClickHouse dataframe row: %w", err)
+			return fmt.Errorf("decode ClickHouse dataframe row: %w", err)
 		}
 		row := make(map[string]any, len(columns))
 		for i, column := range columns {
@@ -235,12 +317,14 @@ func (c *Client) QueryRowsArgs(ctx context.Context, query string, columns []stri
 				row[column] = values[i]
 			}
 		}
-		out = append(out, row)
+		if err := visit(row); err != nil {
+			return err
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return out, nil
+	return nil
 }
 
 func parseOptions(opts Options) (*ch.Options, error) {

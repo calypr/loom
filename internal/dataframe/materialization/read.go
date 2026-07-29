@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/store/clickhouse"
@@ -369,6 +370,8 @@ func numericCount(value any) (int64, error) {
 		return int64(typed), nil
 	case json.Number:
 		return typed.Int64()
+	case string:
+		return strconv.ParseInt(typed, 10, 64)
 	default:
 		return 0, fmt.Errorf("ClickHouse count returned unsupported value %T", value)
 	}

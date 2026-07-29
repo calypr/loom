@@ -5,6 +5,7 @@ package materializationapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/calypr/loom/graphqlapi/model"
@@ -17,16 +18,26 @@ type Service struct {
 	reader           *dfmaterialization.Reader
 	scopeResolver    *authscope.ScopeResolver
 	activeGeneration dataset.ActiveManifestResolver
+	maxExportRows    int64
+	maxExportBytes   int64
 }
 
 type Config struct {
 	Reader                 *dfmaterialization.Reader
 	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver dataset.ActiveManifestResolver
+	MaxExportRows          int64
+	MaxExportBytes         int64
 }
 
 func NewService(cfg Config) *Service {
-	return &Service{reader: cfg.Reader, scopeResolver: cfg.ScopeResolver, activeGeneration: cfg.ActiveManifestResolver}
+	if cfg.MaxExportRows <= 0 {
+		cfg.MaxExportRows = 1_000_000
+	}
+	if cfg.MaxExportBytes <= 0 {
+		cfg.MaxExportBytes = 1 << 30
+	}
+	return &Service{reader: cfg.Reader, scopeResolver: cfg.ScopeResolver, activeGeneration: cfg.ActiveManifestResolver, maxExportRows: cfg.MaxExportRows, maxExportBytes: cfg.MaxExportBytes}
 }
 
 func (s *Service) principal(ctx context.Context) (*authscope.Principal, error) {
@@ -175,6 +186,49 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	return dfmaterialization.AggregateResult{Materialization: federatedMaterialization(result.Dataset), Columns: result.Columns, Rows: result.Rows}, nil
 }
 
+func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
+	if s.reader == nil {
+		return dfmaterialization.AggregationsResult{}, fmt.Errorf("dataframe materialization reads are not configured")
+	}
+	principal, err := s.principal(ctx)
+	if err != nil {
+		return dfmaterialization.AggregationsResult{}, err
+	}
+	dataset, projects, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
+	if err != nil {
+		return dfmaterialization.AggregationsResult{}, err
+	}
+	specs := make([]dfmaterialization.AggregationSpec, 0, len(input.Specs))
+	for _, spec := range input.Specs {
+		if spec == nil {
+			continue
+		}
+		value := dfmaterialization.AggregationSpec{Name: spec.Name, Kind: spec.Kind, Column: spec.Column, ExcludeSelfFilter: spec.ExcludeSelfFilter != nil && *spec.ExcludeSelfFilter}
+		if spec.Size != nil {
+			value.Size = *spec.Size
+		}
+		if spec.Interval != nil {
+			value.Interval = *spec.Interval
+		}
+		if spec.DateInterval != nil {
+			value.DateInterval = *spec.DateInterval
+		}
+		specs = append(specs, value)
+	}
+	result, err := s.reader.AggregateFederatedBatch(ctx, projects, input.DataType, dfmaterialization.AggregationsRequest{
+		Filters: convertFilters(input.Filters), Specs: specs, AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
+	})
+	if err != nil {
+		return dfmaterialization.AggregationsResult{}, err
+	}
+	result.Dataset = dataset
+	return result, nil
+}
+
+func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMessage, error) {
+	return json.Marshal(dfmaterialization.NormalizeAggregationResults(result.Aggregations))
+}
+
 func (s *Service) authorizedFederation(ctx context.Context, principal *authscope.Principal, alias string) (dfmaterialization.FederatedDataset, []string, map[string][]string, map[string]bool, error) {
 	candidates, err := s.projects(ctx, principal)
 	if err != nil {
@@ -260,7 +314,18 @@ func convertFilters(filters []*model.DataframeFilterInput) []dfmaterialization.F
 	converted := make([]dfmaterialization.Filter, 0, len(filters))
 	for _, filter := range filters {
 		if filter != nil {
-			converted = append(converted, dfmaterialization.Filter{Column: filter.Column, Op: filter.Op, Value: filter.Value})
+			var value any
+			if len(filter.Value) > 0 {
+				if err := json.Unmarshal(filter.Value, &value); err != nil {
+					// DataframeFilterInput.value is a GraphQL JSON scalar, so
+					// gqlgen should only provide valid JSON here. Preserve the
+					// original value if a custom caller bypasses GraphQL with
+					// malformed input; the reader will surface the resulting
+					// parameter error instead of silently dropping the filter.
+					value = filter.Value
+				}
+			}
+			converted = append(converted, dfmaterialization.Filter{Column: filter.Column, Op: filter.Op, Value: value})
 		}
 	}
 	return converted

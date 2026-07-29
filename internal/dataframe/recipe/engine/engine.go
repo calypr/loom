@@ -295,10 +295,31 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.BindVars); err != nil {
 			return err
 		}
+		resolved = publicStreamRow(resolved, s.Columns)
 		count++
 		return visit(resolved)
 	})
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
+}
+
+// publicStreamRow removes compiler-only projections after they have served
+// post-query validation and row-identity derivation. auth_resource_path is the
+// one hidden projection retained for publication because it preserves the
+// source row's authorization scope when a materialization spans multiple
+// authorized paths.
+func publicStreamRow(row map[string]any, columns []string) map[string]any {
+	public := make(map[string]any, len(columns)+2)
+	for _, column := range columns {
+		if value, ok := row[column]; ok {
+			public[column] = value
+		}
+	}
+	for _, column := range []string{"__loom_row_id", "auth_resource_path"} {
+		if value, ok := row[column]; ok {
+			public[column] = value
+		}
+	}
+	return public
 }
 
 func ensureStableRowIdentity(row map[string]any, identity *compiler.RowIdentity, bindVars map[string]any) error {

@@ -87,12 +87,13 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression PhysicalExpression) (st
 	if len(valueExpressions) > 1 {
 		valueExpression = "FIRST(FOR __loom_keyed_candidate IN [" + strings.Join(valueExpressions, ", ") + "] FILTER __loom_keyed_candidate != null RETURN __loom_keyed_candidate)"
 	}
-	// Selector extraction represents an iterated field as a one-element
-	// subquery whose result can itself be an array. Flatten exactly that outer
-	// wrapper so a keyed family iterates the source items, not one array value.
+	// Selector extraction returns a subquery whose rows can themselves be
+	// arrays. Flatten that result directly so a keyed family iterates source
+	// items. Wrapping the subquery in another array leaves one array layer
+	// behind and makes item key/value selectors read from the array itself.
 	sourceLoop := source
 	if keyed.FlattenSource {
-		sourceLoop = "FLATTEN([" + source + "])"
+		sourceLoop = "FLATTEN(" + source + ")"
 	}
 	values := "FIRST(__loom_keyed_group[*].__loom_keyed_value)"
 	if keyed.Reduction == PhysicalMapFirstSorted {

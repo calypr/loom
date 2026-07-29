@@ -1,0 +1,114 @@
+{
+  "limit": 25,
+  "input": {
+    "project": "ARANGODB_PROTO",
+    "rootResourceType": "Patient",
+    "rootFields": [
+      {"name": "patient_id", "selector": {"valuePath": "id"}, "valueMode": "AUTO"},
+      {"name": "case_identifier", "selector": {"sourcePath": "identifier[]", "valuePath": "value"}, "valueMode": "AUTO"},
+      {"name": "gender", "selector": {"valuePath": "gender"}, "valueMode": "AUTO"}
+    ],
+    "traverse": [
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Condition",
+        "alias": "diagnosis",
+        "aggregates": [
+          {"name": "diagnosis_count", "operation": "COUNT"},
+          {"name": "diagnosis_values", "operation": "DISTINCT_VALUES", "fhirPath": "code.coding[].display", "valueMode": "AUTO"}
+        ],
+        "slices": [
+          {
+            "name": "representative_diagnoses",
+            "limit": 3,
+            "fields": [
+              {"name": "diagnosis_id", "selector": {"valuePath": "id"}, "valueMode": "AUTO"},
+              {"name": "diagnosis", "selector": {"sourcePath": "code.coding[]", "valuePath": "display"}, "valueMode": "AUTO"}
+            ]
+          }
+        ]
+      },
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Specimen",
+        "alias": "sample",
+        "aggregates": [
+          {"name": "sample_count", "operation": "COUNT"},
+          {"name": "sample_types", "operation": "DISTINCT_VALUES", "fhirPath": "type.coding[].display", "valueMode": "AUTO"}
+        ],
+        "slices": [
+          {
+            "name": "representative_samples",
+            "limit": 5,
+            "fields": [
+              {"name": "sample_id", "selector": {"valuePath": "id"}, "valueMode": "AUTO"},
+              {"name": "sample_type", "selector": {"sourcePath": "type.coding[]", "valuePath": "display"}, "valueMode": "AUTO"}
+            ]
+          }
+        ],
+        "traverse": [
+          {
+            "edgeLabel": "subject_Specimen",
+            "toResourceType": "DocumentReference",
+            "alias": "file",
+            "aggregates": [
+              {"name": "file_count", "operation": "COUNT"},
+              {"name": "file_names", "operation": "DISTINCT_VALUES", "fhirPath": "content[].attachment.title", "valueMode": "AUTO"},
+              {"name": "file_formats", "operation": "DISTINCT_VALUES", "fhirPath": "type.coding[].display", "valueMode": "AUTO"}
+            ],
+            "slices": [
+              {
+                "name": "representative_files",
+                "limit": 10,
+                "fields": [
+                  {"name": "file_id", "selector": {"valuePath": "id"}, "valueMode": "AUTO"},
+                  {"name": "file_name", "selector": {"sourcePath": "content[].attachment", "valuePath": "title"}, "valueMode": "AUTO"},
+                  {"name": "file_url", "selector": {"sourcePath": "content[].attachment", "valuePath": "url"}, "valueMode": "AUTO"},
+                  {"name": "file_size", "selector": {"sourcePath": "content[].attachment", "valuePath": "size"}, "valueMode": "AUTO"},
+                  {"name": "file_format", "selector": {"sourcePath": "type.coding[]", "valuePath": "display"}, "valueMode": "AUTO"}
+                ]
+              }
+            ]
+          },
+          {
+            "edgeLabel": "member_entity_Specimen",
+            "toResourceType": "Group",
+            "alias": "sample_group",
+            "aggregates": [
+              {"name": "sample_group_count", "operation": "COUNT"},
+              {"name": "sample_group_types", "operation": "DISTINCT_VALUES", "fhirPath": "type", "valueMode": "AUTO"}
+            ],
+            "traverse": [
+              {
+                "edgeLabel": "subject_Group",
+                "toResourceType": "DocumentReference",
+                "alias": "group_file",
+                "aggregates": [
+                  {"name": "group_file_count", "operation": "COUNT"},
+                  {"name": "group_file_formats", "operation": "DISTINCT_VALUES", "fhirPath": "type.coding[].display", "valueMode": "AUTO"}
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Observation",
+        "alias": "observation",
+        "aggregates": [
+          {"name": "observation_count", "operation": "COUNT"},
+          {"name": "observation_codes", "operation": "DISTINCT_VALUES", "fhirPath": "code.coding[].display", "valueMode": "AUTO"}
+        ],
+        "pivots": [
+          {
+            "name": "observation_values",
+            "columnSelector": {"sourcePath": "code.coding[]", "valuePath": "display"},
+            "valueSelector": {"sourcePath": "valueQuantity", "valuePath": "value"},
+            "columns": ["Tumor Purity", "Hemoglobin", "Platelet Count", "White Blood Cell Count"]
+          }
+        ]
+      }
+    ]
+  }
+}

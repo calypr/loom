@@ -792,7 +792,7 @@ Exit criteria:
 
 Loom work:
 
-- Add `POST /api/v1/dataframe/export` with a JSON request body containing
+- Add `POST /loom/api/v1/dataframe/export` with a JSON request body containing
   `dataType`, public columns, recursive filter, sort list, and format.
 - Support streaming JSON arrays, CSV, and TSV. JSON Lines may be added as a
   separate explicit format.

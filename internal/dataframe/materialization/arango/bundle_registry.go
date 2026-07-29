@@ -2,6 +2,8 @@ package arango
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 
@@ -86,7 +88,7 @@ func (r *Registry) loadExecution(ctx context.Context, query string, vars map[str
 
 func (r *Registry) GetPointer(ctx context.Context, name string) (materialization.BundlePointer, error) {
 	var found *materialization.BundlePointer
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundlePointersCollection, "key": name}, func(row map[string]any) error {
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundlePointersCollection, "key": pointerDocumentKey(name)}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
 			return err
@@ -115,9 +117,13 @@ func (r *Registry) CompareAndSwapPointer(ctx context.Context, name, expected, ne
 		Updated bool `json:"updated"`
 	}
 	updated := false
-	err := r.client.QueryRows(ctx, `LET existing = FIRST(FOR doc IN @@collection FILTER doc._key == @key RETURN doc)
-LET changed = existing == null ? (INSERT {_key: @key, name: @key, executionId: @next, updatedAt: @updatedAt} IN @@collection RETURN true) : (existing.executionId == @expected ? (UPDATE existing WITH {executionId: @next, updatedAt: @updatedAt} IN @@collection RETURN true) : [false])
-RETURN {updated: FIRST(changed)}`, r.batchSize, map[string]interface{}{"@collection": BundlePointersCollection, "key": name, "expected": expected, "next": next, "updatedAt": time.Now().UTC()}, func(row map[string]any) error {
+	err := r.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+FILTER existing == null OR existing.executionId == @expected
+UPSERT {_key: @key}
+INSERT {_key: @key, name: @name, executionId: @next, updatedAt: @updatedAt}
+UPDATE {executionId: @next, updatedAt: @updatedAt}
+IN @@collection
+RETURN {updated: true}`, r.batchSize, map[string]interface{}{"@collection": BundlePointersCollection, "key": pointerDocumentKey(name), "name": name, "expected": expected, "next": next, "updatedAt": time.Now().UTC()}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
 			return err
@@ -132,6 +138,11 @@ RETURN {updated: FIRST(changed)}`, r.batchSize, map[string]interface{}{"@collect
 		return materialization.ErrBundlePointerConflict
 	}
 	return nil
+}
+
+func pointerDocumentKey(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return hex.EncodeToString(sum[:])
 }
 
 var _ materialization.BundleCatalog = (*Registry)(nil)

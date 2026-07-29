@@ -43,6 +43,11 @@ type ComplexityRoot struct {
 		Rows            func(childComplexity int) int
 	}
 
+	DataframeAggregationsResult struct {
+		Aggregations    func(childComplexity int) int
+		Materialization func(childComplexity int) int
+	}
+
 	DataframeColumn struct {
 		Aggregatable   func(childComplexity int) int
 		ClickhouseType func(childComplexity int) int
@@ -80,10 +85,11 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		DataframeAggregate func(childComplexity int, input model.DataframeAggregateInput) int
-		DataframeDataset   func(childComplexity int, input model.DataframeDatasetInput) int
-		DataframeDatasets  func(childComplexity int) int
-		DataframeRows      func(childComplexity int, input model.DataframeRowsInput) int
+		DataframeAggregate    func(childComplexity int, input model.DataframeAggregateInput) int
+		DataframeAggregations func(childComplexity int, input model.DataframeAggregationsInput) int
+		DataframeDataset      func(childComplexity int, input model.DataframeDatasetInput) int
+		DataframeDatasets     func(childComplexity int) int
+		DataframeRows         func(childComplexity int, input model.DataframeRowsInput) int
 	}
 }
 
@@ -96,6 +102,7 @@ type QueryResolver interface {
 	DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error)
 	DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error)
 	DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
+	DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error)
 }
 
 // endregion ************************** generated!.gotpl **************************
@@ -134,6 +141,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeAggregateResult.Rows(childComplexity), true
+
+	case "DataframeAggregationsResult.aggregations":
+		if e.ComplexityRoot.DataframeAggregationsResult.Aggregations == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeAggregationsResult.Aggregations(childComplexity), true
+	case "DataframeAggregationsResult.materialization":
+		if e.ComplexityRoot.DataframeAggregationsResult.Materialization == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeAggregationsResult.Materialization(childComplexity), true
 
 	case "DataframeColumn.aggregatable":
 		if e.ComplexityRoot.DataframeColumn.Aggregatable == nil {
@@ -294,6 +314,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeAggregate(childComplexity, args["input"].(model.DataframeAggregateInput)), true
+	case "Query.dataframeAggregations":
+		if e.ComplexityRoot.Query.DataframeAggregations == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeAggregations_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeAggregations(childComplexity, args["input"].(model.DataframeAggregationsInput)), true
 	case "Query.dataframeDataset":
 		if e.ComplexityRoot.Query.DataframeDataset == nil {
 			break
@@ -332,6 +363,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputDataframeAggregateInput,
+		ec.unmarshalInputDataframeAggregationSpecInput,
+		ec.unmarshalInputDataframeAggregationsInput,
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRowsInput,
@@ -425,6 +458,16 @@ func (ec *executionContext) childFields_DataframeAggregateResult(ctx context.Con
 		return ec.fieldContext_DataframeAggregateResult_rows(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeAggregateResult", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeAggregationsResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "materialization":
+		return ec.fieldContext_DataframeAggregationsResult_materialization(ctx, field)
+	case "aggregations":
+		return ec.fieldContext_DataframeAggregationsResult_aggregations(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeAggregationsResult", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeColumn(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -643,6 +686,20 @@ func (ec *executionContext) field_Query_dataframeAggregate_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_dataframeAggregations_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
+			return ec.unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationsInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -807,6 +864,61 @@ func (ec *executionContext) _DataframeAggregateResult_rows(ctx context.Context, 
 }
 func (ec *executionContext) fieldContext_DataframeAggregateResult_rows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeAggregateResult", field, false, false, errors.New("field of type JSON does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeAggregationsResult_materialization(ctx context.Context, field graphql.CollectedField, obj *model.DataframeAggregationsResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeAggregationsResult_materialization(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Materialization, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeAggregationsResult_materialization(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeAggregationsResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeMaterialization(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeAggregationsResult_aggregations(ctx context.Context, field graphql.CollectedField, obj *model.DataframeAggregationsResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeAggregationsResult_aggregations(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Aggregations, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+			return ec.marshalNJSON2encodingᚋjsonᚐRawMessage(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeAggregationsResult_aggregations(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeAggregationsResult", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeColumn_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
@@ -1546,6 +1658,50 @@ func (ec *executionContext) fieldContext_Query_dataframeAggregate(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeAggregate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeAggregations(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeAggregations(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DataframeAggregations(ctx, fc.Args["input"].(model.DataframeAggregationsInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
+			return ec.marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeAggregations(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeAggregationsResult(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeAggregations_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2745,6 +2901,126 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputDataframeAggregationSpecInput(ctx context.Context, obj any) (model.DataframeAggregationSpecInput, error) {
+	var it model.DataframeAggregationSpecInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["excludeSelfFilter"]; !present {
+		asMap["excludeSelfFilter"] = false
+	}
+
+	fieldsInOrder := [...]string{"name", "kind", "column", "size", "interval", "dateInterval", "excludeSelfFilter"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "column":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("column"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Column = data
+		case "size":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("size"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Size = data
+		case "interval":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("interval"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Interval = data
+		case "dateInterval":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dateInterval"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DateInterval = data
+		case "excludeSelfFilter":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("excludeSelfFilter"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExcludeSelfFilter = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context.Context, obj any) (model.DataframeAggregationsInput, error) {
+	var it model.DataframeAggregationsInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"dataType", "filters", "specs"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "dataType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DataType = data
+		case "filters":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Filters = data
+		case "specs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("specs"))
+			data, err := ec.unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Specs = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Context, obj any) (model.DataframeDatasetInput, error) {
 	var it model.DataframeDatasetInput
 	if obj == nil {
@@ -2961,6 +3237,49 @@ func (ec *executionContext) _DataframeAggregateResult(ctx context.Context, sel a
 			}
 		case "rows":
 			out.Values[i] = ec._DataframeAggregateResult_rows(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeAggregationsResultImplementors = []string{"DataframeAggregationsResult"}
+
+func (ec *executionContext) _DataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeAggregationsResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeAggregationsResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeAggregationsResult")
+		case "materialization":
+			out.Values[i] = ec._DataframeAggregationsResult_materialization(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "aggregations":
+			out.Values[i] = ec._DataframeAggregationsResult_aggregations(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -3333,6 +3652,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_dataframeAggregate(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeAggregations":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeAggregations(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -3807,6 +4148,44 @@ func (ec *executionContext) marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋc
 	return ec._DataframeAggregateResult(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx context.Context, v any) ([]*model.DataframeAggregationSpecInput, error) {
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]*model.DataframeAggregationSpecInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInput(ctx context.Context, v any) (*model.DataframeAggregationSpecInput, error) {
+	res, err := ec.unmarshalInputDataframeAggregationSpecInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationsInput(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
+	res, err := ec.unmarshalInputDataframeAggregationsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDataframeAggregationsResult2githubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregationsResult) graphql.Marshaler {
+	return ec._DataframeAggregationsResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeAggregationsResult(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgraphqlapiᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -4200,6 +4579,23 @@ func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyp
 	}
 	res, err := ec.unmarshalInputDataframeSortInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) unmarshalOInt2ᚖint(ctx context.Context, v any) (*int, error) {

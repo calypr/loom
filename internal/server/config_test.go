@@ -34,6 +34,20 @@ func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	}
 }
 
+func TestLoadConfigCanDisableClickHouse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  clickhouse:\n    enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Server.ClickHouse.Enabled {
+		t.Fatal("ClickHouse unexpectedly enabled")
+	}
+}
+
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("auth:\n  mode: basic\n  typo: true\n"), 0o600); err != nil {

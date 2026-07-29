@@ -9,8 +9,16 @@ func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
 	s.registerHealthRoutes()
 	s.registerGraphQLRoutes()
+	s.registerBulkResourceRoutes()
 	s.registerImportRoutes()
 	s.registerGenerationRoutes()
+	if s.dataframeExporter != nil {
+		s.app.Post("/loom/api/v1/dataframe/export", s.exportDataframe)
+	}
+}
+
+func (s *HTTPServer) registerBulkResourceRoutes() {
+	s.app.Put("/api/v1/projects/:project/resources/:resourceType", s.bulkResource)
 }
 
 func (s *HTTPServer) registerGenerationRoutes() {

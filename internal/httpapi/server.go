@@ -28,6 +28,7 @@ type HTTPConfig struct {
 	// never safely become an immutable active dataset generation.
 	DisableSingleResourceImports bool
 	RawExporter                  RawExporter
+	DataframeExporter            DataframeExporter
 }
 
 type HTTPServer struct {
@@ -43,6 +44,7 @@ type HTTPServer struct {
 	cfgApolloSandboxHandler      http.Handler
 	disableSingleResourceImports bool
 	rawExporter                  RawExporter
+	dataframeExporter            DataframeExporter
 }
 
 type apiError struct {
@@ -95,6 +97,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		cfgApolloSandboxHandler:      cfg.ApolloSandboxHandler,
 		disableSingleResourceImports: cfg.DisableSingleResourceImports,
 		rawExporter:                  cfg.RawExporter,
+		dataframeExporter:            cfg.DataframeExporter,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:      cfg.BodyLimit,

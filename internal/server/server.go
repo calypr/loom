@@ -55,6 +55,8 @@ func Run() {
 		datasetGenerations = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
 		clickhouseURL      = flag.String("clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
 		clickhouseDatabase = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
+		clickhouseUsername = flag.String("clickhouse-username", "default", "ClickHouse username for published dataframe reads")
+		clickhousePassword = flag.String("clickhouse-password", "", "ClickHouse password for published dataframe reads")
 		recipeBatchRows    = flag.Int("recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 		recipeBatchBytes   = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
 	)
@@ -73,6 +75,14 @@ func Run() {
 		*datasetGenerations = serverConfig.Server.DatasetGenerations
 		*clickhouseURL = serverConfig.Server.ClickHouse.URL
 		*clickhouseDatabase = serverConfig.Server.ClickHouse.Database
+		*clickhouseUsername = serverConfig.Server.ClickHouse.Username
+		*clickhousePassword = serverConfig.Server.ClickHouse.Password
+		if !serverConfig.Server.ClickHouse.Enabled {
+			*clickhouseURL = ""
+			*clickhouseDatabase = ""
+			*clickhouseUsername = ""
+			*clickhousePassword = ""
+		}
 		*recipeBatchRows = serverConfig.Server.RecipeBatchRows
 		*recipeBatchBytes = serverConfig.Server.RecipeBatchBytes
 		*noAuth = serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
@@ -173,18 +183,22 @@ func Run() {
 	if err != nil {
 		exitf("create dataframe registry: %v", err)
 	}
-	clickhouse, err := clickhousestore.New(clickhousestore.Options{URL: *clickhouseURL, Database: *clickhouseDatabase})
-	if err != nil {
-		exitf("create ClickHouse client: %v", err)
+	var clickhouse *clickhousestore.Client
+	var materializationReader *materialization.Reader
+	if serverConfig.Server.ClickHouse.Enabled {
+		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: *clickhouseURL, Database: *clickhouseDatabase, Username: *clickhouseUsername, Password: *clickhousePassword})
+		if err != nil {
+			exitf("create ClickHouse client: %v", err)
+		}
+		defer clickhouse.Close()
+		// The Arango-backed dataframe loader publishes into this database. Create
+		// it during server startup so a fresh ClickHouse instance does not require
+		// an operator to run a separate DDL/API step before materialization.
+		if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
+			exitf("ensure ClickHouse database %q: %v", *clickhouseDatabase, err)
+		}
+		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000}
 	}
-	defer clickhouse.Close()
-	// The Arango-backed dataframe loader publishes into this database. Create
-	// it during server startup so a fresh ClickHouse instance does not require
-	// an operator to run a separate DDL/API step before materialization.
-	if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
-		exitf("ensure ClickHouse database %q: %v", *clickhouseDatabase, err)
-	}
-	materializationReader := &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
 		ResolveBundle: recipeSchemaResolver(connOpts, discoveryCache),
@@ -207,13 +221,16 @@ func Run() {
 	if err != nil {
 		exitf("create dataframe recipe engine: %v", err)
 	}
-	bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
-	if err != nil {
-		exitf("create dataframe bundle store: %v", err)
-	}
-	bundleTarget, err := publicationclickhouse.New(bundleStore)
-	if err != nil {
-		exitf("create dataframe publication target: %v", err)
+	var bundleTarget publication.Target
+	if serverConfig.Server.ClickHouse.Enabled {
+		bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
+		if err != nil {
+			exitf("create dataframe bundle store: %v", err)
+		}
+		bundleTarget, err = publicationclickhouse.New(bundleStore)
+		if err != nil {
+			exitf("create dataframe publication target: %v", err)
+		}
 	}
 	resolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
 		DataframeQuery: queryapi.Config{
@@ -229,6 +246,9 @@ func Run() {
 		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
 		RecipeExecutions:      graphqlapi.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
 		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphqlapi.RecipeExecution, error) {
+			if bundleTarget == nil {
+				return graphqlapi.RecipeExecution{}, fmt.Errorf("ClickHouse materialization is disabled")
+			}
 			bindings.IncludeAuthResourcePath = true
 			var identity materialization.BundleIdentity
 			_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
@@ -256,10 +276,12 @@ func Run() {
 				return err
 			})
 			if err != nil {
+				logger.Error("recipe materialization failed", "name", name, "project", bindings.Project, "error", err.Error())
 				return graphqlapi.RecipeExecution{}, err
 			}
 			published, err := registry.FindExecutionByKey(ctx, identity.Key())
 			if err != nil {
+				logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
 				return graphqlapi.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
 			}
 			return graphqlapi.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
@@ -299,6 +321,7 @@ func Run() {
 		ScopeResolver:                scopeResolver,
 		GraphQLHandler:               graphqlapi.NewHandler(resolver),
 		ClickHouseGraphQLHandler:     clickhousegraphql.NewHandler(clickhouseService),
+		DataframeExporter:            clickhouseService,
 		GraphQLPlaygroundHandler:     graphqlapi.NewPlaygroundHandler("/graphql/graph"),
 		ApolloSandboxHandler:         graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
 		DisableSingleResourceImports: *datasetGenerations,

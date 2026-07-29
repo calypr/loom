@@ -40,6 +40,10 @@ remain Phase 6-8 work. A materialization-ID query remains only for internal
 compatibility; the Explorer reader path is principal-scoped and `dataType`
 based.
 
+The Loom-owned implementation plan for facet parity, streaming exports, and
+real-ClickHouse fixtures is tracked in
+[`CLICKHOUSE_READER_COMPLETION_PLAN.md`](CLICKHOUSE_READER_COMPLETION_PLAN.md).
+
 The detailed cross-repository execution plan for those remaining reader and
 Explorer items is [EXPLORER_LOOM_SLICE_PARITY_PLAN.md](EXPLORER_LOOM_SLICE_PARITY_PLAN.md).
 

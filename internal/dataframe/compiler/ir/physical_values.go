@@ -176,6 +176,7 @@ type PhysicalPivotMap struct {
 	KeySelector         Selector
 	ValueSelector       Selector
 	ValueFallbacks      []Selector
+	StringifyValue      bool
 	ColumnsBindKey      string
 	FlattenSingleColumn bool
 	PreparedKey         *PhysicalPreparedReference

@@ -52,6 +52,7 @@ func (s *HTTPServer) createImport(c fiber.Ctx) error {
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
 		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
 	}
+	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 
 	fileHeader, err := c.Req().FormFile("file")
 	if err != nil {

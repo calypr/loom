@@ -10,6 +10,10 @@ import (
 	"github.com/bytedance/sonic"
 )
 
+type aqlExecutor interface {
+	ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error
+}
+
 func WriteFieldCatalog(ctx context.Context, client *arangostore.Client, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
@@ -81,7 +85,7 @@ func WriteRelationshipCatalog(ctx context.Context, client *arangostore.Client, d
 // existing legacy catalog. This is the append/import counterpart to
 // WriteRelationshipCatalog; it avoids replacing counts from earlier resource
 // files when the mutable loader runs with --truncate=false.
-func AccumulateRelationshipCatalog(ctx context.Context, client *arangostore.Client, docs []RelationshipCatalogDocument, timings map[string]float64) error {
+func AccumulateRelationshipCatalog(ctx context.Context, client aqlExecutor, docs []RelationshipCatalogDocument, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -105,9 +109,8 @@ FOR d IN @docs
   INSERT d
   UPDATE { edge_count: OLD.edge_count + d.edge_count }
   IN fhir_relationship_catalog
-  RETURN 1
 `
-	if err := client.QueryRows(ctx, query, len(rows), map[string]any{"docs": rows}, func(map[string]any) error { return nil }); err != nil {
+	if err := client.ExecuteAQL(ctx, query, map[string]any{"docs": rows}); err != nil {
 		return err
 	}
 	if timings != nil {

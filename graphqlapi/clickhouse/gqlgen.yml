@@ -54,3 +54,12 @@ models:
   DataframeAggregateResult:
     model:
       - github.com/calypr/loom/graphqlapi/model.DataframeAggregateResult
+  DataframeAggregationSpecInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationSpecInput
+  DataframeAggregationsInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationsInput
+  DataframeAggregationsResult:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationsResult

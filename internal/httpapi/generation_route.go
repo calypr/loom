@@ -33,6 +33,7 @@ func (s *HTTPServer) createGeneration(c fiber.Ctx) error {
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
 		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
 	}
+	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 	stagedDir, err := stageGenerationFiles(files)
 	if err != nil {
 		return &apiError{Status: fiber.StatusInternalServerError, Code: "stage_failed", Message: err.Error()}

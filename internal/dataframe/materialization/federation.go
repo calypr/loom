@@ -47,6 +47,18 @@ type FederatedPage struct {
 	NextCursor string
 }
 
+// FederatedStreamRequest describes a bounded-memory scan over the same
+// authorized source union used by interactive row reads.
+type FederatedStreamRequest struct {
+	Columns               []string
+	Filters               []Filter
+	Sort                  *Sort
+	AuthResourcePaths     []string
+	AuthUnrestricted      bool
+	AuthPathsByProject    map[string][]string
+	UnrestrictedByProject map[string]bool
+}
+
 // FederatedAggregateRequest describes an aggregate over the same authorized
 // union used by row reads.
 type FederatedAggregateRequest struct {
@@ -438,6 +450,96 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 		delete(row, "__loom_global_row_id")
 	}
 	return FederatedPage{Dataset: dataset, Columns: columns, Rows: rows, TotalCount: count, HasNext: hasNext, NextCursor: next}, nil
+}
+
+// StreamFederated visits rows from the authorized current publication union
+// without buffering the complete result in Loom. Internal source identifiers
+// are removed before the visitor is called.
+func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias string, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
+	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
+		return FederatedDataset{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+	}
+	if visit == nil {
+		return FederatedDataset{}, fmt.Errorf("dataframe stream visitor is required")
+	}
+	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
+	if err != nil {
+		return FederatedDataset{}, err
+	}
+	allowed := make(map[string]struct{}, len(dataset.Columns))
+	for _, column := range dataset.Columns {
+		allowed[column.Name] = struct{}{}
+	}
+	columns := append([]string(nil), req.Columns...)
+	if len(columns) == 0 {
+		for _, column := range dataset.Columns {
+			columns = append(columns, column.Name)
+		}
+	}
+	if err := validateReaderColumns(columns, allowed); err != nil {
+		return FederatedDataset{}, err
+	}
+	if req.Sort != nil {
+		if err := validateReaderColumns([]string{req.Sort.Column}, allowed); err != nil {
+			return FederatedDataset{}, fmt.Errorf("sort: %w", err)
+		}
+	}
+	branches := make([]string, 0, len(dataset.Sources))
+	args := make([]any, 0)
+	for _, source := range dataset.Sources {
+		filters := append([]Filter(nil), req.Filters...)
+		unrestricted := req.AuthUnrestricted
+		paths := req.AuthResourcePaths
+		if req.UnrestrictedByProject != nil {
+			unrestricted = req.UnrestrictedByProject[source.Project]
+		}
+		if req.AuthPathsByProject != nil {
+			paths = req.AuthPathsByProject[source.Project]
+		}
+		if !unrestricted {
+			filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
+		}
+		where, branchArgs, err := buildWhere(filters, allowed)
+		if err != nil {
+			return FederatedDataset{}, err
+		}
+		selects := make([]string, 0, len(columns)+2)
+		for _, column := range columns {
+			selects = append(selects, fmt.Sprintf("`%s`", column))
+		}
+		selects = append(selects,
+			"toString(`__loom_row_id`) AS `__loom_row_id`",
+			"concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`",
+		)
+		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
+		if len(where) > 0 {
+			branch += " WHERE " + strings.Join(where, " AND ")
+		}
+		branches = append(branches, branch)
+		args = append(args, source.ID)
+		args = append(args, branchArgs...)
+	}
+	queryColumns := append([]string(nil), columns...)
+	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
+	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), strings.Join(branches, " UNION ALL "))
+	if req.Sort != nil {
+		direction := "ASC"
+		if req.Sort.Desc {
+			direction = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_global_row_id` ASC", req.Sort.Column, direction)
+	} else {
+		query += " ORDER BY `__loom_global_row_id` ASC"
+	}
+	err = r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
+		delete(row, "__loom_row_id")
+		delete(row, "__loom_global_row_id")
+		return visit(row)
+	}, args...)
+	if err != nil {
+		return FederatedDataset{}, err
+	}
+	return dataset, nil
 }
 
 func (r *Reader) federatedCount(ctx context.Context, dataset FederatedDataset, allowed map[string]struct{}, req FederatedPageRequest) (int64, error) {

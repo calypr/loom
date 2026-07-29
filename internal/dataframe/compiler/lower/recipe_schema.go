@@ -86,8 +86,12 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan) []Comp
 			addLogical(prefix+aggregate.Name, string(expression.KindInteger), string(expression.RequiredOne), true)
 		}
 		for _, pivot := range node.Pivots {
+			kind := pivot.ValueKind
+			if kind == "" {
+				kind = expression.KindString
+			}
 			for _, column := range pivot.Columns {
-				addLogical(prefix+pivot.Name+"__"+sanitizeColumnName(column), string(expression.KindObject), string(expression.RequiredOne), true)
+				addLogical(prefix+pivot.Name+"__"+sanitizeColumnName(column), string(kind), string(expression.RequiredOne), true)
 			}
 		}
 		for _, slice := range node.Slices {

@@ -1,6 +1,9 @@
 package materialization
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestKeysetCursorRoundTrip(t *testing.T) {
 	cursor := encodeCursor("42", "alice")
@@ -47,5 +50,29 @@ func TestBuildWhereSupportsGenericReaderOperators(t *testing.T) {
 		if expression == "" {
 			t.Fatal("empty filter expression")
 		}
+	}
+}
+
+func TestNumericCountAcceptsClickHouseRepresentations(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  int64
+	}{
+		{name: "integer", value: int64(12), want: 12},
+		{name: "json number", value: json.Number("34"), want: 34},
+		{name: "string", value: "4764", want: 4764},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := numericCount(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("numericCount(%#v) = %d, want %d", test.value, got, test.want)
+			}
+		})
 	}
 }

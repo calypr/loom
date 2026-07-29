@@ -247,21 +247,29 @@ func (r *physicalPlanRenderer) renderPivot(expression PhysicalExpression) (strin
         RETURN { key: __pivot_key, values: __pivot_values }
   )`, itemLoop, keyExpr, valueExpr, pivot.ColumnsBindKey)
 	if pivot.FlattenSingleColumn {
+		value := "FIRST(__pivot_flat_values)"
+		if pivot.StringifyValue {
+			value = "TO_STRING(" + value + ")"
+		}
 		return fmt.Sprintf(`FIRST(
   %s
   COLLECT __pivot_key = __pair.key INTO __pivot_group
     LET __pivot_flat_values = SORTED_UNIQUE(FLATTEN(__pivot_group[*].__pair.values))
     FILTER LENGTH(__pivot_flat_values) > 0
-    RETURN FIRST(__pivot_flat_values)
-)`, pairs), nil
+    RETURN %s
+)`, pairs, value), nil
+	}
+	value := "FIRST(__pivot_flat_values)"
+	if pivot.StringifyValue {
+		value = "TO_STRING(" + value + ")"
 	}
 	return fmt.Sprintf(`MERGE(
   %s
   COLLECT __pivot_key = __pair.key INTO __pivot_group
     LET __pivot_flat_values = SORTED_UNIQUE(FLATTEN(__pivot_group[*].__pair.values))
     FILTER LENGTH(__pivot_flat_values) > 0
-    RETURN { [__pivot_key]: FIRST(__pivot_flat_values) }
-)`, pairs), nil
+    RETURN { [__pivot_key]: %s }
+)`, pairs, value), nil
 }
 
 // renderPivotSelector evaluates a selector against either the resource

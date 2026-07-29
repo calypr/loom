@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -322,6 +323,12 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	if !foundProjectionName || !strings.Contains(rendered.Query, "FOR __item IN child_set_1") {
 		t.Fatalf("rendered traversal dynamic projection missing: query=%s binds=%#v", rendered.Query, rendered.BindVars)
 	}
+	if strings.Contains(rendered.Query, "FOR dynamic_item IN FLATTEN([(") {
+		t.Fatalf("traversal dynamic source retained an extra array wrapper: %s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "FOR dynamic_item IN FLATTEN((") {
+		t.Fatalf("traversal dynamic source was not flattened directly: %s", rendered.Query)
+	}
 }
 
 func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
@@ -348,6 +355,84 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	if strings.Count(rendered.Query, "pivot_item_value") < 1 || !strings.Contains(rendered.Query, "__root.code") {
 		t.Fatalf("component pivot was not lowered as one correlated item scope: %s", rendered.Query)
 	}
+}
+
+func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "mixed-observation-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{
+			Name:           "observation_values",
+			ColumnExpr:     recipe.Expression{Select: "root.code.text"},
+			ValueExpr:      recipe.Expression{Select: "root.valueQuantity.value"},
+			ValueFallbacks: []recipe.Expression{{Select: "root.valueString"}, {Select: "root.valueBoolean"}},
+			Columns:        []string{"Biospecimen"},
+		}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "observation_values__Biospecimen" {
+			continue
+		}
+		found = true
+		if column.Kind != string(expression.KindString) || column.Cardinality != string(expression.RequiredOne) || !column.Nullable {
+			t.Fatalf("mixed pivot column = %#v, want nullable scalar string", column)
+		}
+	}
+	if !found {
+		t.Fatalf("compiled schema missing flattened pivot column: %#v", compiled.Outputs[0].OutputSchema)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "TO_STRING(FIRST(__pivot_flat_values))") {
+		t.Fatalf("mixed pivot values were not normalized to strings: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "first-projection", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "resource",
+		Fields: []recipe.Field{{
+			Name:      "author_reference",
+			Expr:      recipe.Expression{Select: "root.author[].reference"},
+			ValueMode: recipe.ValueModeFirst,
+		}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "author_reference" {
+			continue
+		}
+		if column.Cardinality != string(expression.OptionalOne) || !column.Nullable {
+			t.Fatalf("FIRST projection column = %#v, want optional scalar", column)
+		}
+		return
+	}
+	t.Fatalf("compiled schema missing author_reference: %#v", compiled.Outputs[0].OutputSchema)
 }
 
 func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T) {

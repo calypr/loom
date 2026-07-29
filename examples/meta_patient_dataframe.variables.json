@@ -1,0 +1,54 @@
+{
+  "limit": 25,
+  "input": {
+    "project": "ARANGODB_PROTO",
+    "rootResourceType": "Patient",
+    "rootFields": [
+      {
+        "name": "patient_id",
+        "selector": {"valuePath": "id"},
+        "valueMode": "AUTO"
+      },
+      {
+        "name": "case_identifier",
+        "selector": {"sourcePath": "identifier[]", "valuePath": "value"},
+        "valueMode": "AUTO"
+      },
+      {
+        "name": "gender",
+        "selector": {"valuePath": "gender"},
+        "valueMode": "AUTO"
+      }
+    ],
+    "traverse": [
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Condition",
+        "alias": "condition",
+        "aggregates": [
+          {"name": "condition_count", "operation": "COUNT"},
+          {
+            "name": "diagnosis_values",
+            "operation": "DISTINCT_VALUES",
+            "fhirPath": "code.coding[].display",
+            "valueMode": "AUTO"
+          }
+        ]
+      },
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Specimen",
+        "alias": "specimen",
+        "aggregates": [
+          {"name": "specimen_count", "operation": "COUNT"},
+          {
+            "name": "specimen_types",
+            "operation": "DISTINCT_VALUES",
+            "fhirPath": "type.coding[].display",
+            "valueMode": "AUTO"
+          }
+        ]
+      }
+    ]
+  }
+}

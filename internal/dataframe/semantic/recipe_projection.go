@@ -77,15 +77,31 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		if err := validateRecipeProjectionTypes(primary.Type, fallbacks); err != nil {
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
 		}
-		if _, err := ResolveSemanticField(resourceTypeForScope(scope, primary.Expression), selectorContext(primary.Expression), 0, fieldSemantic); err != nil {
+		selection, err := ResolveSemanticField(resourceTypeForScope(scope, primary.Expression), selectorContext(primary.Expression), 0, fieldSemantic)
+		if err != nil {
 			// ResolveSemanticField needs the resource type owning the selector. A
 			// malformed/unknown context is already rejected by scope.expression;
 			// retain its useful diagnostic here rather than silently weakening the
 			// cardinality contract.
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
 		}
+		projected := primary
+		switch selection.Projection {
+		case ProjectionFirst:
+			// FIRST over a repeated selector can produce no value, but it can
+			// never produce the source array. Carry that effective cardinality
+			// into the publication schema while retaining the selector AST for
+			// optimized PhysicalExtract lowering.
+			projected.Type.Cardinality = expression.OptionalOne
+		case ProjectionArray, ProjectionDistinctArray:
+			projected.Type.Cardinality = expression.Many
+		case ProjectionScalar:
+		default:
+			return normalizedRecipeProjection{}, fmt.Errorf("%s: unsupported selector projection %q", path, selection.Projection)
+		}
+		fieldSemantic.ExprType = projected.Type
 		return normalizedRecipeProjection{projection: SemanticProjection{
-			Name: field.Name, ValueMode: string(field.ValueMode), Expr: primary,
+			Name: field.Name, ValueMode: string(field.ValueMode), Expr: projected,
 		}, field: fieldSemantic}, nil
 	}
 

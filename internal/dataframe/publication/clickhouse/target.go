@@ -113,6 +113,8 @@ func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {
 		}
 		if column.Repeated {
 			columnType = "Array(" + columnType + ")"
+		} else if column.Nullable {
+			columnType = "Nullable(" + columnType + ")"
 		}
 		result = append(result, store.Column{Name: column.Name, Type: columnType})
 	}

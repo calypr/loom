@@ -67,7 +67,7 @@ func physicalPivotProjections(physical *PhysicalPlan, resourceType string, sourc
 		familyVariable = fmt.Sprintf("__loom_pivot_%s_%s_%d", sanitizeColumnName(source.Variable), sanitizeColumnName(pivot.Name), index)
 	}
 	sharedExpression := PhysicalExpression{Kind: PhysicalPivotExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
-		Pivot: &PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]Selector(nil), pivot.ValueFallbacks...), ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false}}
+		Pivot: &PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false}}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, PhysicalOperation{Kind: PhysicalExpressionLetOp, Source: PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})
 	for _, column := range pivot.Columns {
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)

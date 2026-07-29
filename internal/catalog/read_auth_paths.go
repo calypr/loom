@@ -14,7 +14,7 @@ FOR d IN fhir_field_catalog
   FILTER d.auth_resource_path != null AND d.auth_resource_path != ""
   COLLECT auth_resource_path = d.auth_resource_path
   SORT auth_resource_path
-  RETURN auth_resource_path
+  RETURN { auth_resource_path: auth_resource_path }
 `
 
 func DiscoverExistingAuthResourcePaths(ctx context.Context, opts AuthResourcePathOptions) ([]string, error) {

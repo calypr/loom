@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -142,12 +143,22 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 				fallbacks = append(fallbacks, fallback)
 			}
 		}
+		valueResourceType := resourceType
+		if itemResourceType != "" {
+			valueResourceType = itemResourceType
+		}
+		valueKind, stringifyValue, err := pivotValueKind(valueResourceType, value, fallbacks)
+		if err != nil {
+			return nil, fmt.Errorf("%s value selectors: %w", path, err)
+		}
 		out = append(out, SemanticPivot{
 			Name:             input.Name,
 			FieldRef:         input.FieldRef,
 			ColumnSelector:   column,
 			ValueSelector:    value,
 			ValueFallbacks:   fallbacks,
+			ValueKind:        valueKind,
+			StringifyValue:   stringifyValue,
 			ItemSource:       itemSource,
 			ItemResourceType: itemResourceType,
 			Columns:          columns,
@@ -155,6 +166,49 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 		})
 	}
 	return out, nil
+}
+
+// pivotValueKind derives the flat output type from the value selectors rather
+// than from the pivot map that temporarily carries them. FHIR choice values
+// can mix primitive kinds (for example Observation.valueQuantity.value and
+// Observation.valueString); those values share one discovered column family,
+// so normalize that heterogeneous family to strings at the physical boundary.
+func pivotValueKind(resourceType string, primary Selector, fallbacks []Selector) (expression.ValueKind, bool, error) {
+	selectors := append([]Selector{primary}, fallbacks...)
+	kinds := make([]expression.ValueKind, 0, len(selectors))
+	for _, selector := range selectors {
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
+		if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
+			return "", false, fmt.Errorf("selector %q does not resolve to a primitive value", selector.CanonicalPath())
+		}
+		kind := expression.KindString
+		switch metadata.Primitive {
+		case fhirschema.PrimitiveBoolean:
+			kind = expression.KindBoolean
+		case fhirschema.PrimitiveInteger:
+			kind = expression.KindInteger
+		case fhirschema.PrimitiveDecimal:
+			kind = expression.KindDecimal
+		case fhirschema.PrimitiveDate:
+			kind = expression.KindDate
+		case fhirschema.PrimitiveDateTime:
+			kind = expression.KindDateTime
+		}
+		kinds = append(kinds, kind)
+	}
+	kind := kinds[0]
+	for _, candidate := range kinds[1:] {
+		if candidate == kind {
+			continue
+		}
+		if (kind == expression.KindInteger && candidate == expression.KindDecimal) ||
+			(kind == expression.KindDecimal && candidate == expression.KindInteger) {
+			kind = expression.KindDecimal
+			continue
+		}
+		return expression.KindString, true, nil
+	}
+	return kind, false, nil
 }
 
 func relativePivotSelector(selector Selector, source string) (Selector, error) {
