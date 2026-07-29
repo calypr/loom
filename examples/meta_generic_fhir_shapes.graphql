@@ -1,0 +1,18 @@
+mutation RunGenericFHIRShapes($input: FhirDataframeInput!, $limit: Int) {
+  runFhirDataframe(input: $input, limit: $limit) {
+    columns
+    rowCount
+    diagnostics {
+      totalMs
+      compilationMs
+      arangoQueryMs
+      plan {
+        traversalSets
+        sharedTraversalCount
+        potentialSharingOpportunityGroups
+        richSourceReuse { sourceSet aggregateConsumers pivotConsumers sliceConsumers totalConsumers }
+      }
+    }
+    rows
+  }
+}

@@ -13,7 +13,7 @@ import (
 
 type Reader struct {
 	ClickHouse *clickhouse.Client
-	Registry   Registry
+	Catalog    BundleCatalog
 	MaxPage    int
 }
 
@@ -41,6 +41,7 @@ type Page struct {
 	Materialization Materialization
 	Columns         []string
 	Rows            []map[string]any
+	TotalCount      int64
 	HasNext         bool
 	NextCursor      string
 }
@@ -59,14 +60,31 @@ type AggregateResult struct {
 	Rows            []map[string]any
 }
 
-func (r *Reader) Aggregate(ctx context.Context, req AggregateRequest) (AggregateResult, error) {
-	if r.ClickHouse == nil || r.Registry == nil {
-		return AggregateResult{}, fmt.Errorf("ClickHouse and registry dependencies are required")
+func (r *Reader) AggregateDataset(ctx context.Context, project, generation, alias string, req AggregateRequest) (AggregateResult, error) {
+	if r.ClickHouse == nil || r.Catalog == nil {
+		return AggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
 	}
-	m, err := r.Registry.Get(ctx, req.MaterializationID)
+	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
 	if err != nil {
 		return AggregateResult{}, err
 	}
+	req.MaterializationID = m.ID
+	return r.aggregateResolved(ctx, req, m)
+}
+
+func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req AggregateRequest) (AggregateResult, error) {
+	if r.ClickHouse == nil || r.Catalog == nil {
+		return AggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+	}
+	m, err := r.publishedByID(ctx, id)
+	if err != nil {
+		return AggregateResult{}, err
+	}
+	req.MaterializationID = m.ID
+	return r.aggregateResolved(ctx, req, m)
+}
+
+func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m Materialization) (AggregateResult, error) {
 	if m.State != StateReady {
 		return AggregateResult{}, fmt.Errorf("materialization %q is not ready", m.ID)
 	}
@@ -79,12 +97,12 @@ func (r *Reader) Aggregate(ctx context.Context, req AggregateRequest) (Aggregate
 			return AggregateResult{}, fmt.Errorf("group column %q is not in materialization schema", column)
 		}
 	}
-	where, err := buildWhere(req.Filters, allowed)
+	where, args, err := buildWhere(req.Filters, allowed)
 	if err != nil {
 		return AggregateResult{}, err
 	}
 	operation := strings.ToUpper(req.Operation)
-	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "MIN" && operation != "MAX" {
+	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
 		return AggregateResult{}, fmt.Errorf("unsupported dataframe aggregate operation %q", req.Operation)
 	}
 	if operation != "COUNT" {
@@ -107,6 +125,10 @@ func (r *Reader) Aggregate(ctx context.Context, req AggregateRequest) (Aggregate
 		metric = fmt.Sprintf("sum(`%s`)", req.Column)
 		metricName = "sum"
 	}
+	if operation == "AVG" {
+		metric = fmt.Sprintf("avg(`%s`)", req.Column)
+		metricName = "avg"
+	}
 	if operation == "MIN" {
 		metric = fmt.Sprintf("min(`%s`)", req.Column)
 		metricName = "min"
@@ -124,21 +146,87 @@ func (r *Reader) Aggregate(ctx context.Context, req AggregateRequest) (Aggregate
 	if len(req.GroupBy) > 0 {
 		query += " GROUP BY " + strings.Join(selects[:len(req.GroupBy)], ", ") + " ORDER BY " + strings.Join(selects[:len(req.GroupBy)], ", ")
 	}
-	rows, err := r.ClickHouse.QueryRows(ctx, query, columns)
+	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
 		return AggregateResult{}, err
 	}
 	return AggregateResult{Materialization: m, Columns: columns, Rows: rows}, nil
 }
 
-func (r *Reader) Page(ctx context.Context, req PageRequest) (Page, error) {
-	if r.ClickHouse == nil || r.Registry == nil {
-		return Page{}, fmt.Errorf("ClickHouse and registry dependencies are required")
+func (r *Reader) PageDataset(ctx context.Context, project, generation, alias string, req PageRequest) (Page, error) {
+	if r.ClickHouse == nil || r.Catalog == nil {
+		return Page{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
 	}
-	m, err := r.Registry.Get(ctx, req.MaterializationID)
+	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
 	if err != nil {
 		return Page{}, err
 	}
+	req.MaterializationID = m.ID
+	return r.pageResolved(ctx, req, m)
+}
+
+func (r *Reader) PagePublishedID(ctx context.Context, id string, req PageRequest) (Page, error) {
+	if r.ClickHouse == nil || r.Catalog == nil {
+		return Page{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+	}
+	m, err := r.publishedByID(ctx, id)
+	if err != nil {
+		return Page{}, err
+	}
+	req.MaterializationID = m.ID
+	return r.pageResolved(ctx, req, m)
+}
+
+func (r *Reader) Dataset(ctx context.Context, project, generation, alias string) (Materialization, error) {
+	if r.Catalog == nil {
+		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
+	}
+	return ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
+}
+
+func (r *Reader) Datasets(ctx context.Context, project, generation string) ([]Materialization, error) {
+	if r.Catalog == nil {
+		return nil, fmt.Errorf("bundle catalog dependency is required")
+	}
+	return ListPublishedOutputs(ctx, r.Catalog, project, generation)
+}
+
+func (r *Reader) DatasetByPublishedID(ctx context.Context, id string) (Materialization, error) {
+	if r.Catalog == nil {
+		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
+	}
+	return r.publishedByID(ctx, id)
+}
+
+func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization, error) {
+	parts := strings.SplitN(id, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return Materialization{}, fmt.Errorf("invalid published dataset id %q", id)
+	}
+	execution, err := r.Catalog.GetExecution(ctx, parts[0])
+	if err != nil {
+		return Materialization{}, err
+	}
+	if execution.State != BundleReady {
+		return Materialization{}, fmt.Errorf("published dataset %q is not ready", id)
+	}
+	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
+	if err != nil || pointer.ExecutionID != execution.ID {
+		return Materialization{}, fmt.Errorf("published dataset %q is not current", id)
+	}
+	for _, output := range execution.Outputs {
+		if output.Name == parts[1] {
+			alias := output.Alias
+			if alias == "" {
+				alias = output.Name
+			}
+			return publishedMaterialization(execution, output, alias), nil
+		}
+	}
+	return Materialization{}, fmt.Errorf("published dataset id %q was not found", id)
+}
+
+func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {
 	if m.State != StateReady {
 		return Page{}, fmt.Errorf("materialization %q is not ready", m.ID)
 	}
@@ -183,7 +271,22 @@ func (r *Reader) Page(ctx context.Context, req PageRequest) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	where, err := buildWhere(req.Filters, allowed)
+	where, whereArgs, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return Page{}, err
+	}
+	countQuery := fmt.Sprintf("SELECT count() AS `__loom_total` FROM `%s`", m.PhysicalTable)
+	if len(where) > 0 {
+		countQuery += " WHERE " + strings.Join(where, " AND ")
+	}
+	countRows, err := r.ClickHouse.QueryRowsArgs(ctx, countQuery, []string{"__loom_total"}, whereArgs...)
+	if err != nil {
+		return Page{}, err
+	}
+	if len(countRows) == 0 {
+		return Page{}, fmt.Errorf("ClickHouse count query returned no rows")
+	}
+	totalCount, err := numericCount(countRows[0]["__loom_total"])
 	if err != nil {
 		return Page{}, err
 	}
@@ -203,10 +306,11 @@ func (r *Reader) Page(ctx context.Context, req PageRequest) (Page, error) {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	if cursor != nil {
-		cursorWhere, err := cursorPredicate(cursor, req.Sort)
+		cursorWhere, cursorArgs, err := cursorPredicate(cursor, req.Sort)
 		if err != nil {
 			return Page{}, err
 		}
+		whereArgs = append(whereArgs, cursorArgs...)
 		if strings.Contains(query, " WHERE ") {
 			query += " AND " + cursorWhere
 		} else {
@@ -223,7 +327,7 @@ func (r *Reader) Page(ctx context.Context, req PageRequest) (Page, error) {
 		query += " ORDER BY toUInt64(`__loom_row_id`) ASC"
 	}
 	query += fmt.Sprintf(" LIMIT %d", first+1)
-	rows, err := r.ClickHouse.QueryRows(ctx, query, queryColumns)
+	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, whereArgs...)
 	if err != nil {
 		return Page{}, err
 	}
@@ -253,29 +357,93 @@ func (r *Reader) Page(ctx context.Context, req PageRequest) (Page, error) {
 			delete(row, req.Sort.Column)
 		}
 	}
-	return Page{Materialization: m, Columns: columns, Rows: rows, HasNext: hasNext, NextCursor: next}, nil
+	return Page{Materialization: m, Columns: columns, Rows: rows, TotalCount: totalCount, HasNext: hasNext, NextCursor: next}, nil
 }
 
-func buildWhere(filters []Filter, allowed map[string]struct{}) ([]string, error) {
+func numericCount(value any) (int64, error) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), nil
+	case int64:
+		return typed, nil
+	case float64:
+		return int64(typed), nil
+	case json.Number:
+		return typed.Int64()
+	case string:
+		return strconv.ParseInt(typed, 10, 64)
+	default:
+		return 0, fmt.Errorf("ClickHouse count returned unsupported value %T", value)
+	}
+}
+
+func buildWhere(filters []Filter, allowed map[string]struct{}) ([]string, []any, error) {
 	where := make([]string, 0, len(filters))
+	args := make([]any, 0, len(filters))
 	for _, filter := range filters {
 		if _, ok := allowed[filter.Column]; !ok {
-			return nil, fmt.Errorf("filter column %q is not in materialization schema", filter.Column)
-		}
-		literal, err := jsonLiteral(filter.Value)
-		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("filter column %q is not in materialization schema", filter.Column)
 		}
 		switch strings.ToUpper(filter.Op) {
 		case "EQ":
-			where = append(where, fmt.Sprintf("`%s` = %s", filter.Column, literal))
+			where = append(where, fmt.Sprintf("`%s` = ?", filter.Column))
+			args = append(args, filter.Value)
+		case "NEQ":
+			where = append(where, fmt.Sprintf("`%s` != ?", filter.Column))
+			args = append(args, filter.Value)
+		case "IN", "NOT_IN":
+			if emptyFilterCollection(filter.Value) {
+				if strings.EqualFold(filter.Op, "IN") {
+					where = append(where, "0")
+				} else {
+					where = append(where, "1")
+				}
+				continue
+			}
+			op := "IN"
+			if strings.EqualFold(filter.Op, "NOT_IN") {
+				op = "NOT IN"
+			}
+			where = append(where, fmt.Sprintf("`%s` %s ?", filter.Column, op))
+			args = append(args, filter.Value)
+		case "LT", "LTE", "GT", "GTE":
+			op := map[string]string{"LT": "<", "LTE": "<=", "GT": ">", "GTE": ">="}[strings.ToUpper(filter.Op)]
+			where = append(where, fmt.Sprintf("`%s` %s ?", filter.Column, op))
+			args = append(args, filter.Value)
 		case "CONTAINS":
-			where = append(where, fmt.Sprintf("positionCaseInsensitive(toString(`%s`), %s) > 0", filter.Column, literal))
+			where = append(where, fmt.Sprintf("positionCaseInsensitive(toString(`%s`), ?) > 0", filter.Column))
+			args = append(args, filter.Value)
+		case "STARTS_WITH":
+			where = append(where, fmt.Sprintf("startsWith(toString(`%s`), ?)", filter.Column))
+			args = append(args, filter.Value)
+		case "EXISTS":
+			where = append(where, fmt.Sprintf("isNotNull(`%s`)", filter.Column))
+		case "IS_NULL":
+			where = append(where, fmt.Sprintf("isNull(`%s`)", filter.Column))
+		case "ARRAY_CONTAINS":
+			where = append(where, fmt.Sprintf("has(`%s`, ?)", filter.Column))
+			args = append(args, filter.Value)
+		case "ARRAY_OVERLAPS":
+			where = append(where, fmt.Sprintf("hasAny(`%s`, ?)", filter.Column))
+			args = append(args, filter.Value)
 		default:
-			return nil, fmt.Errorf("unsupported dataframe filter operation %q", filter.Op)
+			return nil, nil, fmt.Errorf("unsupported dataframe filter operation %q", filter.Op)
 		}
 	}
-	return where, nil
+	return where, args, nil
+}
+
+func emptyFilterCollection(value any) bool {
+	switch typed := value.(type) {
+	case []string:
+		return len(typed) == 0
+	case []any:
+		return len(typed) == 0
+	case nil:
+		return true
+	default:
+		return false
+	}
 }
 
 type pageCursor struct {
@@ -303,27 +471,19 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 	return &value, nil
 }
 
-func cursorPredicate(cursor *pageCursor, sort *Sort) (string, error) {
-	rowID, err := jsonLiteral(cursor.RowID)
-	if err != nil {
-		return "", err
-	}
-	row := fmt.Sprintf("toUInt64(`__loom_row_id`) > toUInt64(%s)", rowID)
+func cursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
+	row := "toUInt64(`__loom_row_id`) > toUInt64(?)"
 	if sort == nil {
-		return row, nil
+		return row, []any{cursor.RowID}, nil
 	}
 	if cursor.SortValue == nil {
-		return "", fmt.Errorf("keyset cursor is missing sort value")
-	}
-	literal, err := jsonLiteral(cursor.SortValue)
-	if err != nil {
-		return "", err
+		return "", nil, fmt.Errorf("keyset cursor is missing sort value")
 	}
 	operator := ">"
 	if sort.Desc {
 		operator = "<"
 	}
-	return fmt.Sprintf("(`%s` %s %s OR (`%s` = %s AND %s))", sort.Column, operator, literal, sort.Column, literal, row), nil
+	return fmt.Sprintf("(`%s` %s ? OR (`%s` = ? AND %s))", sort.Column, operator, sort.Column, row), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }
 
 func contains(values []string, needle string) bool {
@@ -333,29 +493,4 @@ func contains(values []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func jsonLiteral(value any) (string, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-func encodeOffset(value int) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(value)))
-}
-func decodeOffset(cursor string) (int, error) {
-	if cursor == "" {
-		return 0, nil
-	}
-	data, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return 0, fmt.Errorf("invalid dataframe cursor: %w", err)
-	}
-	value, err := strconv.Atoi(string(data))
-	if err != nil || value < 0 {
-		return 0, fmt.Errorf("invalid dataframe cursor")
-	}
-	return value, nil
 }

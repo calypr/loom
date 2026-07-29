@@ -8,6 +8,22 @@ jobs:
     name: Go tests
     runs-on: ubuntu-latest
 
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      LOOM_CLICKHOUSE_URL: clickhouse://127.0.0.1:9000
+      LOOM_CLICKHOUSE_DATABASE: loom_test
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -15,7 +31,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version-file: go.mod
+        go-version: 1.26.5
         cache: true
 
     - name: Generate FHIR code

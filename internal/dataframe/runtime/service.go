@@ -2,60 +2,52 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const defaultRowLimit = 25
 
+var ErrActiveGenerationConflict = errors.New("requested dataset generation conflicts with active generation")
+
 type ServiceConfig struct {
-	ConnectionOptions  arangostore.ConnectionOptions
-	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	ExecuteRows        func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
-	ScopeResolver      *authscope.ScopeResolver
-	// ActiveManifestResolver is optional. When configured, every Run/Stream
-	// selects one READY active generation before resolving scope, catalog facts,
-	// lowering, or AQL. A Builder's explicit generation must agree with it.
+	ConnectionOptions arangostore.ConnectionOptions
+	// Catalog callbacks are retained for callers that share a deployment config
+	// with GraphQL discovery. Recipe execution itself does not invoke them.
+	DiscoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	DiscoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
+	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver dataset.ActiveManifestResolver
 }
 
 type Service struct {
 	connOpts               arangostore.ConnectionOptions
-	discoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	executeRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver dataset.ActiveManifestResolver
 }
 
 func NewService(cfg ServiceConfig) *Service {
-	svc := &Service{
+	executeRows := cfg.ExecuteRows
+	if executeRows == nil {
+		executeRows = ExecuteQueryRows
+	}
+	return &Service{
 		connOpts:               cfg.ConnectionOptions,
+		executeRows:            executeRows,
 		scopeResolver:          cfg.ScopeResolver,
 		activeManifestResolver: cfg.ActiveManifestResolver,
 	}
-	if cfg.DiscoverReferences != nil {
-		svc.discoverReferences = cfg.DiscoverReferences
-	} else {
-		svc.discoverReferences = catalog.DiscoverPopulatedReferences
-	}
-	if cfg.DiscoverFields != nil {
-		svc.discoverFields = cfg.DiscoverFields
-	} else {
-		svc.discoverFields = catalog.DiscoverPopulatedFields
-	}
-	if cfg.ExecuteRows != nil {
-		svc.executeRows = cfg.ExecuteRows
-	} else {
-		svc.executeRows = ExecuteQueryRows
-	}
-	return svc
 }
 
 func (s *Service) Run(ctx context.Context, req RunRequest) (*Result, error) {
@@ -77,78 +69,74 @@ func (s *Service) Run(ctx context.Context, req RunRequest) (*Result, error) {
 }
 
 func (s *Service) compileRunRequestWithDiagnostics(ctx context.Context, req RunRequest) (CompiledQuery, QueryDiagnostics, error) {
-	_, compiled, diagnostics, err := s.prepareAndCompile(ctx, req.Builder, req.Limit)
+	compiled, diagnostics, err := s.prepareAndCompile(ctx, req)
 	return compiled, diagnostics, err
 }
 
-// prepareAndCompile is the single preparation/compilation boundary shared by
-// execution and execution-independent validation. Keeping it here prevents a
-// frontend validation path from silently accepting shapes that Run rejects.
-func (s *Service) prepareAndCompile(ctx context.Context, builder Builder, requestedLimit int) (Builder, CompiledQuery, QueryDiagnostics, error) {
+// prepareAndCompile is the only runtime compiler boundary. It accepts the
+// canonical recipe wire format, resolves request-scoped authorization and
+// generation bindings, and invokes the shared semantic/physical compiler.
+func (s *Service) prepareAndCompile(ctx context.Context, req RunRequest) (CompiledQuery, QueryDiagnostics, error) {
 	prepareStarted := time.Now()
-	spec, err := s.prepareSpec(ctx, builder)
+	bindings, err := s.prepareBindings(ctx, req.Bindings)
 	if err != nil {
-		return Builder{}, CompiledQuery{}, QueryDiagnostics{}, err
+		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
 	diagnostics := QueryDiagnostics{RequestPreparation: time.Since(prepareStarted)}
-	limit := requestedLimit
+	limit := req.Limit
 	if limit <= 0 {
 		limit = defaultRowLimit
 	}
-	// Keep the validated logical request through the physical compiler boundary.
+	bindings.PreviewLimit = limit
 	compileStarted := time.Now()
-	compiled, err := CompileRequest(spec, limit)
+	plan, err := semantic.BuildRecipePlan(req.Recipe, bindings)
 	if err != nil {
-		return Builder{}, CompiledQuery{}, QueryDiagnostics{}, err
+		return CompiledQuery{}, QueryDiagnostics{}, err
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "runtime", bindings.DatasetGeneration)
+	if err != nil {
+		return CompiledQuery{}, QueryDiagnostics{}, err
+	}
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		return CompiledQuery{}, QueryDiagnostics{}, err
+	}
+	if len(queries) != 1 {
+		return CompiledQuery{}, QueryDiagnostics{}, fmt.Errorf("runtime recipe produced %d outputs, want 1", len(queries))
 	}
 	diagnostics.Compilation = time.Since(compileStarted)
-	diagnostics.Plan = compiled.PlanDiagnostics
-	return spec, compiled, diagnostics, nil
+	diagnostics.Plan = queries[0].PlanDiagnostics
+	return queries[0], diagnostics, nil
 }
 
-func (s *Service) prepareSpec(ctx context.Context, builder Builder) (Builder, error) {
-	if builder.Project == "" {
-		return Builder{}, fmt.Errorf("project is required")
+func (s *Service) prepareBindings(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
+	if bindings.Project == "" {
+		return recipe.RuntimeBindings{}, fmt.Errorf("project is required")
 	}
-	if builder.RootResourceType == "" {
-		return Builder{}, fmt.Errorf("rootResourceType is required")
-	}
-
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, builder.Project, s.scopeResolver != nil); err != nil {
-		return Builder{}, err
+	if err := authorizeProject(principal, bindings.Project, s.scopeResolver != nil); err != nil {
+		return recipe.RuntimeBindings{}, err
 	}
-	resolvedBuilder, err := s.resolveActiveBuilder(ctx, builder)
-	if err != nil {
-		return Builder{}, err
-	}
-	builder = resolvedBuilder
-	var scope authscope.ReadScope
-	// A dataframebuilder service can hand an already-resolved scope to a
-	// dataframe service configured without its own resolver. Preserve that
-	// explicit mode rather than reinterpreting a restricted empty list through
-	// the legacy no-paths-means-unrestricted rule.
-	if s.scopeResolver == nil && builder.AuthScopeMode != "" {
-		scope = authscope.ReadScope{
-			AuthResourcePaths: cloneStrings(builder.AuthResourcePaths),
-			Mode:              builder.AuthScopeMode,
-		}
-	} else {
-		var err error
-		scope, err = s.resolveReadScopeForGeneration(ctx, principal, builder.Project, builder.DatasetGeneration, builder.AuthResourcePaths)
+	if s.activeManifestResolver != nil {
+		manifest, err := dataset.ResolveReadyActiveManifest(ctx, s.activeManifestResolver, bindings.Project)
 		if err != nil {
-			return Builder{}, err
+			return recipe.RuntimeBindings{}, fmt.Errorf("resolve active dataset generation: %w", err)
 		}
+		active := manifest.Dataset.Generation
+		requested := normalizeDatasetGeneration(bindings.DatasetGeneration)
+		if requested != "" && requested != active {
+			return recipe.RuntimeBindings{}, fmt.Errorf("%w: project %q requested %q but active is %q", ErrActiveGenerationConflict, bindings.Project, requested, active)
+		}
+		bindings.DatasetGeneration = active
 	}
-
-	builder.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
-	builder.AuthScopeMode = scope.Mode
-	if err := s.validateBuilder(ctx, builder); err != nil {
-		return Builder{}, err
+	if s.scopeResolver == nil && bindings.AuthScopeMode != "" {
+		return bindings, nil
 	}
-	expanded, err := s.expandPivotColumns(ctx, builder)
+	scope, err := s.resolveReadScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
 	if err != nil {
-		return Builder{}, err
+		return recipe.RuntimeBindings{}, err
 	}
-	return expanded, nil
+	bindings.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
+	bindings.AuthScopeMode = scope.Mode
+	return bindings, nil
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 // TestGDCFixtureCoversRichShape keeps the checked-in benchmark representative
@@ -27,13 +28,13 @@ func TestGDCFixtureCoversRichShape(t *testing.T) {
 	if fixture.ID == "" {
 		t.Fatal("gdc-case-matrix fixture is missing")
 	}
-	if !hasField(fixture.Builder.Fields, "patient_id") || !hasField(fixture.Builder.Fields, "case_identifier") {
+	if !hasField(fixture.Recipe.Outputs[0].Fields, "patient_id") || !hasField(fixture.Recipe.Outputs[0].Fields, "case_identifier") {
 		t.Fatal("GDC fixture must retain patient identity and case identifier fields")
 	}
 	var hasPivot, hasSlice, hasAggregate bool
 	maxDepth := 0
-	var walk func([]dataframe.TraversalStep, int)
-	walk = func(steps []dataframe.TraversalStep, depth int) {
+	var walk func([]recipe.Traversal, int)
+	walk = func(steps []recipe.Traversal, depth int) {
 		if depth > maxDepth {
 			maxDepth = depth
 		}
@@ -50,7 +51,7 @@ func TestGDCFixtureCoversRichShape(t *testing.T) {
 			walk(step.Traversals, depth+1)
 		}
 	}
-	walk(fixture.Builder.Traversals, 1)
+	walk(fixture.Recipe.Outputs[0].Traversals, 1)
 	if !hasPivot || !hasSlice || !hasAggregate {
 		t.Fatalf("GDC fixture coverage pivot=%t slice=%t aggregate=%t", hasPivot, hasSlice, hasAggregate)
 	}
@@ -60,7 +61,7 @@ func TestGDCFixtureCoversRichShape(t *testing.T) {
 	if !strings.Contains(fixture.Description, "nested") {
 		t.Fatal("GDC fixture description should identify nested shaping")
 	}
-	compiled, err := dataframe.CompileRequest(fixture.Builder, 1000)
+	compiled, err := compileRecipe(fixture.Recipe, fixture.Project, 1000, dataframe.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile rich GDC fixture: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestGDCFixtureCoversRichShape(t *testing.T) {
 	}
 }
 
-func hasField(fields []dataframe.FieldSelect, name string) bool {
+func hasField(fields []recipe.Field, name string) bool {
 	for _, field := range fields {
 		if field.Name == name {
 			return true

@@ -2,6 +2,17 @@ package authscope
 
 import "context"
 
+// Permission is the method recorded by Fence for a resource grant.
+// Values are intentionally normalized at the authorization boundary so Loom
+// accepts both the lowercase values emitted by current Gen3 services and
+// uppercase values used by some deployments.
+type Permission string
+
+const (
+	PermissionRead  Permission = "read"
+	PermissionWrite Permission = "write"
+)
+
 type Principal struct {
 	Subject             string            `json:"subject"`
 	Claims              map[string]string `json:"claims,omitempty"`

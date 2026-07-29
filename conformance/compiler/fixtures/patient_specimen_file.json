@@ -2,30 +2,75 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "patient-specimen-file",
   "description": "Patient-grain projection through specimen to DocumentReference",
-  "tags": ["supported", "patient", "specimen", "document-reference"],
+  "tags": [
+    "supported",
+    "patient",
+    "specimen",
+    "document-reference"
+  ],
   "limit": 25,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Patient",
-    "Fields": [{"Name": "gender", "Select": "gender"}],
-    "Traversals": [{
-      "Label": "subject_Patient",
-      "ToResourceType": "Specimen",
-      "Alias": "specimen",
-      "Fields": [{"Name": "specimen_type", "Select": "type.coding[].display"}],
-      "Traversals": [{
-        "Label": "subject_Specimen",
-        "ToResourceType": "DocumentReference",
-        "Alias": "file",
-        "Fields": [{"Name": "file_name", "Select": "content[].attachment.title"}]
-      }]
-    }]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Patient",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Patient",
+        "rootResourceType": "Patient",
+        "rowGrain": "patient",
+        "fields": [
+          {
+            "name": "gender",
+            "expr": {
+              "select": "gender"
+            }
+          }
+        ],
+        "traversals": [
+          {
+            "name": "subject_Patient",
+            "toResourceType": "Specimen",
+            "alias": "specimen",
+            "fields": [
+              {
+                "name": "specimen_type",
+                "expr": {
+                  "select": "type.coding[].display"
+                }
+              }
+            ],
+            "traversals": [
+              {
+                "name": "subject_Specimen",
+                "toResourceType": "DocumentReference",
+                "alias": "file",
+                "fields": [
+                  {
+                    "name": "file_name",
+                    "expr": {
+                      "select": "content[].attachment.title"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "queryContains": ["FOR root IN @@root_collection", "LIMIT @limit"],
-    "bindVars": {"project": "oracle-project", "limit": 25},
+    "planProfile": "generic_fhir_graph_recipe",
+    "queryContains": [
+      "FOR root IN @@root_collection",
+      "LIMIT @limit"
+    ],
+    "bindVars": {
+      "limit": 25,
+      "project": "oracle-project"
+    },
     "expectedTraversalSets": 2
   }
 }

@@ -1,6 +1,8 @@
 package compiler
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -14,7 +16,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	if optimized.SharedTraversalCount != 1 {
 		t.Fatalf("shared traversal count = %d, want 1", optimized.SharedTraversalCount)
 	}
-	if !containsOptimizerRule(optimized.AppliedRules, OptimizerRuleTraversalSharing) {
+	if !slices.Contains(optimized.AppliedRules, OptimizerRuleTraversalSharing) {
 		t.Fatalf("missing sharing rule: %#v", optimized.AppliedRules)
 	}
 	if len(optimized.Operations) != len(plan.Operations)+1 {
@@ -39,10 +41,48 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	}
 }
 
+func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{Version: 1, Project: "p", Root: SemanticNode{Alias: "root", ResourceType: "Patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.BindVars["lookup_a"] = "a"
+	plan.BindVars["lookup_b"] = "b"
+	source := PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "root", Path: []string{"payload", "identifier"}}}
+	key := PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "lookup_item", Path: []string{"value"}}}
+	value := key
+	returnOp := &plan.Operations[len(plan.Operations)-1]
+	for _, item := range []struct{ name, bind string }{{"a", "lookup_a"}, {"b", "lookup_b"}} {
+		expression := PhysicalExpression{Kind: PhysicalLookupExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Lookup: &PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
+		returnOp.Return.Projections = append(returnOp.Return.Projections, PhysicalProjection{Name: item.name, Expression: &expression})
+	}
+	optimized, err := OptimizePhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lets, lookups int
+	for _, operation := range optimized.Operations {
+		if operation.Kind == PhysicalExpressionLetOp {
+			lets++
+		}
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Expression != nil && projection.Expression.Kind == PhysicalObjectLookupExpression {
+				lookups++
+			}
+		}
+	}
+	if lets != 1 || lookups != 2 {
+		t.Fatalf("shared lookup plan has %d lets and %d object lookups, want 1/2", lets, lookups)
+	}
+}
+
 func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
 	for _, set := range physicalSets(plan) {
-		resourceType := valueString(plan.BindVars[set.Subplan.Operations[0].Traversal.TargetTypeBindKey])
+		resourceType := fmt.Sprint(plan.BindVars[set.Subplan.Operations[0].Traversal.TargetTypeBindKey])
 		set.Projection = &PhysicalSetProjection{Fields: []PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
 		set.Output = nil
 	}
@@ -123,15 +163,6 @@ func TestOptimizePhysicalPlanCostPolicyMinimumSavingsRejectsCandidate(t *testing
 	}
 	if optimized.OptimizationPolicy.Decisions[0].EstimatedSavings >= 999 {
 		t.Fatalf("high policy estimate unexpectedly met threshold: %#v", optimized.OptimizationPolicy.Decisions[0])
-	}
-}
-
-func TestEstimatePreparedSelectorWorkRequiresRepeatedConsumer(t *testing.T) {
-	if baseline, optimized, savings := estimatePreparedSelectorWork(1); baseline != 0 || optimized != 0 || savings != 0 {
-		t.Fatalf("single selector estimate = %d/%d/%d, want no preparation", baseline, optimized, savings)
-	}
-	if baseline, optimized, savings := estimatePreparedSelectorWork(2); baseline <= optimized || savings <= 0 {
-		t.Fatalf("repeated selector estimate = %d/%d/%d, want positive savings", baseline, optimized, savings)
 	}
 }
 
@@ -382,7 +413,7 @@ func physicalScopedSiblingPlanWithFilters(t *testing.T) PhysicalPlan {
 		traversal := set.Subplan.Operations[0].Traversal
 		predicate := PhysicalPredicate{Operator: string(FilterExists), ValueKind: FilterString,
 			LeftExpression: &PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull,
-				Extract: &PhysicalExtract{Source: PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"payload"}}, ResourceType: valueString(plan.BindVars[traversal.TargetTypeBindKey]), Selector: mustPhysicalSelector(t, "id")}}}
+				Extract: &PhysicalExtract{Source: PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"payload"}}, ResourceType: fmt.Sprint(plan.BindVars[traversal.TargetTypeBindKey]), Selector: mustPhysicalSelector(t, "id")}}}
 		set.Subplan.Operations = append(set.Subplan.Operations, PhysicalOperation{Kind: PhysicalFilterOp, Filter: &PhysicalFilter{Expression: &PhysicalPredicateExpression{Kind: PhysicalComparisonPredicate, Comparison: &predicate}}})
 	}
 	if err := plan.Validate(); err != nil {

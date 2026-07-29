@@ -54,6 +54,9 @@ func TestCatalogGenerationBindsUseExactOrLegacyNullNamespace(t *testing.T) {
 			t.Fatalf("%s query is missing exact dataset-generation predicate:\n%s", name, query.query)
 		}
 	}
+	if !strings.Contains(existingAuthResourcePathsAQL, "RETURN { auth_resource_path: auth_resource_path }") {
+		t.Fatalf("auth path query must return an object for QueryRows decoding:\n%s", existingAuthResourcePathsAQL)
+	}
 }
 
 func TestCatalogGenerationResultContractsExposeGeneration(t *testing.T) {

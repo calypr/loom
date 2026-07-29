@@ -239,16 +239,6 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	if rendered.BindVars["aggregate_root_female_count_predicate_equals"] != "female" || rendered.BindVars["aggregate_child_set_1_available_count_predicate_equals"] != "available" {
 		t.Fatalf("predicate binds missing: %#v", rendered.BindVars)
 	}
-	compiled, err := CompileRequest(Builder{
-		Project: "p", RootResourceType: "Patient",
-		Aggregates: []AggregateSelect{{Name: "female_count", Operation: "COUNT", PredicatePath: "gender", PredicateEquals: "female"}},
-	}, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(compiled.Query, "FOR __loom_physical_aggregate_item") {
-		t.Fatalf("aggregate predicate request did not use physical renderer:\n%s", compiled.Query)
-	}
 }
 
 func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing.T) {
@@ -317,8 +307,8 @@ func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing
 			}
 		}
 	}
-	if preparedRefs != 4 {
-		t.Fatalf("prepared rich consumer references = %d, want 4", preparedRefs)
+	if preparedRefs != 2 {
+		t.Fatalf("prepared rich consumer references = %d, want 2 (one shared pivot key/value pair)", preparedRefs)
 	}
 	renderedA, err := RenderPhysicalPlan(plan)
 	if err != nil {
@@ -393,13 +383,90 @@ func TestBuildAndRenderGenericPhysicalPlanPivots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"MERGE(", "COLLECT __pivot_key = __pair.key", "POSITION(@pivot_root_lab_values_columns", "lab_values"} {
+	for _, want := range []string{"FIRST(", "COLLECT __pivot_key = __pair.key", "__loom_pivot_root_lab_values[@pivot_root_lab_values_columns_female"} {
 		if !strings.Contains(rendered.Query, want) && want != "lab_values" {
 			t.Fatalf("pivot query missing %q:\n%s", want, rendered.Query)
 		}
 	}
-	if got := rendered.BindVars["pivot_root_lab_values_columns"]; got == nil {
-		t.Fatalf("pivot columns bind missing: %#v", rendered.BindVars)
+	for _, key := range []string{"pivot_root_lab_values_columns", "pivot_root_lab_values_columns_female", "pivot_root_lab_values_columns_male"} {
+		if got := rendered.BindVars[key]; got == nil {
+			t.Fatalf("pivot columns bind %q missing: %#v", key, rendered.BindVars)
+		}
+	}
+	if rendered.BindVars["__loom_physical_projection_1_name"] != "lab_values__female" || rendered.BindVars["__loom_physical_projection_2_name"] != "lab_values__male" {
+		t.Fatalf("flattened pivot projection names missing: %#v", rendered.BindVars)
+	}
+}
+
+func TestChildPivotRetainsPayloadForDeferredEvaluation(t *testing.T) {
+	code := Selector{Steps: []SelectorStep{{Field: "code"}, {Field: "coding", Iterate: true}, {Field: "display"}}}
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		Version: 1,
+		Project: "p",
+		Root: SemanticNode{
+			Alias: "root", ResourceType: "Patient",
+			Children: []SemanticNode{{
+				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
+				Pivots: []SemanticPivot{{Name: "code_values", ColumnSelector: code, ValueSelector: code, Columns: []string{"active"}}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var childSet *PhysicalSet
+	for _, operation := range plan.Operations {
+		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Variable == "child_set_1" {
+			childSet = operation.Set
+			break
+		}
+	}
+	if childSet == nil {
+		t.Fatalf("pivot child set was not lowered: %#v", plan.Operations)
+	}
+	if childSet.Projection != nil {
+		t.Fatalf("pivot child set must retain payload, got selector-only projection: %#v", childSet.Projection)
+	}
+	if childSet.Output == nil || !containsPhysicalSetOutputField(childSet.Output.Fields, PhysicalSetPayloadField) {
+		t.Fatalf("pivot child set must retain payload output: %#v", childSet.Output)
+	}
+	rendered, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "payload: child_set_1_node.payload") {
+		t.Fatalf("pivot child payload was omitted from rendered set:\n%s", rendered.Query)
+	}
+}
+
+func containsPhysicalSetOutputField(fields []PhysicalSetOutputField, want PhysicalSetOutputField) bool {
+	for _, field := range fields {
+		if field == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRenderGenericPivotFlattensRepeatedItemSource(t *testing.T) {
+	codeText := Selector{Steps: []SelectorStep{{Field: "code"}, {Field: "text"}}}
+	valueString := Selector{Steps: []SelectorStep{{Field: "valueString"}}}
+	componentItems := Selector{Steps: []SelectorStep{{Field: "component", Iterate: true}}}
+	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		Version: 1, Project: "p", Root: SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []SemanticPivot{{
+			Name: "component_values", ColumnSelector: codeText, ValueSelector: valueString,
+			ItemSource: componentItems, ItemResourceType: "ObservationComponent", Columns: []string{"Component"},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FOR __loom_physical_pivot_item_value IN FLATTEN(") {
+		t.Fatalf("repeated pivot item source was not flattened:\n%s", rendered.Query)
 	}
 }
 

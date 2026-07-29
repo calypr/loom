@@ -1,0 +1,52 @@
+{
+  "limit": 100,
+  "input": {
+    "project": "ARANGODB_PROTO",
+    "rootResourceType": "Patient",
+    "rootFields": [
+      {"name": "patient_id", "selector": {"valuePath": "id"}},
+      {"name": "gender", "selector": {"valuePath": "gender"}}
+    ],
+    "traverse": [
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Condition",
+        "alias": "condition",
+        "aggregates": [
+          {"name": "condition_count", "operation": "COUNT"},
+          {"name": "condition_codes", "operation": "DISTINCT_VALUES", "fhirPath": "code.coding[].display"}
+        ],
+        "slices": [{"name": "representative_conditions", "limit": 3, "fields": [
+          {"name": "condition_id", "selector": {"valuePath": "id"}},
+          {"name": "condition_code", "selector": {"valuePath": "code.coding[].display"}}
+        ]}]
+      },
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Specimen",
+        "alias": "specimen",
+        "aggregates": [{"name": "specimen_count", "operation": "COUNT"}],
+        "traverse": [{
+          "edgeLabel": "subject_Specimen",
+          "toResourceType": "DocumentReference",
+          "alias": "file",
+          "aggregates": [{"name": "file_count", "operation": "COUNT"}],
+          "slices": [{"name": "representative_files", "limit": 3, "fields": [
+            {"name": "file_name", "selector": {"valuePath": "content[].attachment.title"}}
+          ]}]
+        }]
+      },
+      {
+        "edgeLabel": "subject_Patient",
+        "toResourceType": "Observation",
+        "alias": "observation",
+        "pivots": [{
+          "name": "observation_values",
+          "columnSelector": {"valuePath": "code.coding[].display"},
+          "valueSelector": {"valuePath": "valueQuantity.value"},
+          "columns": ["Hemoglobin", "Platelet Count", "White Blood Cell Count"]
+        }]
+      }
+    ]
+  }
+}

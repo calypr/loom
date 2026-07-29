@@ -2,30 +2,72 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "observation-pivot-filter",
   "description": "Observation-root pivot with a typed status filter and sparse value columns",
-  "tags": ["supported", "observation", "pivot", "filter"],
+  "tags": [
+    "supported",
+    "observation",
+    "pivot",
+    "filter"
+  ],
   "limit": 100,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Observation",
-    "Fields": [{"Name": "observation_id", "Select": "id"}],
-    "Filters": [{
-      "fieldRef": "Observation.status",
-      "selector": "status",
-      "fieldKind": "STRING",
-      "operator": "EQUALS",
-      "values": [{"kind": "STRING", "string": "final"}]
-    }],
-    "Pivots": [{
-      "Name": "lab_values",
-      "ColumnSelect": "code.coding[].display",
-      "ValueSelect": "valueQuantity.value",
-      "Columns": ["Hemoglobin", "Platelet Count", "White Blood Cell Count"]
-    }]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Observation",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Observation",
+        "rootResourceType": "Observation",
+        "rowGrain": "observation",
+        "fields": [
+          {
+            "name": "observation_id",
+            "expr": {
+              "select": "id"
+            }
+          }
+        ],
+        "filters": [
+          {
+            "select": "status",
+            "fieldRef": "Observation.status",
+            "operator": "EQUALS",
+            "values": [
+              {
+                "kind": "STRING",
+                "string": "final"
+              }
+            ]
+          }
+        ],
+        "pivots": [
+          {
+            "name": "lab_values",
+            "columnExpr": {
+              "select": "code.coding[].display"
+            },
+            "valueExpr": {
+              "select": "valueQuantity.value"
+            },
+            "columns": [
+              "Hemoglobin",
+              "Platelet Count",
+              "White Blood Cell Count"
+            ]
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "bindVars": {"project": "oracle-project", "limit": 100},
-    "outputColumns": ["observation_id"]
+    "planProfile": "generic_fhir_graph_recipe",
+    "bindVars": {
+      "limit": 100,
+      "project": "oracle-project"
+    },
+    "outputColumns": [
+      "observation_id"
+    ]
   }
 }

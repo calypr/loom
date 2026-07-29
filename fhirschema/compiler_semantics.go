@@ -77,6 +77,19 @@ func HasResource(resourceType string) bool {
 // ResourceExists is the explicit predicate form of HasResource.
 func ResourceExists(resourceType string) bool { return HasResource(resourceType) }
 
+// DefinitionExists reports whether name is represented by the generated FHIR
+// schema. Unlike HasResource, it also accepts backbone and choice definitions
+// that are valid selector sources but are not graph collections. This is a
+// constant-time predicate and does not materialize or clone flattened fields.
+func DefinitionExists(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	_, ok := generatedDefinitions[name]
+	return ok
+}
+
 // ResolveFieldSemantics resolves a canonical path using generated schema
 // metadata and returns only stable, compiler-safe values.
 func ResolveFieldSemantics(resourceType, canonicalPath string) (FieldSemantics, bool) {

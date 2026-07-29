@@ -17,6 +17,16 @@ func (f fakeResourceAccessClient) GetAllowedResources(ctx context.Context, autho
 	return append([]string(nil), f.resources...), nil
 }
 
+type recordingResourceAccessClient struct {
+	resources []string
+	method    string
+}
+
+func (f *recordingResourceAccessClient) GetAllowedResources(ctx context.Context, authorizationHeader, method, service string) ([]string, error) {
+	f.method = method
+	return append([]string(nil), f.resources...), nil
+}
+
 func TestScopeResolverResolveReadAuthResourcePathsIntersectsDBPaths(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
@@ -195,6 +205,26 @@ func TestScopeAuthorizerRequiresScopedWritePath(t *testing.T) {
 	}, "P1", "")
 	if err == nil {
 		t.Fatal("expected missing auth_resource_path error")
+	}
+}
+
+func TestScopeResolverUsesWritePermissionForWriteScope(t *testing.T) {
+	client := &recordingResourceAccessClient{resources: []string{"/programs/example/projects/allowed"}}
+	resolver := NewScopeResolver(ScopeResolverConfig{
+		ResourceAccess: client,
+		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			return []string{"example-allowed"}, nil
+		},
+	})
+	scope, err := resolver.ResolveWriteScopeForGeneration(context.Background(), &Principal{AuthorizationHeader: "Bearer token"}, "P1", "g", nil)
+	if err != nil {
+		t.Fatalf("ResolveWriteScopeForGeneration() error = %v", err)
+	}
+	if client.method != string(PermissionWrite) {
+		t.Fatalf("Fence method = %q, want %q", client.method, PermissionWrite)
+	}
+	if scope.Unrestricted() || len(scope.AuthResourcePaths) != 1 {
+		t.Fatalf("scope = %#v", scope)
 	}
 }
 

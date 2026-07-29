@@ -48,31 +48,6 @@ type ActivationPlan struct {
 // READY manifest. The existing manifest is not mutated. If a replacement is
 // needed, Previous names the generation a persistence adapter must supersede
 // atomically with writing the new active reference.
-func PlanActivation(current *Manifest, candidate Manifest) (ActivationPlan, error) {
-	active, err := ActiveGenerationFor(candidate)
-	if err != nil {
-		return ActivationPlan{}, err
-	}
-	plan := ActivationPlan{Active: active}
-	if current == nil {
-		return plan, nil
-	}
-	if err := current.Validate(); err != nil {
-		return ActivationPlan{}, err
-	}
-	if current.State != ManifestStateReady {
-		return ActivationPlan{}, fmt.Errorf("%w: current generation %s is %s", ErrGenerationNotReady, current.Dataset.Generation, current.State)
-	}
-	if current.Dataset.Project != candidate.Dataset.Project {
-		return ActivationPlan{}, fmt.Errorf("%w: current and candidate projects differ", ErrInvalidActiveGeneration)
-	}
-	if current.Dataset.Equal(candidate.Dataset) {
-		return plan, nil
-	}
-	previous := current.Dataset
-	plan.Previous = &previous
-	return plan, nil
-}
 
 // Validate checks that an activation plan is internally coherent. It does not
 // verify that a storage transaction was executed.

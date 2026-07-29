@@ -17,9 +17,8 @@ func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframe
 
 // prepareRunInput resolves field references and returns the effective scope
 // and selected generation alongside the GraphQL-shaped input. The public
-// PrepareRunInput wrapper keeps its compatibility return type, while Run uses
-// this private form so it can carry a restricted empty scope and generation
-// into dataframe.Builder without exposing generation in GraphQL.
+// PrepareRunInput keeps the GraphQL transport shape while Run carries the
+// resolved scope and generation into recipe.RuntimeBindings.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", fmt.Errorf("project is required")
@@ -45,7 +44,7 @@ func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframe
 	if len(input.AuthResourcePaths) == 0 {
 		input.AuthResourcePaths = nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, input.Project, generation, scope, input.RootResourceType, input.RootFields, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
+	if err := s.resolveNodeInputRefs(ctx, input.Project, generation, scope, input.RootResourceType, input.RootFields, input.RootFilters, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
 		return input, authscope.ReadScope{}, "", err
 	}
 	for _, step := range input.Traverse {
@@ -60,7 +59,7 @@ func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datase
 	if step == nil {
 		return nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, project, datasetGeneration, scope, step.ToResourceType, step.Fields, step.Pivots, step.Aggregates, step.Slices); err != nil {
+	if err := s.resolveNodeInputRefs(ctx, project, datasetGeneration, scope, step.ToResourceType, step.Fields, step.Filters, step.Pivots, step.Aggregates, step.Slices); err != nil {
 		return err
 	}
 	for _, child := range step.Traverse {
@@ -71,7 +70,7 @@ func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datase
 	return nil
 }
 
-func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
+func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, filters []*model.FhirFilterInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
 	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
 		ConnectionOptions:             s.connOpts,
 		Project:                       project,
@@ -124,6 +123,17 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 				pivot.ValueSelector = selectorInputFromExpression(hint.PivotValueSelect)
 			}
 		}
+	}
+
+	for _, filter := range filters {
+		if filter == nil || strings.TrimSpace(derefString(filter.FieldRef)) == "" {
+			continue
+		}
+		selector, err := resolveFieldRef(resourceType, discovered, derefString(filter.FieldRef))
+		if err != nil {
+			return err
+		}
+		filter.Select = selector
 	}
 
 	for _, aggregate := range aggregates {

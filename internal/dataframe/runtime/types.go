@@ -4,13 +4,18 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type RunRequest struct {
-	Builder spec.Builder
-	Limit   int
+	Recipe   recipe.Bundle
+	Bindings recipe.RuntimeBindings
+	Limit    int
 }
+
+type CompiledQuery = compiler.CompiledQuery
+type RowIdentity = compiler.RowIdentity
+type CompilerPlanDiagnostics = compiler.CompilerPlanDiagnostics
 
 type Result struct {
 	Columns     []string

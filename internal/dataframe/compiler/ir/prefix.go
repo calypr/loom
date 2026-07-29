@@ -25,8 +25,14 @@ type PhysicalTraversalPrefix struct {
 	AuthUnrestrictedBindKey  string
 	ScopeAllowedBindKey      string
 	ScopeOperationCount      int
-	NodeVariable             string
-	EdgeVariable             string
+	// UnnestScopeIdentity identifies the active cardinality-changing scope at
+	// the point where this set is materialized. It is intentionally derived
+	// from canonical PhysicalUnnest operations rather than renderer variable
+	// names. Prefixes on opposite sides of an unnest barrier must never share,
+	// even when they read the same root variable.
+	UnnestScopeIdentity string
+	NodeVariable        string
+	EdgeVariable        string
 }
 
 const (
@@ -64,6 +70,7 @@ const (
 	PhysicalPrefixUnsupportedDirection PhysicalTraversalPrefixRejectionReason = "UNSUPPORTED_DIRECTION"
 	PhysicalPrefixInvalidRoute         PhysicalTraversalPrefixRejectionReason = "INVALID_ROUTE"
 	PhysicalPrefixInvalidScope         PhysicalTraversalPrefixRejectionReason = "INVALID_SCOPE"
+	PhysicalPrefixUnnestBarrier        PhysicalTraversalPrefixRejectionReason = "UNNEST_SCOPE_BARRIER"
 	PhysicalPrefixInvalidTarget        PhysicalTraversalPrefixRejectionReason = "INVALID_TARGET_SUBSET"
 )
 
@@ -91,6 +98,18 @@ func rejectPhysicalTraversalPrefix(reason PhysicalTraversalPrefixRejectionReason
 // rejects shared subsets, required EXISTS paths, non-proven directions, and
 // sets whose tenant scope is not the exact generic edge/node scope block.
 func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (PhysicalTraversalPrefixDecomposition, error) {
+	return DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetOperationIndex(plan, set.Variable))
+}
+
+// DecomposePhysicalTraversalPrefixAt is the position-aware form used by the
+// optimizer and diagnostics. The operation index is required because an
+// unnest changes row cardinality for all operations that follow it while the
+// source variable may remain the same root binding.
+func DecomposePhysicalTraversalPrefixAt(plan PhysicalPlan, set PhysicalSet, setIndex int) (PhysicalTraversalPrefixDecomposition, error) {
+	return decomposePhysicalTraversalPrefix(plan, set, setIndex)
+}
+
+func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setIndex int) (PhysicalTraversalPrefixDecomposition, error) {
 	if set.SourceSetVariable != "" {
 		return PhysicalTraversalPrefixDecomposition{}, rejectPhysicalTraversalPrefix(PhysicalPrefixSharedSubset, "set %q reads %q", set.Variable, set.SourceSetVariable)
 	}
@@ -135,6 +154,10 @@ func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (Physi
 	if _, ok := plan.BindVars[traversal.TargetTypeBindKey].(string); !ok {
 		return PhysicalTraversalPrefixDecomposition{}, rejectPhysicalTraversalPrefix(PhysicalPrefixInvalidTarget, "target type bind %q is not a string", traversal.TargetTypeBindKey)
 	}
+	unnestScope, err := physicalUnnestScopeIdentityAt(plan, setIndex)
+	if err != nil {
+		return PhysicalTraversalPrefixDecomposition{}, rejectPhysicalTraversalPrefix(PhysicalPrefixUnnestBarrier, "%v", err)
+	}
 
 	prefix := PhysicalTraversalPrefix{
 		SourceVariable:           traversal.SourceVariable,
@@ -148,6 +171,7 @@ func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (Physi
 		AuthUnrestrictedBindKey:  physicalScopeAuthPathsUnrestrictedBind,
 		ScopeAllowedBindKey:      physicalScopeAllowedBind,
 		ScopeOperationCount:      len(scope),
+		UnnestScopeIdentity:      unnestScope,
 		NodeVariable:             physicalTraversalPrefixNodeVariable,
 		EdgeVariable:             physicalTraversalPrefixEdgeVariable,
 	}
@@ -165,6 +189,62 @@ func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (Physi
 		},
 		PrefixKey: key,
 	}, nil
+}
+
+func physicalSetOperationIndex(plan PhysicalPlan, variable string) int {
+	for index, operation := range plan.Operations {
+		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Variable == variable {
+			return index
+		}
+	}
+	return -1
+}
+
+// physicalUnnestScopeIdentityAt returns a deterministic identity for every
+// active top-level unnest before operationIndex. A set after an unnest still
+// reads the original root binding, so source-variable equality alone is not a
+// sufficient sharing key. The expression and join mode are part of the key so
+// a rewrite cannot cross a different cardinality/null-preservation contract.
+func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (string, error) {
+	if operationIndex < 0 {
+		return "", nil
+	}
+	if operationIndex > len(plan.Operations) {
+		return "", fmt.Errorf("operation index %d is outside plan", operationIndex)
+	}
+	type unnestScope struct {
+		InputVariable  string
+		OutputVariable string
+		Ordinality     string
+		Expression     PhysicalExpression
+		JoinMode       PhysicalUnnestJoinMode
+	}
+	active := make([]unnestScope, 0)
+	for index := 0; index < operationIndex; index++ {
+		operation := plan.Operations[index]
+		if operation.Kind != PhysicalUnnestOp {
+			continue
+		}
+		if operation.Unnest == nil {
+			return "", fmt.Errorf("unnest operation %d has no payload", index)
+		}
+		unnest := operation.Unnest
+		active = append(active, unnestScope{
+			InputVariable:  unnest.InputVariable,
+			OutputVariable: unnest.OutputVariable,
+			Ordinality:     unnest.Ordinality,
+			Expression:     unnest.Expression,
+			JoinMode:       unnest.JoinMode,
+		})
+	}
+	if len(active) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(active)
+	if err != nil {
+		return "", fmt.Errorf("encode active unnest scope: %w", err)
+	}
+	return string(encoded), nil
 }
 
 func physicalTraversalPrefixKey(plan PhysicalPlan, prefix PhysicalTraversalPrefix) (string, error) {
@@ -210,8 +290,9 @@ func physicalTraversalPrefixKey(plan PhysicalPlan, prefix PhysicalTraversalPrefi
 	key := struct {
 		Source, Direction, Collection, Label, TargetField string
 		Project, Generation, Paths, Unrestricted, Allowed string
+		UnnestScopeIdentity                               string
 		ScopeOperationCount                               int
-	}{prefix.SourceVariable, string(prefix.Direction), collection, label, prefix.EdgeTargetTypeField, project, generation, paths, unrestricted, allowed, prefix.ScopeOperationCount}
+	}{prefix.SourceVariable, string(prefix.Direction), collection, label, prefix.EdgeTargetTypeField, project, generation, paths, unrestricted, allowed, prefix.UnnestScopeIdentity, prefix.ScopeOperationCount}
 	encoded, err := json.Marshal(key)
 	if err != nil {
 		return "", fmt.Errorf("encode physical traversal prefix key: %w", err)

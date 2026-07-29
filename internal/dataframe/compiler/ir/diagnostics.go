@@ -1,14 +1,25 @@
 package ir
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 )
+
+func valueString(value any) string {
+	return fmt.Sprint(value)
+}
 
 // CompilerPlanDiagnostics describes work the physical renderer will ask AQL to
 // perform. It deliberately reports compiler facts, not estimated database
 // cost: use it alongside Arango PROFILE to decide which rewrite is worthwhile.
 type CompilerPlanDiagnostics struct {
+	// Fingerprint is a deterministic structural identity for the validated
+	// physical plan. It is safe to expose in Explain because it is a digest,
+	// never the plan's bind values or authorization paths.
+	Fingerprint                       string
 	TraversalSets                     int
 	EndpointTraversalCount            int
 	NativeTraversalCount              int
@@ -21,6 +32,9 @@ type CompilerPlanDiagnostics struct {
 	PotentialSharingOpportunitySets   int
 	RichSourceReuse                   []RichSourceReuse
 	RichConsumerGroups                []RichConsumerGroup
+	ExpressionBindingCount            int
+	SharedKeyedMapCount               int
+	ObjectLookupConsumerCount         int
 	// OptimizationPolicy is the explainable decision record for optional
 	// physical rewrites. It reports both enabled rewrites and conservative
 	// rejections so rendered AQL is never the only evidence of a decision.
@@ -76,6 +90,7 @@ func (r RichSourceReuse) TotalConsumers() int {
 
 func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 	diagnostics := CompilerPlanDiagnostics{
+		Fingerprint:             physicalPlanFingerprint(plan),
 		SharedTraversalCount:    plan.SharedTraversalCount,
 		RequiredMatchReuseCount: plan.RequiredMatchReuseCount,
 		OptimizationPolicy:      clonePhysicalOptimizationReport(plan.OptimizationPolicy),
@@ -90,6 +105,12 @@ func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 	groups := map[string][]int{}
 	potentialGroups := map[string][]int{}
 	for i, operation := range plan.Operations {
+		if operation.Kind == PhysicalExpressionLetOp && operation.ExpressionLet != nil {
+			diagnostics.ExpressionBindingCount++
+			if operation.ExpressionLet.Expression.Kind == PhysicalKeyedMapExpression {
+				diagnostics.SharedKeyedMapCount++
+			}
+		}
 		if operation.Kind == PhysicalTraversalOp && operation.Traversal != nil {
 			traversal := operation.Traversal
 			strategy := traversal.Strategy
@@ -126,9 +147,9 @@ func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 		set := operation.Set
 		if set.SourceSetVariable == "" && len(set.Subplan.Operations) > 0 && set.Subplan.Operations[0].Traversal != nil {
 			diagnostics.TraversalSets++
-			key := physicalTraversalOpportunityKey(plan, *set)
+			key := physicalTraversalOpportunityKey(plan, *set, i)
 			potentialGroups[key] = append(potentialGroups[key], i)
-			if decomposition, err := DecomposePhysicalTraversalPrefix(plan, *set); err == nil {
+			if decomposition, err := DecomposePhysicalTraversalPrefixAt(plan, *set, i); err == nil {
 				groups[decomposition.PrefixKey] = append(groups[decomposition.PrefixKey], i)
 			}
 		}
@@ -162,6 +183,14 @@ func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 			diagnostics.RichSourceReuse = append(diagnostics.RichSourceReuse, *use)
 		}
 	}
+	for _, operation := range plan.Operations {
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			diagnostics.ObjectLookupConsumerCount += countObjectLookupConsumers(projection.Expression)
+		}
+	}
 	sort.Slice(diagnostics.RichSourceReuse, func(i, j int) bool {
 		return diagnostics.RichSourceReuse[i].SourceSet < diagnostics.RichSourceReuse[j].SourceSet
 	})
@@ -190,6 +219,31 @@ func physicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
 		diagnostics.RichConsumerGroups = append(diagnostics.RichConsumerGroups, group)
 	}
 	return diagnostics
+}
+
+func countObjectLookupConsumers(expression *PhysicalExpression) int {
+	if expression == nil {
+		return 0
+	}
+	count := 0
+	if expression.Kind == PhysicalObjectLookupExpression {
+		count++
+	}
+	if expression.Object != nil {
+		for index := range expression.Object.Fields {
+			count += countObjectLookupConsumers(&expression.Object.Fields[index].Expression)
+		}
+	}
+	return count
+}
+
+func physicalPlanFingerprint(plan PhysicalPlan) string {
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }
 
 func PhysicalPlanDiagnostics(plan PhysicalPlan) CompilerPlanDiagnostics {
@@ -241,12 +295,19 @@ func collectRichConsumerGroups(expression *PhysicalExpression, groups map[string
 // physicalTraversalOpportunityKey intentionally ignores scoped filters and
 // semantic provenance. It identifies broader neighbor traversals that could
 // serve multiple typed children once the scope-safe rewrite exists.
-func physicalTraversalOpportunityKey(plan PhysicalPlan, set PhysicalSet) string {
+func physicalTraversalOpportunityKey(plan PhysicalPlan, set PhysicalSet, setIndex int) string {
 	traversal := set.Subplan.Operations[0].Traversal
 	if traversal == nil {
 		return ""
 	}
-	return traversal.SourceVariable + "|" + string(traversal.Direction) + "|" + valueString(plan.BindVars[traversal.EdgeCollectionBindKey]) + "|" + valueString(plan.BindVars[traversal.EdgeLabelBindKey]) + "|" + traversal.EdgeTargetTypeField
+	unnestScope, err := physicalUnnestScopeIdentityAt(plan, setIndex)
+	if err != nil {
+		// Diagnostics must remain total even for a malformed candidate. The
+		// malformed scope is deliberately isolated from valid candidates rather
+		// than silently grouping it with the root scope.
+		unnestScope = "invalid-unnest-scope"
+	}
+	return traversal.SourceVariable + "|" + string(traversal.Direction) + "|" + valueString(plan.BindVars[traversal.EdgeCollectionBindKey]) + "|" + valueString(plan.BindVars[traversal.EdgeLabelBindKey]) + "|" + traversal.EdgeTargetTypeField + "|unnest=" + unnestScope
 }
 
 func multipleTargetTypes(plan PhysicalPlan, indices []int) bool {

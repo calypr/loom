@@ -6,33 +6,50 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	compilerfixture "github.com/calypr/loom/conformance/compiler"
 	"github.com/calypr/loom/graphqlapi/model"
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type profileReport struct {
-	Fixture            string                            `json:"fixture"`
-	AQLSHA256          string                            `json:"aql_sha256"`
-	ResultSHA256       string                            `json:"result_sha256,omitempty"`
-	BindVars           map[string]any                    `json:"bind_vars"`
-	Rows               int                               `json:"rows"`
-	Explain            explainReport                     `json:"explain"`
-	Profile            profileReportDetails              `json:"profile"`
-	PlanDiagnostics    dataframe.CompilerPlanDiagnostics `json:"plan_diagnostics"`
-	AQLPath            string                            `json:"aql_path"`
-	ProfilePath        string                            `json:"profile_path,omitempty"`
-	ProfileWallSeconds float64                           `json:"profile_wall_seconds"`
+	ArtifactVersion        string                            `json:"artifact_version"`
+	Status                 string                            `json:"status"`
+	Fixture                string                            `json:"fixture"`
+	AQLSHA256              string                            `json:"aql_sha256"`
+	ResultSHA256           string                            `json:"result_sha256,omitempty"`
+	BindVars               map[string]any                    `json:"bind_vars"`
+	Rows                   int                               `json:"rows"`
+	Explain                explainReport                     `json:"explain"`
+	Profile                profileReportDetails              `json:"profile"`
+	PlanDiagnostics        dataframe.CompilerPlanDiagnostics `json:"plan_diagnostics"`
+	AQLPath                string                            `json:"aql_path"`
+	ProfilePath            string                            `json:"profile_path,omitempty"`
+	ProfileWallSeconds     float64                           `json:"profile_wall_seconds"`
+	ProfileColdWallSeconds float64                           `json:"profile_cold_wall_seconds"`
+	Expected               expectedReport                    `json:"expected,omitempty"`
+}
+
+type expectedReport struct {
+	Path         string   `json:"path,omitempty"`
+	Rows         int      `json:"rows,omitempty"`
+	Columns      []string `json:"columns,omitempty"`
+	RowsMatch    bool     `json:"rows_match"`
+	ColumnsMatch bool     `json:"columns_match"`
+	Compared     bool     `json:"compared"`
 }
 
 type explainReport struct {
@@ -57,16 +74,17 @@ type profileReportDetails struct {
 
 func main() {
 	var (
-		fixtureDir = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
-		fixtureID  = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
-		variables  = flag.String("variables", "", "GraphQL variables JSON; when set, compile its input instead of the fixture builder")
-		limit      = flag.Int("limit", 1000, "root row limit")
-		url        = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
-		database   = flag.String("database", "fhir_proto", "ArangoDB database")
-		aqlPath    = flag.String("aql-out", "", "write exact rendered AQL to this path (default: <fixture>-<hash>.aql)")
-		reportPath = flag.String("report-out", "", "write JSON profile report to this path")
-		profile    = flag.Int("profile", 2, "Arango profile level")
-		batchSize  = flag.Int("batch-size", 10000, "Arango profile cursor batch size")
+		fixtureDir  = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
+		fixtureID   = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
+		variables   = flag.String("variables", "", "GraphQL variables JSON; when set, compile its input instead of the fixture builder")
+		limit       = flag.Int("limit", 1000, "root row limit")
+		url         = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
+		database    = flag.String("database", "fhir_proto", "ArangoDB database")
+		aqlPath     = flag.String("aql-out", "", "write exact rendered AQL to this path (default: <fixture>-<hash>.aql)")
+		reportPath  = flag.String("report-out", "", "write JSON profile report to this path")
+		profile     = flag.Int("profile", 2, "Arango profile level")
+		batchSize   = flag.Int("batch-size", 10000, "Arango profile cursor batch size")
+		expectedCSV = flag.String("expected-csv", "", "optional legacy CSV used for row/column parity")
 	)
 	flag.Parse()
 	if *limit <= 0 {
@@ -77,9 +95,10 @@ func main() {
 	}
 
 	var (
-		fixture compilerfixture.Fixture
-		builder dataframe.Builder
-		label   = *fixtureID
+		fixture  compilerfixture.Fixture
+		bundle   recipe.Bundle
+		bindings recipe.RuntimeBindings
+		label    = *fixtureID
 	)
 	if *variables != "" {
 		data, err := os.ReadFile(*variables)
@@ -95,7 +114,11 @@ func main() {
 		if payload.Input.Project == "" || payload.Input.RootResourceType == "" {
 			fatalf("GraphQL variables %q do not contain a complete input", *variables)
 		}
-		builder = queryapi.BuilderFromInput(payload.Input)
+		bundle, err = queryapi.RecipeBundleFromInput(payload.Input)
+		if err != nil {
+			fatalf("convert GraphQL variables to recipe: %v", err)
+		}
+		bindings = recipe.RuntimeBindings{Project: payload.Input.Project, AuthResourcePaths: payload.Input.AuthResourcePaths}
 		label = filepath.Base(*variables)
 	} else {
 		fixtures, err := compilerfixture.LoadDir(*fixtureDir)
@@ -111,12 +134,25 @@ func main() {
 		if fixture.ID == "" {
 			fatalf("fixture %q not found in %s", *fixtureID, *fixtureDir)
 		}
-		builder = fixture.Builder
+		bundle = fixture.Recipe
+		bindings = recipe.RuntimeBindings{Project: fixture.Project}
 	}
-	compiled, err := dataframe.CompileRequest(builder, *limit)
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		fatalf("build recipe plan %q: %v", label, err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "profile", bindings.DatasetGeneration)
+	if err != nil {
+		fatalf("resolve recipe plan %q: %v", label, err)
+	}
+	compiledQueries, err := dataframe.CompileResolvedRecipePlanWithPolicy(resolved, *limit, dataframe.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		fatalf("compile GDC request %q: %v", label, err)
 	}
+	if len(compiledQueries) != 1 {
+		fatalf("compile GDC request %q produced %d outputs; profiling requires exactly one", label, len(compiledQueries))
+	}
+	compiled := compiledQueries[0]
 	hash := sha256.Sum256([]byte(compiled.Query))
 	aqlHash := hex.EncodeToString(hash[:])
 	if *aqlPath == "" {
@@ -138,16 +174,24 @@ func main() {
 		fatalf("EXPLAIN: %v", err)
 	}
 	started := time.Now()
-	profileResult, err := client.Profile(ctx, arangostore.ProfileRequest{
+	profileRequest := arangostore.ProfileRequest{
 		Query:     compiled.Query,
 		BindVars:  compiled.BindVars,
 		BatchSize: *batchSize,
 		Count:     true,
 		Options:   arangostore.ProfileOptions{Profile: *profile},
-	})
+	}
+	_, err = client.Profile(ctx, profileRequest)
 	if err != nil {
 		fatalf("PROFILE: %v", err)
 	}
+	coldSeconds := time.Since(started).Seconds()
+	warmStarted := time.Now()
+	profileResult, err := client.Profile(ctx, profileRequest)
+	if err != nil {
+		fatalf("warm PROFILE: %v", err)
+	}
+	warmSeconds := time.Since(warmStarted).Seconds()
 
 	assessment := arangostore.AssessExplainResult(explain)
 	summary := arangostore.SummarizeProfile(profileResult)
@@ -158,11 +202,13 @@ func main() {
 	traversalNodes := filterProfileNodes(summary.Nodes, "TraversalNode")
 	enumerateListNodes := filterProfileNodes(summary.Nodes, "EnumerateListNode")
 	report := profileReport{
-		Fixture:      label,
-		AQLSHA256:    aqlHash,
-		ResultSHA256: canonicalResultHash(profileResult.Result),
-		BindVars:     compiled.BindVars,
-		Rows:         profileResult.Count,
+		ArtifactVersion: "loom-default-dataframer-parity/v1",
+		Status:          "live-arango",
+		Fixture:         label,
+		AQLSHA256:       aqlHash,
+		ResultSHA256:    canonicalResultHash(profileResult.Result),
+		BindVars:        compiled.BindVars,
+		Rows:            profileResult.Count,
 		Explain: explainReport{
 			Plans:               assessment.Plans,
 			FullCollectionScans: assessment.FullCollectionScans,
@@ -181,9 +227,17 @@ func main() {
 			EnumerateListNodes: enumerateListNodes,
 			TopNodes:           topNodes,
 		},
-		PlanDiagnostics:    compiled.PlanDiagnostics,
-		AQLPath:            *aqlPath,
-		ProfileWallSeconds: time.Since(started).Seconds(),
+		PlanDiagnostics:        compiled.PlanDiagnostics,
+		AQLPath:                *aqlPath,
+		ProfileWallSeconds:     warmSeconds,
+		ProfileColdWallSeconds: coldSeconds,
+	}
+	report.Expected = compareExpectedCSV(*expectedCSV, compiled.Columns, profileResult.Count)
+	if report.Expected.Compared && (!report.Expected.RowsMatch || !report.Expected.ColumnsMatch) {
+		report.Status = "live-arango-parity-mismatch"
+	}
+	if report.Expected.Compared && (!report.Expected.RowsMatch || !report.Expected.ColumnsMatch) {
+		report.Status = "live-arango-parity-mismatch"
 	}
 	if *reportPath != "" {
 		report.ProfilePath = *reportPath
@@ -225,6 +279,40 @@ func canonicalResultHash(rows []json.RawMessage) string {
 		_, _ = hash.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func compareExpectedCSV(path string, compiledColumns []string, rows int) expectedReport {
+	result := expectedReport{Path: path}
+	if strings.TrimSpace(path) == "" {
+		return result
+	}
+	result.Compared = true
+	file, err := os.Open(path)
+	if err != nil {
+		return result
+	}
+	defer file.Close()
+	records, err := csv.NewReader(file).ReadAll()
+	if err != nil || len(records) == 0 {
+		return result
+	}
+	result.Rows = len(records) - 1
+	result.Columns = records[0]
+	result.RowsMatch = result.Rows == rows
+	result.ColumnsMatch = sameStrings(result.Columns, compiledColumns)
+	return result
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func fatalf(format string, args ...any) {

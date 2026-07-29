@@ -6,26 +6,20 @@ package compiler
 import "github.com/calypr/loom/internal/dataframe/spec"
 
 type (
-	Builder             = spec.Builder
-	TraversalStep       = spec.TraversalStep
-	RepresentativeSlice = spec.RepresentativeSlice
-	FieldSelect         = spec.FieldSelect
-	PivotSelect         = spec.PivotSelect
-	AggregateSelect     = spec.AggregateSelect
-	RowGrain            = spec.RowGrain
-	ProjectionMode      = spec.ProjectionMode
-	Cardinality         = spec.Cardinality
-	RowIdentity         = spec.RowIdentity
-	TraversalMatchMode  = spec.TraversalMatchMode
-	FilterOperator      = spec.FilterOperator
-	FilterValueKind     = spec.FilterValueKind
-	ArrayQuantifier     = spec.ArrayQuantifier
-	CodeValue           = spec.CodeValue
-	FilterValue         = spec.FilterValue
-	TypedFilter         = spec.TypedFilter
-	Selector            = spec.Selector
-	SelectorStep        = spec.SelectorStep
-	ContainsFilter      = spec.ContainsFilter
+	RowGrain           = spec.RowGrain
+	ProjectionMode     = spec.ProjectionMode
+	Cardinality        = spec.Cardinality
+	RowIdentity        = spec.RowIdentity
+	TraversalMatchMode = spec.TraversalMatchMode
+	FilterOperator     = spec.FilterOperator
+	FilterValueKind    = spec.FilterValueKind
+	ArrayQuantifier    = spec.ArrayQuantifier
+	CodeValue          = spec.CodeValue
+	FilterValue        = spec.FilterValue
+	TypedFilter        = spec.TypedFilter
+	Selector           = spec.Selector
+	SelectorStep       = spec.SelectorStep
+	ContainsFilter     = spec.ContainsFilter
 )
 
 const (

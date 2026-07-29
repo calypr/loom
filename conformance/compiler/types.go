@@ -1,4 +1,4 @@
-// Package compilerfixture loads the machine-readable compiler oracle corpus.
+// Package compilerfixture loads the canonical recipe compiler oracle corpus.
 package compilerfixture
 
 import (
@@ -10,33 +10,33 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 const SchemaVersion = "loom.compiler-oracle/v1"
 
 type Expected struct {
-	Supported        bool           `json:"supported"`
-	PlanProfile      string         `json:"planProfile,omitempty"`
-	OptimizerRules   []string       `json:"optimizerRules,omitempty"`
-	ErrorContains    string         `json:"errorContains,omitempty"`
-	QueryContains    []string       `json:"queryContains,omitempty"`
-	QueryNotContains []string       `json:"queryNotContains,omitempty"`
-	BindVars         map[string]any `json:"bindVars,omitempty"`
-	OutputColumns    []string       `json:"outputColumns,omitempty"`
-	// ExpectedTraversalSets describes the physical traversal count.
-	ExpectedTraversalSets *int `json:"expectedTraversalSets,omitempty"`
+	Supported             bool           `json:"supported"`
+	PlanProfile           string         `json:"planProfile,omitempty"`
+	OptimizerRules        []string       `json:"optimizerRules,omitempty"`
+	ErrorContains         string         `json:"errorContains,omitempty"`
+	QueryContains         []string       `json:"queryContains,omitempty"`
+	QueryNotContains      []string       `json:"queryNotContains,omitempty"`
+	BindVars              map[string]any `json:"bindVars,omitempty"`
+	OutputColumns         []string       `json:"outputColumns,omitempty"`
+	ExpectedTraversalSets *int           `json:"expectedTraversalSets,omitempty"`
 }
 
 type Fixture struct {
-	Schema      string            `json:"schema"`
-	ID          string            `json:"id"`
-	Description string            `json:"description"`
-	Tags        []string          `json:"tags,omitempty"`
-	Limit       int               `json:"limit"`
-	Builder     dataframe.Builder `json:"builder"`
-	Expected    Expected          `json:"expected"`
-	SourceFile  string            `json:"-"`
+	Schema      string        `json:"schema"`
+	ID          string        `json:"id"`
+	Description string        `json:"description"`
+	Tags        []string      `json:"tags,omitempty"`
+	Limit       int           `json:"limit"`
+	Project     string        `json:"project"`
+	Recipe      recipe.Bundle `json:"recipe"`
+	Expected    Expected      `json:"expected"`
+	SourceFile  string        `json:"-"`
 }
 
 func LoadDir(dir string) ([]Fixture, error) {
@@ -44,7 +44,7 @@ func LoadDir(dir string) ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	var fixtures []Fixture
+	fixtures := make([]Fixture, 0)
 	seen := map[string]string{}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -91,8 +91,14 @@ func (f Fixture) Validate() error {
 	if f.Limit <= 0 {
 		return errors.New("limit must be positive")
 	}
-	if strings.TrimSpace(f.Builder.Project) == "" || strings.TrimSpace(f.Builder.RootResourceType) == "" {
-		return errors.New("builder project and rootResourceType are required")
+	if strings.TrimSpace(f.Project) == "" {
+		return errors.New("project is required")
+	}
+	if err := f.Recipe.Validate(); err != nil {
+		return fmt.Errorf("recipe: %w", err)
+	}
+	if len(f.Recipe.Outputs) != 1 {
+		return errors.New("recipe must contain exactly one output")
 	}
 	if f.Expected.Supported {
 		if f.Expected.ErrorContains != "" {

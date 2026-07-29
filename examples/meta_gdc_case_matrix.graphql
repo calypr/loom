@@ -1,0 +1,8 @@
+mutation RunGDCDataframe($input: FhirDataframeInput!, $limit: Int) {
+  runFhirDataframe(input: $input, limit: $limit) {
+    columns
+    rowCount
+    diagnostics { inputResolutionMs requestPreparationMs compilationMs arangoQueryMs rowMaterializationMs resultAssemblyMs totalMs plan { traversalSets sharedTraversalCount requiredMatchReuseCount scopedSharingCandidateGroups scopedSharingCandidateSets potentialSharingOpportunityGroups potentialSharingOpportunitySets optimizationPolicy { name enabled minimumSavings decisions { rule enabled candidateSets estimatedBaselineWork estimatedOptimizedWork estimatedSavings reason } } richSourceReuse { sourceSet aggregateConsumers pivotConsumers sliceConsumers totalConsumers } } }
+    rows
+  }
+}

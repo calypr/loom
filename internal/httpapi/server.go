@@ -14,7 +14,9 @@ type HTTPConfig struct {
 	Service                  *Service
 	Authenticator            authscope.Authenticator
 	Authorizer               authscope.Authorizer
+	ScopeResolver            *authscope.ScopeResolver
 	GraphQLHandler           http.Handler
+	ClickHouseGraphQLHandler http.Handler
 	GraphQLPlaygroundHandler http.Handler
 	ApolloSandboxHandler     http.Handler
 	Logger                   *slog.Logger
@@ -25,6 +27,8 @@ type HTTPConfig struct {
 	// a complete staged bundle loader instead: one uploaded resource file can
 	// never safely become an immutable active dataset generation.
 	DisableSingleResourceImports bool
+	RawExporter                  RawExporter
+	DataframeExporter            DataframeExporter
 }
 
 type HTTPServer struct {
@@ -32,11 +36,15 @@ type HTTPServer struct {
 	service                      *Service
 	authn                        authscope.Authenticator
 	authz                        authscope.Authorizer
+	scopeResolver                *authscope.ScopeResolver
 	logger                       *slog.Logger
 	cfgGraphQLHandler            http.Handler
+	cfgClickHouseGraphQLHandler  http.Handler
 	cfgGraphQLPlaygroundHandler  http.Handler
 	cfgApolloSandboxHandler      http.Handler
 	disableSingleResourceImports bool
+	rawExporter                  RawExporter
+	dataframeExporter            DataframeExporter
 }
 
 type apiError struct {
@@ -81,11 +89,15 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		service:                      cfg.Service,
 		authn:                        cfg.Authenticator,
 		authz:                        cfg.Authorizer,
+		scopeResolver:                cfg.ScopeResolver,
 		logger:                       cfg.Logger,
 		cfgGraphQLHandler:            cfg.GraphQLHandler,
+		cfgClickHouseGraphQLHandler:  cfg.ClickHouseGraphQLHandler,
 		cfgGraphQLPlaygroundHandler:  cfg.GraphQLPlaygroundHandler,
 		cfgApolloSandboxHandler:      cfg.ApolloSandboxHandler,
 		disableSingleResourceImports: cfg.DisableSingleResourceImports,
+		rawExporter:                  cfg.RawExporter,
+		dataframeExporter:            cfg.DataframeExporter,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:      cfg.BodyLimit,

@@ -9,7 +9,23 @@ func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
 	s.registerHealthRoutes()
 	s.registerGraphQLRoutes()
+	s.registerBulkResourceRoutes()
 	s.registerImportRoutes()
+	s.registerGenerationRoutes()
+	if s.dataframeExporter != nil {
+		s.app.Post("/loom/api/v1/dataframe/export", s.exportDataframe)
+	}
+}
+
+func (s *HTTPServer) registerBulkResourceRoutes() {
+	s.app.Put("/api/v1/projects/:project/resources/:resourceType", s.bulkResource)
+}
+
+func (s *HTTPServer) registerGenerationRoutes() {
+	s.app.Post("/api/v1/datasets/:project/generations/:generation", s.createGeneration)
+	if s.rawExporter != nil {
+		s.app.Get("/api/v1/datasets/:project/generations/:generation/export", s.exportGeneration)
+	}
 }
 
 func (s *HTTPServer) registerHealthRoutes() {
@@ -20,13 +36,16 @@ func (s *HTTPServer) registerHealthRoutes() {
 
 func (s *HTTPServer) registerGraphQLRoutes() {
 	if s.cfgGraphQLPlaygroundHandler != nil {
-		s.app.Get("/graphql", adaptor.HTTPHandlerWithContext(s.cfgGraphQLPlaygroundHandler))
+		s.app.Get("/graphql/graph", adaptor.HTTPHandlerWithContext(s.cfgGraphQLPlaygroundHandler))
 	}
 	if s.cfgApolloSandboxHandler != nil {
 		s.app.Get("/apollo", adaptor.HTTPHandlerWithContext(s.cfgApolloSandboxHandler))
 	}
 	if s.cfgGraphQLHandler != nil {
-		s.app.Post("/graphql", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
+		s.app.Post("/graphql/graph", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
+	}
+	if s.cfgClickHouseGraphQLHandler != nil {
+		s.app.Post("/graphql/flat", adaptor.HTTPHandlerWithContext(s.cfgClickHouseGraphQLHandler))
 	}
 }
 

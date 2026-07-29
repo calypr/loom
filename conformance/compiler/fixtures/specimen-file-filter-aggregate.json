@@ -2,33 +2,65 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "specimen-file-filter-aggregate",
   "description": "Generic Specimen traversal pushes a child existence filter into the DocumentReference set before counting it",
-  "tags": ["supported", "specimen", "document-reference", "filter", "aggregate"],
+  "tags": [
+    "supported",
+    "specimen",
+    "document-reference",
+    "filter",
+    "aggregate"
+  ],
   "limit": 25,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "Specimen",
-    "Traversals": [{
-      "Label": "subject_Specimen",
-      "ToResourceType": "DocumentReference",
-      "Alias": "file",
-      "Filters": [{
-        "fieldRef": "DocumentReference.file_name",
-        "selector": "content[].attachment.title",
-        "fieldKind": "STRING",
-        "repeated": true,
-        "quantifier": "ANY",
-        "operator": "EXISTS"
-      }],
-      "Aggregates": [{"Name": "file_count", "Operation": "COUNT"}]
-    }]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_Specimen",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "Specimen",
+        "rootResourceType": "Specimen",
+        "rowGrain": "specimen",
+        "traversals": [
+          {
+            "name": "subject_Specimen",
+            "toResourceType": "DocumentReference",
+            "alias": "file",
+            "filters": [
+              {
+                "select": "content[].attachment.title",
+                "fieldRef": "DocumentReference.file_name",
+                "operator": "EXISTS",
+                "quantifier": "ANY"
+              }
+            ],
+            "aggregates": [
+              {
+                "name": "file_count",
+                "operation": "COUNT"
+              }
+            ]
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": true,
-    "planProfile": "generic_fhir_graph",
-    "optimizerRules": ["push_down_typed_filters"],
-    "queryContains": ["LET child_set_1 = UNIQUE(", "FILTER LENGTH(("],
-    "bindVars": {"project": "oracle-project", "limit": 25},
-    "outputColumns": ["file__file_count"],
+    "planProfile": "generic_fhir_graph_recipe",
+    "optimizerRules": [
+      "push_down_typed_filters"
+    ],
+    "queryContains": [
+      "LET child_set_1 = UNIQUE(",
+      "FILTER LENGTH(("
+    ],
+    "bindVars": {
+      "limit": 25,
+      "project": "oracle-project"
+    },
+    "outputColumns": [
+      "file__file_count"
+    ],
     "expectedTraversalSets": 1
   }
 }

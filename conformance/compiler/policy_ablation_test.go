@@ -63,7 +63,6 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	if project == "" {
 		project = "ARANGODB_PROTO"
 	}
-	fixture.Builder.Project = project
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	opts := arango.ConnectionOptions{URL: url, Database: database}
@@ -72,7 +71,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	for _, candidate := range policies {
 		candidate := candidate
 		t.Run(candidate.name, func(t *testing.T) {
-			compiled, err := dataframe.CompileRequestWithPolicy(fixture.Builder, 1000, candidate.policy)
+			compiled, err := compileRecipe(fixture.Recipe, project, 1000, candidate.policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -159,7 +158,6 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 		if !ok {
 			t.Fatalf("fixture %q is missing", fixtureID)
 		}
-		fixture.Builder.Project = project
 		t.Run(fixtureID, func(t *testing.T) {
 			policies := []struct {
 				name   string
@@ -170,7 +168,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 			}
 			var expectedHash string
 			for _, candidate := range policies {
-				compiled, err := dataframe.CompileRequestWithPolicy(fixture.Builder, fixture.Limit, candidate.policy)
+				compiled, err := compileRecipe(fixture.Recipe, project, fixture.Limit, candidate.policy)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -270,7 +268,6 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 		if !ok {
 			t.Fatalf("fixture %q is missing", fixtureID)
 		}
-		fixture.Builder.Project = project
 		t.Run(fixtureID, func(t *testing.T) {
 			policies := []struct {
 				name   string
@@ -281,7 +278,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 			}
 			var expectedHash string
 			for _, candidate := range policies {
-				compiled, err := dataframe.CompileRequestWithPolicy(fixture.Builder, fixture.Limit, candidate.policy)
+				compiled, err := compileRecipe(fixture.Recipe, project, fixture.Limit, candidate.policy)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -380,10 +377,9 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 		if !ok {
 			t.Fatalf("fixture %q is missing", fixtureID)
 		}
-		fixture.Builder.Project = project
 		t.Run(fixtureID, func(t *testing.T) {
 			policy := dataframe.DefaultPhysicalOptimizationPolicy().WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, false)
-			compiled, err := dataframe.CompileRequestWithPolicy(fixture.Builder, fixture.Limit, policy)
+			compiled, err := compileRecipe(fixture.Recipe, project, fixture.Limit, policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +468,6 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 		if !ok {
 			t.Fatalf("fixture %q is missing", fixtureID)
 		}
-		fixture.Builder.Project = project
 		t.Run(fixtureID, func(t *testing.T) {
 			limit := fixture.Limit
 			if fixtureID == "gdc-case-matrix" {
@@ -488,7 +483,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 			}
 			var expectedHash string
 			for _, candidate := range policies {
-				compiled, err := dataframe.CompileRequestWithPolicy(fixture.Builder, limit, candidate.policy)
+				compiled, err := compileRecipe(fixture.Recipe, project, limit, candidate.policy)
 				if err != nil {
 					t.Fatal(err)
 				}

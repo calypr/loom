@@ -28,7 +28,7 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 		if op.Kind != PhysicalSetOp || op.Set == nil || op.Set.SourceSetVariable != "" {
 			continue
 		}
-		decomposition, err := DecomposePhysicalTraversalPrefix(out, *op.Set)
+		decomposition, err := DecomposePhysicalTraversalPrefixAt(out, *op.Set, i)
 		if err != nil {
 			// Ineligibility is an expected optimizer outcome. The original plan
 			// remains the execution oracle.
@@ -90,6 +90,9 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 		decision.Enabled = true
 		decision.Reason = "estimated prefix work reduction exceeds policy minimum"
 		out.OptimizationPolicy.AddDecision(decision)
+	}
+	if policy.RuleEnabled(PhysicalOptimizationRuleKeyedMapSharing) {
+		sharePhysicalLookupFamilies(&out, policy)
 	}
 	if err := out.Validate(); err != nil {
 		return PhysicalPlan{}, fmt.Errorf("validate optimized physical plan: %w", err)
@@ -279,6 +282,17 @@ func rewritePhysicalOperationVariables(op PhysicalOperation, fromTarget, toTarge
 		}
 		op.DerivedLet = &d
 	}
+	if op.Unnest != nil {
+		u := *op.Unnest
+		if u.InputVariable == fromTarget {
+			u.InputVariable = toTarget
+		}
+		if u.InputVariable == fromEdge {
+			u.InputVariable = toEdge
+		}
+		u.Expression = rewritePhysicalExpressionVariables(u.Expression, fromTarget, toTarget, fromEdge, toEdge)
+		op.Unnest = &u
+	}
 	return op
 }
 
@@ -333,6 +347,14 @@ func rewritePhysicalExpressionVariables(expression PhysicalExpression, fromTarge
 			object.Fields[index].Expression = rewritePhysicalExpressionVariables(object.Fields[index].Expression, fromTarget, toTarget, fromEdge, toEdge)
 		}
 		expression.Object = &object
+	}
+	if expression.Call != nil {
+		call := *expression.Call
+		call.Args = append([]PhysicalExpression(nil), call.Args...)
+		for index := range call.Args {
+			call.Args[index] = rewritePhysicalExpressionVariables(call.Args[index], fromTarget, toTarget, fromEdge, toEdge)
+		}
+		expression.Call = &call
 	}
 	return expression
 }

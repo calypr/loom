@@ -14,8 +14,6 @@ type (
 	SemanticAggregate             = semantic.SemanticAggregate
 	SemanticSlice                 = semantic.SemanticSlice
 	SelectionSemanticSpec         = semantic.SelectionSemanticSpec
-	Builder                       = spec.Builder
-	FieldSelect                   = spec.FieldSelect
 	TypedFilter                   = spec.TypedFilter
 	Selector                      = spec.Selector
 	FilterValue                   = spec.FilterValue
@@ -37,6 +35,7 @@ type (
 	PhysicalPreparedReference     = ir.PhysicalPreparedReference
 	PhysicalAggregate             = ir.PhysicalAggregate
 	PhysicalPivotMap              = ir.PhysicalPivotMap
+	PhysicalKeySet                = ir.PhysicalKeySet
 	PhysicalSlice                 = ir.PhysicalSlice
 	PhysicalExpressionProjection  = ir.PhysicalExpressionProjection
 	PhysicalObject                = ir.PhysicalObject
@@ -50,6 +49,10 @@ type (
 	PhysicalPredicateExpression   = ir.PhysicalPredicateExpression
 	PhysicalFilter                = ir.PhysicalFilter
 	PhysicalDerivedLet            = ir.PhysicalDerivedLet
+	PhysicalExpressionLet         = ir.PhysicalExpressionLet
+	PhysicalObjectLookup          = ir.PhysicalObjectLookup
+	PhysicalKeyedMap              = ir.PhysicalKeyedMap
+	PhysicalObjectKeys            = ir.PhysicalObjectKeys
 	PhysicalProjection            = ir.PhysicalProjection
 	PhysicalReturn                = ir.PhysicalReturn
 	PhysicalPredicateKind         = ir.PhysicalPredicateKind
@@ -63,6 +66,7 @@ const (
 	PhysicalTraversalOp                       = ir.PhysicalTraversalOp
 	PhysicalFilterOp                          = ir.PhysicalFilterOp
 	PhysicalDerivedLetOp                      = ir.PhysicalDerivedLetOp
+	PhysicalExpressionLetOp                   = ir.PhysicalExpressionLetOp
 	PhysicalSetOp                             = ir.PhysicalSetOp
 	PhysicalScalarCardinality                 = ir.PhysicalScalarCardinality
 	PhysicalArrayCardinality                  = ir.PhysicalArrayCardinality
@@ -76,6 +80,10 @@ const (
 	PhysicalPivotExpression                   = ir.PhysicalPivotExpression
 	PhysicalSliceExpression                   = ir.PhysicalSliceExpression
 	PhysicalObjectExpression                  = ir.PhysicalObjectExpression
+	PhysicalKeySetExpression                  = ir.PhysicalKeySetExpression
+	PhysicalObjectLookupExpression            = ir.PhysicalObjectLookupExpression
+	PhysicalKeyedMapExpression                = ir.PhysicalKeyedMapExpression
+	PhysicalObjectKeysExpression              = ir.PhysicalObjectKeysExpression
 	PhysicalSelectorGeneric                   = ir.PhysicalSelectorGeneric
 	PhysicalSelectorDirectScalar              = ir.PhysicalSelectorDirectScalar
 	PhysicalSelectorConditionalArray          = ir.PhysicalSelectorConditionalArray

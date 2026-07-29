@@ -2,12 +2,31 @@
   "schema": "loom.compiler-oracle/v1",
   "id": "unsupported-unknown-root",
   "description": "Unknown roots fail before AQL collection interpolation",
-  "tags": ["unsupported", "safety"],
+  "tags": [
+    "unsupported",
+    "safety"
+  ],
   "limit": 25,
-  "builder": {
-    "Project": "oracle-project",
-    "RootResourceType": "NotAResource",
-    "Fields": [{"Name": "anything", "Select": "anything"}]
+  "project": "oracle-project",
+  "recipe": {
+    "recipeSchemaVersion": 1,
+    "name": "fixture_NotAResource",
+    "translationVersion": "fixture",
+    "outputs": [
+      {
+        "name": "NotAResource",
+        "rootResourceType": "NotAResource",
+        "rowGrain": "resource",
+        "fields": [
+          {
+            "name": "anything",
+            "expr": {
+              "select": "anything"
+            }
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "supported": false,

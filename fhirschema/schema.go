@@ -59,8 +59,13 @@ type ResolvedPath struct {
 type PivotSpec struct {
 	Family          string
 	CatalogRootPath string
-	ColumnSelector  FieldSelectorSpec
-	ValueSelector   FieldSelectorSpec
+	// ItemSourcePath identifies the repeated item scope that owns key/value.
+	// Empty means the resource itself is one pivot item.
+	ItemSourcePath   string
+	ItemResourceType string
+	ColumnSelector   FieldSelectorSpec
+	ValueSelector    FieldSelectorSpec
+	ValueSelectors   []FieldSelectorSpec
 }
 
 type TraversalSpec struct {
@@ -169,10 +174,11 @@ func ResolvesToCodeableConcept(resourceType, canonicalPath string) bool {
 	return ok && resolved.PropertyRef == "CodeableConcept"
 }
 
-func ObservationValueSelectorOptions(resourceType string) []FieldSelectorSpec {
-	if resourceType != "Observation" {
-		return []FieldSelectorSpec{}
-	}
+// ChoiceValueSelectorOptions returns generated-schema-backed value[x]
+// selectors for a resource or generated backbone definition. FHIR-specific
+// knowledge stays in this schema package; compiler and renderer code consume
+// the resulting ordered selectors generically.
+func ChoiceValueSelectorOptions(resourceType string) []FieldSelectorSpec {
 	candidates := []string{
 		"valueQuantity.value",
 		"valueCodeableConcept.text",
@@ -200,6 +206,58 @@ func ObservationValueSelectorOptions(resourceType string) []FieldSelectorSpec {
 	return out
 }
 
+func prependSelector(existing []FieldSelectorSpec, preferred FieldSelectorSpec) []FieldSelectorSpec {
+	preferredPath := CanonicalPath(preferred)
+	result := []FieldSelectorSpec{preferred}
+	for _, candidate := range existing {
+		if CanonicalPath(candidate) != preferredPath {
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+func normalizePivotSelectors(resourceType, catalogRootPath string, column, value FieldSelectorSpec) (FieldSelectorSpec, FieldSelectorSpec, string, string) {
+	itemType := resourceType
+	itemSource := ""
+	if source, repeatedType, ok := repeatedPivotItemScope(resourceType, catalogRootPath); ok {
+		itemType = repeatedType
+		itemSource = source
+		column = relativeSelector(column, itemSource)
+		value = relativeSelector(value, itemSource)
+	}
+	return column, value, itemType, itemSource
+}
+
+func repeatedPivotItemScope(resourceType, canonicalPath string) (string, string, bool) {
+	parts := strings.Split(CanonicalizePath(canonicalPath), ".")
+	for index := len(parts) - 1; index >= 0; index-- {
+		if !strings.HasSuffix(parts[index], "[]") {
+			continue
+		}
+		source := strings.Join(parts[:index+1], ".")
+		resolved, ok := ResolvePath(resourceType, source)
+		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" || index+1 >= len(parts) {
+			continue
+		}
+		itemType := resolved.Property.ItemRef
+		relative := strings.Join(parts[index+1:], ".")
+		if _, ok := ResolvePath(itemType, relative); ok {
+			return source, itemType, true
+		}
+	}
+	return "", "", false
+}
+
+func relativeSelector(selector FieldSelectorSpec, prefix string) FieldSelectorSpec {
+	prefix = CanonicalizePath(prefix)
+	path := CanonicalPath(selector)
+	if strings.HasPrefix(path, prefix+".") {
+		return FieldSelectorSpecFromPath(strings.TrimPrefix(path, prefix+"."))
+	}
+	return selector
+}
+
 func FieldSelectorSpecFromPath(path string) FieldSelectorSpec {
 	sourcePath, valuePath := selectorParts(CanonicalizePath(path))
 	return FieldSelectorSpec{
@@ -222,11 +280,15 @@ func ValidatePivotSelectors(resourceType string, column FieldSelectorSpec, value
 	}
 
 	if match, ok := resolvePivotFamily(resourceType, columnCanonical, valueCanonical); ok {
+		column, value, itemType, itemSource := normalizePivotSelectors(resourceType, match.catalogRootPath, column, value)
 		return PivotSpec{
-			Family:          match.family,
-			CatalogRootPath: match.catalogRootPath,
-			ColumnSelector:  normalizeSelectorSpec(column, columnExpr),
-			ValueSelector:   normalizeSelectorSpec(value, valueExpr),
+			Family:           match.family,
+			CatalogRootPath:  match.catalogRootPath,
+			ItemSourcePath:   itemSource,
+			ItemResourceType: itemType,
+			ColumnSelector:   normalizeSelectorSpec(column, columnExpr),
+			ValueSelector:    normalizeSelectorSpec(value, valueExpr),
+			ValueSelectors:   []FieldSelectorSpec{normalizeSelectorSpec(value, valueExpr)},
 		}, nil
 	}
 
@@ -234,29 +296,70 @@ func ValidatePivotSelectors(resourceType string, column FieldSelectorSpec, value
 }
 
 func DefaultPivotSpec(resourceType, canonicalPath string, observedValuePath string) (PivotSpec, bool) {
-	if ResolvesToCodeableConcept(resourceType, canonicalPath) {
-		column := FieldSelectorSpecFromPath(canonicalPath + ".coding[].display")
-		value := column
+	canonicalPath = CanonicalizePath(canonicalPath)
+	if source, itemType, ok := repeatedPivotItemScope(resourceType, canonicalPath); ok {
+		relativeRoot := strings.TrimPrefix(canonicalPath, source+".")
+		if !ResolvesToCodeableConcept(itemType, relativeRoot) {
+			return PivotSpec{}, false
+		}
+		column := defaultCodeableColumnSelector(itemType, relativeRoot)
+		values := ChoiceValueSelectorOptions(itemType)
 		if strings.TrimSpace(observedValuePath) != "" {
-			value = FieldSelectorSpecFromPath(observedValuePath)
+			values = prependSelector(values, FieldSelectorSpecFromPath(observedValuePath))
 		}
-		spec, err := ValidatePivotSelectors(resourceType, column, value)
-		return spec, err == nil
+		if len(values) == 0 {
+			return PivotSpec{}, false
+		}
+		return PivotSpec{
+			Family: PivotFamilyCodeableConcept, CatalogRootPath: canonicalPath,
+			ItemSourcePath: source, ItemResourceType: itemType,
+			ColumnSelector: column, ValueSelector: values[0], ValueSelectors: values,
+		}, true
 	}
-	if resourceType == "Observation" && canonicalPath == "code" {
-		column := FieldSelectorSpecFromPath("code.coding[].display")
-		value := FieldSelectorSpecFromPath(strings.TrimSpace(observedValuePath))
-		if strings.TrimSpace(observedValuePath) == "" {
-			options := ObservationValueSelectorOptions(resourceType)
-			if len(options) == 0 {
-				return PivotSpec{}, false
+	if ResolvesToCodeableConcept(resourceType, canonicalPath) {
+		column := defaultCodeableColumnSelector(resourceType, canonicalPath)
+		// Observation-style code/value[x] pivots use the resource's choice
+		// value. Other CodeableConcept fields (for example
+		// valueCodeableConcept itself) pivot their own text/coding value and
+		// must not borrow unrelated sibling value[x] selectors.
+		values := []FieldSelectorSpec{column}
+		if canonicalPath == "code" {
+			options := ChoiceValueSelectorOptions(resourceType)
+			if strings.TrimSpace(observedValuePath) != "" {
+				values = prependSelector(options, FieldSelectorSpecFromPath(observedValuePath))
+			} else if len(options) > 0 {
+				values = options
 			}
-			value = options[0]
 		}
-		spec, err := ValidatePivotSelectors(resourceType, column, value)
+		spec, err := ValidatePivotSelectors(resourceType, column, values[0])
+		if err == nil {
+			spec.ValueSelectors = values
+		}
 		return spec, err == nil
 	}
 	return PivotSpec{}, false
+}
+
+// defaultCodeableColumnSelector prefers the human-facing CodeableConcept.text
+// for the conventional `code` shape when the generated schema contains it.
+// FHIR producers frequently use that text as the semantic pivot key while
+// coding.display is only a broad category (for example
+// Observation.code.coding.display == "Component" for many distinct component
+// observations). Other CodeableConcept roots retain coding.display.
+func defaultCodeableColumnSelector(resourceType, rootPath string) FieldSelectorSpec {
+	rootPath = strings.TrimSuffix(CanonicalizePath(rootPath), ".")
+	// The dataframer-compatible semantic-key convention applies to FHIR
+	// CodeableConcept fields named `code` (including repeated backbone
+	// component.code). Other CodeableConcept pivots retain coding.display as
+	// their stable key unless a recipe explicitly chooses another selector.
+	if rootPath != "code" {
+		return FieldSelectorSpecFromPath(rootPath + ".coding[].display")
+	}
+	textPath := rootPath + ".text"
+	if _, ok := LookupField(resourceType, textPath); ok {
+		return FieldSelectorSpecFromPath(textPath)
+	}
+	return FieldSelectorSpecFromPath(rootPath + ".coding[].display")
 }
 
 func SelectorFromField(field FieldSpec) FieldSelectorSpec {
@@ -554,7 +657,14 @@ func resolvePivotFamily(resourceType, columnCanonical, valueCanonical string) (p
 }
 
 func matchObservationCodeValuePivot(resourceType, columnCanonical, valueCanonical string) (pivotFamilyMatch, bool) {
-	if resourceType == "Observation" && isObservationCodeSelector(columnCanonical) && isObservationValueSelector(valueCanonical) {
+	// The code/value[x] shape is not exclusive to Observation. Generated
+	// FHIR backbone definitions (for example ObservationComponent) can expose
+	// the same correlated pair, so prove the shape from the active schema
+	// rather than branching on a resource name.
+	if ResolvesToCodeableConcept(resourceType, "code") && isObservationCodeSelector(columnCanonical) && isObservationValueSelector(valueCanonical) {
+		if _, valueExists := ResolvePath(resourceType, valueCanonical); !valueExists {
+			return pivotFamilyMatch{}, false
+		}
 		return pivotFamilyMatch{
 			family:          PivotFamilyObservationCodeValue,
 			catalogRootPath: "code",

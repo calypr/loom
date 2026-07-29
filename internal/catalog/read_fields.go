@@ -31,7 +31,10 @@ FOR d IN fhir_field_catalog
     pivot_columns: d.pivot_columns,
     pivot_family: d.pivot_family,
     pivot_column_selector: d.pivot_column_selector,
-    pivot_value_selector: d.pivot_value_selector
+    pivot_value_selector: d.pivot_value_selector,
+    pivot_item_source: d.pivot_item_source,
+    pivot_item_resource_type: d.pivot_item_resource_type,
+    pivot_value_selectors: d.pivot_value_selectors
   }
 `
 
@@ -62,22 +65,25 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 	results := make([]PopulatedField, 0, 64)
 	err = client.QueryRows(ctx, populatedFieldsAQL, opts.CursorBatch, bindVars, func(row map[string]any) error {
 		results = append(results, PopulatedField{
-			Project:           stringValue(row["project"]),
-			DatasetGeneration: stringValue(row["dataset_generation"]),
-			AuthResourcePath:  stringValue(row["auth_resource_path"]),
-			ResourceType:      stringValue(row["resource_type"]),
-			Path:              stringValue(row["path"]),
-			Kind:              stringValue(row["kind"]),
-			DocCount:          int64Must(row["doc_count"]),
-			SampleCount:       int(int64Must(row["sample_count"])),
-			DistinctValues:    stringSliceValue(row["distinct_values"]),
-			DistinctTruncated: boolValue(row["distinct_truncated"]),
-			PivotCandidate:    boolValue(row["pivot_candidate"]),
-			PivotKind:         stringValue(row["pivot_kind"]),
-			PivotColumns:      stringSliceValue(row["pivot_columns"]),
-			PivotFamily:       stringValue(row["pivot_family"]),
-			PivotColumnSelect: stringValue(row["pivot_column_selector"]),
-			PivotValueSelect:  stringValue(row["pivot_value_selector"]),
+			Project:               stringValue(row["project"]),
+			DatasetGeneration:     stringValue(row["dataset_generation"]),
+			AuthResourcePath:      stringValue(row["auth_resource_path"]),
+			ResourceType:          stringValue(row["resource_type"]),
+			Path:                  stringValue(row["path"]),
+			Kind:                  stringValue(row["kind"]),
+			DocCount:              int64Must(row["doc_count"]),
+			SampleCount:           int(int64Must(row["sample_count"])),
+			DistinctValues:        stringSliceValue(row["distinct_values"]),
+			DistinctTruncated:     boolValue(row["distinct_truncated"]),
+			PivotCandidate:        boolValue(row["pivot_candidate"]),
+			PivotKind:             stringValue(row["pivot_kind"]),
+			PivotColumns:          stringSliceValue(row["pivot_columns"]),
+			PivotFamily:           stringValue(row["pivot_family"]),
+			PivotColumnSelect:     stringValue(row["pivot_column_selector"]),
+			PivotValueSelect:      stringValue(row["pivot_value_selector"]),
+			PivotItemSource:       stringValue(row["pivot_item_source"]),
+			PivotItemResourceType: stringValue(row["pivot_item_resource_type"]),
+			PivotValueSelectors:   stringSliceValue(row["pivot_value_selectors"]),
 		})
 		return nil
 	})

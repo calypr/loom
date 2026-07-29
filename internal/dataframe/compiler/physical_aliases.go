@@ -17,6 +17,8 @@ type (
 	PhysicalExpressionKind                 = ir.PhysicalExpressionKind
 	PhysicalSelectorExecutionMode          = ir.PhysicalSelectorExecutionMode
 	PhysicalExpression                     = ir.PhysicalExpression
+	PhysicalLiteral                        = ir.PhysicalLiteral
+	PhysicalCall                           = ir.PhysicalCall
 	PhysicalExtract                        = ir.PhysicalExtract
 	PhysicalPreparedReference              = ir.PhysicalPreparedReference
 	PhysicalPreparedSet                    = ir.PhysicalPreparedSet
@@ -24,6 +26,8 @@ type (
 	PhysicalAggregateOperation             = ir.PhysicalAggregateOperation
 	PhysicalAggregate                      = ir.PhysicalAggregate
 	PhysicalPivotMap                       = ir.PhysicalPivotMap
+	PhysicalLookup                         = ir.PhysicalLookup
+	PhysicalKeySet                         = ir.PhysicalKeySet
 	PhysicalSlice                          = ir.PhysicalSlice
 	PhysicalExpressionProjection           = ir.PhysicalExpressionProjection
 	PhysicalObject                         = ir.PhysicalObject
@@ -38,6 +42,10 @@ type (
 	PhysicalPredicateExpression            = ir.PhysicalPredicateExpression
 	PhysicalFilter                         = ir.PhysicalFilter
 	PhysicalDerivedLet                     = ir.PhysicalDerivedLet
+	PhysicalExpressionLet                  = ir.PhysicalExpressionLet
+	PhysicalObjectLookup                   = ir.PhysicalObjectLookup
+	PhysicalKeyedMap                       = ir.PhysicalKeyedMap
+	PhysicalObjectKeys                     = ir.PhysicalObjectKeys
 	PhysicalSort                           = ir.PhysicalSort
 	PhysicalLimit                          = ir.PhysicalLimit
 	PhysicalProjection                     = ir.PhysicalProjection
@@ -63,6 +71,7 @@ const (
 	PhysicalTraversalOp                        = ir.PhysicalTraversalOp
 	PhysicalFilterOp                           = ir.PhysicalFilterOp
 	PhysicalDerivedLetOp                       = ir.PhysicalDerivedLetOp
+	PhysicalExpressionLetOp                    = ir.PhysicalExpressionLetOp
 	PhysicalSetOp                              = ir.PhysicalSetOp
 	PhysicalSortOp                             = ir.PhysicalSortOp
 	PhysicalLimitOp                            = ir.PhysicalLimitOp
@@ -79,11 +88,18 @@ const (
 	PhysicalOmitNulls                          = ir.PhysicalOmitNulls
 	PhysicalEmptyOnNull                        = ir.PhysicalEmptyOnNull
 	PhysicalValueExpression                    = ir.PhysicalValueExpression
+	PhysicalLiteralExpression                  = ir.PhysicalLiteralExpression
 	PhysicalExtractExpression                  = ir.PhysicalExtractExpression
 	PhysicalAggregateExpression                = ir.PhysicalAggregateExpression
 	PhysicalPivotExpression                    = ir.PhysicalPivotExpression
 	PhysicalSliceExpression                    = ir.PhysicalSliceExpression
+	PhysicalLookupExpression                   = ir.PhysicalLookupExpression
 	PhysicalObjectExpression                   = ir.PhysicalObjectExpression
+	PhysicalCallExpression                     = ir.PhysicalCallExpression
+	PhysicalKeySetExpression                   = ir.PhysicalKeySetExpression
+	PhysicalObjectLookupExpression             = ir.PhysicalObjectLookupExpression
+	PhysicalKeyedMapExpression                 = ir.PhysicalKeyedMapExpression
+	PhysicalObjectKeysExpression               = ir.PhysicalObjectKeysExpression
 	PhysicalSelectorGeneric                    = ir.PhysicalSelectorGeneric
 	PhysicalSelectorDirectScalar               = ir.PhysicalSelectorDirectScalar
 	PhysicalSelectorConditionalArray           = ir.PhysicalSelectorConditionalArray
@@ -118,6 +134,7 @@ const (
 	PhysicalOptimizationRuleRichConsumerFusion = ir.PhysicalOptimizationRuleRichConsumerFusion
 	PhysicalOptimizationRuleCompactProjection  = ir.PhysicalOptimizationRuleCompactProjection
 	PhysicalOptimizationRuleEndpointTraversal  = ir.PhysicalOptimizationRuleEndpointTraversal
+	PhysicalOptimizationRuleKeyedMapSharing    = ir.PhysicalOptimizationRuleKeyedMapSharing
 )
 
 var (

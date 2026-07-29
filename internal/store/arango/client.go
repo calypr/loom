@@ -167,6 +167,27 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return nil
 }
 
+// ExecuteAQL runs a write/query statement and drains its cursor. It is kept
+// deliberately small so durable registries can perform compare-and-swap
+// updates without exposing the Arango driver through their public APIs.
+func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error {
+	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: 32, BindVars: bindVars})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close()
+	for cursor.HasMore() {
+		var discard any
+		if _, err := cursor.ReadDocument(ctx, &discard); err != nil {
+			if shared.IsNoMoreDocuments(err) {
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Client) Close(ctx context.Context) error {
 	return nil
 }

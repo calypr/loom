@@ -3,6 +3,10 @@ package compiler
 import "github.com/calypr/loom/internal/dataframe/compiler/lower"
 
 type StorageRoute = lower.StorageRoute
+type CompiledRecipe = lower.CompiledRecipe
+type CompiledRecipeOutput = lower.CompiledRecipeOutput
+type DynamicColumnMetadata = lower.DynamicColumnMetadata
+type CompiledOutputColumn = lower.CompiledOutputColumn
 
 var (
 	BuildPhysicalPlan                  = lower.BuildPhysicalPlan
@@ -11,4 +15,5 @@ var (
 	BuildGenericPhysicalPlanWithPolicy = lower.BuildGenericPhysicalPlanWithPolicy
 	ResolveStorageRoute                = lower.ResolveStorageRoute
 	ErrUnsupportedStorageRoute         = lower.ErrUnsupportedStorageRoute
+	CompileResolvedRecipePlan          = lower.CompileResolvedRecipePlan
 )

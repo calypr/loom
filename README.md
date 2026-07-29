@@ -1,88 +1,101 @@
-# ARANGODB_PROTO
+# Loom
 
-FHIR graph loader and dataframe server, with ArangoDB as the primary execution
-backend.
+Loom turns FHIR-shaped data in ArangoDB into authorized, queryable flat
+dataframes in ClickHouse.
 
-This repo has two main runtime surfaces:
+ArangoDB is the canonical graph store: Loom loads NDJSON, extracts FHIR
+resources and relationships, profiles the populated graph, and compiles typed
+dataframe recipes into scoped AQL. ClickHouse is the publication store: Loom
+streams resolved recipe outputs into versioned physical tables, records their
+schema and visibility in an Arango-backed catalog, and exposes them through a
+stable reader API.
 
-- `arango-fhir-proto`: CLI for FHIR loading (including immutable complete
-  generations) and catalog diagnostics
-- `arango-fhir-server`: Fiber server for compiler-backed GraphQL reads and a
-  temporary one-file import compatibility endpoint. It also exposes published
-  dataframe reads backed by ClickHouse when configured.
+Loom is deliberately not an arbitrary AQL gateway, ClickHouse SQL proxy, or a
+replacement FHIR model. It is a recipe-driven graph-to-flat data service with
+explicit authorization and publication boundaries.
 
-The current product direction is:
+```mermaid
+flowchart LR
+    NDJSON["FHIR NDJSON"] --> Ingest["Ingest and catalog"]
+    Ingest --> Arango["ArangoDB\nresources, fhir_edge, field catalog"]
+    Recipe["Versioned dataframe recipe"] --> Compile["Resolve, validate, compile"]
+    Arango --> Compile
+    Compile --> AQL["Scoped AQL stream"]
+    AQL --> Publish["Atomic publication catalog commit"]
+    Publish --> ClickHouse["Versioned flat tables"]
+    Publish --> Catalog["Arango publication catalog"]
+    Catalog["Arango publication catalog"] --> Flat["POST /graphql/flat"]
+    ClickHouse --> Flat
+    Arango --> Graph["POST /graphql/graph"]
+    Compile --> Graph
+```
 
-- load raw FHIR NDJSON into one collection per resource type
-- store graph edges in `fhir_edge`
-- profile populated fields into `fhir_field_catalog`
-- lower typed dataframe requests through the FHIR-aware compiler into scoped AQL
-- expose the current compiler-backed GraphQL transport
+## What Loom owns
 
-ArangoDB is the only runtime backend. The tracked [`experimental/`](experimental/)
-directory contains the local Arango compose setup.
+- FHIR NDJSON ingestion into ArangoDB resource collections and `fhir_edge`.
+- Immutable dataset generations and active-generation selection.
+- Populated-field, reference, traversal, and pivot discovery.
+- Strict, versioned dataframe recipes and compiler-backed AQL execution.
+- Scoped publication of recipe outputs into ClickHouse.
+- A durable Arango catalog that maps logical dataframe names to current READY
+  ClickHouse outputs.
+- Multi-project, `auth_resource_path`-scoped flat-data reads.
 
-## Docs
+Loom does **not** expose arbitrary ClickHouse tables, arbitrary SQL, or an
+Elasticsearch/Guppy fallback. A logical `dataType` is a catalog alias, never a
+browser-supplied physical table name.
 
-- [Quickstart](docs/QUICKSTART.md)
-- Helm local-cluster deployment: `gen3-helm/helm/loom`
-- [Developer Architecture](docs/DEVELOPER_ARCHITECTURE.md)
-- [Compiler Performance](docs/COMPILER_PERFORMANCE.md)
-- [Formal Product Gap Analysis](docs/FORMAL_GAP_ANALYSIS.md)
-- [Compiler-First FHIR/AQL Plan](docs/COMPILER_FIRST_PLAN.md)
-- [Physical Renderer Replacement Plan](docs/PHYSICAL_RENDERER_REPLACEMENT_PLAN.md)
-- [Rich Physical Renderer Plan](docs/RICH_PHYSICAL_RENDERER_PLAN.md)
-- [Luna Rich Physical Renderer Execution Plan](docs/LUNA_RICH_PHYSICAL_RENDERER_EXECUTION.md)
-- [Luna Compiler Finalization Plan](docs/LUNA_COMPILER_FINALIZATION_PLAN.md)
-- [Terra Ultra Parallel Execution Plan](docs/TERRA_ULTRA_EXECUTION_PLAN.md)
-- [Part 5 Luna Frontend Enablement Plan](docs/LUNA_FRONTEND_ENABLEMENT_PART_5.md)
+## Runtime surfaces
 
-## Current Layout
+| Surface | Purpose |
+| --- | --- |
+| `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
+| `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
+| `POST /graphql/graph` | Arango graph and recipe control plane: builder introspection, dataframe/recipe validation, preview, execution, and publication. |
+| `POST /graphql/flat` | ClickHouse reader: discover published datasets, fetch rows with filters/keyset cursors, and aggregate registered outputs. |
+| `POST /api/v1/imports` | Legacy one-resource import compatibility path; disabled in dataset-generation mode. |
 
-- [`cmd/arango-fhir-proto/main.go`](cmd/arango-fhir-proto/main.go): CLI entrypoint
-- [`cmd/arango-fhir-server/main.go`](cmd/arango-fhir-server/main.go): HTTP server entrypoint
-- [`internal/ingest`](internal/ingest): load pipeline and Arango ingest bootstrap/runtime
-- [`internal/catalog`](internal/catalog): populated-field and populated-reference discovery
-- [`internal/dataset`](internal/dataset): dataset generation, schema, and scope lifecycle contract
-- [`internal/dataset/arango`](internal/dataset/arango): Arango-backed immutable manifest and active-generation pointer store
-- [`graphqlapi`](graphqlapi): GraphQL schema, request mapping, introspection service, and gqlgen output
-- [`graphqlapi/query`](graphqlapi/query): GraphQL dataframe input translation, discovery, and builder introspection
-- [`graphqlapi/materialization`](graphqlapi/materialization): GraphQL authorization and reads for published ClickHouse dataframes
-- [`internal/dataframe`](internal/dataframe): dataframe validation, lowering, and AQL compilation
-- [`fhirstructs`](fhirstructs): generated FHIR structs, validators, and graph-edge extraction
-- [`fhirschema`](fhirschema): generated compiler schema metadata and selector/traversal resolution
-- [`internal/graphschema`](internal/graphschema): exact graph-schema identity captured by dataset generations
-- [`internal/httpapi`](internal/httpapi): HTTP host, authenticated GraphQL mounting, and legacy import compatibility wiring
-- [`internal/authscope`](internal/authscope): shared request principal context and auth-resource-path scope resolution
-- [`experimental/`](experimental/): local Arango development compose setup
+`GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
+opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
+`/graphql` compatibility route.
 
-## Local Dev
+## Data lifecycle
 
-Start local Arango:
+1. Load FHIR NDJSON into ArangoDB. Loom creates resource collections,
+   `fhir_edge`, and `fhir_field_catalog`.
+2. For production snapshots, load an immutable dataset generation and let the
+   active manifest select it for a project.
+3. Resolve a registered recipe against the populated graph and caller scope.
+4. Compile the resolved recipe to parameterized AQL and stream rows from
+   ArangoDB.
+5. Publish output streams to new ClickHouse physical tables. Loom injects the
+   reserved `auth_resource_path` column, records schema/provenance in Arango,
+   and atomically advances the logical publication pointer only once every
+   output is READY.
+6. Query the logical dataframe through `/graphql/flat`. The reader resolves
+   authorized current outputs from the catalog; it never accepts a physical
+   ClickHouse table name.
+
+The configured ClickHouse database is created by the server during startup if
+necessary. Publication creates its tables itself. No DDL or alias-management
+HTTP endpoint is required. The ClickHouse account needs database creation plus
+`CREATE`, `INSERT`, `SELECT`, and `DROP` privileges.
+
+## Local development
+
+The local Compose stack starts both ArangoDB and ClickHouse:
 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml up -d
-```
-
-Generate/build:
-
-```bash
 make generate-fhir
 make generate-graphql
 make build
 ```
 
-The repository root is also the server command, so a plain build works:
-
-```bash
-go build .
-```
-
-Load the bundled sample dataset:
+Load the bundled example data into a mutable local namespace:
 
 ```bash
 ./bin/arango-fhir-proto load \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --meta-dir META \
@@ -90,148 +103,173 @@ Load the bundled sample dataset:
   --auth-resource-path EllrottLab-GDC_Data
 ```
 
-For an immutable, generation-qualified load instead of the mutable prototype
-load above, use a complete `META` directory and an operator-supplied opaque
-generation ID. This command deliberately has no `--truncate` flag:
+For a production-shaped immutable snapshot, use `load-generation` instead. It
+requires an opaque generation identifier and deliberately forbids truncation:
 
 ```bash
 ./bin/arango-fhir-proto load-generation \
-  --generation local-meta-2026-07-11 \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --meta-dir META \
   --project ARANGODB_PROTO \
+  --generation local-meta-1 \
   --auth-resource-path EllrottLab-GDC_Data
 ```
 
-Start the server in local demo mode:
+Start Loom locally with an unrestricted development principal:
 
 ```bash
 ./bin/arango-fhir-server \
   --listen :8080 \
   --no-auth \
-  --backend arango \
   --url http://127.0.0.1:8529 \
-  --database fhir_proto
-```
-
-To read the active immutable generation instead, add `--dataset-generations`.
-That mode disables `POST /api/v1/imports`; use `load-generation` (or the future
-bundle/job API) to create a complete snapshot.
-
-Then open:
-
-- Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
-- GraphQL endpoint: [http://127.0.0.1:8080/graphql](http://127.0.0.1:8080/graphql)
-- Health check: [http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)
-
-The full step-by-step flow, including a sample GraphQL dataframe mutation, lives
-in [docs/QUICKSTART.md](docs/QUICKSTART.md).
-
-## Local cluster deployment
-
-The Helm deployment now lives in the `gen3-helm` repository at
-`helm/loom`. It owns the Loom chart and its official ClickStack dependencies;
-see that repository's README for kind/minikube installation and port
-forwarding instructions.
-
-## Published dataframe materializations
-
-Loom can stream a validated dataframe recipe into a versioned ClickHouse table.
-The operator command accepts a compiler-shaped JSON recipe:
-
-```json
-{
-  "project": "ARANGODB_PROTO",
-  "rootResourceType": "Patient",
-  "fields": [
-    {"name": "patient_id", "select": "id", "valueMode": "FIRST"}
-  ],
-  "schema": [
-    {"name": "patient_id", "clickhouseType": "Nullable(String)"}
-  ]
-}
-```
-
-```bash
-./bin/arango-fhir-proto materialize-dataframe \
-  --request dataframe.json \
-  --name case-explorer \
+  --database fhir_proto \
   --clickhouse-url clickhouse://127.0.0.1:9000 \
   --clickhouse-database loom
 ```
 
-The server exposes READY materializations through the existing GraphQL endpoint:
+Add `--dataset-generations` when reading the active immutable generation. That
+mode disables the legacy one-file import endpoint.
+
+Useful local URLs:
+
+- [Graph Playground](http://127.0.0.1:8080/graphql/graph)
+- [Apollo Sandbox](http://127.0.0.1:8080/apollo)
+- Flat reader: `http://127.0.0.1:8080/graphql/flat`
+- [Health check](http://127.0.0.1:8080/healthz)
+
+Run the checked-in graph dataframe example after the server is up:
+
+```bash
+make dataframe-demo
+```
+
+See [the Quickstart](docs/QUICKSTART.md) for the complete example request and
+response flow.
+
+## Graph and flat GraphQL contracts
+
+### Graph: compile, inspect, and publish
+
+`/graphql/graph` is where a caller asks Loom about the Arango graph or drives
+recipe work. Its schema includes builder introspection, direct dataframe
+execution, and recipe operations such as validation, explanation, preview,
+execution, and `materializeDataframeRecipeBundle`.
+
+Publication is intentionally a recipe-level operation: Loom must read the
+authorized Arango graph, resolve the recipe against the selected generation,
+and then write its output to ClickHouse. It is not a raw “insert rows” API.
+
+### Flat: discover and read published dataframes
+
+`/graphql/flat` is the stable ClickHouse reader. The schema is intentionally
+small and data-driven:
 
 ```graphql
-query Rows($input: DataframeRowsInput!) {
+query ExplorerRows($input: DataframeRowsInput!) {
   dataframeRows(input: $input) {
+    materialization { name revision rowCount columns { name logicalType } }
     columns
     rows
+    totalCount
     pageInfo { hasNextPage endCursor }
-    materialization { id name rowCount columns { name clickhouseType } }
   }
 }
 ```
 
-The browser never receives a ClickHouse table name or SQL capability. Loom
-validates the requested columns, filters, sort, page size, project, generation,
-and materialization state before querying ClickHouse. An explicit `schema`
-preflight validates column names/types before the table is created and rejects
-rows that emit undeclared or incompatible values. Aggregates accept the same
-`EQ` and `CONTAINS` filters as row reads.
+```json
+{
+  "input": {
+    "dataType": "cases",
+    "first": 100,
+    "sort": { "column": "case_id" }
+  }
+}
+```
 
-If you are starting from a fresh checkout, go there next:
+The public reader input contains a logical `dataType`, not a project,
+generation, materialization ID, or physical table. Loom derives the authorized
+project set from the principal, finds each project’s current READY publication,
+and federates compatible outputs. Rows remain permissive JSON; columns and
+capabilities are discovered at runtime so a new publication does not require a
+GraphQL regeneration or server restart.
 
-- [Continue with the Quickstart](docs/QUICKSTART.md)
+## Authorization and tenancy
 
-## Build Targets
+In production, Loom uses either basic authentication or Calypr/Fence-backed
+authorization. Calypr mode resolves the caller’s allowed
+`auth_resource_path` values and applies them to graph reads and published flat
+reads. Publication injects `auth_resource_path` into every ClickHouse output;
+the flat reader treats it as an authorization predicate, never as a
+client-controlled filter.
 
-Important make targets:
+Set `--no-auth` only for local development. It creates an explicit unrestricted
+principal and must not be used in a deployment.
 
-- `make generate-fhir`
-- `make generate-graphql`
-- `make build`
-- `make build-server`
-- `make build-cli`
-- `make graphql-check`
-- `make test`
-- `make conformance`
-- `make compiler-bench`
+The server can be configured with YAML:
 
-`make generate-graphql` is important now. The GraphQL schema and generated
-artifacts are not purely static, and the repo includes a small reproducible
-workaround in the generation target for a gqlgen scalar/codegen edge case.
+```yaml
+server:
+  listen: ":8080"
+  backend: arango
+  url: http://arangodb:8529
+  database: fhir_proto
+  dataset_generations: true
+  clickhouse:
+    url: clickhouse://clickhouse:9000
+    database: loom
 
-## Current HTTP Surfaces
+auth:
+  mode: calypr
+```
 
-The server mounts:
+Basic mode reads `LOOM_AUTH_BASIC_USERNAME` and `LOOM_AUTH_BASIC_PASSWORD` if
+they are not supplied in the config file.
 
-- `GET /healthz`
-- `GET /apollo`
-- `GET /graphql`
-- `POST /graphql`
-- `POST /api/v1/imports` (legacy one-file import; disabled with `--dataset-generations`)
+## Repository guide
 
-HTTP wiring lives in [`internal/httpapi/routes.go`](internal/httpapi/routes.go) and [`internal/httpapi/server.go`](internal/httpapi/server.go).
+| Path | Responsibility |
+| --- | --- |
+| [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
+| [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
+| [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
+| [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
+| [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
+| [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
+| [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
+| [`internal/dataframe/materialization`](internal/dataframe/materialization) | ClickHouse table lifecycle, durable publication pointers, and federated reads. |
+| [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
+| [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
+| [`graphqlapi`](graphqlapi) | Graph control-plane schema and resolvers. |
+| [`graphqlapi/clickhouse`](graphqlapi/clickhouse) | Dedicated flat-reader GraphQL schema and resolvers. |
 
-## Primary Collections
+## Build, generation, and tests
 
-The loader bootstraps:
+```bash
+make build                 # server and CLI binaries
+make generate-fhir         # generated FHIR structs and schema metadata
+make generate-graphql      # gqlgen bindings
+make graphql-check         # GraphQL and dataframe checks
+make test                  # full Go test suite
+make conformance           # compiler conformance corpus
+```
 
-- one collection per FHIR resource type discovered in the NDJSON input
-- `fhir_edge`
-- `fhir_field_catalog`
-- `loom_dataset_lifecycle` for generation-aware loads (never truncated)
+The generated FHIR metadata and GraphQL bindings are checked in. Regenerate
+them when their inputs change; do not hand-edit generated files.
 
-See [`internal/ingest/backend.go`](internal/ingest/backend.go).
+For a direct build and full verification:
 
-## Status
+```bash
+go build .
+go test ./...
+```
 
-What is current and real:
+## Further reading
 
-- GraphQL introspection for populated traversals/fields/pivots
-- GraphQL dataframe execution on Arango
-- generated schema metadata in `fhirschema`
-- derived field aliases in `graphqlapi/query` and explicit lowering rules in `internal/dataframe`
+- [Quickstart](docs/QUICKSTART.md)
+- [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
+- [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)
+- [Explorer/Loom parity plan](docs/EXPLORER_LOOM_SLICE_PARITY_PLAN.md)
+- [Experimental local stack](experimental/README.md)
+
+The Helm chart lives in the separate `gen3-helm` repository under `helm/loom`.

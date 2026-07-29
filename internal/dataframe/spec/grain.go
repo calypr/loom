@@ -21,12 +21,15 @@ const (
 	RowGrainDiagnosis       RowGrain = "diagnosis"
 	RowGrainObservation     RowGrain = "observation"
 	RowGrainStudyEnrollment RowGrain = "study_enrollment"
+	// RowGrainExpanded is a synthetic grain whose identity is supplied by a
+	// recipe expansion expression rather than by the root resource key.
+	RowGrainExpanded RowGrain = "expanded"
 )
 
 func (g RowGrain) Validate() error {
 	switch g {
 	case RowGrainResource, RowGrainPatient, RowGrainSpecimen, RowGrainFile, RowGrainDiagnosis,
-		RowGrainObservation, RowGrainStudyEnrollment:
+		RowGrainObservation, RowGrainStudyEnrollment, RowGrainExpanded:
 		return nil
 	case "":
 		return fmt.Errorf("row grain is required")
@@ -67,6 +70,8 @@ func InferRowGrain(resourceType string) (RowGrain, bool) {
 func RootResourceForGrain(grain RowGrain) (string, bool) {
 	switch grain {
 	case RowGrainResource:
+		return "", true
+	case RowGrainExpanded:
 		return "", true
 	case RowGrainPatient:
 		return "Patient", true

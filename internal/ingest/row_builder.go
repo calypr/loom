@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"maps"
 	"time"
 
 	"github.com/bmeg/jsonschema/v6"
@@ -101,6 +102,11 @@ func NewGenericRowBuilder(project string, class *jsonschema.Schema, schema *grap
 }
 
 func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+	// jsonschemagraph currently deletes its optional namespace entry from the
+	// extra-arguments map. Generic builders are shared by parallel ingest
+	// workers, so each row must give that dependency an isolated mutable map.
+	extraArgs := maps.Clone(b.extraArgs)
+
 	var payload map[string]any
 	decodeStart := time.Now()
 	if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
@@ -117,7 +123,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	stageSeconds["validate"] += time.Since(validateStart).Seconds()
 
 	vertexStart := time.Now()
-	vDoc, err := jsgarango.VertexFromFHIRWithExtra(b.project, resourceType, payload, b.extraArgs)
+	vDoc, err := jsgarango.VertexFromFHIRWithExtra(b.project, resourceType, payload, extraArgs)
 	stageSeconds["vertex_build"] += time.Since(vertexStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorValidation, err
@@ -130,7 +136,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	if err != nil {
 		return rowBuildResult{}, rowErrorGeneration, err
 	}
-	gripEdges, err := b.schema.BuildEdgesWithID(resourceType, objectID, payload, b.extraArgs, true)
+	gripEdges, err := b.schema.BuildEdgesWithID(resourceType, objectID, payload, extraArgs, true)
 	stageSeconds["edge_generation"] += time.Since(edgeStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorGeneration, err

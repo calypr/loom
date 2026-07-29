@@ -24,6 +24,22 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 	}, nil
 }
 
+// RunCompiled executes an already canonical-compiled query. It is the shared
+// execution seam for non-GraphQL frontends (for example an ephemeral recipe
+// produced by GraphQL); compilation and scope resolution remain the caller's
+// responsibility. The query still uses the same cursor, row flattening, and
+// diagnostics path as the ordinary recipe-backed Run.
+func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Result, error) {
+	started := time.Now()
+	result, err := s.runQuery(ctx, compiled)
+	if err != nil {
+		return nil, err
+	}
+	result.Diagnostics.Plan = compiled.PlanDiagnostics
+	result.Diagnostics.Total = time.Since(started)
+	return result, nil
+}
+
 // Stream compiles the same catalog- and authorization-validated request used
 // by Run, but delivers flattened rows as Arango yields them instead of
 // retaining the complete dataframe in Loom memory. Each invocation receives a

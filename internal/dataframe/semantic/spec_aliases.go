@@ -3,20 +3,14 @@ package semantic
 import "github.com/calypr/loom/internal/dataframe/spec"
 
 type (
-	Builder             = spec.Builder
-	TraversalStep       = spec.TraversalStep
-	RepresentativeSlice = spec.RepresentativeSlice
-	FieldSelect         = spec.FieldSelect
-	PivotSelect         = spec.PivotSelect
-	AggregateSelect     = spec.AggregateSelect
-	RowGrain            = spec.RowGrain
-	ProjectionMode      = spec.ProjectionMode
-	Cardinality         = spec.Cardinality
-	RowIdentity         = spec.RowIdentity
-	TraversalMatchMode  = spec.TraversalMatchMode
-	TypedFilter         = spec.TypedFilter
-	Selector            = spec.Selector
-	SelectorStep        = spec.SelectorStep
+	RowGrain           = spec.RowGrain
+	ProjectionMode     = spec.ProjectionMode
+	Cardinality        = spec.Cardinality
+	RowIdentity        = spec.RowIdentity
+	TraversalMatchMode = spec.TraversalMatchMode
+	TypedFilter        = spec.TypedFilter
+	Selector           = spec.Selector
+	SelectorStep       = spec.SelectorStep
 )
 
 const (
@@ -26,6 +20,8 @@ const (
 	ProjectionDistinctArray = spec.ProjectionDistinctArray
 	CardinalityOptionalOne  = spec.CardinalityOptionalOne
 	CardinalityMany         = spec.CardinalityMany
+	TraversalMatchOptional  = spec.TraversalMatchOptional
+	TraversalMatchRequired  = spec.TraversalMatchRequired
 )
 
 var (

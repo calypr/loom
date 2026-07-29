@@ -33,21 +33,24 @@ type FieldCatalogDocument struct {
 	// produced this catalog row. An omitted value is intentionally the legacy
 	// dataset namespace; readers always bind either this exact value or null so
 	// legacy and generation-qualified observations never mix.
-	DatasetGeneration string   `json:"dataset_generation,omitempty"`
-	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
-	ResourceType      string   `json:"resource_type"`
-	Path              string   `json:"path"`
-	Kind              string   `json:"kind"`
-	DocCount          int64    `json:"doc_count"`
-	SampleCount       int      `json:"sample_count"`
-	DistinctValues    []string `json:"distinct_values,omitempty"`
-	DistinctTruncated bool     `json:"distinct_truncated"`
-	PivotCandidate    bool     `json:"pivot_candidate"`
-	PivotKind         string   `json:"pivot_kind,omitempty"`
-	PivotColumns      []string `json:"pivot_columns,omitempty"`
-	PivotFamily       string   `json:"pivot_family,omitempty"`
-	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
+	DatasetGeneration     string   `json:"dataset_generation,omitempty"`
+	AuthResourcePath      string   `json:"auth_resource_path,omitempty"`
+	ResourceType          string   `json:"resource_type"`
+	Path                  string   `json:"path"`
+	Kind                  string   `json:"kind"`
+	DocCount              int64    `json:"doc_count"`
+	SampleCount           int      `json:"sample_count"`
+	DistinctValues        []string `json:"distinct_values,omitempty"`
+	DistinctTruncated     bool     `json:"distinct_truncated"`
+	PivotCandidate        bool     `json:"pivot_candidate"`
+	PivotKind             string   `json:"pivot_kind,omitempty"`
+	PivotColumns          []string `json:"pivot_columns,omitempty"`
+	PivotFamily           string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string   `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string   `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string   `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string `json:"pivot_value_selectors,omitempty"`
 }
 
 // Read-side field discovery request and response types.
@@ -112,22 +115,25 @@ type ResourceTypeSummary struct {
 }
 
 type PopulatedField struct {
-	Project           string   `json:"project"`
-	DatasetGeneration string   `json:"dataset_generation,omitempty"`
-	AuthResourcePath  string   `json:"auth_resource_path,omitempty"`
-	ResourceType      string   `json:"resource_type"`
-	Path              string   `json:"path"`
-	Kind              string   `json:"kind"`
-	DocCount          int64    `json:"doc_count"`
-	SampleCount       int      `json:"sample_count"`
-	DistinctValues    []string `json:"distinct_values,omitempty"`
-	DistinctTruncated bool     `json:"distinct_truncated"`
-	PivotCandidate    bool     `json:"pivot_candidate"`
-	PivotKind         string   `json:"pivot_kind,omitempty"`
-	PivotColumns      []string `json:"pivot_columns,omitempty"`
-	PivotFamily       string   `json:"pivot_family,omitempty"`
-	PivotColumnSelect string   `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect  string   `json:"pivot_value_selector,omitempty"`
+	Project               string   `json:"project"`
+	DatasetGeneration     string   `json:"dataset_generation,omitempty"`
+	AuthResourcePath      string   `json:"auth_resource_path,omitempty"`
+	ResourceType          string   `json:"resource_type"`
+	Path                  string   `json:"path"`
+	Kind                  string   `json:"kind"`
+	DocCount              int64    `json:"doc_count"`
+	SampleCount           int      `json:"sample_count"`
+	DistinctValues        []string `json:"distinct_values,omitempty"`
+	DistinctTruncated     bool     `json:"distinct_truncated"`
+	PivotCandidate        bool     `json:"pivot_candidate"`
+	PivotKind             string   `json:"pivot_kind,omitempty"`
+	PivotColumns          []string `json:"pivot_columns,omitempty"`
+	PivotFamily           string   `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string   `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string   `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string   `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string   `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string `json:"pivot_value_selectors,omitempty"`
 }
 
 // Read-side auth path discovery request type.
@@ -197,19 +203,22 @@ type Profiler struct {
 }
 
 type fieldCatalogStats struct {
-	path              string
-	kind              string
-	docCount          int64
-	distinctValues    []string
-	distinctSet       map[string]struct{}
-	distinctTruncated bool
-	pivotCandidate    bool
-	pivotKind         string
-	pivotColumns      []string
-	pivotColumnSet    map[string]struct{}
-	pivotFamily       string
-	pivotColumnSelect string
-	pivotValueSelect  string
+	path                  string
+	kind                  string
+	docCount              int64
+	distinctValues        []string
+	distinctSet           map[string]struct{}
+	distinctTruncated     bool
+	pivotCandidate        bool
+	pivotKind             string
+	pivotColumns          []string
+	pivotColumnSet        map[string]struct{}
+	pivotFamily           string
+	pivotColumnSelect     string
+	pivotValueSelect      string
+	pivotItemSource       string
+	pivotItemResourceType string
+	pivotValueSelectors   []string
 }
 
 // Shared write-side shape planning cache.

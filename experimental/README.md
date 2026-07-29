@@ -22,3 +22,14 @@ command uses the native driver by default:
   --clickhouse-url clickhouse://127.0.0.1:9000 \
   --clickhouse-database loom
 ```
+
+The real reader, aggregation, and streaming-path fixture is opt-in locally
+and runs against the same service:
+
+```bash
+LOOM_CLICKHOUSE_URL=clickhouse://127.0.0.1:9000 \
+LOOM_CLICKHOUSE_DATABASE=loom_test \
+GOCACHE=$(pwd)/.gocache \
+go test ./internal/dataframe/materialization ./internal/store/clickhouse \
+  -run 'Test(ReaderAgainstRealClickHouse|ClickHouseNativeRoundTrip)$' -count=1
+```

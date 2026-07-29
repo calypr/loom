@@ -1,7 +1,6 @@
 package template
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
@@ -200,14 +199,3 @@ func contains(values []string, wanted string) bool {
 // ValidateStarter performs the local structural checks that can be proven
 // without a request context. Production validation remains the existing
 // dataframe input resolver and compiler.
-func ValidateStarter(starter StarterRequest) error {
-	if strings.TrimSpace(starter.RootResourceType) == "" || !fhirschema.HasResource(starter.RootResourceType) {
-		return fmt.Errorf("starter root resource type %q is not a generated FHIR resource", starter.RootResourceType)
-	}
-	for _, traversal := range starter.Traversals {
-		if _, found, err := fhirschema.ResolveCompilerTraversal(traversal.FromType, traversal.EdgeLabel, traversal.ToType); err != nil || !found {
-			return fmt.Errorf("starter traversal %q is not present in generated FHIR metadata", traversal.ID)
-		}
-	}
-	return nil
-}

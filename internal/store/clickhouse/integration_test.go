@@ -48,7 +48,7 @@ func TestClickHouseNativeRoundTrip(t *testing.T) {
 	}, []map[string]any{{"__loom_row_id": uint64(1), "name": "alice", "score": 2.5, "tags": []string{"a", "b"}}}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := client.QueryRows(ctx, "SELECT `name`, `score`, `tags` FROM `"+table+"`", []string{"name", "score", "tags"})
+	rows, err := client.QueryRowsArgs(ctx, "SELECT `name`, `score`, `tags` FROM `"+table+"`", []string{"name", "score", "tags"})
 	if err != nil {
 		t.Fatal(err)
 	}

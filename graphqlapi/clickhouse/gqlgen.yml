@@ -1,0 +1,65 @@
+schema:
+  - graphqlapi/clickhouse/schema.graphqls
+
+exec:
+  filename: graphqlapi/clickhouse/generated.go
+  package: clickhouse
+
+model:
+  filename: graphqlapi/clickhouse/model.go
+  package: clickhouse
+
+resolver:
+  layout: follow-schema
+  dir: graphqlapi/clickhouse
+  package: clickhouse
+
+skip_mod_tidy: true
+skip_validation: true
+
+models:
+  JSON:
+    model:
+      - encoding/json.RawMessage
+  DataframeMaterialization:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeMaterialization
+  DataframeMaterializationState:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeMaterializationState
+  DataframeColumn:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeColumn
+  DataframeDatasetInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeDatasetInput
+  DataframeFilterInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeFilterInput
+  DataframeSortInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeSortInput
+  DataframeRowsInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeRowsInput
+  DataframePageInfo:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframePageInfo
+  DataframeRowConnection:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeRowConnection
+  DataframeAggregateInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregateInput
+  DataframeAggregateResult:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregateResult
+  DataframeAggregationSpecInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationSpecInput
+  DataframeAggregationsInput:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationsInput
+  DataframeAggregationsResult:
+    model:
+      - github.com/calypr/loom/graphqlapi/model.DataframeAggregationsResult

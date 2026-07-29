@@ -44,6 +44,11 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 }
 
 func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
+	// Health probes must remain available before credentials are configured and
+	// are deliberately not project/data APIs.
+	if c.Path() == "/healthz" {
+		return c.Next()
+	}
 	principal, err := s.authn.Authenticate(c.Context(), c.GetReqHeaders())
 	if err != nil {
 		return &apiError{Status: fiber.StatusUnauthorized, Code: "unauthorized", Message: err.Error()}

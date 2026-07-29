@@ -15,6 +15,10 @@ resolver:
   package: graphqlapi
 
 skip_mod_tidy: true
+# The generated JSON scalar unmarshaller needs the post-generation correction
+# in cmd/gqlgenfix. Skip gqlgen's pre-generation package validation so that
+# correction can be applied before the package is compiled.
+skip_validation: true
 
 models:
   JSON:

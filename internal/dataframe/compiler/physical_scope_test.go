@@ -5,6 +5,26 @@ import (
 	"testing"
 )
 
+func physicalPathEquals(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isProjectScopePredicate(predicate PhysicalPredicate, variable string) bool {
+	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && physicalPathEquals(predicate.Left.Path, []string{"project"}) && predicate.Right != nil && predicate.Right.BindKey == "project"
+}
+
+func isScopeAllowedPredicate(predicate PhysicalPredicate, variable string) bool {
+	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && predicate.Right != nil && predicate.Right.BindKey == "scope_allowed"
+}
+
 func TestValidateGenericPhysicalPlanScope(t *testing.T) {
 	plan := genericScopePhysicalPlan(t)
 	if err := ValidateGenericPhysicalPlanScope(plan); err != nil {

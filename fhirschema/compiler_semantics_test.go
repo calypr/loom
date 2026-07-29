@@ -18,6 +18,21 @@ func TestResourceTypesAreSortedDefensiveCopy(t *testing.T) {
 	}
 }
 
+func TestDefinitionExistsIncludesBackbonesWithoutTreatingThemAsResources(t *testing.T) {
+	if !DefinitionExists("Patient") {
+		t.Fatal("Patient should be a generated definition")
+	}
+	if !DefinitionExists("ObservationComponent") {
+		t.Fatal("ObservationComponent should be a generated backbone definition")
+	}
+	if HasResource("ObservationComponent") {
+		t.Fatal("ObservationComponent must not be treated as a graph resource")
+	}
+	if DefinitionExists("") || DefinitionExists("UnknownDefinition") {
+		t.Fatal("empty and unknown definitions must not exist")
+	}
+}
+
 func TestResolveFieldSemanticsFromGeneratedMetadata(t *testing.T) {
 	tests := []struct {
 		path string

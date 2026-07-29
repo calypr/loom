@@ -3,6 +3,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,7 +11,8 @@ import (
 )
 
 type DataframeAggregateInput struct {
-	MaterializationID string                  `json:"materializationId"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
 	GroupBy           []string                `json:"groupBy,omitempty"`
 	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
 	Operation         string                  `json:"operation"`
@@ -21,6 +23,27 @@ type DataframeAggregateResult struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
+}
+
+type DataframeAggregationSpecInput struct {
+	Name              string   `json:"name"`
+	Kind              string   `json:"kind"`
+	Column            string   `json:"column"`
+	Size              *int     `json:"size,omitempty"`
+	Interval          *float64 `json:"interval,omitempty"`
+	DateInterval      *int     `json:"dateInterval,omitempty"`
+	ExcludeSelfFilter *bool    `json:"excludeSelfFilter,omitempty"`
+}
+
+type DataframeAggregationsInput struct {
+	DataType string                           `json:"dataType"`
+	Filters  []*DataframeFilterInput          `json:"filters,omitempty"`
+	Specs    []*DataframeAggregationSpecInput `json:"specs"`
+}
+
+type DataframeAggregationsResult struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Aggregations    json.RawMessage           `json:"aggregations"`
 }
 
 type DataframeBuilderIntrospection struct {
@@ -44,6 +67,12 @@ type DataframeBuilderIntrospectionInput struct {
 type DataframeColumn struct {
 	Name           string `json:"name"`
 	ClickhouseType string `json:"clickhouseType"`
+	LogicalType    string `json:"logicalType"`
+	Nullable       bool   `json:"nullable"`
+	Repeated       bool   `json:"repeated"`
+	Filterable     bool   `json:"filterable"`
+	Sortable       bool   `json:"sortable"`
+	Aggregatable   bool   `json:"aggregatable"`
 }
 
 type DataframeCompilerPlanDiagnostics struct {
@@ -56,6 +85,10 @@ type DataframeCompilerPlanDiagnostics struct {
 	PotentialSharingOpportunitySets   int                          `json:"potentialSharingOpportunitySets"`
 	OptimizationPolicy                *DataframeOptimizationPolicy `json:"optimizationPolicy"`
 	RichSourceReuse                   []*DataframeRichSourceReuse  `json:"richSourceReuse"`
+}
+
+type DataframeDatasetInput struct {
+	DataType string `json:"dataType"`
 }
 
 type DataframeFieldHint struct {
@@ -96,16 +129,15 @@ type DataframeFilterInput struct {
 }
 
 type DataframeMaterialization struct {
-	ID                string                        `json:"id"`
-	Name              string                        `json:"name"`
-	Project           string                        `json:"project"`
-	DatasetGeneration string                        `json:"datasetGeneration"`
-	State             DataframeMaterializationState `json:"state"`
-	Columns           []*DataframeColumn            `json:"columns"`
-	RowCount          int                           `json:"rowCount"`
-	CreatedAt         string                        `json:"createdAt"`
-	ReadyAt           *string                       `json:"readyAt,omitempty"`
-	Error             *string                       `json:"error,omitempty"`
+	ID        string                        `json:"id"`
+	Name      string                        `json:"name"`
+	Revision  string                        `json:"revision"`
+	State     DataframeMaterializationState `json:"state"`
+	Columns   []*DataframeColumn            `json:"columns"`
+	RowCount  int                           `json:"rowCount"`
+	CreatedAt string                        `json:"createdAt"`
+	ReadyAt   *string                       `json:"readyAt,omitempty"`
+	Error     *string                       `json:"error,omitempty"`
 }
 
 type DataframeOptimizationDecision struct {
@@ -141,6 +173,209 @@ type DataframeQueryDiagnostics struct {
 	Plan                 *DataframeCompilerPlanDiagnostics `json:"plan"`
 }
 
+type DataframeRecipeArangoAssessment struct {
+	Plans                 []*DataframeRecipeExplainPlanEstimate   `json:"plans"`
+	FullCollectionScans   []*DataframeRecipeExplainCollectionScan `json:"fullCollectionScans"`
+	Indexes               []*DataframeRecipeExplainIndexSummary   `json:"indexes"`
+	Warnings              []*DataframeRecipeExplainWarning        `json:"warnings"`
+	AppliedOptimizerRules []string                                `json:"appliedOptimizerRules"`
+}
+
+type DataframeRecipeBindingsInput struct {
+	Project           string   `json:"project"`
+	DatasetGeneration *string  `json:"datasetGeneration,omitempty"`
+	AuthResourcePaths []string `json:"authResourcePaths,omitempty"`
+	PreviewLimit      *int     `json:"previewLimit,omitempty"`
+}
+
+type DataframeRecipeColumn struct {
+	Output      string `json:"output"`
+	DynamicName string `json:"dynamicName"`
+	Name        string `json:"name"`
+	LogicalType string `json:"logicalType"`
+	Repeated    bool   `json:"repeated"`
+	Nullable    bool   `json:"nullable"`
+}
+
+type DataframeRecipeExecution struct {
+	ID                   string                            `json:"id"`
+	Name                 string                            `json:"name"`
+	RecipeDigest         string                            `json:"recipeDigest"`
+	ResolvedSchemaDigest string                            `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                            `json:"sourceGeneration"`
+	State                DataframeRecipeExecutionState     `json:"state"`
+	Outputs              []*DataframeRecipeExecutionOutput `json:"outputs"`
+	Error                *string                           `json:"error,omitempty"`
+}
+
+type DataframeRecipeExecutionOutput struct {
+	Name     string                        `json:"name"`
+	State    DataframeRecipeExecutionState `json:"state"`
+	RowCount *int                          `json:"rowCount,omitempty"`
+	Error    *string                       `json:"error,omitempty"`
+}
+
+type DataframeRecipeExpansionExplanation struct {
+	SourcePath string `json:"sourcePath"`
+	Alias      string `json:"alias"`
+}
+
+type DataframeRecipeExplainCollectionScan struct {
+	Plan       int    `json:"plan"`
+	NodeID     int    `json:"nodeId"`
+	Collection string `json:"collection"`
+}
+
+type DataframeRecipeExplainIndexLocation struct {
+	Plan   int `json:"plan"`
+	NodeID int `json:"nodeId"`
+}
+
+type DataframeRecipeExplainIndexSummary struct {
+	Collection string                                 `json:"collection"`
+	ID         string                                 `json:"id"`
+	Name       string                                 `json:"name"`
+	Type       string                                 `json:"type"`
+	Fields     []string                               `json:"fields"`
+	Uses       []*DataframeRecipeExplainIndexLocation `json:"uses"`
+}
+
+type DataframeRecipeExplainPlanEstimate struct {
+	Plan             int     `json:"plan"`
+	EstimatedCost    float64 `json:"estimatedCost"`
+	EstimatedNrItems float64 `json:"estimatedNrItems"`
+}
+
+type DataframeRecipeExplainWarning struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type DataframeRecipeExplanation struct {
+	Name               string                              `json:"name"`
+	RecipeDigest       string                              `json:"recipeDigest"`
+	TranslationVersion string                              `json:"translationVersion"`
+	Outputs            []*DataframeRecipeOutputExplanation `json:"outputs"`
+	Physical           *DataframeRecipePhysicalExplanation `json:"physical,omitempty"`
+}
+
+type DataframeRecipeExpressionExplanation struct {
+	SourcePath string `json:"sourcePath"`
+	Context    string `json:"context"`
+	Kind       string `json:"kind"`
+	ValueType  string `json:"valueType"`
+	Repeated   bool   `json:"repeated"`
+	Nullable   bool   `json:"nullable"`
+}
+
+type DataframeRecipeOptimizationDecision struct {
+	Rule                   string `json:"rule"`
+	Enabled                bool   `json:"enabled"`
+	CandidateSets          int    `json:"candidateSets"`
+	EstimatedBaselineWork  int    `json:"estimatedBaselineWork"`
+	EstimatedOptimizedWork int    `json:"estimatedOptimizedWork"`
+	EstimatedSavings       int    `json:"estimatedSavings"`
+	Reason                 string `json:"reason"`
+}
+
+type DataframeRecipeOptimizationExplanation struct {
+	Policy         string                                  `json:"policy"`
+	Enabled        bool                                    `json:"enabled"`
+	MinimumSavings int                                     `json:"minimumSavings"`
+	Rules          []*DataframeRecipeOptimizationRuleState `json:"rules"`
+	Decisions      []*DataframeRecipeOptimizationDecision  `json:"decisions"`
+}
+
+type DataframeRecipeOptimizationRuleState struct {
+	Rule    string `json:"rule"`
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason"`
+}
+
+type DataframeRecipeOutputExplanation struct {
+	Name               string                                  `json:"name"`
+	RootResourceType   string                                  `json:"rootResourceType"`
+	RowGrain           string                                  `json:"rowGrain"`
+	Fields             []*DataframeRecipeExpressionExplanation `json:"fields"`
+	Identity           *DataframeRecipeExpressionExplanation   `json:"identity,omitempty"`
+	Expansion          *DataframeRecipeExpansionExplanation    `json:"expansion,omitempty"`
+	DynamicMaps        []string                                `json:"dynamicMaps"`
+	CatalogProjections []string                                `json:"catalogProjections"`
+}
+
+type DataframeRecipeOutputValidation struct {
+	Name             string   `json:"name"`
+	RootResourceType string   `json:"rootResourceType"`
+	RowGrain         string   `json:"rowGrain"`
+	FieldNames       []string `json:"fieldNames"`
+	DynamicColumns   []string `json:"dynamicColumns"`
+}
+
+type DataframeRecipePhysicalExplanation struct {
+	Outputs []*DataframeRecipePhysicalOutputExplanation `json:"outputs"`
+}
+
+type DataframeRecipePhysicalOutputExplanation struct {
+	Name                    string                                  `json:"name"`
+	PlanFingerprint         string                                  `json:"planFingerprint"`
+	Columns                 []string                                `json:"columns"`
+	TraversalSets           int                                     `json:"traversalSets"`
+	EndpointTraversalCount  int                                     `json:"endpointTraversalCount"`
+	NativeTraversalCount    int                                     `json:"nativeTraversalCount"`
+	SharedTraversalCount    int                                     `json:"sharedTraversalCount"`
+	RequiredMatchReuseCount int                                     `json:"requiredMatchReuseCount"`
+	Optimization            *DataframeRecipeOptimizationExplanation `json:"optimization"`
+	Live                    *DataframeRecipeArangoAssessment        `json:"live,omitempty"`
+}
+
+type DataframeRecipePreflight struct {
+	Name                 string                   `json:"name"`
+	RecipeDigest         string                   `json:"recipeDigest"`
+	ResolvedSchemaDigest string                   `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                   `json:"sourceGeneration"`
+	ScopeDigest          string                   `json:"scopeDigest"`
+	Columns              []*DataframeRecipeColumn `json:"columns"`
+}
+
+type DataframeRecipePreview struct {
+	Name                 string                          `json:"name"`
+	RecipeDigest         string                          `json:"recipeDigest"`
+	ResolvedSchemaDigest string                          `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                          `json:"sourceGeneration"`
+	Outputs              []*DataframeRecipePreviewOutput `json:"outputs"`
+}
+
+type DataframeRecipePreviewOutput struct {
+	Name     string          `json:"name"`
+	Columns  []string        `json:"columns"`
+	Rows     json.RawMessage `json:"rows"`
+	CSV      *string         `json:"csv,omitempty"`
+	RowCount int             `json:"rowCount"`
+}
+
+type DataframeRecipeResult struct {
+	Name                 string                         `json:"name"`
+	RecipeDigest         string                         `json:"recipeDigest"`
+	ResolvedSchemaDigest string                         `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                         `json:"sourceGeneration"`
+	Outputs              []*DataframeRecipeResultOutput `json:"outputs"`
+}
+
+type DataframeRecipeResultOutput struct {
+	Name     string          `json:"name"`
+	Columns  []string        `json:"columns"`
+	Rows     json.RawMessage `json:"rows"`
+	CSV      *string         `json:"csv,omitempty"`
+	RowCount int             `json:"rowCount"`
+}
+
+type DataframeRecipeValidation struct {
+	Name               string                             `json:"name"`
+	RecipeDigest       string                             `json:"recipeDigest"`
+	TranslationVersion string                             `json:"translationVersion"`
+	Outputs            []*DataframeRecipeOutputValidation `json:"outputs"`
+}
+
 type DataframeRelatedResourceHints struct {
 	ViaLabel  string                  `json:"viaLabel"`
 	EdgeCount int                     `json:"edgeCount"`
@@ -166,11 +401,13 @@ type DataframeRowConnection struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
+	TotalCount      *int                      `json:"totalCount,omitempty"`
 	PageInfo        *DataframePageInfo        `json:"pageInfo"`
 }
 
 type DataframeRowsInput struct {
-	MaterializationID string                  `json:"materializationId"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
 	Columns           []string                `json:"columns,omitempty"`
 	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
 	Sort              *DataframeSortInput     `json:"sort,omitempty"`
@@ -190,6 +427,12 @@ type DataframeTraversalHint struct {
 	EdgeCount int    `json:"edgeCount"`
 }
 
+type ExplainDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+	Live     *bool                         `json:"live,omitempty"`
+}
+
 type FhirAggregateInput struct {
 	Name              string                 `json:"name"`
 	Operation         FhirAggregateOperation `json:"operation"`
@@ -201,18 +444,37 @@ type FhirAggregateInput struct {
 	ValueMode         FhirValueMode          `json:"valueMode"`
 }
 
+type FhirCatalogProjectionInput struct {
+	Name         string           `json:"name"`
+	IncludePaths []string         `json:"includePaths"`
+	ExcludePaths []string         `json:"excludePaths"`
+	Kinds        []string         `json:"kinds"`
+	Naming       FhirColumnNaming `json:"naming"`
+	ValueMode    FhirValueMode    `json:"valueMode"`
+	MaxColumns   int              `json:"maxColumns"`
+}
+
+type FhirCodeValueInput struct {
+	System  *string `json:"system,omitempty"`
+	Code    string  `json:"code"`
+	Display *string `json:"display,omitempty"`
+}
+
 type FhirDataframeInput struct {
-	Project           string                          `json:"project"`
-	AuthResourcePath  *string                         `json:"authResourcePath,omitempty"`
-	AuthResourcePaths []string                        `json:"authResourcePaths,omitempty"`
-	RootResourceType  string                          `json:"rootResourceType"`
-	RootFields        []*FhirFieldSelectInput         `json:"rootFields,omitempty"`
-	RootPivots        []*FhirPivotInput               `json:"rootPivots,omitempty"`
-	RootAggregates    []*FhirAggregateInput           `json:"rootAggregates,omitempty"`
-	RootSlices        []*FhirRepresentativeSliceInput `json:"rootSlices,omitempty"`
-	Traverse          []*FhirTraversalStepInput       `json:"traverse,omitempty"`
-	Limit             *int                            `json:"limit,omitempty"`
-	Cursor            *string                         `json:"cursor,omitempty"`
+	Project                string                          `json:"project"`
+	AuthResourcePath       *string                         `json:"authResourcePath,omitempty"`
+	AuthResourcePaths      []string                        `json:"authResourcePaths,omitempty"`
+	RootResourceType       string                          `json:"rootResourceType"`
+	RowGrain               *string                         `json:"rowGrain,omitempty"`
+	RootFields             []*FhirFieldSelectInput         `json:"rootFields,omitempty"`
+	RootFilters            []*FhirFilterInput              `json:"rootFilters,omitempty"`
+	RootPivots             []*FhirPivotInput               `json:"rootPivots,omitempty"`
+	RootAggregates         []*FhirAggregateInput           `json:"rootAggregates,omitempty"`
+	RootSlices             []*FhirRepresentativeSliceInput `json:"rootSlices,omitempty"`
+	RootCatalogProjections []*FhirCatalogProjectionInput   `json:"rootCatalogProjections,omitempty"`
+	Traverse               []*FhirTraversalStepInput       `json:"traverse,omitempty"`
+	Limit                  *int                            `json:"limit,omitempty"`
+	Cursor                 *string                         `json:"cursor,omitempty"`
 }
 
 type FhirDataframeResult struct {
@@ -244,12 +506,38 @@ type FhirFieldSelectorInput struct {
 	ValuePath  string                   `json:"valuePath"`
 }
 
+type FhirFilterInput struct {
+	Select     string                  `json:"select"`
+	FieldRef   *string                 `json:"fieldRef,omitempty"`
+	Operator   FhirFilterOperator      `json:"operator"`
+	Quantifier *FhirFilterQuantifier   `json:"quantifier,omitempty"`
+	Values     []*FhirFilterValueInput `json:"values"`
+}
+
+type FhirFilterValueInput struct {
+	Kind     FhirFilterValueKind `json:"kind"`
+	String   *string             `json:"string,omitempty"`
+	Code     *FhirCodeValueInput `json:"code,omitempty"`
+	Boolean  *bool               `json:"boolean,omitempty"`
+	Integer  *int                `json:"integer,omitempty"`
+	Decimal  *float64            `json:"decimal,omitempty"`
+	Date     *string             `json:"date,omitempty"`
+	DateTime *string             `json:"dateTime,omitempty"`
+}
+
+type FhirPivotDiscoveryInput struct {
+	Family     *string `json:"family,omitempty"`
+	Path       *string `json:"path,omitempty"`
+	MaxColumns int     `json:"maxColumns"`
+}
+
 type FhirPivotInput struct {
-	Name           string                  `json:"name"`
-	FieldRef       *string                 `json:"fieldRef,omitempty"`
-	ColumnSelector *FhirFieldSelectorInput `json:"columnSelector,omitempty"`
-	ValueSelector  *FhirFieldSelectorInput `json:"valueSelector,omitempty"`
-	Columns        []string                `json:"columns"`
+	Name           string                   `json:"name"`
+	FieldRef       *string                  `json:"fieldRef,omitempty"`
+	ColumnSelector *FhirFieldSelectorInput  `json:"columnSelector,omitempty"`
+	ValueSelector  *FhirFieldSelectorInput  `json:"valueSelector,omitempty"`
+	Columns        []string                 `json:"columns"`
+	Discovery      *FhirPivotDiscoveryInput `json:"discovery,omitempty"`
 }
 
 type FhirRepresentativeSliceInput struct {
@@ -262,20 +550,51 @@ type FhirRepresentativeSliceInput struct {
 }
 
 type FhirTraversalStepInput struct {
-	EdgeLabel      string                          `json:"edgeLabel"`
-	ToResourceType string                          `json:"toResourceType"`
-	Alias          string                          `json:"alias"`
-	Fields         []*FhirFieldSelectInput         `json:"fields"`
-	Pivots         []*FhirPivotInput               `json:"pivots,omitempty"`
-	Aggregates     []*FhirAggregateInput           `json:"aggregates,omitempty"`
-	Slices         []*FhirRepresentativeSliceInput `json:"slices,omitempty"`
-	Traverse       []*FhirTraversalStepInput       `json:"traverse,omitempty"`
+	EdgeLabel          string                          `json:"edgeLabel"`
+	ToResourceType     string                          `json:"toResourceType"`
+	Alias              string                          `json:"alias"`
+	MatchMode          *FhirTraversalMatchMode         `json:"matchMode,omitempty"`
+	Fields             []*FhirFieldSelectInput         `json:"fields"`
+	Filters            []*FhirFilterInput              `json:"filters,omitempty"`
+	Pivots             []*FhirPivotInput               `json:"pivots,omitempty"`
+	Aggregates         []*FhirAggregateInput           `json:"aggregates,omitempty"`
+	Slices             []*FhirRepresentativeSliceInput `json:"slices,omitempty"`
+	CatalogProjections []*FhirCatalogProjectionInput   `json:"catalogProjections,omitempty"`
+	Traverse           []*FhirTraversalStepInput       `json:"traverse,omitempty"`
+}
+
+type MaterializeDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 }
 
 type Mutation struct {
 }
 
+type PreflightDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+}
+
+type PreviewDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+	Limit    *int                          `json:"limit,omitempty"`
+	Outputs  []string                      `json:"outputs,omitempty"`
+}
+
 type Query struct {
+}
+
+type RunDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
+	Outputs  []string                      `json:"outputs,omitempty"`
+}
+
+type ValidateDataframeRecipeInput struct {
+	Name     string                        `json:"name"`
+	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 }
 
 type DataframeMaterializationState string
@@ -323,6 +642,81 @@ func (e DataframeMaterializationState) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
+func (e *DataframeMaterializationState) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e DataframeMaterializationState) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type DataframeRecipeExecutionState string
+
+const (
+	DataframeRecipeExecutionStateAccepted   DataframeRecipeExecutionState = "ACCEPTED"
+	DataframeRecipeExecutionStateValidating DataframeRecipeExecutionState = "VALIDATING"
+	DataframeRecipeExecutionStateRunning    DataframeRecipeExecutionState = "RUNNING"
+	DataframeRecipeExecutionStateReady      DataframeRecipeExecutionState = "READY"
+	DataframeRecipeExecutionStateFailed     DataframeRecipeExecutionState = "FAILED"
+)
+
+var AllDataframeRecipeExecutionState = []DataframeRecipeExecutionState{
+	DataframeRecipeExecutionStateAccepted,
+	DataframeRecipeExecutionStateValidating,
+	DataframeRecipeExecutionStateRunning,
+	DataframeRecipeExecutionStateReady,
+	DataframeRecipeExecutionStateFailed,
+}
+
+func (e DataframeRecipeExecutionState) IsValid() bool {
+	switch e {
+	case DataframeRecipeExecutionStateAccepted, DataframeRecipeExecutionStateValidating, DataframeRecipeExecutionStateRunning, DataframeRecipeExecutionStateReady, DataframeRecipeExecutionStateFailed:
+		return true
+	}
+	return false
+}
+
+func (e DataframeRecipeExecutionState) String() string {
+	return string(e)
+}
+
+func (e *DataframeRecipeExecutionState) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = DataframeRecipeExecutionState(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid DataframeRecipeExecutionState", str)
+	}
+	return nil
+}
+
+func (e DataframeRecipeExecutionState) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *DataframeRecipeExecutionState) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e DataframeRecipeExecutionState) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type FhirAggregateOperation string
 
 const (
@@ -368,6 +762,75 @@ func (e FhirAggregateOperation) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
+func (e *FhirAggregateOperation) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirAggregateOperation) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FhirColumnNaming string
+
+const (
+	FhirColumnNamingPath       FhirColumnNaming = "PATH"
+	FhirColumnNamingPathSuffix FhirColumnNaming = "PATH_SUFFIX"
+)
+
+var AllFhirColumnNaming = []FhirColumnNaming{
+	FhirColumnNamingPath,
+	FhirColumnNamingPathSuffix,
+}
+
+func (e FhirColumnNaming) IsValid() bool {
+	switch e {
+	case FhirColumnNamingPath, FhirColumnNamingPathSuffix:
+		return true
+	}
+	return false
+}
+
+func (e FhirColumnNaming) String() string {
+	return string(e)
+}
+
+func (e *FhirColumnNaming) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirColumnNaming(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirColumnNaming", str)
+	}
+	return nil
+}
+
+func (e FhirColumnNaming) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirColumnNaming) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirColumnNaming) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type FhirFieldPredicateOperation string
 
 const (
@@ -405,6 +868,213 @@ func (e *FhirFieldPredicateOperation) UnmarshalGQL(v any) error {
 
 func (e FhirFieldPredicateOperation) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirFieldPredicateOperation) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirFieldPredicateOperation) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FhirFilterOperator string
+
+const (
+	FhirFilterOperatorEquals       FhirFilterOperator = "EQUALS"
+	FhirFilterOperatorNotEquals    FhirFilterOperator = "NOT_EQUALS"
+	FhirFilterOperatorIn           FhirFilterOperator = "IN"
+	FhirFilterOperatorExists       FhirFilterOperator = "EXISTS"
+	FhirFilterOperatorMissing      FhirFilterOperator = "MISSING"
+	FhirFilterOperatorContainsText FhirFilterOperator = "CONTAINS_TEXT"
+	FhirFilterOperatorGt           FhirFilterOperator = "GT"
+	FhirFilterOperatorGte          FhirFilterOperator = "GTE"
+	FhirFilterOperatorLt           FhirFilterOperator = "LT"
+	FhirFilterOperatorLte          FhirFilterOperator = "LTE"
+)
+
+var AllFhirFilterOperator = []FhirFilterOperator{
+	FhirFilterOperatorEquals,
+	FhirFilterOperatorNotEquals,
+	FhirFilterOperatorIn,
+	FhirFilterOperatorExists,
+	FhirFilterOperatorMissing,
+	FhirFilterOperatorContainsText,
+	FhirFilterOperatorGt,
+	FhirFilterOperatorGte,
+	FhirFilterOperatorLt,
+	FhirFilterOperatorLte,
+}
+
+func (e FhirFilterOperator) IsValid() bool {
+	switch e {
+	case FhirFilterOperatorEquals, FhirFilterOperatorNotEquals, FhirFilterOperatorIn, FhirFilterOperatorExists, FhirFilterOperatorMissing, FhirFilterOperatorContainsText, FhirFilterOperatorGt, FhirFilterOperatorGte, FhirFilterOperatorLt, FhirFilterOperatorLte:
+		return true
+	}
+	return false
+}
+
+func (e FhirFilterOperator) String() string {
+	return string(e)
+}
+
+func (e *FhirFilterOperator) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirFilterOperator(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterOperator", str)
+	}
+	return nil
+}
+
+func (e FhirFilterOperator) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirFilterOperator) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirFilterOperator) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FhirFilterQuantifier string
+
+const (
+	FhirFilterQuantifierAny  FhirFilterQuantifier = "ANY"
+	FhirFilterQuantifierAll  FhirFilterQuantifier = "ALL"
+	FhirFilterQuantifierNone FhirFilterQuantifier = "NONE"
+)
+
+var AllFhirFilterQuantifier = []FhirFilterQuantifier{
+	FhirFilterQuantifierAny,
+	FhirFilterQuantifierAll,
+	FhirFilterQuantifierNone,
+}
+
+func (e FhirFilterQuantifier) IsValid() bool {
+	switch e {
+	case FhirFilterQuantifierAny, FhirFilterQuantifierAll, FhirFilterQuantifierNone:
+		return true
+	}
+	return false
+}
+
+func (e FhirFilterQuantifier) String() string {
+	return string(e)
+}
+
+func (e *FhirFilterQuantifier) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirFilterQuantifier(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterQuantifier", str)
+	}
+	return nil
+}
+
+func (e FhirFilterQuantifier) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirFilterQuantifier) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirFilterQuantifier) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FhirFilterValueKind string
+
+const (
+	FhirFilterValueKindString   FhirFilterValueKind = "STRING"
+	FhirFilterValueKindCode     FhirFilterValueKind = "CODE"
+	FhirFilterValueKindBoolean  FhirFilterValueKind = "BOOLEAN"
+	FhirFilterValueKindInteger  FhirFilterValueKind = "INTEGER"
+	FhirFilterValueKindDecimal  FhirFilterValueKind = "DECIMAL"
+	FhirFilterValueKindDate     FhirFilterValueKind = "DATE"
+	FhirFilterValueKindDateTime FhirFilterValueKind = "DATE_TIME"
+)
+
+var AllFhirFilterValueKind = []FhirFilterValueKind{
+	FhirFilterValueKindString,
+	FhirFilterValueKindCode,
+	FhirFilterValueKindBoolean,
+	FhirFilterValueKindInteger,
+	FhirFilterValueKindDecimal,
+	FhirFilterValueKindDate,
+	FhirFilterValueKindDateTime,
+}
+
+func (e FhirFilterValueKind) IsValid() bool {
+	switch e {
+	case FhirFilterValueKindString, FhirFilterValueKindCode, FhirFilterValueKindBoolean, FhirFilterValueKindInteger, FhirFilterValueKindDecimal, FhirFilterValueKindDate, FhirFilterValueKindDateTime:
+		return true
+	}
+	return false
+}
+
+func (e FhirFilterValueKind) String() string {
+	return string(e)
+}
+
+func (e *FhirFilterValueKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirFilterValueKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterValueKind", str)
+	}
+	return nil
+}
+
+func (e FhirFilterValueKind) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirFilterValueKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirFilterValueKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 type FhirPivotFamily string
@@ -446,6 +1116,75 @@ func (e *FhirPivotFamily) UnmarshalGQL(v any) error {
 
 func (e FhirPivotFamily) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirPivotFamily) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirPivotFamily) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FhirTraversalMatchMode string
+
+const (
+	FhirTraversalMatchModeOptional FhirTraversalMatchMode = "OPTIONAL"
+	FhirTraversalMatchModeRequired FhirTraversalMatchMode = "REQUIRED"
+)
+
+var AllFhirTraversalMatchMode = []FhirTraversalMatchMode{
+	FhirTraversalMatchModeOptional,
+	FhirTraversalMatchModeRequired,
+}
+
+func (e FhirTraversalMatchMode) IsValid() bool {
+	switch e {
+	case FhirTraversalMatchModeOptional, FhirTraversalMatchModeRequired:
+		return true
+	}
+	return false
+}
+
+func (e FhirTraversalMatchMode) String() string {
+	return string(e)
+}
+
+func (e *FhirTraversalMatchMode) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FhirTraversalMatchMode(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirTraversalMatchMode", str)
+	}
+	return nil
+}
+
+func (e FhirTraversalMatchMode) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirTraversalMatchMode) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirTraversalMatchMode) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 type FhirValueMode string
@@ -491,4 +1230,18 @@ func (e *FhirValueMode) UnmarshalGQL(v any) error {
 
 func (e FhirValueMode) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FhirValueMode) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FhirValueMode) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }

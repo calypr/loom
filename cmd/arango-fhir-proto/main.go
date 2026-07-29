@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -257,40 +258,25 @@ func runMaterializeDataframe(ctx context.Context, args []string) error {
 	}
 	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{ConnectionOptions: opts})
 	service := &materialization.Service{Dataframes: dataframes, ClickHouse: ch, Registry: registry}
-	builder := input.Builder()
-	result, err := service.Materialize(ctx, materialization.Request{Name: name, Run: dataframeruntime.RunRequest{Builder: builder}, Schema: input.Schema})
+	result, err := service.Materialize(ctx, materialization.Request{Name: name, Run: dataframeruntime.RunRequest{
+		Recipe:   input.Recipe,
+		Bindings: recipe.RuntimeBindings{Project: input.Project, DatasetGeneration: input.DatasetGeneration, AuthResourcePaths: input.AuthResourcePaths},
+	}, Schema: input.Schema})
 	if err != nil {
 		return err
 	}
 	return printJSON(result)
 }
 
-// materializationInput is intentionally the operator-facing, compiler-shaped
-// recipe. The browser-facing GraphQL input can be mapped to the same builder
-// by the GraphQL adapter without making this command depend on gqlgen output.
+// materializationInput is the operator-facing recipe document. GraphQL and
+// CLI callers now share the same recipe wire format; no request translation is
+// performed at this boundary.
 type materializationInput struct {
-	Project           string                                 `json:"project"`
-	DatasetGeneration string                                 `json:"datasetGeneration"`
-	AuthResourcePaths []string                               `json:"authResourcePaths"`
-	RootResourceType  string                                 `json:"rootResourceType"`
-	RowGrain          dataframeruntime.RowGrain              `json:"rowGrain"`
-	Fields            []dataframeruntime.FieldSelect         `json:"fields"`
-	Filters           []dataframeruntime.TypedFilter         `json:"filters"`
-	Pivots            []dataframeruntime.PivotSelect         `json:"pivots"`
-	Aggregates        []dataframeruntime.AggregateSelect     `json:"aggregates"`
-	Slices            []dataframeruntime.RepresentativeSlice `json:"slices"`
-	Traversals        []dataframeruntime.TraversalStep       `json:"traversals"`
-	Schema            []materialization.SchemaColumn         `json:"schema"`
-}
-
-func (in materializationInput) Builder() dataframeruntime.Builder {
-	return dataframeruntime.Builder{
-		Project: in.Project, DatasetGeneration: in.DatasetGeneration,
-		AuthResourcePaths: in.AuthResourcePaths, RootResourceType: in.RootResourceType,
-		RowGrain: in.RowGrain, Fields: in.Fields, Filters: in.Filters,
-		Pivots: in.Pivots, Aggregates: in.Aggregates, Slices: in.Slices,
-		Traversals: in.Traversals,
-	}
+	Recipe            recipe.Bundle                  `json:"recipe"`
+	Project           string                         `json:"project"`
+	DatasetGeneration string                         `json:"datasetGeneration"`
+	AuthResourcePaths []string                       `json:"authResourcePaths"`
+	Schema            []materialization.SchemaColumn `json:"schema"`
 }
 
 func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {

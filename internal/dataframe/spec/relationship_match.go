@@ -10,7 +10,7 @@ import (
 // OPTIONAL is the legacy behavior: a missing child yields an empty child
 // projection but does not remove the root row. REQUIRED is intentionally
 // opt-in and lowers to a root-scoped semi-join. The empty value is OPTIONAL so
-// existing Builder callers retain their current behavior.
+// callers retain the same schema-backed relationship behavior.
 type TraversalMatchMode string
 
 const (

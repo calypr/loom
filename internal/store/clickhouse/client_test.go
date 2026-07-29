@@ -1,6 +1,9 @@
 package clickhouse
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNewUsesOfficialDriverDSN(t *testing.T) {
 	client, err := New(Options{URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"})
@@ -29,5 +32,32 @@ func TestValidateIdentifier(t *testing.T) {
 	}
 	if err := validateIdentifier("bad;DROP TABLE"); err == nil {
 		t.Fatal("expected invalid identifier")
+	}
+}
+
+func TestNormalizeInsertValueParsesFHIRTemporalValues(t *testing.T) {
+	dateValue, err := normalizeInsertValue(Column{Name: "date", Type: "Nullable(Date)"}, "2026-07-28")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dateValue.(time.Time).Format("2006-01-02"); got != "2026-07-28" {
+		t.Fatalf("date = %q", got)
+	}
+	dateTimeValue, err := normalizeInsertValue(Column{Name: "created", Type: "Nullable(DateTime64(3))"}, "2026-01-05T17:15:50+00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dateTimeValue.(time.Time).UTC().Format(time.RFC3339); got != "2026-01-05T17:15:50Z" {
+		t.Fatalf("date-time = %q", got)
+	}
+}
+
+func TestNormalizeInsertValueUsesEmptyArrayForMissingRepeatedValue(t *testing.T) {
+	value, err := normalizeInsertValue(Column{Name: "tags", Type: "Array(String)"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(value.([]any)); got != 0 {
+		t.Fatalf("empty array length = %d", got)
 	}
 }

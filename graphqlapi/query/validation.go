@@ -2,9 +2,15 @@ package queryapi
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	dfspec "github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // ValidationResult is the transport-neutral dataframe adapter result used by
@@ -32,41 +38,73 @@ type ValidationResult struct {
 // the same internal preparation/compiler boundary used by Run. It never opens
 // an Arango cursor or invokes row execution.
 func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) (ValidationResult, error) {
+	started := time.Now()
 	normalized, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {
 		return ValidationResult{}, err
 	}
-	builder := BuilderFromInput(normalized)
-	builder.DatasetGeneration = generation
-	builder.AuthScopeMode = scope.Mode
 	limit := 0
 	if normalized.Limit != nil {
 		limit = *normalized.Limit
 	}
-	validated, err := s.dataframes.Validate(ctx, dataframe.ValidateRequest{Builder: builder, Limit: limit})
+	if limit <= 0 {
+		limit = 25
+	}
+	preparationStarted := time.Now()
+	bundle, err := RecipeBundleFromInput(normalized)
 	if err != nil {
 		return ValidationResult{}, err
 	}
-	validatedWarnings := cloneValidationWarnings(validated.Warnings)
-	// The internal service owns the normalized builder. Keep the adapter's
-	// public normalized input as the fieldRef-resolved model so a caller can
-	// display or persist it without learning compiler selectors.
+	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode, PreviewLimit: limit}
+	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	preparationDuration := time.Since(preparationStarted)
+	compileStarted := time.Now()
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		return ValidationResult{}, fmt.Errorf("compile GraphQL recipe: %w", err)
+	}
+	if len(queries) != 1 {
+		return ValidationResult{}, fmt.Errorf("GraphQL dataframe recipe produced %d outputs, want 1", len(queries))
+	}
+	compiled := queries[0]
+	var identity *dataframe.RowIdentity
+	if value, ok := dfspec.DefaultRowIdentity(dfspec.RowGrain(resolved.SemanticPlan.Outputs[0].RowGrain)); ok {
+		identity = &value
+	}
+	warnings := make([]dataframe.ValidationWarning, 0, 1)
+	if len(normalized.RootFields) == 0 && len(normalized.RootPivots) == 0 && len(normalized.RootAggregates) == 0 && len(normalized.RootSlices) == 0 && len(normalized.Traverse) == 0 {
+		warnings = append(warnings, dataframe.ValidationWarning{Code: "NO_SELECTED_COLUMNS", Message: "No explicit fields, pivots, aggregates, slices, or traversals were selected; only the row identity will be returned."})
+	}
+	compileDuration := time.Since(compileStarted)
+	// Keep the adapter's public normalized input as the fieldRef-resolved model
+	// so a caller can display or persist it without learning compiler selectors.
 	return ValidationResult{
-		Valid:              validated.Valid,
+		Valid:              true,
 		NormalizedInput:    normalized,
-		Project:            validated.Project,
-		DatasetGeneration:  validated.DatasetGeneration,
-		RootResourceType:   validated.RootResourceType,
-		Limit:              validated.Limit,
-		Columns:            cloneStrings(validated.Columns),
-		PivotFields:        cloneStrings(validated.PivotFields),
-		RowIdentity:        cloneRowIdentity(validated.RowIdentity),
-		RequestFingerprint: validated.RequestFingerprint,
-		Warnings:           validatedWarnings,
-		Plan:               validated.Plan,
-		PreviewAllowed:     validated.PreviewAllowed,
-		ExportAllowed:      validated.ExportAllowed,
-		Diagnostics:        validated.Diagnostics,
+		Project:            compiled.Project,
+		DatasetGeneration:  compiled.DatasetGeneration,
+		RootResourceType:   compiled.RootResourceType,
+		Limit:              compiled.Limit,
+		Columns:            cloneStrings(compiled.Columns),
+		PivotFields:        cloneStrings(compiled.PivotFields),
+		RowIdentity:        cloneRowIdentity(identity),
+		RequestFingerprint: resolved.SemanticPlan.RecipeDigest,
+		Warnings:           cloneValidationWarnings(warnings),
+		Plan:               compiled.PlanDiagnostics,
+		PreviewAllowed:     true,
+		ExportAllowed:      true,
+		Diagnostics:        dataframe.QueryDiagnostics{InputResolution: time.Since(started) - preparationDuration - compileDuration, RequestPreparation: preparationDuration, Compilation: compileDuration, Total: time.Since(started), Plan: compiled.PlanDiagnostics},
 	}, nil
 }
 

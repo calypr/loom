@@ -2,8 +2,6 @@ package materialization
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -42,13 +40,24 @@ type Request struct {
 	Schema []SchemaColumn
 }
 
+const authResourcePathColumn = "auth_resource_path"
+
+func withReservedAuthColumn(columns []Column) ([]Column, error) {
+	for _, column := range columns {
+		if column.Name == authResourcePathColumn {
+			return nil, fmt.Errorf("schema column %q is reserved by Loom", authResourcePathColumn)
+		}
+	}
+	return append([]Column{{Name: authResourcePathColumn, ClickHouse: "Nullable(String)"}}, columns...), nil
+}
+
 // Preflight validates an explicit output schema before any ClickHouse table
 // is created. An empty schema preserves the original inference behavior.
 func (s *Service) Preflight(req Request) ([]Column, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("materialization name is required")
 	}
-	if req.Run.Builder.Project == "" || req.Run.Builder.RootResourceType == "" {
+	if req.Run.Bindings.Project == "" || len(req.Run.Recipe.Outputs) == 0 || req.Run.Recipe.Outputs[0].RootResourceType == "" {
 		return nil, fmt.Errorf("materialization dataframe project and root resource type are required")
 	}
 	if len(req.Schema) == 0 {
@@ -66,7 +75,7 @@ func (s *Service) Preflight(req Request) ([]Column, error) {
 		seen[column.Name] = struct{}{}
 		result = append(result, column)
 	}
-	return result, nil
+	return withReservedAuthColumn(result)
 }
 
 func (s *Service) Materialize(ctx context.Context, req Request) (Materialization, error) {
@@ -83,10 +92,10 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	}
 	id := uuid.NewString()
 	m := Materialization{
-		ID: id, Name: req.Name, Project: req.Run.Builder.Project,
-		DatasetGeneration: req.Run.Builder.DatasetGeneration,
-		State:             StatePending, AuthScopeMode: req.Run.Builder.AuthScopeMode,
-		AuthResourcePaths: append([]string(nil), req.Run.Builder.AuthResourcePaths...),
+		ID: id, Name: req.Name, Project: req.Run.Bindings.Project,
+		DatasetGeneration: req.Run.Bindings.DatasetGeneration,
+		State:             StatePending, AuthScopeMode: req.Run.Bindings.AuthScopeMode,
+		AuthResourcePaths: append([]string(nil), req.Run.Bindings.AuthResourcePaths...),
 		PhysicalTable:     "loom_df_" + strings.ReplaceAll(id, "-", ""), CreatedAt: time.Now().UTC(),
 	}
 	if err := s.Registry.Save(ctx, m); err != nil {
@@ -140,6 +149,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	streamResult, err := s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
 		rowCount++
 		row = cloneMap(row)
+		if _, ok := row[authResourcePathColumn]; !ok {
+			if len(req.Run.Bindings.AuthResourcePaths) == 1 {
+				row[authResourcePathColumn] = req.Run.Bindings.AuthResourcePaths[0]
+			} else {
+				row[authResourcePathColumn] = ""
+			}
+		}
 		row["__loom_row_id"] = rowCount
 		newColumns := make([]Column, 0)
 		for name, value := range row {
@@ -266,39 +282,4 @@ func cloneMap(in map[string]any) map[string]any {
 type MemoryRegistry struct {
 	mu   sync.RWMutex
 	byID map[string]Materialization
-}
-
-func NewMemoryRegistry() *MemoryRegistry { return &MemoryRegistry{byID: map[string]Materialization{}} }
-func (r *MemoryRegistry) Save(_ context.Context, m Materialization) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.byID[m.ID] = m
-	return nil
-}
-func (r *MemoryRegistry) Get(_ context.Context, id string) (Materialization, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	m, ok := r.byID[id]
-	if !ok {
-		return Materialization{}, fmt.Errorf("materialization %q not found", id)
-	}
-	return m, nil
-}
-func (r *MemoryRegistry) ListReady(_ context.Context, project string) ([]Materialization, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := []Materialization{}
-	for _, m := range r.byID {
-		if m.Project == project && m.State == StateReady {
-			out = append(out, m)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out, nil
-}
-
-func RecipeHash(value any) string {
-	data, _ := json.Marshal(value)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }

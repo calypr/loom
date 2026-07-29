@@ -114,8 +114,8 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 	}); err != nil {
 		t.Fatalf("Introspect() error = %v", err)
 	}
-	if len(active.projects) < 4 {
-		t.Fatalf("active resolver calls = %#v, want one selection for each live builder/dataframe entrypoint", active.projects)
+	if len(active.projects) < 3 {
+		t.Fatalf("active resolver calls = %#v, want one selection for each live dataframe entrypoint", active.projects)
 	}
 	if len(fieldCalls) == 0 || len(referenceCalls) == 0 {
 		t.Fatalf("catalog calls fields=%d references=%d, want both", len(fieldCalls), len(referenceCalls))

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.3-alpine3.22 AS builder
-RUN apk add --no-cache git ca-certificates tzdata
+FROM golang:1.26.5-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV CGO_ENABLED=0
 
@@ -41,6 +43,4 @@ COPY --from=builder /src/schemas /app/schemas
 USER arango-fhir
 EXPOSE 8080
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
-  CMD wget -q -O - http://127.0.0.1:8080/healthz >/dev/null || exit 1
 ENTRYPOINT ["/app/arango-fhir-server"]

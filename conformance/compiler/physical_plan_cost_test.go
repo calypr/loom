@@ -22,9 +22,9 @@ func TestPhysicalPlanOptimizationCorpus(t *testing.T) {
 		}
 		fixture := fixture
 		t.Run(fixture.ID, func(t *testing.T) {
-			compiled, err := dataframe.CompileRequest(fixture.Builder, fixture.Limit)
+			compiled, err := compileRecipe(fixture.Recipe, fixture.Project, fixture.Limit, dataframe.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
-				t.Fatalf("CompileRequest() error = %v", err)
+				t.Fatalf("compile recipe error = %v", err)
 			}
 			diagnostics := compiled.PlanDiagnostics
 			t.Logf("plan traversal_sets=%d shared=%d required_reuse=%d rich_sources=%d", diagnostics.TraversalSets, diagnostics.SharedTraversalCount, diagnostics.RequiredMatchReuseCount, len(diagnostics.RichSourceReuse))

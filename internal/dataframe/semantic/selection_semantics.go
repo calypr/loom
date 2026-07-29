@@ -126,15 +126,6 @@ func projectionForValueMode(valueMode string, cardinality Cardinality) (Projecti
 	}
 }
 
-func isKnownValueMode(valueMode string) bool {
-	switch strings.ToUpper(strings.TrimSpace(valueMode)) {
-	case "", "AUTO", "FIRST", "ALL", "DISTINCT":
-		return true
-	default:
-		return false
-	}
-}
-
 func sortedUniqueStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))

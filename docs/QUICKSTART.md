@@ -84,7 +84,7 @@ For local work, run with `--no-auth`:
 Useful endpoints:
 
 - Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
-- GraphQL endpoint: [http://127.0.0.1:8080/graphql](http://127.0.0.1:8080/graphql)
+- GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
 - Health check: [http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)
 
 On macOS you can jump straight to Apollo with:
