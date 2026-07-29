@@ -23,8 +23,9 @@ The GraphQL dataframe mutation is the live compiler transport. Do not add a
 second query compiler or hand-maintained AQL path behind another endpoint.
 
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
-Arango control-plane GraphQL endpoint, while `/graphql/flat` is the dedicated
-published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
+Arango graph/control-plane GraphQL endpoint, `/graphql/dataframe` is the
+Arango-backed FHIR dataframe compiler endpoint, and `/graphql/flat` is the
+dedicated published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
 dynamic-data contract defined in
 [`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
 Only registered READY publication outputs are exposed; adding a dataset or

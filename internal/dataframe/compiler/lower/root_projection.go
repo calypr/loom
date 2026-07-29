@@ -3,11 +3,21 @@ package lower
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/expression"
 )
 
 func rootPhysicalProjections(physical *PhysicalPlan, root SemanticNode) ([]PhysicalProjection, error) {
 	projections := []PhysicalProjection{{Name: "_key", Value: PhysicalValue{Variable: "root", Path: []string{"_key"}}}}
 	for index, field := range root.Fields {
+		// Whole-document projections are lowered from the canonical expression
+		// after the generic semantic graph has established root scope. They do
+		// not have a FHIR selector to resolve here.
+		if field.Expr != nil && field.Expr.Kind == expression.DocumentRefNode {
+			placeholder := lowerDocumentRef(*field.Expr.Document, PhysicalPreserveNull)
+			projections = append(projections, PhysicalProjection{Name: field.Name, Expression: &placeholder})
+			continue
+		}
 		selection, err := ResolveSemanticField(root.ResourceType, root.Alias, index, field)
 		if err != nil {
 			return nil, err

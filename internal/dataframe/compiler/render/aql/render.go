@@ -32,6 +32,11 @@ func RenderPhysicalPlan(plan PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if err := validateRenderablePhysicalPlan(plan, collectionKeys); err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
+	for _, operation := range plan.Operations {
+		if operation.Kind == PhysicalGraphReturnOp {
+			return renderGraphPhysicalPlan(plan, collectionKeys)
+		}
+	}
 	// This renderer deliberately supports only BuildGenericPhysicalPlan's
 	// navigation contract. Validate its required project/auth windows again at
 	// the executable boundary so a manually assembled plan cannot render an

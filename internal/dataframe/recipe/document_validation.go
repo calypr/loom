@@ -157,6 +157,9 @@ func validateExpression(e Expression, path string) error {
 		if node.Literal != nil {
 			operators++
 		}
+		if node.Document != nil {
+			operators++
+		}
 		if operators != 1 {
 			return validationError("invalid_expression", p, "expression must contain exactly one operator")
 		}
@@ -169,6 +172,15 @@ func validateExpression(e Expression, path string) error {
 		if node.Select != "" {
 			if strings.TrimSpace(node.Select) == "" {
 				return validationError("required", p+".select", "select is required")
+			}
+			return nil
+		}
+		if node.Document != nil {
+			if len(node.Args) != 0 {
+				return validationError("invalid_expression", p+".args", "document expressions do not accept args")
+			}
+			if node.Document.Context != "" && !recipeNamePattern.MatchString(node.Document.Context) {
+				return validationError("invalid_context", p+".document.context", "context must be a logical name")
 			}
 			return nil
 		}

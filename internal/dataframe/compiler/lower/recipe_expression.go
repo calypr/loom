@@ -45,6 +45,11 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 	}
 	result := ir.PhysicalExpression{Cardinality: cardinality, NullBehavior: behavior}
 	switch input.Kind {
+	case expression.DocumentRefNode:
+		if input.Document == nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("document reference node is missing document")
+		}
+		return lowerDocumentRef(*input.Document, behavior), nil
 	case expression.SelectorNode:
 		if input.Selector == nil {
 			return ir.PhysicalExpression{}, fmt.Errorf("selector node is missing selector")
@@ -115,6 +120,29 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("unsupported expression node %q", input.Kind)
 	}
+}
+
+// lowerDocumentRef materializes the storage envelope needed by whole-resource
+// consumers while retaining the payload as one nested object. It deliberately
+// uses only typed PhysicalValue nodes; no backend query text is embedded here.
+func lowerDocumentRef(ref expression.DocumentRef, behavior ir.PhysicalNullBehavior) ir.PhysicalExpression {
+	variable := strings.TrimSpace(ref.Context)
+	if variable == "" {
+		variable = "root"
+	}
+	value := func(path ...string) ir.PhysicalExpression {
+		cardinality := ir.PhysicalScalarCardinality
+		if len(path) == 1 && path[0] == "payload" {
+			cardinality = ir.PhysicalObjectCardinality
+		}
+		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: variable, Path: path}}
+	}
+	return ir.PhysicalExpression{Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: behavior, Object: &ir.PhysicalObject{Fields: []ir.PhysicalExpressionProjection{
+		{Name: "payload", Expression: value("payload")},
+		{Name: "id", Expression: value("id")},
+		{Name: "resourceType", Expression: value("resourceType")},
+		{Name: "key", Expression: value("_key")},
+	}}}
 }
 
 func nextLiteralBindKey(bindVars map[string]any) string {

@@ -13,6 +13,13 @@ import (
 // checking remains a separate operation because selector types come from the
 // active generated schema/catalog.
 func FromRecipe(input recipe.Expression) (Expression, error) {
+	if input.Document != nil {
+		context := strings.TrimSpace(input.Document.Context)
+		if context == "" {
+			context = "root"
+		}
+		return Document(context), nil
+	}
 	if input.Select != "" {
 		parts := strings.SplitN(input.Select, ".", 2)
 		ref := SelectorRef{Path: input.Select}

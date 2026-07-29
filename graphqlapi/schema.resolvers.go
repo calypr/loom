@@ -282,6 +282,16 @@ func (r *queryResolver) PreflightDataframeRecipe(ctx context.Context, input mode
 	return preflightResult(plan, input.Name), nil
 }
 
+// FhirGraph is the resolver for the fhirGraph field.
+func (r *queryResolver) FhirGraph(ctx context.Context, input model.FhirGraphQueryInput) (*model.FhirGraphQueryResult, error) {
+	return r.resolveFHIRGraph(ctx, input)
+}
+
+// ExplainFhirGraph is the resolver for the explainFhirGraph field.
+func (r *queryResolver) ExplainFhirGraph(ctx context.Context, input model.FhirGraphQueryInput, live *bool) (*model.FhirGraphQueryExplanation, error) {
+	return r.resolveExplainFHIRGraph(ctx, input, live)
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 

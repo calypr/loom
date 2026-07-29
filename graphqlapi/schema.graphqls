@@ -11,6 +11,8 @@ type Query {
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
+  fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
+  explainFhirGraph(input: FhirGraphQueryInput!, live: Boolean = false): FhirGraphQueryExplanation!
 }
 
 scalar JSON
@@ -515,7 +517,9 @@ input FhirFilterInput {
   select: String!
   fieldRef: String
   operator: FhirFilterOperator!
-  quantifier: FhirFilterQuantifier = ANY
+  # Scalar selectors do not accept an array quantifier. Repeated selectors
+  # must opt into ANY, ALL, or NONE explicitly after schema resolution.
+  quantifier: FhirFilterQuantifier
   values: [FhirFilterValueInput!]! = []
 }
 
@@ -610,6 +614,69 @@ input FhirDataframeInput {
   traverse: [FhirTraversalStepInput!]
   limit: Int
   cursor: String
+}
+
+# Explicit, bounded FHIR graph traversal. Graph mode defaults each edge to
+# REQUIRED (unlike the dataframe builder's OPTIONAL default) and returns
+# complete node paths rather than flattened rows.
+input FhirGraphQueryInput {
+  project: String!
+  authResourcePaths: [String!]
+  rootResourceType: String!
+  rootFilters: [FhirFilterInput!]! = []
+  traverse: [FhirGraphTraversalInput!]! = []
+  limit: Int! = 100
+}
+
+input FhirGraphTraversalInput {
+  edgeLabel: String!
+  toResourceType: String!
+  alias: String!
+  matchMode: FhirTraversalMatchMode! = REQUIRED
+  filters: [FhirFilterInput!]! = []
+  traverse: [FhirGraphTraversalInput!]! = []
+}
+
+type FhirGraphQueryResult {
+  sourceGeneration: ID!
+  paths: [FhirGraphPath!]!
+  returnedCount: Int!
+  pageInfo: FhirGraphPageInfo!
+  diagnostics: DataframeQueryDiagnostics!
+}
+
+type FhirGraphQueryExplanation {
+  sourceGeneration: ID!
+  rootResourceType: String!
+  traversalCount: Int!
+  maxDepth: Int!
+  limit: Int!
+  live: Boolean!
+  diagnostics: DataframeQueryDiagnostics
+}
+
+type FhirGraphPageInfo {
+  hasMore: Boolean!
+}
+
+type FhirGraphPath {
+  terminalAlias: String!
+  nodes: [FhirGraphNode!]!
+  relationships: [FhirGraphRelationship!]!
+}
+
+type FhirGraphNode {
+  alias: String!
+  resourceType: String!
+  id: ID!
+  resource: JSON!
+}
+
+type FhirGraphRelationship {
+  alias: String!
+  label: String!
+  fromResourceType: String!
+  toResourceType: String!
 }
 
 type FhirDataframeResult {

@@ -40,6 +40,7 @@ type (
 	PhysicalExpressionProjection  = ir.PhysicalExpressionProjection
 	PhysicalObject                = ir.PhysicalObject
 	PhysicalSet                   = ir.PhysicalSet
+	PhysicalSetKind               = ir.PhysicalSetKind
 	PhysicalSetProjection         = ir.PhysicalSetProjection
 	PhysicalSetProjectionField    = ir.PhysicalSetProjectionField
 	PhysicalSetOutput             = ir.PhysicalSetOutput
@@ -55,6 +56,11 @@ type (
 	PhysicalObjectKeys            = ir.PhysicalObjectKeys
 	PhysicalProjection            = ir.PhysicalProjection
 	PhysicalReturn                = ir.PhysicalReturn
+	PhysicalPathNode              = ir.PhysicalPathNode
+	PhysicalPathRelationship      = ir.PhysicalPathRelationship
+	PhysicalPathSeed              = ir.PhysicalPathSeed
+	PhysicalPathExtend            = ir.PhysicalPathExtend
+	PhysicalGraphReturn           = ir.PhysicalGraphReturn
 	PhysicalPredicateKind         = ir.PhysicalPredicateKind
 	PhysicalAggregateOperation    = ir.PhysicalAggregateOperation
 	PhysicalSelectorExecutionMode = ir.PhysicalSelectorExecutionMode
@@ -99,11 +105,16 @@ const (
 	PhysicalMaxAggregate                      = ir.PhysicalMaxAggregate
 	PhysicalFirstAggregate                    = ir.PhysicalFirstAggregate
 	PhysicalSetGraphIDField                   = ir.PhysicalSetGraphIDField
+	PhysicalNodeSetKind                       = ir.PhysicalNodeSetKind
+	PhysicalNodePathSetKind                   = ir.PhysicalNodePathSetKind
 	PhysicalSetKeyField                       = ir.PhysicalSetKeyField
 	PhysicalSetIDField                        = ir.PhysicalSetIDField
 	PhysicalSetResourceTypeField              = ir.PhysicalSetResourceTypeField
 	PhysicalSetPayloadField                   = ir.PhysicalSetPayloadField
 	PhysicalReturnOp                          = ir.PhysicalReturnOp
+	PhysicalPathSeedOp                        = ir.PhysicalPathSeedOp
+	PhysicalPathExtendOp                      = ir.PhysicalPathExtendOp
+	PhysicalGraphReturnOp                     = ir.PhysicalGraphReturnOp
 	PhysicalComparisonPredicate               = ir.PhysicalComparisonPredicate
 	PhysicalExistsPredicate                   = ir.PhysicalExistsPredicate
 	PhysicalOptimizationRuleCompactProjection = ir.PhysicalOptimizationRuleCompactProjection

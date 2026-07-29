@@ -12,11 +12,12 @@ import (
 func appendRequiredTraversalMatchFilters(physical *PhysicalPlan, root SemanticNode) error {
 	nextMatch := 0
 	seen := map[string]struct{}{}
-	var walk func(SemanticNode, []SemanticNode) error
-	walk = func(parent SemanticNode, route []SemanticNode) error {
+	var walk func(SemanticNode, []SemanticNode, bool) error
+	walk = func(parent SemanticNode, route []SemanticNode, requiredPrefix bool) error {
 		for _, child := range parent.Children {
 			next := append(append([]SemanticNode(nil), route...), child)
-			if child.MatchMode.Required() {
+			childRequired := child.MatchMode.Required()
+			if childRequired && requiredPrefix {
 				// Two required children with the same physical route and typed
 				// predicates are the same root semi-join even when their aliases
 				// differ. Deduplicating this exact proof is safe: it does not
@@ -42,13 +43,13 @@ func appendRequiredTraversalMatchFilters(physical *PhysicalPlan, root SemanticNo
 				})
 				nextMatch++
 			}
-			if err := walk(child, next); err != nil {
+			if err := walk(child, next, requiredPrefix && childRequired); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return walk(root, nil)
+	return walk(root, nil, true)
 }
 
 // requiredSemanticRouteKey intentionally excludes aliases and selection

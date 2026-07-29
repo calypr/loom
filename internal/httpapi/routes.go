@@ -43,6 +43,10 @@ func (s *HTTPServer) registerGraphQLRoutes() {
 	}
 	if s.cfgGraphQLHandler != nil {
 		s.app.Post("/graphql/graph", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
+		// FHIR dataframe compilation is an Arango-backed read, but it has its
+		// own stable endpoint so clients do not accidentally send dataframe
+		// documents to the graph or ClickHouse surfaces.
+		s.app.Post("/graphql/dataframe", adaptor.HTTPHandlerWithContext(s.cfgGraphQLHandler))
 	}
 	if s.cfgClickHouseGraphQLHandler != nil {
 		s.app.Post("/graphql/flat", adaptor.HTTPHandlerWithContext(s.cfgClickHouseGraphQLHandler))

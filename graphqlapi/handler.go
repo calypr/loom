@@ -1,10 +1,12 @@
 package graphqlapi
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"net/http"
 
+	"github.com/99designs/gqlgen/graphql"
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -14,6 +16,9 @@ func NewHandler(resolver *Resolver) http.Handler {
 	server := gqlhandler.NewDefaultServer(NewExecutableSchema(Config{
 		Resolvers: resolver,
 	}))
+	server.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
+		return next(withFHIRReferenceLoader(ctx, resolver))
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ctx, ok := fiberadaptor.LocalContextFromHTTPRequest(r); ok {
 			r = r.WithContext(ctx)

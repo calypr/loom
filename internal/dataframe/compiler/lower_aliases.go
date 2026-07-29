@@ -16,4 +16,6 @@ var (
 	ResolveStorageRoute                = lower.ResolveStorageRoute
 	ErrUnsupportedStorageRoute         = lower.ErrUnsupportedStorageRoute
 	CompileResolvedRecipePlan          = lower.CompileResolvedRecipePlan
+	BuildGraphPhysicalPlan             = lower.BuildGraphPhysicalPlan
+	CompileResolvedGraphPlan           = lower.CompileResolvedGraphPlan
 )

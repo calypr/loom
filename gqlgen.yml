@@ -1,5 +1,6 @@
 schema:
   - graphqlapi/schema.graphqls
+  - graphqlapi/fhir_schema.graphqls
 
 exec:
   filename: graphqlapi/generated.go
@@ -19,6 +20,10 @@ skip_mod_tidy: true
 # in cmd/gqlgenfix. Skip gqlgen's pre-generation package validation so that
 # correction can be applied before the package is compiled.
 skip_validation: true
+struct_tag: gqlgen
+
+autobind:
+  - github.com/calypr/loom/fhirstructs
 
 models:
   JSON:

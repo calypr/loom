@@ -29,6 +29,18 @@ func collectionBindKeys(plan PhysicalPlan) (map[string]struct{}, error) {
 					return fmt.Errorf("%s operation %d (TRAVERSAL): edge collection bind key is required", owner, index)
 				}
 				keys[operation.Traversal.EdgeCollectionBindKey] = struct{}{}
+			case PhysicalPathExtendOp:
+				if operation.PathExtend.Traversal.EdgeCollectionBindKey == "" {
+					return fmt.Errorf("%s operation %d (PATH_EXTEND): edge collection bind key is required", owner, index)
+				}
+				keys[operation.PathExtend.Traversal.EdgeCollectionBindKey] = struct{}{}
+				for _, scope := range operation.PathExtend.Scope {
+					if scope.Kind == PhysicalFilterOp && scope.Filter.Expression != nil {
+						if err := collectPredicateCollections(*scope.Filter.Expression, collectOperations, owner+" PATH_EXTEND"); err != nil {
+							return err
+						}
+					}
+				}
 			case PhysicalFilterOp:
 				if operation.Filter.Expression != nil {
 					if err := collectPredicateCollections(*operation.Filter.Expression, collectOperations, owner); err != nil {
@@ -112,6 +124,8 @@ func validateRenderableOperation(operation PhysicalOperation, collectionKeys map
 				return fmt.Errorf("SET subplan operation %d: %w", index, err)
 			}
 		}
+		return nil
+	case PhysicalPathSeedOp, PhysicalPathExtendOp, PhysicalGraphReturnOp:
 		return nil
 	case PhysicalUnnestOp:
 		if operation.Unnest == nil {

@@ -116,6 +116,35 @@ func TestRuntimeBindingsAreNotDigestContent(t *testing.T) {
 	}
 }
 
+func TestDocumentExpressionRoundTrips(t *testing.T) {
+	input := Expression{Document: &DocumentRef{Context: "root"}}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"document":{"context":"root"}}` {
+		t.Fatalf("document wire form = %s", raw)
+	}
+	var decoded Expression
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Document == nil || decoded.Document.Context != "root" {
+		t.Fatalf("decoded document = %#v", decoded.Document)
+	}
+}
+
+func TestParseAcceptsDocumentExpression(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"document","translationVersion":"1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"resource","expr":{"document":{"context":"root"}}}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Outputs[0].Fields[0].Expr.Document == nil {
+		t.Fatalf("document expression was not parsed: %#v", bundle.Outputs[0].Fields[0].Expr)
+	}
+}
+
 func TestDefaultACEDBundleIsRecipeData(t *testing.T) {
 	bundle, err := DefaultACEDBundle()
 	if err != nil {

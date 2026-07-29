@@ -67,6 +67,7 @@ func main() {
 	schemaPath := fs.String("schema", "schemas/graph-fhir.json", "Path to graph-fhir JSON schema")
 	structsDir := fs.String("structs-out", "fhirstructs", "Directory for generated FHIR Go structs, validation, and edge extraction")
 	metadataOut := fs.String("metadata-out", "fhirschema/generated.go", "Path for generated compiler FHIR schema metadata")
+	graphqlOut := fs.String("graphql-out", "graphqlapi/fhir_schema.graphqls", "Path for generated FHIR GraphQL schema")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(2)
@@ -116,6 +117,21 @@ func main() {
 	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating fhirschema/generated.go: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Keep the FHIR GraphQL surface generated from the same parsed schema as
+	// the compiler metadata and Go models. The SDL is intentionally emitted as
+	// a separate schema document so the handwritten dataframe API remains
+	// readable and stable.
+	if strings.TrimSpace(*graphqlOut) != "" {
+		if err := os.MkdirAll(filepath.Dir(*graphqlOut), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating GraphQL schema directory: %v\n", err)
+			os.Exit(1)
+		}
+		if err := generateFHIRGraphQL(&schema, *graphqlOut); err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating FHIR GraphQL schema: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("Code generation completed successfully.")
@@ -282,7 +298,11 @@ func generateModel(schema *Schema, path string) error {
 				jsonTag += ",omitempty"
 			}
 
-			sb.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`\n", goName, goType, jsonTag))
+			// gqlgen uses this explicit tag to preserve FHIR primitive-extension
+			// names such as _birthDate, whose Go field is XBirthDate. Keeping
+			// the tag on every field makes autobinding deterministic while the
+			// JSON tag remains the storage contract.
+			sb.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\" gqlgen:\"%s\"`\n", goName, goType, jsonTag, pk))
 		}
 		sb.WriteString("}\n\n")
 	}

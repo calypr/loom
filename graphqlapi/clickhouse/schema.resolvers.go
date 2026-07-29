@@ -13,6 +13,17 @@ import (
 	"github.com/calypr/loom/graphqlapi/model"
 )
 
+// Aggregations is the resolver for the aggregations field.
+func (r *dataframeAggregationsResultResolver) Aggregations(ctx context.Context, obj *model.DataframeAggregationsResult) (json.RawMessage, error) {
+	if obj == nil || obj.Aggregations == nil {
+		return json.RawMessage("null"), nil
+	}
+	if raw, ok := obj.Aggregations.(json.RawMessage); ok {
+		return raw, nil
+	}
+	return json.Marshal(obj.Aggregations)
+}
+
 // DataframeDatasets is the resolver for the dataframeDatasets field.
 func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error) {
 	values, err := r.service.Datasets(ctx)
@@ -85,7 +96,15 @@ func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.D
 	return &model.DataframeAggregationsResult{Materialization: materializationapi.FederatedMaterialization(result.Dataset), Aggregations: aggregations}, nil
 }
 
+// DataframeAggregationsResult returns DataframeAggregationsResultResolver implementation.
+func (r *Resolver) DataframeAggregationsResult() DataframeAggregationsResultResolver {
+	return &dataframeAggregationsResultResolver{r}
+}
+
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
-type queryResolver struct{ *Resolver }
+type (
+	dataframeAggregationsResultResolver struct{ *Resolver }
+	queryResolver                       struct{ *Resolver }
+)

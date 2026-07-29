@@ -100,7 +100,7 @@ func TestNamedGraphQLBackendRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/graphql/graph", "/graphql/flat"} {
+	for _, path := range []string{"/graphql/graph", "/graphql/dataframe", "/graphql/flat"} {
 		resp, err := server.App().Test(httptest.NewRequest(http.MethodPost, path, nil))
 		if err != nil {
 			t.Fatalf("request %s: %v", path, err)

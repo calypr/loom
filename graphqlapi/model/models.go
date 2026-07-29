@@ -10,6 +10,12 @@ import (
 	"strconv"
 )
 
+type FHIRResource interface {
+	IsFHIRResource()
+	GetID() string
+	GetResourceType() string
+}
+
 type DataframeAggregateInput struct {
 	MaterializationID *string                 `json:"materializationId,omitempty"`
 	DataType          string                  `json:"dataType"`
@@ -23,27 +29,6 @@ type DataframeAggregateResult struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
-}
-
-type DataframeAggregationSpecInput struct {
-	Name              string   `json:"name"`
-	Kind              string   `json:"kind"`
-	Column            string   `json:"column"`
-	Size              *int     `json:"size,omitempty"`
-	Interval          *float64 `json:"interval,omitempty"`
-	DateInterval      *int     `json:"dateInterval,omitempty"`
-	ExcludeSelfFilter *bool    `json:"excludeSelfFilter,omitempty"`
-}
-
-type DataframeAggregationsInput struct {
-	DataType string                           `json:"dataType"`
-	Filters  []*DataframeFilterInput          `json:"filters,omitempty"`
-	Specs    []*DataframeAggregationSpecInput `json:"specs"`
-}
-
-type DataframeAggregationsResult struct {
-	Materialization *DataframeMaterialization `json:"materialization"`
-	Aggregations    json.RawMessage           `json:"aggregations"`
 }
 
 type DataframeBuilderIntrospection struct {
@@ -525,6 +510,66 @@ type FhirFilterValueInput struct {
 	DateTime *string             `json:"dateTime,omitempty"`
 }
 
+type FhirGraphNode struct {
+	Alias        string          `json:"alias"`
+	ResourceType string          `json:"resourceType"`
+	ID           string          `json:"id"`
+	Resource     json.RawMessage `json:"resource"`
+}
+
+type FhirGraphPageInfo struct {
+	HasMore bool `json:"hasMore"`
+}
+
+type FhirGraphPath struct {
+	TerminalAlias string                   `json:"terminalAlias"`
+	Nodes         []*FhirGraphNode         `json:"nodes"`
+	Relationships []*FhirGraphRelationship `json:"relationships"`
+}
+
+type FhirGraphQueryExplanation struct {
+	SourceGeneration string                     `json:"sourceGeneration"`
+	RootResourceType string                     `json:"rootResourceType"`
+	TraversalCount   int                        `json:"traversalCount"`
+	MaxDepth         int                        `json:"maxDepth"`
+	Limit            int                        `json:"limit"`
+	Live             bool                       `json:"live"`
+	Diagnostics      *DataframeQueryDiagnostics `json:"diagnostics,omitempty"`
+}
+
+type FhirGraphQueryInput struct {
+	Project           string                     `json:"project"`
+	AuthResourcePaths []string                   `json:"authResourcePaths,omitempty"`
+	RootResourceType  string                     `json:"rootResourceType"`
+	RootFilters       []*FhirFilterInput         `json:"rootFilters"`
+	Traverse          []*FhirGraphTraversalInput `json:"traverse"`
+	Limit             int                        `json:"limit"`
+}
+
+type FhirGraphQueryResult struct {
+	SourceGeneration string                     `json:"sourceGeneration"`
+	Paths            []*FhirGraphPath           `json:"paths"`
+	ReturnedCount    int                        `json:"returnedCount"`
+	PageInfo         *FhirGraphPageInfo         `json:"pageInfo"`
+	Diagnostics      *DataframeQueryDiagnostics `json:"diagnostics"`
+}
+
+type FhirGraphRelationship struct {
+	Alias            string `json:"alias"`
+	Label            string `json:"label"`
+	FromResourceType string `json:"fromResourceType"`
+	ToResourceType   string `json:"toResourceType"`
+}
+
+type FhirGraphTraversalInput struct {
+	EdgeLabel      string                     `json:"edgeLabel"`
+	ToResourceType string                     `json:"toResourceType"`
+	Alias          string                     `json:"alias"`
+	MatchMode      FhirTraversalMatchMode     `json:"matchMode"`
+	Filters        []*FhirFilterInput         `json:"filters"`
+	Traverse       []*FhirGraphTraversalInput `json:"traverse"`
+}
+
 type FhirPivotDiscoveryInput struct {
 	Family     *string `json:"family,omitempty"`
 	Path       *string `json:"path,omitempty"`
@@ -712,6 +757,103 @@ func (e *DataframeRecipeExecutionState) UnmarshalJSON(b []byte) error {
 }
 
 func (e DataframeRecipeExecutionState) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type FHIRResourceType string
+
+const (
+	FHIRResourceTypeBodyStructure            FHIRResourceType = "BODY_STRUCTURE"
+	FHIRResourceTypeCondition                FHIRResourceType = "CONDITION"
+	FHIRResourceTypeDiagnosticReport         FHIRResourceType = "DIAGNOSTIC_REPORT"
+	FHIRResourceTypeDocumentReference        FHIRResourceType = "DOCUMENT_REFERENCE"
+	FHIRResourceTypeFamilyMemberHistory      FHIRResourceType = "FAMILY_MEMBER_HISTORY"
+	FHIRResourceTypeGroup                    FHIRResourceType = "GROUP"
+	FHIRResourceTypeImagingStudy             FHIRResourceType = "IMAGING_STUDY"
+	FHIRResourceTypeMedication               FHIRResourceType = "MEDICATION"
+	FHIRResourceTypeMedicationAdministration FHIRResourceType = "MEDICATION_ADMINISTRATION"
+	FHIRResourceTypeMedicationRequest        FHIRResourceType = "MEDICATION_REQUEST"
+	FHIRResourceTypeMedicationStatement      FHIRResourceType = "MEDICATION_STATEMENT"
+	FHIRResourceTypeObservation              FHIRResourceType = "OBSERVATION"
+	FHIRResourceTypeOrganization             FHIRResourceType = "ORGANIZATION"
+	FHIRResourceTypePatient                  FHIRResourceType = "PATIENT"
+	FHIRResourceTypePractitioner             FHIRResourceType = "PRACTITIONER"
+	FHIRResourceTypePractitionerRole         FHIRResourceType = "PRACTITIONER_ROLE"
+	FHIRResourceTypeProcedure                FHIRResourceType = "PROCEDURE"
+	FHIRResourceTypeResearchStudy            FHIRResourceType = "RESEARCH_STUDY"
+	FHIRResourceTypeResearchSubject          FHIRResourceType = "RESEARCH_SUBJECT"
+	FHIRResourceTypeSpecimen                 FHIRResourceType = "SPECIMEN"
+	FHIRResourceTypeSubstance                FHIRResourceType = "SUBSTANCE"
+	FHIRResourceTypeSubstanceDefinition      FHIRResourceType = "SUBSTANCE_DEFINITION"
+	FHIRResourceTypeTask                     FHIRResourceType = "TASK"
+)
+
+var AllFHIRResourceType = []FHIRResourceType{
+	FHIRResourceTypeBodyStructure,
+	FHIRResourceTypeCondition,
+	FHIRResourceTypeDiagnosticReport,
+	FHIRResourceTypeDocumentReference,
+	FHIRResourceTypeFamilyMemberHistory,
+	FHIRResourceTypeGroup,
+	FHIRResourceTypeImagingStudy,
+	FHIRResourceTypeMedication,
+	FHIRResourceTypeMedicationAdministration,
+	FHIRResourceTypeMedicationRequest,
+	FHIRResourceTypeMedicationStatement,
+	FHIRResourceTypeObservation,
+	FHIRResourceTypeOrganization,
+	FHIRResourceTypePatient,
+	FHIRResourceTypePractitioner,
+	FHIRResourceTypePractitionerRole,
+	FHIRResourceTypeProcedure,
+	FHIRResourceTypeResearchStudy,
+	FHIRResourceTypeResearchSubject,
+	FHIRResourceTypeSpecimen,
+	FHIRResourceTypeSubstance,
+	FHIRResourceTypeSubstanceDefinition,
+	FHIRResourceTypeTask,
+}
+
+func (e FHIRResourceType) IsValid() bool {
+	switch e {
+	case FHIRResourceTypeBodyStructure, FHIRResourceTypeCondition, FHIRResourceTypeDiagnosticReport, FHIRResourceTypeDocumentReference, FHIRResourceTypeFamilyMemberHistory, FHIRResourceTypeGroup, FHIRResourceTypeImagingStudy, FHIRResourceTypeMedication, FHIRResourceTypeMedicationAdministration, FHIRResourceTypeMedicationRequest, FHIRResourceTypeMedicationStatement, FHIRResourceTypeObservation, FHIRResourceTypeOrganization, FHIRResourceTypePatient, FHIRResourceTypePractitioner, FHIRResourceTypePractitionerRole, FHIRResourceTypeProcedure, FHIRResourceTypeResearchStudy, FHIRResourceTypeResearchSubject, FHIRResourceTypeSpecimen, FHIRResourceTypeSubstance, FHIRResourceTypeSubstanceDefinition, FHIRResourceTypeTask:
+		return true
+	}
+	return false
+}
+
+func (e FHIRResourceType) String() string {
+	return string(e)
+}
+
+func (e *FHIRResourceType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = FHIRResourceType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid FHIRResourceType", str)
+	}
+	return nil
+}
+
+func (e FHIRResourceType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *FHIRResourceType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e FHIRResourceType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

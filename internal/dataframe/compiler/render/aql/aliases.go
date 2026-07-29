@@ -35,6 +35,7 @@ type (
 	PhysicalExpressionProjection  = ir.PhysicalExpressionProjection
 	PhysicalObject                = ir.PhysicalObject
 	PhysicalSet                   = ir.PhysicalSet
+	PhysicalSetKind               = ir.PhysicalSetKind
 	PhysicalUnnest                = ir.PhysicalUnnest
 	PhysicalUnnestJoinMode        = ir.PhysicalUnnestJoinMode
 	PhysicalSetProjection         = ir.PhysicalSetProjection
@@ -55,6 +56,11 @@ type (
 	PhysicalLimit                 = ir.PhysicalLimit
 	PhysicalProjection            = ir.PhysicalProjection
 	PhysicalReturn                = ir.PhysicalReturn
+	PhysicalPathNode              = ir.PhysicalPathNode
+	PhysicalPathRelationship      = ir.PhysicalPathRelationship
+	PhysicalPathSeed              = ir.PhysicalPathSeed
+	PhysicalPathExtend            = ir.PhysicalPathExtend
+	PhysicalGraphReturn           = ir.PhysicalGraphReturn
 	Selector                      = spec.Selector
 	SelectorStep                  = spec.SelectorStep
 	FilterValue                   = spec.FilterValue
@@ -85,6 +91,9 @@ const (
 	PhysicalSortOp                   = ir.PhysicalSortOp
 	PhysicalLimitOp                  = ir.PhysicalLimitOp
 	PhysicalReturnOp                 = ir.PhysicalReturnOp
+	PhysicalPathSeedOp               = ir.PhysicalPathSeedOp
+	PhysicalPathExtendOp             = ir.PhysicalPathExtendOp
+	PhysicalGraphReturnOp            = ir.PhysicalGraphReturnOp
 	PhysicalInbound                  = ir.PhysicalInbound
 	PhysicalOutbound                 = ir.PhysicalOutbound
 	PhysicalTraversalNative          = ir.PhysicalTraversalNative
@@ -121,6 +130,8 @@ const (
 	PhysicalMapFirst                 = ir.PhysicalMapFirst
 	PhysicalMapFirstSorted           = ir.PhysicalMapFirstSorted
 	PhysicalSetGraphIDField          = ir.PhysicalSetGraphIDField
+	PhysicalNodeSetKind              = ir.PhysicalNodeSetKind
+	PhysicalNodePathSetKind          = ir.PhysicalNodePathSetKind
 	PhysicalSetKeyField              = ir.PhysicalSetKeyField
 	PhysicalSetIDField               = ir.PhysicalSetIDField
 	PhysicalSetResourceTypeField     = ir.PhysicalSetResourceTypeField

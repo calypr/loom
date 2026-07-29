@@ -27,7 +27,9 @@ flowchart LR
     Catalog["Arango publication catalog"] --> Flat["POST /graphql/flat"]
     ClickHouse --> Flat
     Arango --> Graph["POST /graphql/graph"]
+    Arango --> Dataframe["POST /graphql/dataframe"]
     Compile --> Graph
+    Compile --> Dataframe
 ```
 
 ## What Loom owns
@@ -51,7 +53,8 @@ browser-supplied physical table name.
 | --- | --- |
 | `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
-| `POST /graphql/graph` | Arango graph and recipe control plane: builder introspection, dataframe/recipe validation, preview, execution, and publication. |
+| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, builder introspection, recipe validation, preview, execution, and publication. |
+| `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /graphql/flat` | ClickHouse reader: discover published datasets, fetch rows with filters/keyset cursors, and aggregate registered outputs. |
 | `POST /api/v1/imports` | Legacy one-resource import compatibility path; disabled in dataset-generation mode. |
 
@@ -135,6 +138,7 @@ Useful local URLs:
 
 - [Graph Playground](http://127.0.0.1:8080/graphql/graph)
 - [Apollo Sandbox](http://127.0.0.1:8080/apollo)
+- FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
 - Flat reader: `http://127.0.0.1:8080/graphql/flat`
 - [Health check](http://127.0.0.1:8080/healthz)
 
@@ -144,21 +148,49 @@ Run the checked-in graph dataframe example after the server is up:
 make dataframe-demo
 ```
 
-See [the Quickstart](docs/QUICKSTART.md) for the complete example request and
-response flow.
+See [the Quickstart](docs/QUICKSTART.md) for the complete local setup flow and
+[the GraphQL API guide](docs/GRAPHQL_API.md) for copy-paste examples of the
+graph/compiler and published flat-reader APIs.
 
 ## Graph and flat GraphQL contracts
+
+The complete request, filter, pagination, authorization, and limitation
+reference is maintained in [docs/GRAPHQL_API.md](docs/GRAPHQL_API.md). The
+short sections below explain where each surface fits in the system.
 
 ### Graph: compile, inspect, and publish
 
 `/graphql/graph` is where a caller asks Loom about the Arango graph or drives
-recipe work. Its schema includes builder introspection, direct dataframe
-execution, and recipe operations such as validation, explanation, preview,
-execution, and `materializeDataframeRecipeBundle`.
+recipe work. `/graphql/dataframe` is the dedicated Arango-backed FHIR
+dataframe compiler endpoint. Both use the same authorized Arango backend and
+compiler; the separate routes keep client defaults aligned with query intent.
 
 Publication is intentionally a recipe-level operation: Loom must read the
 authorized Arango graph, resolve the recipe against the selected generation,
 and then write its output to ClickHouse. It is not a raw “insert rows” API.
+
+### Typed FHIR reads
+
+The same `/graphql/graph` endpoint also exposes generated, typed FHIR reads.
+The 23 root fields are exactly `BodyStructure`, `Condition`,
+`DiagnosticReport`, `DocumentReference`, `FamilyMemberHistory`, `Group`,
+`ImagingStudy`, `Medication`, `MedicationAdministration`, `MedicationRequest`,
+`MedicationStatement`, `Observation`, `Organization`, `Patient`,
+`Practitioner`, `PractitionerRole`, `Procedure`, `ResearchStudy`,
+`ResearchSubject`, `Specimen`, `Substance`, `SubstanceDefinition`, and `Task`.
+Each field returns a list and accepts `project`, `filters: [FhirFilterInput!]`,
+and a `limit` (default 25). Read-only callers are capped at 10,000 rows;
+callers with write access to the selected project are uncapped. ID lookup is
+an ordinary `id` filter; filters are ANDed using the existing Loom selector
+semantics.
+
+Every selectable property in the generated FHIR schema is available, including
+primitive-extension fields such as `_birthDate`. `Reference.resource` performs
+an authorized outbound lookup for relative, absolute, and versioned references;
+reverse relationships are not exposed. Cursor pagination, arbitrary sorting,
+recursive filter trees, and same-element sibling correlation are not supported
+in this checkpoint. The endpoint is FHIR-shaped, but is not advertised as a
+fully HL7-conformant GraphQL implementation.
 
 ### Flat: discover and read published dataframes
 
@@ -267,6 +299,7 @@ go test ./...
 ## Further reading
 
 - [Quickstart](docs/QUICKSTART.md)
+- [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)
 - [Explorer/Loom parity plan](docs/EXPLORER_LOOM_SLICE_PARITY_PLAN.md)

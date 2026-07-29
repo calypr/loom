@@ -49,7 +49,7 @@ func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
 func physicalTraversalCount(plan PhysicalPlan) int {
 	count := 0
 	for _, operation := range plan.Operations {
-		if operation.Kind == PhysicalTraversalOp {
+		if operation.Kind == PhysicalTraversalOp || operation.Kind == PhysicalPathExtendOp {
 			count++
 		}
 	}

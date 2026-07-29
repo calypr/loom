@@ -43,6 +43,57 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	}
 }
 
+func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "document-ref",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
+	}
+	var found *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "resource" {
+				found = projection.Expression
+			}
+		}
+	}
+	if found == nil || found.Kind != ir.PhysicalObjectExpression || found.Object == nil {
+		t.Fatalf("resource projection = %#v", found)
+	}
+	if err := compiled.Outputs[0].Plan.Validate(); err != nil {
+		t.Fatalf("document plan validation: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "payload") || !strings.Contains(rendered.Query, "resourceType") || !strings.Contains(rendered.Query, "_key") {
+		t.Fatalf("rendered document envelope missing fields: %s", rendered.Query)
+	}
+}
+
 func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
 	bundle := resolvedDefaultBundleForLowerTest(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})

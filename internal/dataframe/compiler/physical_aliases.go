@@ -32,6 +32,7 @@ type (
 	PhysicalExpressionProjection           = ir.PhysicalExpressionProjection
 	PhysicalObject                         = ir.PhysicalObject
 	PhysicalSet                            = ir.PhysicalSet
+	PhysicalSetKind                        = ir.PhysicalSetKind
 	PhysicalSetProjection                  = ir.PhysicalSetProjection
 	PhysicalSetProjectionField             = ir.PhysicalSetProjectionField
 	PhysicalSetOutputField                 = ir.PhysicalSetOutputField
@@ -50,6 +51,11 @@ type (
 	PhysicalLimit                          = ir.PhysicalLimit
 	PhysicalProjection                     = ir.PhysicalProjection
 	PhysicalReturn                         = ir.PhysicalReturn
+	PhysicalPathNode                       = ir.PhysicalPathNode
+	PhysicalPathRelationship               = ir.PhysicalPathRelationship
+	PhysicalPathSeed                       = ir.PhysicalPathSeed
+	PhysicalPathExtend                     = ir.PhysicalPathExtend
+	PhysicalGraphReturn                    = ir.PhysicalGraphReturn
 	PhysicalTraversalPrefix                = ir.PhysicalTraversalPrefix
 	PhysicalTraversalSubset                = ir.PhysicalTraversalSubset
 	PhysicalTraversalPrefixDecomposition   = ir.PhysicalTraversalPrefixDecomposition
@@ -76,6 +82,9 @@ const (
 	PhysicalSortOp                             = ir.PhysicalSortOp
 	PhysicalLimitOp                            = ir.PhysicalLimitOp
 	PhysicalReturnOp                           = ir.PhysicalReturnOp
+	PhysicalPathSeedOp                         = ir.PhysicalPathSeedOp
+	PhysicalPathExtendOp                       = ir.PhysicalPathExtendOp
+	PhysicalGraphReturnOp                      = ir.PhysicalGraphReturnOp
 	PhysicalInbound                            = ir.PhysicalInbound
 	PhysicalOutbound                           = ir.PhysicalOutbound
 	PhysicalAny                                = ir.PhysicalAny
@@ -111,6 +120,8 @@ const (
 	PhysicalMaxAggregate                       = ir.PhysicalMaxAggregate
 	PhysicalFirstAggregate                     = ir.PhysicalFirstAggregate
 	PhysicalSetGraphIDField                    = ir.PhysicalSetGraphIDField
+	PhysicalNodeSetKind                        = ir.PhysicalNodeSetKind
+	PhysicalNodePathSetKind                    = ir.PhysicalNodePathSetKind
 	PhysicalSetKeyField                        = ir.PhysicalSetKeyField
 	PhysicalSetIDField                         = ir.PhysicalSetIDField
 	PhysicalSetResourceTypeField               = ir.PhysicalSetResourceTypeField

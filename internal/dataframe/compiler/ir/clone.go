@@ -153,6 +153,24 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		}
 		copy.Return = &returnCopy
 	}
+	if operation.PathSeed != nil {
+		seedCopy := *operation.PathSeed
+		seedCopy.Node.Value = clonePhysicalValue(seedCopy.Node.Value)
+		copy.PathSeed = &seedCopy
+	}
+	if operation.PathExtend != nil {
+		extendCopy := *operation.PathExtend
+		extendCopy.SourcePath = cloneStrings(operation.PathExtend.SourcePath)
+		extendCopy.Traversal.EndpointIndexFields = cloneStrings(operation.PathExtend.Traversal.EndpointIndexFields)
+		extendCopy.Node.Value = clonePhysicalValue(operation.PathExtend.Node.Value)
+		extendCopy.Scope = clonePhysicalOperations(operation.PathExtend.Scope)
+		copy.PathExtend = &extendCopy
+	}
+	if operation.GraphReturn != nil {
+		graphCopy := *operation.GraphReturn
+		graphCopy.PathSets = cloneStrings(operation.GraphReturn.PathSets)
+		copy.GraphReturn = &graphCopy
+	}
 	return copy
 }
 

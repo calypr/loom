@@ -88,6 +88,15 @@ func (s *checkState) check(e Expression, path string, depth int) (Type, error) {
 			return Type{}, fmt.Errorf("%s: call node requires only call", path)
 		}
 		return s.checkCall(*e.Call, path, depth)
+	case DocumentRefNode:
+		if e.Document == nil || e.Selector != nil || e.Literal != nil || e.Call != nil {
+			return Type{}, fmt.Errorf("%s: document reference node requires only document", path)
+		}
+		context := strings.TrimSpace(e.Document.Context)
+		if context != "" && !selectorNamePattern.MatchString(context) {
+			return Type{}, fmt.Errorf("%s: document context %q is not a logical name", path, e.Document.Context)
+		}
+		return Type{Kind: KindObject, Cardinality: RequiredOne}, nil
 	default:
 		return Type{}, fmt.Errorf("%s: unknown expression node kind %q", path, e.Kind)
 	}

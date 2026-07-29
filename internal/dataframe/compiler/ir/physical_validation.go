@@ -18,8 +18,9 @@ func (p PhysicalPlan) Validate() error {
 	defined := map[string]bool{}
 	rootScans := 0
 	returns := 0
+	graphReturns := 0
 	for i, operation := range p.Operations {
-		if returns > 0 {
+		if returns+graphReturns > 0 {
 			return fmt.Errorf("operation %d appears after RETURN", i)
 		}
 		if err := operation.validatePayload(); err != nil {
@@ -134,6 +135,27 @@ func (p PhysicalPlan) Validate() error {
 			if !ok || limit <= 0 {
 				return fmt.Errorf("operation %d: limit bind %q must be a positive int", i, operation.Limit.BindKey)
 			}
+		case PhysicalPathSeedOp:
+			seed := operation.PathSeed
+			if err := validatePhysicalPathNode(seed.Node, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d path seed: %w", i, err)
+			}
+			if err := definePhysicalVariable(defined, seed.Variable); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case PhysicalPathExtendOp:
+			extend := operation.PathExtend
+			if err := validatePhysicalPathExtend(*extend, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d path extend: %w", i, err)
+			}
+			if err := definePhysicalVariable(defined, extend.Variable); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case PhysicalGraphReturnOp:
+			if err := validatePhysicalGraphReturn(*operation.GraphReturn, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d graph return: %w", i, err)
+			}
+			graphReturns++
 		case PhysicalReturnOp:
 			returns++
 			seenNames := map[string]bool{}
@@ -151,8 +173,105 @@ func (p PhysicalPlan) Validate() error {
 	if rootScans != 1 {
 		return fmt.Errorf("physical plan requires exactly one root scan")
 	}
-	if returns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN")
+	if returns+graphReturns != 1 {
+		return fmt.Errorf("physical plan requires exactly one RETURN or GRAPH_RETURN")
+	}
+	return nil
+}
+
+func validatePhysicalPathNode(node PhysicalPathNode, defined map[string]bool, binds map[string]any) error {
+	if !physicalVariablePattern.MatchString(node.Alias) {
+		return fmt.Errorf("path node alias %q is unsafe", node.Alias)
+	}
+	if strings.TrimSpace(node.ResourceType) == "" {
+		return fmt.Errorf("path node %q resource type is required", node.Alias)
+	}
+	return validatePhysicalValue(node.Value, defined, binds)
+}
+
+func validatePhysicalPathExtend(extend PhysicalPathExtend, defined map[string]bool, binds map[string]any) error {
+	if !defined[extend.SourceVariable] {
+		return fmt.Errorf("source variable %q is out of scope", extend.SourceVariable)
+	}
+	for _, part := range extend.SourcePath {
+		if !physicalPathPartPattern.MatchString(part) {
+			return fmt.Errorf("source path segment %q is unsafe", part)
+		}
+	}
+	if extend.MatchMode != "" && extend.MatchMode != "REQUIRED" && extend.MatchMode != "OPTIONAL" {
+		return fmt.Errorf("unsupported path match mode %q", extend.MatchMode)
+	}
+	if err := validatePhysicalPathNode(extend.Node, map[string]bool{extend.Traversal.TargetVariable: true}, binds); err != nil {
+		return err
+	}
+	if !physicalVariablePattern.MatchString(extend.Relationship.Alias) {
+		return fmt.Errorf("path relationship alias %q is unsafe", extend.Relationship.Alias)
+	}
+	if !physicalVariablePattern.MatchString(extend.Traversal.TargetVariable) || !physicalVariablePattern.MatchString(extend.Traversal.EdgeVariable) {
+		return fmt.Errorf("path traversal target and edge variables must be safe")
+	}
+	if extend.Traversal.EdgeCollectionBindKey == "" || extend.Traversal.EdgeLabelBindKey == "" || extend.Traversal.TargetTypeBindKey == "" {
+		return fmt.Errorf("path traversal requires edge collection, label, and target type binds")
+	}
+	for _, key := range []string{extend.Traversal.EdgeCollectionBindKey, extend.Traversal.EdgeLabelBindKey, extend.Traversal.TargetTypeBindKey, extend.Relationship.LabelBindKey} {
+		if key != "" {
+			if err := requireBind(binds, key); err != nil {
+				return err
+			}
+		}
+	}
+	definedScope := map[string]bool{extend.Traversal.TargetVariable: true, extend.Traversal.EdgeVariable: true}
+	for index, operation := range extend.Scope {
+		if operation.Kind != PhysicalFilterOp && operation.Kind != PhysicalDerivedLetOp && operation.Kind != PhysicalExpressionLetOp {
+			return fmt.Errorf("path scope operation %d has unsupported kind %q", index, operation.Kind)
+		}
+		if err := operation.validatePayload(); err != nil {
+			return err
+		}
+		switch operation.Kind {
+		case PhysicalFilterOp:
+			if err := validatePhysicalFilter(*operation.Filter, definedScope, binds); err != nil {
+				return err
+			}
+		case PhysicalDerivedLetOp:
+			if err := validatePhysicalDerivedLet(*operation.DerivedLet, definedScope, binds); err != nil {
+				return err
+			}
+			if err := definePhysicalVariable(definedScope, operation.DerivedLet.Variable); err != nil {
+				return err
+			}
+		case PhysicalExpressionLetOp:
+			if err := validatePhysicalExpression(operation.ExpressionLet.Expression, definedScope, binds); err != nil {
+				return err
+			}
+			if err := definePhysicalVariable(definedScope, operation.ExpressionLet.Variable); err != nil {
+				return err
+			}
+		}
+	}
+	return validatePhysicalTraversalStrategy(extend.Traversal)
+}
+
+func validatePhysicalGraphReturn(graph PhysicalGraphReturn, defined map[string]bool, binds map[string]any) error {
+	if len(graph.PathSets) == 0 {
+		return fmt.Errorf("graph return requires at least one path set")
+	}
+	seen := map[string]bool{}
+	for _, set := range graph.PathSets {
+		if !physicalVariablePattern.MatchString(set) || seen[set] {
+			return fmt.Errorf("invalid or duplicate path set %q", set)
+		}
+		seen[set] = true
+		if !defined[set] {
+			return fmt.Errorf("path set %q is out of scope", set)
+		}
+	}
+	if err := requireBind(binds, graph.LimitBindKey); err != nil {
+		return err
+	}
+	limit, ok := binds[graph.LimitBindKey].(int)
+	if !ok || limit <= 0 {
+		return fmt.Errorf("graph limit bind %q must be a positive int", graph.LimitBindKey)
 	}
 	return nil
 }
@@ -346,6 +465,15 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.Return != nil {
 		payloads++
 	}
+	if operation.PathSeed != nil {
+		payloads++
+	}
+	if operation.PathExtend != nil {
+		payloads++
+	}
+	if operation.GraphReturn != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -358,7 +486,10 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalUnnestOp && operation.Unnest != nil) ||
 		(operation.Kind == PhysicalSortOp && operation.Sort != nil) ||
 		(operation.Kind == PhysicalLimitOp && operation.Limit != nil) ||
-		(operation.Kind == PhysicalReturnOp && operation.Return != nil)
+		(operation.Kind == PhysicalReturnOp && operation.Return != nil) ||
+		(operation.Kind == PhysicalPathSeedOp && operation.PathSeed != nil) ||
+		(operation.Kind == PhysicalPathExtendOp && operation.PathExtend != nil) ||
+		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}

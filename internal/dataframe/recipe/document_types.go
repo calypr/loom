@@ -213,7 +213,7 @@ func (p Pivot) MarshalJSON() ([]byte, error) {
 }
 
 func (e Expression) zero() bool {
-	return e.Select == "" && e.Call == "" && e.Literal == nil && len(e.Args) == 0
+	return e.Select == "" && e.Call == "" && e.Literal == nil && e.Document == nil && len(e.Args) == 0
 }
 
 // PivotDiscovery requests a bounded column set from the scoped field catalog.

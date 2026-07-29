@@ -367,6 +367,12 @@ func physicalPlanVariableNames(plan PhysicalPlan) map[string]struct{} {
 			if operation.Unnest.Ordinality != "" {
 				variables[operation.Unnest.Ordinality] = struct{}{}
 			}
+		case PhysicalPathSeedOp:
+			variables[operation.PathSeed.Variable] = struct{}{}
+		case PhysicalPathExtendOp:
+			variables[operation.PathExtend.Variable] = struct{}{}
+			variables[operation.PathExtend.Traversal.TargetVariable] = struct{}{}
+			variables[operation.PathExtend.Traversal.EdgeVariable] = struct{}{}
 		}
 	}
 	return variables

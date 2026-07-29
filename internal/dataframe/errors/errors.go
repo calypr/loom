@@ -32,6 +32,12 @@ const (
 	CodeClientCanceled           ErrorCode = "CLIENT_CANCELED"
 	CodeBackendUnavailable       ErrorCode = "BACKEND_UNAVAILABLE"
 	CodeInternalError            ErrorCode = "INTERNAL_ERROR"
+	CodeInvalidResourceType      ErrorCode = "INVALID_RESOURCE_TYPE"
+	CodeInvalidLimit             ErrorCode = "INVALID_LIMIT"
+	CodeNoActiveGeneration       ErrorCode = "NO_ACTIVE_GENERATION"
+	CodeResourceDecodeFailed     ErrorCode = "RESOURCE_DECODE_FAILED"
+	CodeReferenceNotResolved     ErrorCode = "REFERENCE_NOT_RESOLVED"
+	CodeQueryDepthExceeded       ErrorCode = "QUERY_DEPTH_EXCEEDED"
 )
 
 // AllErrorCodes is the compatibility registry. Keep its order stable when
@@ -249,6 +255,8 @@ func IsUserCorrectable(code ErrorCode) bool {
 		CodeStaleCursor,
 		CodeUnsupportedExportFormat:
 		return true
+	case CodeInvalidResourceType, CodeInvalidLimit:
+		return true
 	default:
 		return false
 	}
@@ -298,6 +306,18 @@ func defaultMessage(code ErrorCode) string {
 		return "the requested export format is not supported"
 	case CodeClientCanceled:
 		return "the request was canceled"
+	case CodeInvalidResourceType:
+		return "the requested resource type is invalid"
+	case CodeInvalidLimit:
+		return "the requested limit is invalid"
+	case CodeNoActiveGeneration:
+		return "the project has no active dataset generation"
+	case CodeResourceDecodeFailed:
+		return "the resource could not be decoded"
+	case CodeReferenceNotResolved:
+		return "the requested reference could not be resolved"
+	case CodeQueryDepthExceeded:
+		return "the reference query depth limit was exceeded"
 	case CodeBackendUnavailable:
 		return "the dataframe backend is temporarily unavailable"
 	default:

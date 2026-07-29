@@ -85,6 +85,8 @@ Useful endpoints:
 
 - Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
 - GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
+- FHIR dataframe endpoint: [http://127.0.0.1:8080/graphql/dataframe](http://127.0.0.1:8080/graphql/dataframe)
+- Flat dataframe endpoint: [http://127.0.0.1:8080/graphql/flat](http://127.0.0.1:8080/graphql/flat)
 - Health check: [http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)
 
 On macOS you can jump straight to Apollo with:
