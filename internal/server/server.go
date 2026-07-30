@@ -57,6 +57,7 @@ func Run() {
 		clickhouseDatabase = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
 		clickhouseUsername = flag.String("clickhouse-username", "default", "ClickHouse username for published dataframe reads")
 		clickhousePassword = flag.String("clickhouse-password", "", "ClickHouse password for published dataframe reads")
+		dataframerRecipe   = flag.String("dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
 		recipeBatchRows    = flag.Int("recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 		recipeBatchBytes   = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
 	)
@@ -77,6 +78,7 @@ func Run() {
 		*clickhouseDatabase = serverConfig.Server.ClickHouse.Database
 		*clickhouseUsername = serverConfig.Server.ClickHouse.Username
 		*clickhousePassword = serverConfig.Server.ClickHouse.Password
+		*dataframerRecipe = serverConfig.Server.Dataframer.Recipe
 		if !serverConfig.Server.ClickHouse.Enabled {
 			*clickhouseURL = ""
 			*clickhouseDatabase = ""
@@ -86,6 +88,8 @@ func Run() {
 		*recipeBatchRows = serverConfig.Server.RecipeBatchRows
 		*recipeBatchBytes = serverConfig.Server.RecipeBatchBytes
 		*noAuth = serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
+	} else {
+		serverConfig.Server.Dataframer.Recipe = *dataframerRecipe
 	}
 	if *noAuth {
 		serverConfig.Server.AllowUnauthenticated = true
@@ -120,12 +124,18 @@ func Run() {
 	if err != nil {
 		exitf("create recipe registry: %v", err)
 	}
-	defaultBundle, err := recipe.DefaultACEDBundle()
-	if err != nil {
-		exitf("load default dataframe recipe: %v", err)
-	}
-	if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
-		exitf("register default dataframe recipe: %v", err)
+	if serverConfig.Server.ClickHouse.Enabled {
+		data, err := os.ReadFile(*dataframerRecipe)
+		if err != nil {
+			exitf("read dataframer recipe %q: %v", *dataframerRecipe, err)
+		}
+		defaultBundle, err := recipe.Parse(data)
+		if err != nil {
+			exitf("parse dataframer recipe %q: %v", *dataframerRecipe, err)
+		}
+		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
+			exitf("register default dataframe recipe: %v", err)
+		}
 	}
 	lifecycleStore, err := datasetarango.New(lifecycleClient)
 	if err != nil {

@@ -144,16 +144,3 @@ func TestParseAcceptsDocumentExpression(t *testing.T) {
 		t.Fatalf("document expression was not parsed: %#v", bundle.Outputs[0].Fields[0].Expr)
 	}
 }
-
-func TestDefaultACEDBundleIsRecipeData(t *testing.T) {
-	bundle, err := DefaultACEDBundle()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bundle.Outputs) != 5 || bundle.Name != "aced-meta-default" {
-		t.Fatalf("unexpected default bundle: %#v", bundle)
-	}
-	if _, err := bundle.Digest(); err != nil {
-		t.Fatal(err)
-	}
-}

@@ -3,6 +3,7 @@ package ingest
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -56,8 +57,11 @@ func loadRowGenerated(resourceType string, line []byte, project string, stageSec
 	stageSeconds["validate"] += time.Since(start).Seconds()
 
 	start = time.Now()
-	objectID := value.GetID()
+	objectID := strings.TrimSpace(value.GetID())
 	stageSeconds["object_id"] += time.Since(start).Seconds()
+	if objectID == "" {
+		return jsgarango.VertexDocument{}, nil, rowErrorValidation, fmt.Errorf("%s payload missing string id", resourceType)
+	}
 
 	start = time.Now()
 	edges, err := value.ExtractEdges(project)

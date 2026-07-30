@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	fhir "github.com/calypr/loom/fhirstructs"
@@ -57,5 +58,16 @@ func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
 	}
 	if got, want := studyEdge.ToType, "ResearchStudy"; got != want {
 		t.Fatalf("study edge to_type = %q, want %q", got, want)
+	}
+}
+
+func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
+	_, _, kind, err := loadRowGenerated("DocumentReference", []byte(`{
+  "resourceType": "DocumentReference",
+  "status": "current",
+  "content": [{"attachment": {}}]
+}`), "project-1", map[string]float64{})
+	if kind != rowErrorValidation || err == nil || !strings.Contains(err.Error(), "DocumentReference payload missing string id") {
+		t.Fatalf("loadRowGenerated() = kind %q err %v, want missing ID validation error", kind, err)
 	}
 }

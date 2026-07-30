@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
@@ -33,7 +34,7 @@ func TestDefaultRecipeBuildsTypedSemanticPlan(t *testing.T) {
 
 func resolvedDefaultACEDBundle(t *testing.T) recipe.Bundle {
 	t.Helper()
-	bundle, err := recipe.DefaultACEDBundle()
+	bundle, err := recipetest.DefaultACED()
 	if err != nil {
 		t.Fatal(err)
 	}

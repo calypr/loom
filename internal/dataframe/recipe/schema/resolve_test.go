@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -173,7 +174,7 @@ func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 }
 
 func TestDefaultRecipeCatalogDeclarationsRemainSemanticallyCompilable(t *testing.T) {
-	bundle, err := recipe.DefaultACEDBundle()
+	bundle, err := recipetest.DefaultACED()
 	if err != nil {
 		t.Fatal(err)
 	}

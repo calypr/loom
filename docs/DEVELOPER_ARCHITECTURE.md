@@ -140,7 +140,9 @@ generated `fhirstructs`, compiler metadata, or gqlgen output. The gqlgen
 executable output uses follow-schema layout: `graphqlapi/schema.generated.go`,
 `graphqlapi/fhir_schema.generated.go`, `graphqlapi/root_.generated.go`, and
 `graphqlapi/prelude.generated.go` are generated from the corresponding schema
-sources and share the `graphqlapi` package.
+sources and share the `graphqlapi` package. See
+[`CODE_GENERATION.md`](CODE_GENERATION.md) for the full source/output map and
+why generated code is necessarily package-local rather than in one directory.
 
 The normal verification targets are:
 

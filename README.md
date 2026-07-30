@@ -128,7 +128,8 @@ Start Loom locally with an unrestricted development principal:
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --clickhouse-url clickhouse://127.0.0.1:9000 \
-  --clickhouse-database loom
+  --clickhouse-database loom \
+  --dataframer-recipe /path/to/dataframer.json
 ```
 
 Add `--dataset-generations` when reading the active immutable generation. That
@@ -248,8 +249,11 @@ server:
   database: fhir_proto
   dataset_generations: true
   clickhouse:
+    enabled: true
     url: clickhouse://clickhouse:9000
     database: loom
+  dataframer:
+    recipe: /etc/loom/dataframer.json
 
 auth:
   mode: calypr
@@ -257,6 +261,10 @@ auth:
 
 Basic mode reads `LOOM_AUTH_BASIC_USERNAME` and `LOOM_AUTH_BASIC_PASSWORD` if
 they are not supplied in the config file.
+
+`server.dataframer.recipe` is required only when ClickHouse is enabled. Loom
+reads and validates that recipe during startup; deployments can update it
+without rebuilding the server image.
 
 ## Repository guide
 
@@ -288,6 +296,8 @@ make conformance           # compiler conformance corpus
 
 The generated FHIR metadata and GraphQL bindings are checked in. Regenerate
 them when their inputs change; do not hand-edit generated files.
+[`docs/CODE_GENERATION.md`](docs/CODE_GENERATION.md) explains every generated
+directory, its source of truth, and the required regeneration order.
 
 For a direct build and full verification:
 
@@ -299,6 +309,7 @@ go test ./...
 ## Further reading
 
 - [Quickstart](docs/QUICKSTART.md)
+- [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)
 - [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)

@@ -78,7 +78,8 @@ For local work, run with `--no-auth`:
   --no-auth \
   --backend arango \
   --url http://127.0.0.1:8529 \
-  --database fhir_proto
+  --database fhir_proto \
+  --dataframer-recipe /path/to/dataframer.json
 ```
 
 Useful endpoints:
@@ -99,6 +100,9 @@ open http://127.0.0.1:8080/apollo
 
 Use this first. It tells you what traversals and fields are actually populated
 for the chosen root resource type.
+
+To promote a proven interactive query into the server's persistent default,
+follow the [dataframer recipe authoring guide](DATAFRAMER_RECIPES.md).
 
 ### Query
 

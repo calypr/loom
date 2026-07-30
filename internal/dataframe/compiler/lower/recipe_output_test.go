@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -173,7 +174,7 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 
 func resolvedDefaultBundleForLowerTest(t *testing.T) recipe.Bundle {
 	t.Helper()
-	bundle, err := recipe.DefaultACEDBundle()
+	bundle, err := recipetest.DefaultACED()
 	if err != nil {
 		t.Fatal(err)
 	}

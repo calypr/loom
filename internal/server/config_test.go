@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 
 func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\nauth:\n  mode: calypr\n  calypr:\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadConfig(path)
@@ -29,8 +30,27 @@ func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if cfg.Server.Listen != ":18080" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
+	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
 		t.Fatalf("config = %#v", cfg)
+	}
+}
+
+func TestDataframerRecipeIsRequiredOnlyWhenClickHouseIsEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Auth.AllowUnauthenticated = true
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.dataframer.recipe") {
+		t.Fatalf("missing dataframer recipe error = %v", err)
+	}
+
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("disabled ClickHouse unexpectedly requires dataframer recipe: %v", err)
+	}
+
+	cfg.Server.ClickHouse.Enabled = true
+	cfg.Server.Dataframer.Recipe = "/etc/loom/dataframer.json"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("configured dataframer recipe did not validate: %v", err)
 	}
 }
 
