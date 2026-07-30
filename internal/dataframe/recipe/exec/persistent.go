@@ -17,11 +17,20 @@ type Store interface {
 	LoadRecipe(context.Context, string) (Entry, error)
 }
 
+type defaultStore interface {
+	Store
+	ReplaceRecipe(context.Context, Entry) error
+}
+
 var ErrRecipeNotFound = errors.New("recipe not found")
 
-// PersistentRegistry provides the same immutable/idempotent contract as the
-// process-local Registry while making persistence explicit for production
-// wiring. It never evaluates recipe data.
+type Entry struct {
+	Bundle recipe.Bundle
+	Digest string
+}
+
+// PersistentRegistry owns immutable/idempotent recipe registration. It never
+// evaluates recipe data.
 type PersistentRegistry struct {
 	Store Store
 }
@@ -43,6 +52,37 @@ func (r PersistentRegistry) Register(ctx context.Context, bundle recipe.Bundle) 
 		return Entry{}, fmt.Errorf("load recipe %q: %w", bundle.Name, err)
 	}
 	if err := r.Store.SaveRecipe(ctx, entry); err != nil {
+		return Entry{}, err
+	}
+	return entry, nil
+}
+
+// RegisterDefault updates the server-owned default recipe when its embedded
+// definition changes. Caller-provided recipes continue to use Register and
+// remain digest-locked.
+func (r PersistentRegistry) RegisterDefault(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
+	entry, err := canonicalEntry(bundle)
+	if err != nil {
+		return Entry{}, err
+	}
+	store, ok := r.Store.(defaultStore)
+	if !ok {
+		return Entry{}, fmt.Errorf("persistent recipe store cannot update the default recipe")
+	}
+	existing, err := store.LoadRecipe(ctx, bundle.Name)
+	if err == nil {
+		if existing.Digest == entry.Digest {
+			return existing, nil
+		}
+		if err := store.ReplaceRecipe(ctx, entry); err != nil {
+			return Entry{}, err
+		}
+		return entry, nil
+	}
+	if !errors.Is(err, ErrRecipeNotFound) {
+		return Entry{}, fmt.Errorf("load recipe %q: %w", bundle.Name, err)
+	}
+	if err := store.SaveRecipe(ctx, entry); err != nil {
 		return Entry{}, err
 	}
 	return entry, nil

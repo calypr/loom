@@ -92,7 +92,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 		} else if itemResourceType == "" {
 			itemResourceType = resourceType
 		}
-		itemSource := Selector{}
+		itemSource := spec.Selector{}
 		if pivotSpec.ItemSourcePath != "" {
 			itemSource, err = spec.ParseSelector(pivotSpec.ItemSourcePath)
 			if err != nil {
@@ -116,7 +116,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 				return nil, fmt.Errorf("%s value selector: %w", path, err)
 			}
 		}
-		fallbacks := make([]Selector, 0, len(pivotSpec.ValueSelectors))
+		fallbacks := make([]spec.Selector, 0, len(pivotSpec.ValueSelectors))
 		if len(input.ValueFallbacks) > 0 {
 			for index, fallbackInput := range input.ValueFallbacks {
 				fallback, fallbackErr := recipeNodeSelector(resourceType, alias, scope, fallbackInput, fmt.Sprintf("%s.valueFallbacks[%d]", path, index))
@@ -173,8 +173,8 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 // can mix primitive kinds (for example Observation.valueQuantity.value and
 // Observation.valueString); those values share one discovered column family,
 // so normalize that heterogeneous family to strings at the physical boundary.
-func pivotValueKind(resourceType string, primary Selector, fallbacks []Selector) (expression.ValueKind, bool, error) {
-	selectors := append([]Selector{primary}, fallbacks...)
+func pivotValueKind(resourceType string, primary spec.Selector, fallbacks []spec.Selector) (expression.ValueKind, bool, error) {
+	selectors := append([]spec.Selector{primary}, fallbacks...)
 	kinds := make([]expression.ValueKind, 0, len(selectors))
 	for _, selector := range selectors {
 		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
@@ -211,7 +211,7 @@ func pivotValueKind(resourceType string, primary Selector, fallbacks []Selector)
 	return kind, false, nil
 }
 
-func relativePivotSelector(selector Selector, source string) (Selector, error) {
+func relativePivotSelector(selector spec.Selector, source string) (spec.Selector, error) {
 	if source == "" {
 		return selector, nil
 	}
@@ -221,10 +221,10 @@ func relativePivotSelector(selector Selector, source string) (Selector, error) {
 		return selector, nil
 	}
 	if selectorPath == prefix {
-		return Selector{}, fmt.Errorf("pivot selector cannot be the item source itself")
+		return spec.Selector{}, fmt.Errorf("pivot selector cannot be the item source itself")
 	}
 	if !strings.HasPrefix(selectorPath, prefix+".") {
-		return Selector{}, fmt.Errorf("selector %q is outside item source %q", selectorPath, prefix)
+		return spec.Selector{}, fmt.Errorf("selector %q is outside item source %q", selectorPath, prefix)
 	}
 	return spec.ParseSelector(strings.TrimPrefix(selectorPath, prefix+"."))
 }
@@ -381,23 +381,23 @@ func lowerRecipeRichShaping(resourceType, alias string, scope scopeFrame, pivots
 	return pivotPlan, aggregatePlan, slicePlan, nil
 }
 
-func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input recipe.Expression, path string) (Selector, error) {
+func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input recipe.Expression, path string) (spec.Selector, error) {
 	checked, err := scope.expression(input, path)
 	if err != nil {
-		return Selector{}, err
+		return spec.Selector{}, err
 	}
 	if checked.Expression.Selector == nil {
-		return Selector{}, fmt.Errorf("%s must be a selector expression", path)
+		return spec.Selector{}, fmt.Errorf("%s must be a selector expression", path)
 	}
 	if err := ensureSelectorOwnedByNode(checked.Expression.Selector.Context, alias, path); err != nil {
-		return Selector{}, err
+		return spec.Selector{}, err
 	}
 	selector, err := spec.ParseSelector(checked.Expression.Selector.Path)
 	if err != nil {
-		return Selector{}, fmt.Errorf("%s: %w", path, err)
+		return spec.Selector{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := validateSemanticSelector(resourceType, selector); err != nil {
-		return Selector{}, fmt.Errorf("%s: %w", path, err)
+		return spec.Selector{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return selector, nil
 }
@@ -406,7 +406,7 @@ func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input reci
 // by SemanticAggregate and SemanticSlice: selector existence or a string
 // equality. Richer boolean predicates remain ordinary node filters until the
 // canonical physical predicate IR grows an equivalent typed representation.
-func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*Selector, string, error) {
+func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.Selector, string, error) {
 	if input == nil {
 		return nil, "", nil
 	}

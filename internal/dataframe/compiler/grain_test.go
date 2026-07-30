@@ -1,17 +1,21 @@
 package compiler
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func TestRowGrainValidate(t *testing.T) {
-	for _, grain := range []RowGrain{
-		RowGrainResource, RowGrainPatient, RowGrainSpecimen, RowGrainFile, RowGrainDiagnosis,
-		RowGrainObservation, RowGrainStudyEnrollment,
+	for _, grain := range []spec.RowGrain{
+		spec.RowGrainResource, spec.RowGrainPatient, spec.RowGrainSpecimen, spec.RowGrainFile, spec.RowGrainDiagnosis,
+		spec.RowGrainObservation, spec.RowGrainStudyEnrollment,
 	} {
 		if err := grain.Validate(); err != nil {
 			t.Errorf("Validate(%q): %v", grain, err)
 		}
 	}
-	for _, grain := range []RowGrain{"", "encounter"} {
+	for _, grain := range []spec.RowGrain{"", "encounter"} {
 		if err := grain.Validate(); err == nil {
 			t.Errorf("Validate(%q) unexpectedly succeeded", grain)
 		}
@@ -19,34 +23,34 @@ func TestRowGrainValidate(t *testing.T) {
 }
 
 func TestProjectionModeProperties(t *testing.T) {
-	modes := []ProjectionMode{
-		ProjectionScalar, ProjectionFirst, ProjectionArray,
-		ProjectionDistinctArray, ProjectionAggregate, ProjectionPivot,
-		ProjectionExplode,
+	modes := []spec.ProjectionMode{
+		spec.ProjectionScalar, spec.ProjectionFirst, spec.ProjectionArray,
+		spec.ProjectionDistinctArray, spec.ProjectionAggregate, spec.ProjectionPivot,
+		spec.ProjectionExplode,
 	}
 	for _, mode := range modes {
 		if err := mode.Validate(); err != nil {
 			t.Errorf("Validate(%q): %v", mode, err)
 		}
-		if got := mode.ExpandsRows(); got != (mode == ProjectionExplode) {
+		if got := mode.ExpandsRows(); got != (mode == spec.ProjectionExplode) {
 			t.Errorf("ExpandsRows(%q) = %v", mode, got)
 		}
 	}
-	if err := ProjectionMode("flatten").Validate(); err == nil {
+	if err := spec.ProjectionMode("flatten").Validate(); err == nil {
 		t.Fatal("unknown projection mode unexpectedly succeeded")
 	}
 }
 
 func TestCardinalityProperties(t *testing.T) {
 	tests := []struct {
-		cardinality Cardinality
+		cardinality spec.Cardinality
 		many        bool
 		required    bool
 	}{
-		{CardinalityRequiredOne, false, true},
-		{CardinalityOptionalOne, false, false},
-		{CardinalityMany, true, false},
-		{CardinalityUnknownObservedMany, true, false},
+		{spec.CardinalityRequiredOne, false, true},
+		{spec.CardinalityOptionalOne, false, false},
+		{spec.CardinalityMany, true, false},
+		{spec.CardinalityUnknownObservedMany, true, false},
 	}
 	for _, test := range tests {
 		if err := test.cardinality.Validate(); err != nil {
@@ -62,33 +66,33 @@ func TestCardinalityProperties(t *testing.T) {
 }
 
 func TestValidateProjection(t *testing.T) {
-	if err := ValidateProjection(CardinalityMany, ProjectionScalar); err == nil {
+	if err := spec.ValidateProjection(spec.CardinalityMany, spec.ProjectionScalar); err == nil {
 		t.Fatal("many-to-scalar projection unexpectedly succeeded")
 	}
-	for _, mode := range []ProjectionMode{
-		ProjectionFirst, ProjectionArray, ProjectionDistinctArray,
-		ProjectionAggregate, ProjectionPivot, ProjectionExplode,
+	for _, mode := range []spec.ProjectionMode{
+		spec.ProjectionFirst, spec.ProjectionArray, spec.ProjectionDistinctArray,
+		spec.ProjectionAggregate, spec.ProjectionPivot, spec.ProjectionExplode,
 	} {
-		if err := ValidateProjection(CardinalityMany, mode); err != nil {
+		if err := spec.ValidateProjection(spec.CardinalityMany, mode); err != nil {
 			t.Errorf("many-to-%s projection: %v", mode, err)
 		}
 	}
-	if err := ValidateProjection(CardinalityRequiredOne, ProjectionScalar); err != nil {
+	if err := spec.ValidateProjection(spec.CardinalityRequiredOne, spec.ProjectionScalar); err != nil {
 		t.Errorf("one-to-scalar projection: %v", err)
 	}
 }
 
 func TestRowIdentityValidate(t *testing.T) {
-	valid := RowIdentity{Grain: RowGrainFile, Fields: []string{"project", "id"}}
+	valid := spec.RowIdentity{Grain: spec.RowGrainFile, Fields: []string{"project", "id"}}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid identity: %v", err)
 	}
 
-	tests := []RowIdentity{
+	tests := []spec.RowIdentity{
 		{},
-		{Grain: RowGrainFile},
-		{Grain: RowGrainFile, Fields: []string{"id", " "}},
-		{Grain: RowGrainFile, Fields: []string{"id", "id"}},
+		{Grain: spec.RowGrainFile},
+		{Grain: spec.RowGrainFile, Fields: []string{"id", " "}},
+		{Grain: spec.RowGrainFile, Fields: []string{"id", "id"}},
 	}
 	for _, identity := range tests {
 		if err := identity.Validate(); err == nil {
@@ -98,36 +102,36 @@ func TestRowIdentityValidate(t *testing.T) {
 }
 
 func TestInferRowGrainAndDefaultIdentity(t *testing.T) {
-	for resourceType, want := range map[string]RowGrain{
-		"Patient":           RowGrainPatient,
-		"Specimen":          RowGrainSpecimen,
-		"DocumentReference": RowGrainFile,
-		"Condition":         RowGrainDiagnosis,
-		"Observation":       RowGrainObservation,
-		"ResearchSubject":   RowGrainStudyEnrollment,
+	for resourceType, want := range map[string]spec.RowGrain{
+		"Patient":           spec.RowGrainPatient,
+		"Specimen":          spec.RowGrainSpecimen,
+		"DocumentReference": spec.RowGrainFile,
+		"Condition":         spec.RowGrainDiagnosis,
+		"Observation":       spec.RowGrainObservation,
+		"ResearchSubject":   spec.RowGrainStudyEnrollment,
 	} {
-		grain, ok := InferRowGrain(resourceType)
+		grain, ok := spec.InferRowGrain(resourceType)
 		if !ok || grain != want {
 			t.Fatalf("InferRowGrain(%q) = %q, %v; want %q, true", resourceType, grain, ok, want)
 		}
-		identity, ok := DefaultRowIdentity(grain)
+		identity, ok := spec.DefaultRowIdentity(grain)
 		if !ok || identity.Grain != grain || len(identity.Fields) != 2 {
 			t.Fatalf("DefaultRowIdentity(%q) = %#v, %v", grain, identity, ok)
 		}
 	}
-	if grain, ok := InferRowGrain("Organization"); !ok || grain != RowGrainResource {
-		t.Fatalf("Organization generic row grain = %q, %v; want %q, true", grain, ok, RowGrainResource)
+	if grain, ok := spec.InferRowGrain("Organization"); !ok || grain != spec.RowGrainResource {
+		t.Fatalf("Organization generic row grain = %q, %v; want %q, true", grain, ok, spec.RowGrainResource)
 	}
 }
 
 func TestValidateRootGrainRejectsImplicitCrossGrainOutput(t *testing.T) {
-	if err := ValidateRootGrain("Specimen", RowGrainSpecimen); err != nil {
+	if err := spec.ValidateRootGrain("Specimen", spec.RowGrainSpecimen); err != nil {
 		t.Fatalf("matching named grain: %v", err)
 	}
-	if err := ValidateRootGrain("Organization", RowGrainResource); err != nil {
+	if err := spec.ValidateRootGrain("Organization", spec.RowGrainResource); err != nil {
 		t.Fatalf("generic generated root: %v", err)
 	}
-	if err := ValidateRootGrain("Patient", RowGrainSpecimen); err == nil {
+	if err := spec.ValidateRootGrain("Patient", spec.RowGrainSpecimen); err == nil {
 		t.Fatal("cross-grain root unexpectedly accepted")
 	}
 }

@@ -1,7 +1,7 @@
 package graphqlapi
 
 import (
-	"github.com/calypr/loom/internal/dataframe"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
@@ -12,10 +12,10 @@ func PresentError(err error, requestID string) *gqlerror.Error {
 	if err == nil {
 		return nil
 	}
-	userErr := dataframe.Normalize(err)
+	userErr := dataframeerrors.Normalize(err)
 	return &gqlerror.Error{
 		Err:        err,
-		Message:    dataframe.PublicMessage(userErr),
+		Message:    dataframeerrors.PublicMessage(userErr),
 		Extensions: ExtensionsForError(userErr, requestID),
 	}
 }
@@ -28,7 +28,7 @@ func GraphQLError(err error, requestID string) error {
 // ExtensionsForError returns a fresh map suitable for a GraphQL error
 // response. It deliberately exposes only the stable semantic contract.
 func ExtensionsForError(err error, requestID string) map[string]any {
-	userErr := dataframe.Normalize(err)
+	userErr := dataframeerrors.Normalize(err)
 	if userErr == nil {
 		return nil
 	}

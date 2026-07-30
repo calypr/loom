@@ -1,11 +1,15 @@
 package aql
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 // selectorHasNoArrays and the helpers below are shared by the physical
 // renderer and typed-filter compiler. They deliberately render only validated
 // Selector values and do not know anything about storage-plan representation.
-func selectorHasNoArrays(sel Selector) bool {
+func selectorHasNoArrays(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate || step.Index != nil {
 			return false
@@ -14,7 +18,7 @@ func selectorHasNoArrays(sel Selector) bool {
 	return true
 }
 
-func selectorHasIteratedArray(sel Selector) bool {
+func selectorHasIteratedArray(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate {
 			return true
@@ -23,7 +27,7 @@ func selectorHasIteratedArray(sel Selector) bool {
 	return false
 }
 
-func compileDirectExpr(rootVar string, steps []SelectorStep) string {
+func compileDirectExpr(rootVar string, steps []spec.SelectorStep) string {
 	cur := rootVar
 	for _, step := range steps {
 		if step.Index != nil {
@@ -35,7 +39,7 @@ func compileDirectExpr(rootVar string, steps []SelectorStep) string {
 	return cur
 }
 
-func extractFinalExpr(cur string, step SelectorStep) string {
+func extractFinalExpr(cur string, step spec.SelectorStep) string {
 	switch {
 	case step.Iterate:
 		return fmt.Sprintf("(%s.%s ? %s.%s : [])", cur, step.Field, cur, step.Field)

@@ -33,7 +33,7 @@ type CompiledRecipe struct {
 type CompiledRecipeOutput struct {
 	Name             string
 	RootResourceType string
-	RowGrain         semantic.RowGrain
+	RowGrain         spec.RowGrain
 	Columns          []string
 	// OutputSchema is the compiler-owned ordered projection schema. It is
 	// captured from the finalized physical RETURN projections rather than
@@ -92,7 +92,7 @@ func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
 // Dynamic maps are lowered into bounded named projections below. Their
 // observed-key/type checks remain metadata for post-query validation; no
 // runtime map-shaped AQL is emitted.
-func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy PhysicalOptimizationPolicy) (CompiledRecipe, error) {
+func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.PhysicalOptimizationPolicy) (CompiledRecipe, error) {
 	semanticPlan := resolved.SemanticPlan
 	if semanticPlan.Version <= 0 || strings.TrimSpace(semanticPlan.RecipeDigest) == "" {
 		return CompiledRecipe{}, fmt.Errorf("resolved recipe plan is missing semantic provenance")
@@ -125,13 +125,13 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy Phys
 	return result, nil
 }
 
-func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
+func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
 	root := cloneRecipeNodeForPhysical(output.Root)
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
-	semanticInput := SemanticPlan{
+	semanticInput := semantic.SemanticPlan{
 		Version:           1,
 		Project:           bindings.Project,
 		DatasetGeneration: bindings.DatasetGeneration,

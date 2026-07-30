@@ -3,18 +3,20 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 // renderGraphPhysicalPlan is the graph/path counterpart to the dataframe
 // navigation layout. It deliberately shares the same root scope operations
 // and traversal renderer primitives, but keeps path rows correlated until a
 // single final union/dedupe/sort/limit operation.
-func renderGraphPhysicalPlan(plan PhysicalPlan, collectionKeys map[string]struct{}) (RenderedPhysicalPlan, error) {
-	if len(plan.Operations) < 3 || plan.Operations[0].Kind != PhysicalRootScanOp {
+func renderGraphPhysicalPlan(plan ir.PhysicalPlan, collectionKeys map[string]struct{}) (RenderedPhysicalPlan, error) {
+	if len(plan.Operations) < 3 || plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 		return RenderedPhysicalPlan{}, fmt.Errorf("graph renderer requires ROOT_SCAN followed by path operations")
 	}
 	last := plan.Operations[len(plan.Operations)-1]
-	if last.Kind != PhysicalGraphReturnOp || last.GraphReturn == nil {
+	if last.Kind != ir.PhysicalGraphReturnOp || last.GraphReturn == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("graph renderer requires GRAPH_RETURN as final operation")
 	}
 	r := &physicalPlanRenderer{
@@ -26,9 +28,9 @@ func renderGraphPhysicalPlan(plan PhysicalPlan, collectionKeys map[string]struct
 	root := plan.Operations[0].RootScan
 	inner := []string{fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)}
 	pathStart := 1
-	for pathStart < len(plan.Operations)-1 && plan.Operations[pathStart].Kind != PhysicalPathSeedOp && plan.Operations[pathStart].Kind != PhysicalPathExtendOp {
+	for pathStart < len(plan.Operations)-1 && plan.Operations[pathStart].Kind != ir.PhysicalPathSeedOp && plan.Operations[pathStart].Kind != ir.PhysicalPathExtendOp {
 		operation := plan.Operations[pathStart]
-		if operation.Kind == PhysicalFilterOp || operation.Kind == PhysicalDerivedLetOp || operation.Kind == PhysicalExpressionLetOp {
+		if operation.Kind == ir.PhysicalFilterOp || operation.Kind == ir.PhysicalDerivedLetOp || operation.Kind == ir.PhysicalExpressionLetOp {
 			rendered, err := r.renderScopeOperation(operation, "  ")
 			if err != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render graph root scope %d: %w", pathStart, err)
@@ -44,9 +46,9 @@ func renderGraphPhysicalPlan(plan PhysicalPlan, collectionKeys map[string]struct
 		var rendered []string
 		var err error
 		switch op.Kind {
-		case PhysicalPathSeedOp:
+		case ir.PhysicalPathSeedOp:
 			rendered, err = r.renderPathSeed(*op.PathSeed)
-		case PhysicalPathExtendOp:
+		case ir.PhysicalPathExtendOp:
 			rendered, err = r.renderPathExtend(*op.PathExtend, index)
 		default:
 			return RenderedPhysicalPlan{}, fmt.Errorf("unsupported graph path operation %d (%s)", index, op.Kind)
@@ -75,7 +77,7 @@ func renderGraphPhysicalPlan(plan PhysicalPlan, collectionKeys map[string]struct
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) renderPathSeed(seed PhysicalPathSeed) ([]string, error) {
+func (r *physicalPlanRenderer) renderPathSeed(seed ir.PhysicalPathSeed) ([]string, error) {
 	value, err := r.renderValue(seed.Node.Value)
 	if err != nil {
 		return nil, err
@@ -85,7 +87,7 @@ func (r *physicalPlanRenderer) renderPathSeed(seed PhysicalPathSeed) ([]string, 
 	return []string{fmt.Sprintf("  LET %s = [%s]", seed.Variable, path)}, nil
 }
 
-func (r *physicalPlanRenderer) renderPathExtend(extend PhysicalPathExtend, index int) ([]string, error) {
+func (r *physicalPlanRenderer) renderPathExtend(extend ir.PhysicalPathExtend, index int) ([]string, error) {
 	parentSet, ok := r.setVariables[extend.SourceVariable]
 	if !ok {
 		return nil, fmt.Errorf("source path set %q has not been rendered", extend.SourceVariable)
@@ -108,9 +110,9 @@ func (r *physicalPlanRenderer) renderPathExtend(extend PhysicalPathExtend, index
 	edge := tr.EdgeVariable
 	strategy := tr.Strategy
 	if strategy == "" {
-		strategy = PhysicalTraversalNative
+		strategy = ir.PhysicalTraversalNative
 	}
-	if strategy == PhysicalTraversalEndpointLookup {
+	if strategy == ir.PhysicalTraversalEndpointLookup {
 		lines = append(lines,
 			fmt.Sprintf("%sFOR %s IN @@%s", indent, edge, tr.EdgeCollectionBindKey),
 			fmt.Sprintf("%s  FILTER %s.%s == %s._id", indent, edge, tr.EndpointField, current),
@@ -147,7 +149,7 @@ func (r *physicalPlanRenderer) renderPathExtend(extend PhysicalPathExtend, index
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderGraphReturn(graph PhysicalGraphReturn, rows string) ([]string, error) {
+func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, rows string) ([]string, error) {
 	all := r.newInternalVariable("all_paths")
 	path := r.newInternalVariable("path")
 	group := r.newInternalVariable("path_group")

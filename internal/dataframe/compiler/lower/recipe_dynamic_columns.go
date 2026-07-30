@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
@@ -156,7 +157,7 @@ func nextDynamicBindKey(bindVars map[string]any, name string, index int) string 
 
 func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if input.Expression.Selector != nil && strings.EqualFold(strings.TrimSpace(input.Expression.Selector.Context), "item") {
-		selector, err := ParseSelector(input.Expression.Selector.Path)
+		selector, err := spec.ParseSelector(input.Expression.Selector.Path)
 		if err != nil {
 			return ir.PhysicalExpression{}, err
 		}
@@ -188,7 +189,7 @@ func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[
 // parent schema would reject valid generic choice fields.
 func lowerDynamicItemAST(input expression.Expression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if input.Selector != nil && strings.EqualFold(strings.TrimSpace(input.Selector.Context), "item") {
-		selector, err := ParseSelector(input.Selector.Path)
+		selector, err := spec.ParseSelector(input.Selector.Path)
 		if err != nil {
 			return ir.PhysicalExpression{}, err
 		}

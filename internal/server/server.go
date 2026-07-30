@@ -21,7 +21,6 @@ import (
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -30,6 +29,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	api "github.com/calypr/loom/internal/httpapi"
@@ -124,7 +124,7 @@ func Run() {
 	if err != nil {
 		exitf("load default dataframe recipe: %v", err)
 	}
-	if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).Register(context.Background(), defaultBundle); err != nil {
+	if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
 		exitf("register default dataframe recipe: %v", err)
 	}
 	lifecycleStore, err := datasetarango.New(lifecycleClient)
@@ -166,7 +166,7 @@ func Run() {
 		exitf("unsupported auth mode %q", serverConfig.Auth.Mode)
 	}
 
-	dataframes := dataframe.NewService(dataframe.ServiceConfig{
+	dataframes := runtime.NewService(runtime.ServiceConfig{
 		ConnectionOptions:      connOpts,
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
@@ -261,11 +261,16 @@ func Run() {
 				for _, stream := range streams {
 					stream := stream
 					columns := recipeOutputLogicalColumns(full, stream.Name)
+					rootResourceType := recipeOutputRootResourceType(full, stream.Name)
 					streamInputs = append(streamInputs, publication.OutputStream{
 						Name: stream.Name, Columns: columns,
 						Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 							_, err := stream.Stream(streamCtx, func(row map[string]any) error {
-								return visit(row)
+								qualified, err := materialization.QualifyFlatRow(rootResourceType, row)
+								if err != nil {
+									return err
+								}
+								return visit(qualified)
 							})
 							return err
 						},
@@ -393,11 +398,20 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 			if kind == "" {
 				kind = "string"
 			}
-			columns = append(columns, publication.LogicalColumn{Name: column.Name, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
+			columns = append(columns, publication.LogicalColumn{Name: materialization.FlatColumnName(output.RootResourceType, column.Name), Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
 		}
 		return columns
 	}
 	return []publication.LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}}
+}
+
+func recipeOutputRootResourceType(plan engine.Resolved, outputName string) string {
+	for _, output := range plan.Compiled.Outputs {
+		if output.Name == outputName {
+			return output.RootResourceType
+		}
+	}
+	return ""
 }
 
 func exitf(format string, args ...any) {

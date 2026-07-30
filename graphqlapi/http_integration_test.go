@@ -12,7 +12,7 @@ import (
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	api "github.com/calypr/loom/internal/httpapi"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -186,37 +186,9 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 }
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
-	dfService := dataframe.NewService(dataframe.ServiceConfig{
+	dfService := runtime.NewService(runtime.ServiceConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			switch opts.ResourceType {
-			case "Patient":
-				return []catalog.PopulatedField{
-					{ResourceType: "Patient", Path: "gender", Kind: "scalar"},
-					{ResourceType: "Patient", Path: "id", Kind: "scalar"},
-				}, nil
-			case "Condition":
-				return []catalog.PopulatedField{
-					{ResourceType: "Condition", Path: "id", Kind: "scalar"},
-				}, nil
-			case "Specimen":
-				return []catalog.PopulatedField{
-					{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"},
-				}, nil
-			default:
-				return []catalog.PopulatedField{}, nil
-			}
-		},
-		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			if opts.NodeType == "Patient" {
-				return []catalog.PopulatedReference{
-					{FromType: "Patient", Label: "subject_Patient", ToType: "Condition", EdgeCount: 1},
-					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1},
-				}, nil
-			}
-			return []catalog.PopulatedReference{}, nil
-		},
-		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -316,38 +288,9 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 }
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
-	dfService := dataframe.NewService(dataframe.ServiceConfig{
+	dfService := runtime.NewService(runtime.ServiceConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
-		DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			switch opts.ResourceType {
-			case "Patient":
-				return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
-			case "Specimen":
-				return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type[].coding[].display", Kind: "scalar"}}, nil
-			default:
-				return []catalog.PopulatedField{}, nil
-			}
-		},
-		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-			if opts.NodeType == "Patient" {
-				return []catalog.PopulatedReference{
-					{
-						FromType:  "Patient",
-						Label:     "subject_Patient",
-						ToType:    "Specimen",
-						EdgeCount: 2,
-					},
-					{
-						FromType:  "Patient",
-						Label:     "subject_Patient",
-						ToType:    "Condition",
-						EdgeCount: 1,
-					},
-				}, nil
-			}
-			return []catalog.PopulatedReference{}, nil
-		},
-		ExecuteRows: func(ctx context.Context, opts dataframe.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}

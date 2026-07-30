@@ -234,10 +234,6 @@ func (s *fieldCatalogStats) addDistinct(value string) {
 	if _, ok := s.distinctSet[value]; ok {
 		return
 	}
-	if len(s.distinctValues) >= fieldCatalogDistinctCap {
-		s.distinctTruncated = true
-		return
-	}
 	s.distinctSet[value] = struct{}{}
 	s.distinctValues = append(s.distinctValues, value)
 }
@@ -248,10 +244,6 @@ func (s *fieldCatalogStats) addPivotColumn(value string) {
 		return
 	}
 	if _, ok := s.pivotColumnSet[value]; ok {
-		return
-	}
-	if len(s.pivotColumns) >= fieldCatalogPivotCap {
-		s.distinctTruncated = true
 		return
 	}
 	s.pivotColumnSet[value] = struct{}{}

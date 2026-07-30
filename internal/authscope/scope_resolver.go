@@ -188,25 +188,6 @@ func (r *ScopeResolver) ResolveReadScopeForGeneration(ctx context.Context, princ
 	return ReadScope{AuthResourcePaths: normalizedRequested, Mode: ReadScopeRestricted}, nil
 }
 
-// ResolveReadAuthResourcePaths is retained for existing callers that only
-// accept paths. New query-building code must use ResolveReadScope so a
-// restricted empty result cannot become an unrestricted AQL query.
-func (r *ScopeResolver) ResolveReadAuthResourcePaths(ctx context.Context, principal *Principal, project string, requested []string) ([]string, error) {
-	return r.ResolveReadAuthResourcePathsForGeneration(ctx, principal, project, "", requested)
-}
-
-// ResolveReadAuthResourcePathsForGeneration is the compatibility payload form
-// of ResolveReadScopeForGeneration. New query callers must carry the returned
-// ReadScope mode as well so a restricted empty result cannot become an
-// unrestricted AQL query.
-func (r *ScopeResolver) ResolveReadAuthResourcePathsForGeneration(ctx context.Context, principal *Principal, project, datasetGeneration string, requested []string) ([]string, error) {
-	scope, err := r.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
-	if err != nil {
-		return nil, err
-	}
-	return cloneStrings(scope.AuthResourcePaths), nil
-}
-
 func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal, project, authResourcePath string) error {
 	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionWrite, "*")
 	if err != nil {

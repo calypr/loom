@@ -253,10 +253,6 @@ func NewPhysicalOptimizationReport(policy PhysicalOptimizationPolicy) PhysicalOp
 	return newPhysicalOptimizationReport(policy)
 }
 
-func ClonePhysicalOptimizationReport(report PhysicalOptimizationReport) PhysicalOptimizationReport {
-	return clonePhysicalOptimizationReport(report)
-}
-
 func EstimateTraversalSharingWork(prefix PhysicalTraversalPrefixDecomposition, candidateSets int) (int, int, int) {
 	return estimateTraversalSharingWork(prefix, candidateSets)
 }

@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // Result is the pure-compiler outcome for one oracle fixture. It intentionally
@@ -17,37 +19,37 @@ import (
 // integration corpus.
 type Result struct {
 	FixtureID string
-	Compiled  dataframe.CompiledQuery
+	Compiled  compiler.CompiledQuery
 	Err       error
 }
 
 func Run(fixture Fixture) Result {
-	compiled, err := compileRecipe(fixture.Recipe, fixture.Project, fixture.Limit, dataframe.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compileRecipe(fixture.Recipe, fixture.Project, fixture.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	return Result{FixtureID: fixture.ID, Compiled: compiled, Err: err}
 }
 
-func compileRecipe(bundle recipe.Bundle, project string, limit int, policy dataframe.PhysicalOptimizationPolicy) (dataframe.CompiledQuery, error) {
+func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.PhysicalOptimizationPolicy) (compiler.CompiledQuery, error) {
 	bindings := recipe.RuntimeBindings{Project: project}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return dataframe.CompiledQuery{}, err
+		return compiler.CompiledQuery{}, err
 	}
 	resolved, err := semantic.ResolveRecipePlan(plan, "conformance", "")
 	if err != nil {
-		return dataframe.CompiledQuery{}, err
+		return compiler.CompiledQuery{}, err
 	}
-	queries, err := dataframe.CompileResolvedRecipePlanWithPolicy(resolved, limit, policy)
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, policy)
 	if err != nil {
-		return dataframe.CompiledQuery{}, err
+		return compiler.CompiledQuery{}, err
 	}
 	if len(queries) != 1 {
-		return dataframe.CompiledQuery{}, fmt.Errorf("recipe outputs = %d, want one", len(queries))
+		return compiler.CompiledQuery{}, fmt.Errorf("recipe outputs = %d, want one", len(queries))
 	}
 	return queries[0], nil
 }
 
 func recipeWithTraversal(from, label, to string) recipe.Bundle {
-	grain, _ := dataframe.InferRowGrain(from)
+	grain, _ := spec.InferRowGrain(from)
 	return recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "traversal", TranslationVersion: "conformance", Outputs: []recipe.Output{{Name: from, RootResourceType: from, RowGrain: string(grain), Traversals: []recipe.Traversal{{Name: label, ToResourceType: to, Alias: "related"}}}}}
 }
 

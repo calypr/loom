@@ -19,7 +19,7 @@ type RecipeControl interface {
 	Validate(context.Context, string, recipe.RuntimeBindings) (control.Validation, error)
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
-	Preview(context.Context, string, recipe.RuntimeBindings, control.ExecuteFunc) (control.Preview, error)
+	Preview(context.Context, string, recipe.RuntimeBindings) (control.Preview, error)
 }
 
 // RecipeRunControl is an optional extension for the explicit full-data
@@ -77,7 +77,6 @@ type Resolver struct {
 	query             *queryapi.Service
 	materializations  *materializationapi.Service
 	recipeControl     RecipeControl
-	previewExecute    control.ExecuteFunc
 	recipeMaterialize RecipeMaterializeFunc
 	recipeExecutions  RecipeExecutionReader
 	recipeAuthorizer  RecipeAuthorizer
@@ -87,7 +86,6 @@ type ResolverConfig struct {
 	DataframeQuery        queryapi.Config
 	MaterializationReader *materialization.Reader
 	RecipeControl         RecipeControl
-	RecipePreviewExecute  control.ExecuteFunc
 	RecipeMaterialize     RecipeMaterializeFunc
 	RecipeExecutions      RecipeExecutionReader
 	RecipeAuthorizer      RecipeAuthorizer
@@ -102,7 +100,6 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 			ActiveManifestResolver: cfg.DataframeQuery.ActiveManifestResolver,
 		}),
 		recipeControl:     cfg.RecipeControl,
-		previewExecute:    cfg.RecipePreviewExecute,
 		recipeMaterialize: cfg.RecipeMaterialize,
 		recipeExecutions:  cfg.RecipeExecutions,
 		recipeAuthorizer:  cfg.RecipeAuthorizer,

@@ -3,7 +3,9 @@ schema:
   - graphqlapi/fhir_schema.graphqls
 
 exec:
-  filename: graphqlapi/generated.go
+  layout: follow-schema
+  dir: graphqlapi
+  filename_template: "{name}.generated.go"
   package: graphqlapi
 
 model:

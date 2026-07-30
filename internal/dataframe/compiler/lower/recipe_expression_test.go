@@ -6,6 +6,7 @@ import (
 	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestLowerRecipeExpressionUsesTypedPhysicalCallsAndBinds(t *testing.T) {
@@ -75,19 +76,19 @@ func TestLowerRecipeExpressionSpecializesRepeatedSelector(t *testing.T) {
 }
 
 func TestSelectorModeClassifierKeepsPredicateAndFallbackGeneric(t *testing.T) {
-	selector, err := ParseSelector("identifier[].value")
+	selector, err := spec.ParseSelector("identifier[].value")
 	if err != nil {
 		t.Fatal(err)
 	}
 	selector.Filter = &fhirschema.ContainsFilter{Field: "system", Needle: "case_id"}
-	if got := selectorExecutionModeForExpression("Patient", selector, nil, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull); got != ir.PhysicalSelectorGeneric {
+	if got := selectorExecutionModeForExpression("Patient", selector, nil); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("predicate selector unexpectedly specialized: %q", got)
 	}
-	plain, err := ParseSelector("gender")
+	plain, err := spec.ParseSelector("gender")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := selectorExecutionModeForExpression("Patient", plain, []Selector{selector}, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull); got != ir.PhysicalSelectorGeneric {
+	if got := selectorExecutionModeForExpression("Patient", plain, []spec.Selector{selector}); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("fallback selector unexpectedly specialized: %q", got)
 	}
 }

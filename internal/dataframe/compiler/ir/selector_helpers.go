@@ -1,6 +1,8 @@
 package ir
 
-func selectorHasNoArrays(sel Selector) bool {
+import "github.com/calypr/loom/internal/dataframe/spec"
+
+func selectorHasNoArrays(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate || step.Index != nil {
 			return false
@@ -9,7 +11,7 @@ func selectorHasNoArrays(sel Selector) bool {
 	return true
 }
 
-func selectorHasIteratedArray(sel Selector) bool {
+func selectorHasIteratedArray(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate {
 			return true

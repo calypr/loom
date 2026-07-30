@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -44,7 +45,7 @@ func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*catalog.Prof
 	return keys
 }
 
-type generationFileResult struct {
+type fileLoadResult struct {
 	ResourceType       string
 	Rows               int
 	VerticesBuilt      int
@@ -61,26 +62,30 @@ type generationFileResult struct {
 	RelationshipCounts map[catalog.RelationshipKey]int64
 }
 
-type generationWriteTask struct {
+type fileWriteTask struct {
 	collection         string
 	docs               []json.RawMessage
 	relationshipCounts map[catalog.RelationshipKey]int64
 }
 
-// loadGenerationFile owns one scanner and closes it with a defer before it
-// returns. This keeps file descriptors bounded for large staged directories,
-// including failures from worker, writer, or scanner goroutines.
-func loadGenerationFile(
+type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
+
+// loadFile owns one scanner and closes it before returning. A blank generation
+// preserves legacy document/catalog identity; overwrite controls the legacy
+// upsert contract while immutable generations always pass false.
+func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
 	client *arangostore.Client,
 	schema *graph.GraphSchema,
 	file string,
 	datasetGeneration string,
+	overwrite bool,
 	start time.Time,
 	priorVertices int,
 	priorEdges int,
-) (result generationFileResult, err error) {
+	insert documentInserter,
+) (result fileLoadResult, err error) {
 	resourceType := ResourceTypeFromPath(file)
 	result.ResourceType = resourceType
 	class := schema.GetClass(resourceType)
@@ -93,9 +98,7 @@ func loadGenerationFile(
 		return result, err
 	}
 	defer func() {
-		if closeErr := closeFn(); closeErr != nil && err == nil {
-			err = closeErr
-		}
+		err = errors.Join(err, closeFn())
 	}()
 
 	var rowBuilder RowBuilder
@@ -104,13 +107,15 @@ func loadGenerationFile(
 	} else {
 		rowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	}
-	rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
-	if err != nil {
-		return result, err
+	if strings.TrimSpace(datasetGeneration) != "" {
+		rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
+		if err != nil {
+			return result, err
+		}
 	}
 
 	linesChan := make(chan string, 10000)
-	writeChan := make(chan generationWriteTask, 100)
+	writeChan := make(chan fileWriteTask, 100)
 	fileCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -153,6 +158,7 @@ func loadGenerationFile(
 	var workersWG sync.WaitGroup
 	workerTimingsChan := make(chan map[string]float64, workerCount)
 	workerCatalogsChan := make(chan *catalog.Profiler, workerCount)
+	shapeCache := catalog.NewShapePlanCache()
 
 	var fileRows int64
 	var fileVertices int64
@@ -168,7 +174,7 @@ func loadGenerationFile(
 		go func() {
 			defer workersWG.Done()
 			localTimings := make(map[string]float64)
-			localCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, catalog.NewShapePlanCache())
+			localCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)
 			lineCounter := 0
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
@@ -179,7 +185,7 @@ func loadGenerationFile(
 				}
 				waitStart := time.Now()
 				select {
-				case writeChan <- generationWriteTask{collection: resourceType, docs: vertexBatch}:
+				case writeChan <- fileWriteTask{collection: resourceType, docs: vertexBatch}:
 					localTimings["vertex_queue_wait"] += time.Since(waitStart).Seconds()
 					localTimings["vertex_batches"]++
 					vertexBatch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -200,7 +206,7 @@ func loadGenerationFile(
 				}
 				waitStart := time.Now()
 				select {
-				case writeChan <- generationWriteTask{collection: EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
+				case writeChan <- fileWriteTask{collection: EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
 					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
 					localTimings["edge_batches"]++
 					edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -312,9 +318,7 @@ func loadGenerationFile(
 						return
 					}
 					insertStart := time.Now()
-					// A generation never overwrites a physical graph or catalog
-					// document. Collisions are evidence of a non-immutable load.
-					if insertErr := insertRawDocuments(fileCtx, client, task.collection, task.docs, false, opts.WriteAPI); insertErr != nil {
+					if insertErr := insert(fileCtx, client, task.collection, task.docs, overwrite, opts.WriteAPI); insertErr != nil {
 						setPipelineErr(insertErr)
 						return
 					}
@@ -357,7 +361,7 @@ func loadGenerationFile(
 	result.EdgeErrors = int(atomic.LoadInt64(&edgeErrors))
 	result.StageSeconds = make(map[string]float64)
 	result.RelationshipCounts = make(map[catalog.RelationshipKey]int64)
-	mergedCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, catalog.NewShapePlanCache())
+	mergedCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)
 	for timings := range workerTimingsChan {
 		for key, value := range timings {
 			switch key {

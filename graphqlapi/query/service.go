@@ -8,9 +8,10 @@ import (
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -20,7 +21,7 @@ type Service struct {
 	connOpts                arangostore.ConnectionOptions
 	discoverReferences      func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	discoverFields          func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	dataframes              *dataframe.Service
+	dataframes              *runtime.Service
 	scopeResolver           *authscope.ScopeResolver
 	activeManifestResolver  dataset.ActiveManifestResolver
 	discoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
@@ -31,7 +32,7 @@ type Config struct {
 	ConnectionOptions  arangostore.ConnectionOptions
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	Dataframes         *dataframe.Service
+	Dataframes         *runtime.Service
 	ScopeResolver      *authscope.ScopeResolver
 	// ActiveManifestResolver is optional. When present, builder catalog
 	// discovery and recipe preparation resolve one READY active generation
@@ -69,7 +70,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
 	} else {
-		service.dataframes = dataframe.NewService(dataframe.ServiceConfig{
+		service.dataframes = runtime.NewService(runtime.ServiceConfig{
 			ConnectionOptions:      cfg.ConnectionOptions,
 			ScopeResolver:          cfg.ScopeResolver,
 			ActiveManifestResolver: cfg.ActiveManifestResolver,
@@ -78,7 +79,7 @@ func NewService(cfg Config) *Service {
 	return service
 }
 
-func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*dataframe.Result, error) {
+func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*runtime.Result, error) {
 	started := time.Now()
 	normalizedInput, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {
@@ -120,7 +121,7 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	}
 	requestPreparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, compiler.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, fmt.Errorf("compile GraphQL recipe: %w", err)
 	}

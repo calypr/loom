@@ -3,23 +3,26 @@ package aql
 import (
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func scalarLiteral(key string) PhysicalExpression {
-	return PhysicalExpression{
-		Kind:         PhysicalLiteralExpression,
-		Cardinality:  PhysicalScalarCardinality,
-		NullBehavior: PhysicalPreserveNull,
-		Literal:      &PhysicalLiteral{BindKey: key},
+func scalarLiteral(key string) ir.PhysicalExpression {
+	return ir.PhysicalExpression{
+		Kind:         ir.PhysicalLiteralExpression,
+		Cardinality:  ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Literal:      &ir.PhysicalLiteral{BindKey: key},
 	}
 }
 
-func callExpression(name string, args ...PhysicalExpression) PhysicalExpression {
-	return PhysicalExpression{
-		Kind:         PhysicalCallExpression,
-		Cardinality:  PhysicalScalarCardinality,
-		NullBehavior: PhysicalPreserveNull,
-		Call:         &PhysicalCall{Name: name, Args: args},
+func callExpression(name string, args ...ir.PhysicalExpression) ir.PhysicalExpression {
+	return ir.PhysicalExpression{
+		Kind:         ir.PhysicalCallExpression,
+		Cardinality:  ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Call:         &ir.PhysicalCall{Name: name, Args: args},
 	}
 }
 
@@ -58,13 +61,13 @@ func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
 		setVariables:   map[string]string{"child_set_1": "child_set_1"},
 		reservedVars:   map[string]struct{}{},
 	}
-	expression := PhysicalExpression{
-		Kind:        PhysicalExtractExpression,
-		Cardinality: PhysicalArrayCardinality,
-		Extract: &PhysicalExtract{
-			Source:        PhysicalValue{Variable: "child_set_1", Path: []string{"payload"}},
-			Selector:      Selector{Steps: []SelectorStep{{Field: "identifier", Iterate: true}, {Field: "value"}}},
-			ExecutionMode: PhysicalSelectorGeneric,
+	expression := ir.PhysicalExpression{
+		Kind:        ir.PhysicalExtractExpression,
+		Cardinality: ir.PhysicalArrayCardinality,
+		Extract: &ir.PhysicalExtract{
+			Source:        ir.PhysicalValue{Variable: "child_set_1", Path: []string{"payload"}},
+			Selector:      spec.Selector{Steps: []spec.SelectorStep{{Field: "identifier", Iterate: true}, {Field: "value"}}},
+			ExecutionMode: ir.PhysicalSelectorGeneric,
 		},
 	}
 	got, err := renderer.renderExpression(expression)
@@ -157,12 +160,12 @@ func TestRenderNestedUUIDUsesRecursivePostQueryCallMarker(t *testing.T) {
 
 func TestPhysicalPlanValidatesLiteralAndCallPayloads(t *testing.T) {
 	valid := callExpression("concat", scalarLiteral("left"), scalarLiteral("right"))
-	plan := PhysicalPlan{
+	plan := ir.PhysicalPlan{
 		Version:  1,
 		BindVars: map[string]any{"root_collection": "Patient", "left": "A", "right": "B"},
-		Operations: []PhysicalOperation{
-			{Kind: PhysicalRootScanOp, RootScan: &PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
-			{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: []PhysicalProjection{{Name: "value", Expression: &valid}}}},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "value", Expression: &valid}}}},
 		},
 	}
 	if err := plan.Validate(); err != nil {

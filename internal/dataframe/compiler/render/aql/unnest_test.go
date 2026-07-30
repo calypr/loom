@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestRenderPhysicalPlanInnerUnnestUsesCanonicalCorrelatedLoop(t *testing.T) {
@@ -60,13 +61,13 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 	}
 }
 
-func genericUnnestPlan(t *testing.T, mode ir.PhysicalUnnestJoinMode, ordinality string) compiler.PhysicalPlan {
+func genericUnnestPlan(t *testing.T, mode ir.PhysicalUnnestJoinMode, ordinality string) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := compiler.BuildGenericPhysicalPlan(compiler.SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
-		Root:              compiler.SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:              semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)

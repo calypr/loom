@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"sort"
-	"strings"
 	"testing"
 )
 
@@ -169,23 +167,6 @@ func generationDocumentIDMust(t *testing.T, project, generation, documentID stri
 		t.Fatal(err)
 	}
 	return value
-}
-
-func edgeIdentityTuples(t *testing.T, edges []json.RawMessage) []string {
-	t.Helper()
-	tuples := make([]string, 0, len(edges))
-	for _, raw := range edges {
-		document := decodeIdentityDocument(t, raw)
-		tuples = append(tuples, strings.Join([]string{
-			documentString(t, document, "_key"),
-			documentString(t, document, "_from"),
-			documentString(t, document, "_to"),
-			documentString(t, document, "label"),
-			documentString(t, document, generationIdentityField),
-		}, "\x00"))
-	}
-	sort.Strings(tuples)
-	return tuples
 }
 
 func repoRoot(t *testing.T) string {

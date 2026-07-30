@@ -69,9 +69,7 @@ The current runtime call path is:
 GraphQL request
   -> graphqlapi resolver
   -> dataframebuilder.Service
-  -> dataframe compatibility façade
   -> dataframe/runtime.Service
-  -> dataframe/compiler facade
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
   -> dataframe/compiler/ir typed physical plan
@@ -81,9 +79,8 @@ GraphQL request
   -> Arango query execution/streaming
 ```
 
-`internal/dataframe` is now a compatibility façade. Runtime preparation and
-execution live in `internal/dataframe/runtime`; pure semantic/physical
-compilation lives in `internal/dataframe/compiler`; structured transport
+Runtime preparation and execution live in `internal/dataframe/runtime`;
+compiler orchestration lives in `internal/dataframe/compiler`; structured transport
 errors live in `internal/dataframe/errors`; and guided templates live in
 `internal/dataframe/template`. `internal/catalog` owns scoped observed-field
 and relationship facts. `fhirschema` owns generated structural metadata. These
@@ -97,15 +94,13 @@ layout, plus the explicitly proven `ResearchSubject --study--> ResearchStudy`
 sufficient proof; every other forward route remains rejected until it has a
 verified storage contract.
 
-The compiler facade orchestrates independent `spec`, `semantic`, `compiler/ir`,
+The compiler package orchestrates independent `spec`, `semantic`, `compiler/ir`,
 `compiler/lower`, `compiler/optimize`, and `compiler/render/aql` packages.
 `spec` owns request contracts, `semantic` owns backend-independent meaning,
 `ir` owns typed physical operations and scope proofs, `lower` owns FHIR route
 and endpoint decisions, `optimize` owns semantics-preserving IR rewrites, and
 `render/aql` owns serialization only. Runtime code may call the compiler, but
 no compiler child may import runtime, catalog, or HTTP/GraphQL transport code.
-The root dataframe import path remains stable through direct aliases and
-forwarding functions so external callers do not need a flag-day migration.
 
 When adding code, use this lookup table:
 
@@ -141,7 +136,11 @@ compiler and did not work with immutable generation keys.
 
 Run `make generate-fhir` after changing the graph schema and
 `make generate-graphql` after changing the GraphQL schema. Do not hand-edit
-generated `fhirstructs`, compiler metadata, or gqlgen output.
+generated `fhirstructs`, compiler metadata, or gqlgen output. The gqlgen
+executable output uses follow-schema layout: `graphqlapi/schema.generated.go`,
+`graphqlapi/fhir_schema.generated.go`, `graphqlapi/root_.generated.go`, and
+`graphqlapi/prelude.generated.go` are generated from the corresponding schema
+sources and share the `graphqlapi` package.
 
 The normal verification targets are:
 

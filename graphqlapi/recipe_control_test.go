@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/control"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type fakeRecipeControl struct {
@@ -21,7 +22,7 @@ type fakeRecipeRunControl struct{ fakeRecipeControl }
 
 func (f fakeRecipeRunControl) Run(context.Context, string, recipe.RuntimeBindings) (control.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}, {"id": "p2"}}
-	return control.Preview{Plan: f.plan, Rows: map[string][]map[string]any{"rows": rows}, Outputs: []control.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return control.Preview{Plan: f.plan, Outputs: []control.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
 func (f fakeRecipeControl) Validate(context.Context, string, recipe.RuntimeBindings) (control.Validation, error) {
@@ -36,14 +37,14 @@ func (f fakeRecipeControl) Resolve(context.Context, string, recipe.RuntimeBindin
 	}
 	return f.plan, nil
 }
-func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings, control.ExecuteFunc) (control.Preview, error) {
+func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings) (control.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}}
-	return control.Preview{Plan: f.plan, Rows: map[string][]map[string]any{"rows": rows}, Outputs: []control.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return control.Preview{Plan: f.plan, Outputs: []control.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
 func testRecipeValidation() control.Validation {
 	plan := semantic.RecipePlan{Version: 1, RecipeDigest: "recipe", TranslationVersion: "legacy", Outputs: []semantic.OutputPlan{{
-		Name: "rows", RootResourceType: "Patient", RowGrain: semantic.RowGrain("resource"),
+		Name: "rows", RootResourceType: "Patient", RowGrain: spec.RowGrainResource,
 		DeclaredOrder: []string{"id"}, Fields: []semantic.SemanticProjection{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}},
 	}}}
 	return control.Validation{Plan: plan}

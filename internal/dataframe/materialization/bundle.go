@@ -13,15 +13,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// BundleOutput is a fully resolved output stream ready for publication. The
-// producer is responsible for consuming one resolved physical plan per
-// output; this package only owns the all-or-nothing publication boundary.
-type BundleOutput struct {
-	Name    string
-	Columns []Column
-	Rows    []map[string]any
-}
-
 // StreamOutput is the bounded-memory input to PublishStreamBundle. The
 // callback must call visit once for each logical row and stop when it returns
 // an error.
@@ -35,10 +26,6 @@ type StreamOutput struct {
 type StreamPublishConfig struct {
 	BatchRows  int
 	BatchBytes int
-}
-
-type AtomicBundleStore interface {
-	BeginBundle(context.Context) (AtomicBundleTx, error)
 }
 
 type AtomicBundleTx interface {
@@ -219,48 +206,3 @@ func authScopeMode(paths []string) authscope.ReadScopeMode {
 
 var ErrBundleNotFound = fmt.Errorf("bundle execution not found")
 var ErrBundlePointerConflict = fmt.Errorf("bundle pointer compare-and-swap conflict")
-
-// PublishBundle stages every output in one backend transaction and commits
-// only after all outputs have been created and loaded. A failed output rolls
-// back the entire bundle, so no partial READY set can be observed.
-func PublishBundle(ctx context.Context, store AtomicBundleStore, outputs []BundleOutput) error {
-	if store == nil {
-		return fmt.Errorf("atomic bundle store is required")
-	}
-	if len(outputs) == 0 {
-		return fmt.Errorf("bundle must contain at least one output")
-	}
-	tx, err := store.BeginBundle(ctx)
-	if err != nil {
-		return err
-	}
-	rollback := func(cause error) error {
-		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-			return fmt.Errorf("%w (bundle rollback failed: %v)", cause, rollbackErr)
-		}
-		return cause
-	}
-	seen := map[string]struct{}{}
-	for _, output := range outputs {
-		if strings.TrimSpace(output.Name) == "" {
-			return rollback(fmt.Errorf("bundle output name is required"))
-		}
-		if _, ok := seen[output.Name]; ok {
-			return rollback(fmt.Errorf("bundle output %q is duplicated", output.Name))
-		}
-		seen[output.Name] = struct{}{}
-		columns := toClickHouseColumns(output.Columns)
-		if err := tx.CreateOutput(ctx, output.Name, columns); err != nil {
-			return rollback(fmt.Errorf("output %q create: %w", output.Name, err))
-		}
-		if len(output.Rows) > 0 {
-			if err := tx.InsertRows(ctx, output.Name, columns, output.Rows); err != nil {
-				return rollback(fmt.Errorf("output %q insert: %w", output.Name, err))
-			}
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return rollback(fmt.Errorf("bundle commit: %w", err))
-	}
-	return nil
-}

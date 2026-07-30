@@ -27,7 +27,7 @@ func (f *recordingResourceAccessClient) GetAllowedResources(ctx context.Context,
 	return append([]string(nil), f.resources...), nil
 }
 
-func TestScopeResolverResolveReadAuthResourcePathsIntersectsDBPaths(t *testing.T) {
+func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
@@ -41,14 +41,14 @@ func TestScopeResolverResolveReadAuthResourcePathsIntersectsDBPaths(t *testing.T
 		},
 	})
 
-	paths, err := resolver.ResolveReadAuthResourcePaths(context.Background(), &Principal{
+	scope, err := resolver.ResolveReadScope(context.Background(), &Principal{
 		AuthorizationHeader: "Bearer header.payload.signature",
 	}, "P1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 1 || paths[0] != "EllrottLab-GDC_Data" {
-		t.Fatalf("unexpected resolved paths: %#v", paths)
+	if scope.Mode != ReadScopeRestricted || !reflect.DeepEqual(scope.AuthResourcePaths, []string{"EllrottLab-GDC_Data"}) {
+		t.Fatalf("unexpected resolved scope: %#v", scope)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 		},
 	})
 
-	_, err := resolver.ResolveReadAuthResourcePaths(context.Background(), &Principal{
+	_, err := resolver.ResolveReadScope(context.Background(), &Principal{
 		AuthorizationHeader: "Bearer header.payload.signature",
 	}, "P1", []string{"EllrottLab-Other"})
 	if err == nil {
@@ -98,17 +98,6 @@ func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testin
 		t.Fatalf("restricted empty scope paths = %#v, want none", scope.AuthResourcePaths)
 	}
 
-	// Keep the legacy wrapper's payload contract while proving that new query
-	// callers must consume ResolveReadScope for its mode as well as its paths.
-	paths, err := resolver.ResolveReadAuthResourcePaths(context.Background(), &Principal{
-		AuthorizationHeader: "Bearer header.payload.signature",
-	}, "P1", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(paths) != 0 {
-		t.Fatalf("legacy paths = %#v, want empty", paths)
-	}
 }
 
 func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {

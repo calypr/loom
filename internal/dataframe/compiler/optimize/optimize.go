@@ -3,32 +3,36 @@ package optimize
 import (
 	"fmt"
 	"sort"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
+
+const OptimizerRuleTraversalSharing = "share_identical_traversals"
 
 // OptimizePhysicalPlan applies semantics-preserving physical rewrites using
 // the conservative structural cost policy. An unshared plan is always
 // available as the correctness oracle, and the local policy switch can be used
 // to compare the two physical shapes without changing request semantics.
-func OptimizePhysicalPlan(plan PhysicalPlan) (PhysicalPlan, error) {
-	return OptimizePhysicalPlanWithPolicy(plan, DefaultPhysicalOptimizationPolicy())
+func OptimizePhysicalPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
+	return OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 // OptimizePhysicalPlanWithPolicy is the explicit form used by tests and
 // benchmarking tools. The policy decides only whether an optional rewrite is
 // enabled; it never relaxes physical-plan validation.
-func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizationPolicy) (PhysicalPlan, error) {
+func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
-	out := clonePhysicalPlan(plan)
-	out.OptimizationPolicy = newPhysicalOptimizationReport(policy)
+	out := ir.ClonePhysicalPlan(plan)
+	out.OptimizationPolicy = ir.NewPhysicalOptimizationReport(policy)
 	groups := map[string][]int{}
-	decompositions := map[int]PhysicalTraversalPrefixDecomposition{}
+	decompositions := map[int]ir.PhysicalTraversalPrefixDecomposition{}
 	for i, op := range out.Operations {
-		if op.Kind != PhysicalSetOp || op.Set == nil || op.Set.SourceSetVariable != "" {
+		if op.Kind != ir.PhysicalSetOp || op.Set == nil || op.Set.SourceSetVariable != "" {
 			continue
 		}
-		decomposition, err := DecomposePhysicalTraversalPrefixAt(out, *op.Set, i)
+		decomposition, err := ir.DecomposePhysicalTraversalPrefixAt(out, *op.Set, i)
 		if err != nil {
 			// Ineligibility is an expected optimizer outcome. The original plan
 			// remains the execution oracle.
@@ -47,7 +51,7 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 		if len(indices) < 2 {
 			continue
 		}
-		decision := PhysicalOptimizationDecision{
+		decision := ir.PhysicalOptimizationDecision{
 			Rule:          OptimizerRuleTraversalSharing,
 			CandidateSets: len(indices),
 		}
@@ -64,11 +68,11 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 			out.OptimizationPolicy.AddDecision(decision)
 			continue
 		}
-		baseline, optimized, savings := estimateTraversalSharingWork(decompositions[indices[0]], len(indices))
+		baseline, optimized, savings := ir.EstimateTraversalSharingWork(decompositions[indices[0]], len(indices))
 		decision.EstimatedBaselineWork = baseline
 		decision.EstimatedOptimizedWork = optimized
 		decision.EstimatedSavings = savings
-		if !policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) {
+		if !policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) {
 			if !policy.Enabled {
 				decision.Reason = "cost policy disabled"
 			} else {
@@ -91,21 +95,46 @@ func OptimizePhysicalPlanWithPolicy(plan PhysicalPlan, policy PhysicalOptimizati
 		decision.Reason = "estimated prefix work reduction exceeds policy minimum"
 		out.OptimizationPolicy.AddDecision(decision)
 	}
-	if policy.RuleEnabled(PhysicalOptimizationRuleKeyedMapSharing) {
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleKeyedMapSharing) {
 		sharePhysicalLookupFamilies(&out, policy)
 	}
 	if err := out.Validate(); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("validate optimized physical plan: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("validate optimized physical plan: %w", err)
 	}
 	return out, nil
 }
 
-func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]PhysicalTraversalPrefixDecomposition, policy PhysicalOptimizationPolicy) error {
+func sanitizeColumnName(in string) string {
+	out := make([]rune, 0, len(in))
+	for _, r := range in {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			out = append(out, r)
+		} else {
+			out = append(out, '_')
+		}
+	}
+	return string(out)
+}
+
+type storageRoute struct{ Direction ir.PhysicalTraversalDirection }
+
+func (route storageRoute) endpointLookupFields() (string, string, []string, bool) {
+	switch route.Direction {
+	case ir.PhysicalInbound:
+		return "_to", "_from", []string{"_to", "project", "dataset_generation", "label", "from_type"}, true
+	case ir.PhysicalOutbound:
+		return "_from", "_to", []string{"_from", "project", "dataset_generation", "label", "to_type"}, true
+	default:
+		return "", "", nil, false
+	}
+}
+
+func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]ir.PhysicalTraversalPrefixDecomposition, policy ir.PhysicalOptimizationPolicy) error {
 	first := indices[0]
 	// The broad set changes its target bind from one type to a type list. Deep
 	// clone before that change: its first consumer must retain the original
 	// single target-type bind for the typed subset.
-	originalOperation := clonePhysicalOperation(plan.Operations[first])
+	originalOperation := ir.ClonePhysicalOperation(plan.Operations[first])
 	original := *originalOperation.Set
 	t := *original.Subplan.Operations[0].Traversal
 	base := original
@@ -134,16 +163,16 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 	}
 	plan.BindVars[typesKey] = targetTypes
 	t.TargetTypeBindKey = typesKey
-	if policy.RuleEnabled(PhysicalOptimizationRuleEndpointTraversal) {
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleEndpointTraversal) {
 		route := storageRoute{Direction: t.Direction}
 		if endpoint, join, fields, ok := route.endpointLookupFields(); ok {
-			t.Strategy = PhysicalTraversalEndpointLookup
+			t.Strategy = ir.PhysicalTraversalEndpointLookup
 			t.EndpointField, t.EndpointJoinField = endpoint, join
 			t.EndpointIndexFields = append([]string(nil), fields...)
 		}
 	}
 	base.Subplan.Operations[0].Traversal = &t
-	base.Subplan.Operations = clonePhysicalOperations(original.Subplan.Operations[:7])
+	base.Subplan.Operations = ir.ClonePhysicalOperations(original.Subplan.Operations[:7])
 	base.Variable = baseName
 	base.SourceSetVariable, base.ItemVariable = "", ""
 	// The broad source must remain a full node because sibling consumers may
@@ -160,17 +189,17 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 	// selectors against the wrong resource payload and leaves typed subsets
 	// with empty values.
 	base.Projection = nil
-	base.Subplan.Return = PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: t.TargetVariable}}
+	base.Subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: t.TargetVariable}}
 	// Rebuild operation stream, inserting the broad traversal immediately before
 	// the first consumer and replacing each consumer with a typed subset.
 	indexSet := map[int]bool{}
 	for _, i := range indices {
 		indexSet[i] = true
 	}
-	newOps := make([]PhysicalOperation, 0, len(plan.Operations)+1)
+	newOps := make([]ir.PhysicalOperation, 0, len(plan.Operations)+1)
 	for i, op := range plan.Operations {
 		if i == first {
-			newOps = append(newOps, PhysicalOperation{Kind: PhysicalSetOp, Source: plan.Operations[first].Source, Set: &base})
+			newOps = append(newOps, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: plan.Operations[first].Source, Set: &base})
 		}
 		if !indexSet[i] {
 			newOps = append(newOps, op)
@@ -184,8 +213,8 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 		origTraversal := *set.Subplan.Operations[0].Traversal
 		item := set.Variable + "_item"
 		typeKey := origTraversal.TargetTypeBindKey
-		sub := PhysicalSubplan{Captures: []string{baseName}, Return: PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: item}}}
-		sub.Operations = append(sub.Operations, PhysicalOperation{Kind: PhysicalFilterOp, Filter: &PhysicalFilter{Predicate: PhysicalPredicate{Operator: "EQUALS", Left: PhysicalValue{Variable: item, Path: []string{"resourceType"}}, Right: &PhysicalValue{BindKey: typeKey}}}})
+		sub := ir.PhysicalSubplan{Captures: []string{baseName}, Return: ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: item}}}
+		sub.Operations = append(sub.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: item, Path: []string{"resourceType"}}, Right: &ir.PhysicalValue{BindKey: typeKey}}}})
 		for _, child := range decomposition.Subset.ConsumerOperations {
 			rewritten := rewritePhysicalOperationVariables(child, origTraversal.TargetVariable, item, origTraversal.EdgeVariable, item)
 			sub.Operations = append(sub.Operations, rewritten)
@@ -200,7 +229,7 @@ func sharePhysicalSetGroup(plan *PhysicalPlan, indices []int, types map[string]b
 			prepared.SourceSetVariable = set.Variable
 			set.Prepared = &prepared
 		}
-		newOps = append(newOps, PhysicalOperation{Kind: PhysicalSetOp, Source: op.Source, Set: &set})
+		newOps = append(newOps, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: op.Source, Set: &set})
 	}
 	plan.Operations = newOps
 	plan.SharedTraversalCount += len(indices) - 1
@@ -222,7 +251,7 @@ func appendUniqueRule(rules []string, rule string) []string {
 	}
 	return append(rules, rule)
 }
-func rewritePhysicalValue(v PhysicalValue, fromTarget, toTarget, fromEdge, toEdge string) PhysicalValue {
+func rewritePhysicalValue(v ir.PhysicalValue, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalValue {
 	if v.Variable == fromTarget {
 		v.Variable = toTarget
 	}
@@ -231,7 +260,7 @@ func rewritePhysicalValue(v PhysicalValue, fromTarget, toTarget, fromEdge, toEdg
 	}
 	return v
 }
-func rewritePhysicalOperationVariables(op PhysicalOperation, fromTarget, toTarget, fromEdge, toEdge string) PhysicalOperation {
+func rewritePhysicalOperationVariables(op ir.PhysicalOperation, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalOperation {
 	if op.Traversal != nil {
 		t := *op.Traversal
 		if t.SourceVariable == fromTarget {
@@ -296,7 +325,7 @@ func rewritePhysicalOperationVariables(op PhysicalOperation, fromTarget, toTarge
 	return op
 }
 
-func rewritePhysicalExpressionVariables(expression PhysicalExpression, fromTarget, toTarget, fromEdge, toEdge string) PhysicalExpression {
+func rewritePhysicalExpressionVariables(expression ir.PhysicalExpression, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalExpression {
 	if expression.Value != nil {
 		v := rewritePhysicalValue(*expression.Value, fromTarget, toTarget, fromEdge, toEdge)
 		expression.Value = &v
@@ -342,7 +371,7 @@ func rewritePhysicalExpressionVariables(expression PhysicalExpression, fromTarge
 	}
 	if expression.Object != nil {
 		object := *expression.Object
-		object.Fields = append([]PhysicalExpressionProjection(nil), object.Fields...)
+		object.Fields = append([]ir.PhysicalExpressionProjection(nil), object.Fields...)
 		for index := range object.Fields {
 			object.Fields[index].Expression = rewritePhysicalExpressionVariables(object.Fields[index].Expression, fromTarget, toTarget, fromEdge, toEdge)
 		}
@@ -350,7 +379,7 @@ func rewritePhysicalExpressionVariables(expression PhysicalExpression, fromTarge
 	}
 	if expression.Call != nil {
 		call := *expression.Call
-		call.Args = append([]PhysicalExpression(nil), call.Args...)
+		call.Args = append([]ir.PhysicalExpression(nil), call.Args...)
 		for index := range call.Args {
 			call.Args[index] = rewritePhysicalExpressionVariables(call.Args[index], fromTarget, toTarget, fromEdge, toEdge)
 		}
@@ -359,8 +388,8 @@ func rewritePhysicalExpressionVariables(expression PhysicalExpression, fromTarge
 	return expression
 }
 
-func rewritePhysicalPredicateExpressionVariables(predicate PhysicalPredicateExpression, fromTarget, toTarget, fromEdge, toEdge string) PhysicalPredicateExpression {
-	predicate = clonePhysicalPredicateExpression(predicate)
+func rewritePhysicalPredicateExpressionVariables(predicate ir.PhysicalPredicateExpression, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalPredicateExpression {
+	predicate = ir.ClonePhysicalPredicateExpression(predicate)
 	if predicate.Comparison != nil {
 		comparison := *predicate.Comparison
 		comparison.Left = rewritePhysicalValue(comparison.Left, fromTarget, toTarget, fromEdge, toEdge)
@@ -378,7 +407,7 @@ func rewritePhysicalPredicateExpressionVariables(predicate PhysicalPredicateExpr
 		predicate.Children[index] = rewritePhysicalPredicateExpressionVariables(predicate.Children[index], fromTarget, toTarget, fromEdge, toEdge)
 	}
 	if predicate.Exists != nil {
-		subplan := clonePhysicalSubplan(*predicate.Exists)
+		subplan := ir.ClonePhysicalSubplan(*predicate.Exists)
 		for index := range subplan.Operations {
 			subplan.Operations[index] = rewritePhysicalOperationVariables(subplan.Operations[index], fromTarget, toTarget, fromEdge, toEdge)
 		}

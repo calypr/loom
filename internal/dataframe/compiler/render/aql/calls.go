@@ -3,9 +3,11 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderCall(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (string, error) {
 	call := expression.Call
 	if call == nil {
 		return "", fmt.Errorf("CALL expression is missing payload")
@@ -59,7 +61,7 @@ func (r *physicalPlanRenderer) renderCall(expression PhysicalExpression) (string
 		if err := require(1); err != nil {
 			return "", err
 		}
-		if expression.Cardinality != PhysicalArrayCardinality {
+		if expression.Cardinality != ir.PhysicalArrayCardinality {
 			return "[" + args[0] + "]", nil
 		}
 		return args[0], nil
@@ -188,7 +190,7 @@ func (r *physicalPlanRenderer) renderCall(expression PhysicalExpression) (string
 	}
 }
 
-func containsExactUUIDCall(expressions []PhysicalExpression) bool {
+func containsExactUUIDCall(expressions []ir.PhysicalExpression) bool {
 	for _, expression := range expressions {
 		if expression.Call == nil {
 			continue

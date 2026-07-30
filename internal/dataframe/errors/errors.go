@@ -3,7 +3,6 @@ package dataframeerrors
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 )
@@ -391,10 +390,3 @@ func cloneSafeValue(value any) (any, bool) {
 
 // Ensure the concrete type continues to satisfy the public contract.
 var _ UserError = (*Error)(nil)
-
-// Errorf is a small convenience for semantic owners that already have a
-// formatted safe message. The message is still replaced by the stable public
-// message at transport boundaries.
-func Errorf(code ErrorCode, format string, args ...any) *Error {
-	return NewError(code, fmt.Sprintf(format, args...))
-}

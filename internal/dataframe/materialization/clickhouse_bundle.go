@@ -19,11 +19,7 @@ var (
 	ErrBundleAlreadyReady = errors.New("identical bundle execution is already ready")
 )
 
-// IdentityBundleStore is implemented by the production adapter. The older
-// AtomicBundleStore interface remains available for fixtures and callers that
-// do not yet have recipe provenance.
 type IdentityBundleStore interface {
-	AtomicBundleStore
 	BeginBundleFor(context.Context, BundleIdentity) (AtomicBundleTx, error)
 }
 
@@ -48,11 +44,6 @@ func NewClickHouseBundleStore(client BundleClickHouseStore, catalog BundleCatalo
 		return nil, fmt.Errorf("ClickHouse client and bundle catalog are required")
 	}
 	return &ClickHouseBundleStore{ClickHouse: client, Catalog: catalog, Prefix: "loom_bundle"}, nil
-}
-
-func (s *ClickHouseBundleStore) BeginBundle(ctx context.Context) (AtomicBundleTx, error) {
-	identity := BundleIdentity{Name: "anonymous-" + uuid.NewString(), EngineVersion: "loom"}
-	return s.BeginBundleFor(ctx, identity)
 }
 
 func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity BundleIdentity) (AtomicBundleTx, error) {

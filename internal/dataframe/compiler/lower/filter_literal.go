@@ -6,7 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func filterLiteral(value FilterValue) (any, error) {
+func filterLiteral(value spec.FilterValue) (any, error) {
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}

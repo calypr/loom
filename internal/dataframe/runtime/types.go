@@ -4,7 +4,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type RunRequest struct {
@@ -14,8 +16,8 @@ type RunRequest struct {
 }
 
 type CompiledQuery = compiler.CompiledQuery
-type RowIdentity = compiler.RowIdentity
-type CompilerPlanDiagnostics = compiler.CompilerPlanDiagnostics
+type RowIdentity = spec.RowIdentity
+type CompilerPlanDiagnostics = ir.CompilerPlanDiagnostics
 
 type Result struct {
 	Columns     []string
@@ -35,7 +37,7 @@ type QueryDiagnostics struct {
 	RowMaterialization time.Duration
 	ResultAssembly     time.Duration
 	Total              time.Duration
-	Plan               compiler.CompilerPlanDiagnostics
+	Plan               ir.CompilerPlanDiagnostics
 }
 
 // StreamResult describes rows delivered to a streaming caller. Columns are

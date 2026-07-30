@@ -5,14 +5,17 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func (r *physicalPlanRenderer) renderObject(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderObject(expression ir.PhysicalExpression) (string, error) {
 	object := expression.Object
 	if object == nil {
 		return "", fmt.Errorf("OBJECT expression is missing payload")
 	}
-	fields := append([]PhysicalExpressionProjection(nil), object.Fields...)
+	fields := append([]ir.PhysicalExpressionProjection(nil), object.Fields...)
 	sort.SliceStable(fields, func(left, right int) bool {
 		return fields[left].Name < fields[right].Name
 	})
@@ -33,7 +36,7 @@ func (r *physicalPlanRenderer) renderObject(expression PhysicalExpression) (stri
 		rendered = append(rendered, renderedField{
 			nameKey: nameKey,
 			value:   value,
-			omit:    field.Expression.NullBehavior == PhysicalOmitNulls,
+			omit:    field.Expression.NullBehavior == ir.PhysicalOmitNulls,
 		})
 	}
 
@@ -66,7 +69,7 @@ func (r *physicalPlanRenderer) renderObject(expression PhysicalExpression) (stri
 // renderSlice emits a correlated, bounded array projection. Sort and the
 // _key tie-break are rendered inside the subquery so representative values
 // are deterministic even when traversal order changes.
-func (r *physicalPlanRenderer) renderSlice(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (string, error) {
 	slice := expression.Slice
 	if slice == nil {
 		return "", fmt.Errorf("SLICE expression is missing payload")
@@ -87,18 +90,18 @@ func (r *physicalPlanRenderer) renderSlice(expression PhysicalExpression) (strin
 	item := r.newInternalVariable("slice_item")
 	lines := []string{"(FOR " + item + " IN " + items}
 	if slice.Predicate != nil {
-		if slice.Predicate.Kind != PhysicalComparisonPredicate || slice.Predicate.Comparison == nil {
+		if slice.Predicate.Kind != ir.PhysicalComparisonPredicate || slice.Predicate.Comparison == nil {
 			return "", fmt.Errorf("slice predicate must be a comparison")
 		}
 		comparison := *slice.Predicate.Comparison
 		if comparison.LeftExpression != nil && comparison.LeftExpression.Extract != nil {
 			left := *comparison.LeftExpression
 			extract := *left.Extract
-			extract.Source = PhysicalValue{Variable: item, Path: []string{"payload"}}
+			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
 			left.Extract = &extract
 			comparison.LeftExpression = &left
 		} else {
-			comparison.Left = PhysicalValue{Variable: item}
+			comparison.Left = ir.PhysicalValue{Variable: item}
 		}
 		previousPreparedItem := r.preparedItem
 		r.preparedItem = item
@@ -113,7 +116,7 @@ func (r *physicalPlanRenderer) renderSlice(expression PhysicalExpression) (strin
 		return "", fmt.Errorf("slice requires sort expression")
 	}
 	sortExpression := *slice.Sort
-	if sortExpression.Kind == PhysicalValueExpression && sortExpression.Value != nil {
+	if sortExpression.Kind == ir.PhysicalValueExpression && sortExpression.Value != nil {
 		value := *sortExpression.Value
 		value.Variable = item
 		value.BindKey = ""
@@ -128,9 +131,9 @@ func (r *physicalPlanRenderer) renderSlice(expression PhysicalExpression) (strin
 	fields := make([]string, 0, len(slice.Projections))
 	for index, projection := range slice.Projections {
 		projectionExpression := projection.Expression
-		if projectionExpression.Kind == PhysicalExtractExpression && projectionExpression.Extract != nil {
+		if projectionExpression.Kind == ir.PhysicalExtractExpression && projectionExpression.Extract != nil {
 			extract := *projectionExpression.Extract
-			extract.Source = PhysicalValue{Variable: item, Path: []string{"payload"}}
+			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
 			projectionExpression.Extract = &extract
 		}
 		previousPreparedItem := r.preparedItem
@@ -148,7 +151,7 @@ func (r *physicalPlanRenderer) renderSlice(expression PhysicalExpression) (strin
 	return strings.Join(lines, "\n") + "\n)", nil
 }
 
-func slicePreparedVariable(slice *PhysicalSlice) string {
+func slicePreparedVariable(slice *ir.PhysicalSlice) string {
 	if slice == nil {
 		return ""
 	}
@@ -167,7 +170,7 @@ func slicePreparedVariable(slice *PhysicalSlice) string {
 // columns. Values from all matching resources are combined per key and reduced
 // deterministically to the first sorted value while keeping selectors and
 // column values typed.
-func (r *physicalPlanRenderer) renderPivot(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (string, error) {
 	pivot := expression.Pivot
 	if pivot == nil {
 		return "", fmt.Errorf("PIVOT expression is missing payload")
@@ -216,7 +219,7 @@ func (r *physicalPlanRenderer) renderPivot(expression PhysicalExpression) (strin
 		r.preparedItem = previousPreparedItem
 		return "", err
 	}
-	valueSelectors := append([]Selector{pivot.ValueSelector}, pivot.ValueFallbacks...)
+	valueSelectors := append([]spec.Selector{pivot.ValueSelector}, pivot.ValueFallbacks...)
 	valueExpressions := make([]string, 0, len(valueSelectors))
 	for _, selector := range valueSelectors {
 		value, valueErr := r.renderPivotSelector(item, itemExpression, nil, selector, pivot.ItemResourceType != "")
@@ -275,7 +278,7 @@ func (r *physicalPlanRenderer) renderPivot(expression PhysicalExpression) (strin
 // renderPivotSelector evaluates a selector against either the resource
 // document or a correlated repeated item. Keeping the item scope explicit
 // prevents keys and values from different repeated elements being paired.
-func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, prepared *PhysicalPreparedReference, selector Selector, itemScoped bool) (string, error) {
+func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, prepared *ir.PhysicalPreparedReference, selector spec.Selector, itemScoped bool) (string, error) {
 	if prepared != nil {
 		return item + "." + prepared.Field, nil
 	}
@@ -290,7 +293,7 @@ func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, pr
 // singleton root document. The source is kept typed in the IR; this method is
 // the only place that decides the AQL collection expression (`set` versus
 // `[root]`).
-func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression) (string, error) {
 	aggregate := expression.Aggregate
 	if aggregate == nil {
 		return "", fmt.Errorf("AGGREGATE expression is missing payload")
@@ -308,7 +311,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (s
 	}
 	perItem := aggregate.Predicate != nil
 	if perItem {
-		if aggregate.Predicate.Kind != PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
+		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
 			return "", fmt.Errorf("aggregate predicate must be a comparison")
 		}
 		item := r.newInternalVariable("aggregate_item")
@@ -319,7 +322,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (s
 		left := *comparison.LeftExpression
 		extract := *left.Extract
 		if extract.Prepared == nil {
-			extract.Source = PhysicalValue{Variable: item, Path: []string{"payload"}}
+			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
 		}
 		left.Extract = &extract
 		comparison.LeftExpression = &left
@@ -333,9 +336,9 @@ func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (s
 		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
 	}
 	switch aggregate.Operation {
-	case PhysicalCountAggregate:
+	case ir.PhysicalCountAggregate:
 		return "LENGTH(" + items + ")", nil
-	case PhysicalExistsAggregate:
+	case ir.PhysicalExistsAggregate:
 		if aggregate.Value == nil {
 			return "LENGTH(" + items + ") > 0", nil
 		}
@@ -344,7 +347,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (s
 			return "", err
 		}
 		return "LENGTH(FOR __value IN FLATTEN(" + values + ") FILTER __value != null LIMIT 1 RETURN 1) > 0", nil
-	case PhysicalCountDistinctAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate:
+	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate:
 		if aggregate.Value == nil {
 			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)
 		}
@@ -354,22 +357,22 @@ func (r *physicalPlanRenderer) renderAggregate(expression PhysicalExpression) (s
 		}
 		flattened := "FLATTEN(" + values + ")"
 		switch aggregate.Operation {
-		case PhysicalCountDistinctAggregate:
+		case ir.PhysicalCountDistinctAggregate:
 			return "LENGTH(SORTED_UNIQUE(" + flattened + "))", nil
-		case PhysicalDistinctValuesAggregate:
+		case ir.PhysicalDistinctValuesAggregate:
 			return "SORTED_UNIQUE(" + flattened + ")", nil
-		case PhysicalMinAggregate:
+		case ir.PhysicalMinAggregate:
 			return "MIN(" + flattened + ")", nil
-		case PhysicalMaxAggregate:
+		case ir.PhysicalMaxAggregate:
 			return "MAX(" + flattened + ")", nil
-		case PhysicalFirstAggregate:
+		case ir.PhysicalFirstAggregate:
 			return "FIRST(" + flattened + ")", nil
 		}
 	}
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 }
 
-func aggregatePreparedVariable(aggregate *PhysicalAggregate) string {
+func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate == nil {
 		return ""
 	}
@@ -382,21 +385,21 @@ func aggregatePreparedVariable(aggregate *PhysicalAggregate) string {
 	return ""
 }
 
-func (r *physicalPlanRenderer) renderAggregateValue(expression PhysicalExpression, items string, perItem bool) (string, error) {
+func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpression, items string, perItem bool) (string, error) {
 	if !perItem {
 		if expression.Extract != nil && expression.Extract.Prepared != nil {
 			return "(FOR __loom_prepared_value IN " + expression.Extract.Prepared.SetVariable + " RETURN __loom_prepared_value." + expression.Extract.Prepared.Field + ")", nil
 		}
 		return r.renderExpression(expression)
 	}
-	if expression.Kind != PhysicalExtractExpression || expression.Extract == nil {
+	if expression.Kind != ir.PhysicalExtractExpression || expression.Extract == nil {
 		return "", fmt.Errorf("aggregate predicates require an extract value expression")
 	}
 	item := r.newInternalVariable("aggregate_value_item")
 	clone := expression
 	extract := *expression.Extract
 	if extract.Prepared == nil {
-		extract.Source = PhysicalValue{Variable: item, Path: []string{"payload"}}
+		extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
 	}
 	clone.Extract = &extract
 	previousPreparedItem := r.preparedItem

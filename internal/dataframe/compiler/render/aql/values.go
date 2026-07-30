@@ -3,28 +3,30 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderExpression(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression) (string, error) {
 	switch expression.Kind {
-	case PhysicalValueExpression:
+	case ir.PhysicalValueExpression:
 		return r.renderValue(*expression.Value)
-	case PhysicalLiteralExpression:
+	case ir.PhysicalLiteralExpression:
 		if expression.Literal == nil {
 			return "", fmt.Errorf("LITERAL expression is missing payload")
 		}
 		return r.renderLiteral(*expression.Literal)
-	case PhysicalExtractExpression:
+	case ir.PhysicalExtractExpression:
 		return r.renderExtract(expression)
-	case PhysicalAggregateExpression:
+	case ir.PhysicalAggregateExpression:
 		return r.renderAggregate(expression)
-	case PhysicalPivotExpression:
+	case ir.PhysicalPivotExpression:
 		return r.renderPivot(expression)
-	case PhysicalSliceExpression:
+	case ir.PhysicalSliceExpression:
 		return r.renderSlice(expression)
-	case PhysicalLookupExpression:
+	case ir.PhysicalLookupExpression:
 		return r.renderLookup(expression)
-	case PhysicalObjectLookupExpression:
+	case ir.PhysicalObjectLookupExpression:
 		if expression.ObjectLookup == nil {
 			return "", fmt.Errorf("OBJECT_LOOKUP expression is missing payload")
 		}
@@ -32,25 +34,25 @@ func (r *physicalPlanRenderer) renderExpression(expression PhysicalExpression) (
 			return "", fmt.Errorf("object lookup bind %q is not defined", expression.ObjectLookup.KeyBindKey)
 		}
 		return fmt.Sprintf("%s[@%s]", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey), nil
-	case PhysicalKeyedMapExpression:
+	case ir.PhysicalKeyedMapExpression:
 		return r.renderKeyedMap(expression)
-	case PhysicalObjectKeysExpression:
+	case ir.PhysicalObjectKeysExpression:
 		if expression.ObjectKeys == nil {
 			return "", fmt.Errorf("OBJECT_KEYS expression is missing payload")
 		}
 		return fmt.Sprintf("SORTED_UNIQUE(ATTRIBUTES(%s, true))", expression.ObjectKeys.ObjectVariable), nil
-	case PhysicalKeySetExpression:
+	case ir.PhysicalKeySetExpression:
 		return r.renderKeySet(expression)
-	case PhysicalObjectExpression:
+	case ir.PhysicalObjectExpression:
 		return r.renderObject(expression)
-	case PhysicalCallExpression:
+	case ir.PhysicalCallExpression:
 		return r.renderCall(expression)
 	default:
 		return "", fmt.Errorf("physical renderer does not yet support expression kind %q", expression.Kind)
 	}
 }
 
-func (r *physicalPlanRenderer) renderKeyedMap(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) (string, error) {
 	keyed := expression.KeyedMap
 	if keyed == nil {
 		return "", fmt.Errorf("KEYED_MAP expression is missing payload")
@@ -96,7 +98,7 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression PhysicalExpression) (st
 		sourceLoop = "FLATTEN(" + source + ")"
 	}
 	values := "FIRST(__loom_keyed_group[*].__loom_keyed_value)"
-	if keyed.Reduction == PhysicalMapFirstSorted {
+	if keyed.Reduction == ir.PhysicalMapFirstSorted {
 		values = "FIRST(SORTED_UNIQUE(__loom_keyed_group[*].__loom_keyed_value))"
 	}
 	return fmt.Sprintf(`MERGE(
@@ -115,7 +117,7 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression PhysicalExpression) (st
 // key/value projection. AQL's FOR-over-null behavior supplies the empty
 // source semantics; FIRST preserves the historical scalar-column contract
 // when a key is absent or appears more than once.
-func (r *physicalPlanRenderer) renderLookup(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderLookup(expression ir.PhysicalExpression) (string, error) {
 	lookup := expression.Lookup
 	if lookup == nil {
 		return "", fmt.Errorf("LOOKUP expression is missing payload")
@@ -144,7 +146,7 @@ func (r *physicalPlanRenderer) renderLookup(expression PhysicalExpression) (stri
 	return fmt.Sprintf("FIRST(FOR %s IN %s FILTER %s == @%s RETURN %s)", lookup.ItemVariable, source, key, lookup.MatchBindKey, value), nil
 }
 
-func (r *physicalPlanRenderer) renderKeySet(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderKeySet(expression ir.PhysicalExpression) (string, error) {
 	keySet := expression.KeySet
 	if keySet == nil {
 		return "", fmt.Errorf("KEY_SET expression is missing payload")
@@ -163,7 +165,7 @@ func (r *physicalPlanRenderer) renderKeySet(expression PhysicalExpression) (stri
 	return fmt.Sprintf("SORTED_UNIQUE(FLATTEN(FOR %s IN %s RETURN %s))", keySet.ItemVariable, source, key), nil
 }
 
-func (r *physicalPlanRenderer) renderLiteral(literal PhysicalLiteral) (string, error) {
+func (r *physicalPlanRenderer) renderLiteral(literal ir.PhysicalLiteral) (string, error) {
 	if literal.BindKey == "" {
 		return "", fmt.Errorf("literal bind key is required")
 	}

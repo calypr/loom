@@ -124,47 +124,6 @@ func (c *Client) DropTable(ctx context.Context, table string) error {
 	return c.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
 }
 
-// InsertJSONEachRow is retained as a compatibility name for callers, but the
-// implementation is now a native typed PrepareBatch. Values are appended in
-// deterministic map-key order only for this low-level compatibility method;
-// materialization uses InsertRows with the persisted schema order.
-func (c *Client) InsertJSONEachRow(ctx context.Context, table string, rows []map[string]any) error {
-	if len(rows) == 0 {
-		return nil
-	}
-	columns := make([]string, 0, len(rows[0]))
-	for name := range rows[0] {
-		columns = append(columns, name)
-	}
-	sortStrings(columns)
-	values := make([]Column, 0, len(columns))
-	for _, name := range columns {
-		values = append(values, Column{Name: name, Type: inferType(rows[0][name])})
-	}
-	return c.InsertRows(ctx, table, values, rows)
-}
-
-func inferType(value any) string {
-	switch value.(type) {
-	case bool:
-		return "Bool"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return "Int64"
-	case float32, float64:
-		return "Float64"
-	case []string:
-		return "Array(String)"
-	case []int, []int8, []int16, []int32, []int64, []uint, []uint8, []uint16, []uint32, []uint64:
-		return "Array(Int64)"
-	case []float32, []float64:
-		return "Array(Float64)"
-	case []bool:
-		return "Array(Bool)"
-	default:
-		return "String"
-	}
-}
-
 func (c *Client) InsertRows(ctx context.Context, table string, columns []Column, rows []map[string]any) error {
 	if err := validateIdentifier(table); err != nil {
 		return err
@@ -345,12 +304,4 @@ func validateIdentifier(value string) error {
 		return fmt.Errorf("invalid ClickHouse identifier %q", value)
 	}
 	return nil
-}
-
-func sortStrings(values []string) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
 }

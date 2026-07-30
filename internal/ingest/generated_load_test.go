@@ -21,7 +21,7 @@ func TestGeneratedLoadCapabilityFallsBackForSchemaOnlyRoots(t *testing.T) {
 }
 
 func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
-	_, edges, err := loadRowGenerated("ResearchSubject", []byte(`{
+	_, edges, _, err := loadRowGenerated("ResearchSubject", []byte(`{
   "resourceType": "ResearchSubject",
   "id": "research-subject-1",
   "status": "active",

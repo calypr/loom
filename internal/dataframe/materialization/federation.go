@@ -332,23 +332,9 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	if err != nil {
 		return FederatedPage{}, err
 	}
-	allowed := make(map[string]struct{}, len(dataset.Columns))
-	for _, column := range dataset.Columns {
-		allowed[column.Name] = struct{}{}
-	}
-	columns := append([]string(nil), req.Columns...)
-	if len(columns) == 0 {
-		for _, column := range dataset.Columns {
-			columns = append(columns, column.Name)
-		}
-	}
-	if err := validateReaderColumns(columns, allowed); err != nil {
+	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
+	if err != nil {
 		return FederatedPage{}, err
-	}
-	if req.Sort != nil {
-		if err := validateReaderColumns([]string{req.Sort.Column}, allowed); err != nil {
-			return FederatedPage{}, fmt.Errorf("sort: %w", err)
-		}
 	}
 	first := req.First
 	if first <= 0 {
@@ -361,43 +347,10 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	if err != nil {
 		return FederatedPage{}, err
 	}
-	whereBySource := make([]string, 0, len(dataset.Sources))
-	whereArgs := make([]any, 0)
-	for _, source := range dataset.Sources {
-		baseFilters := make([]Filter, 0, len(req.Filters)+1)
-		baseFilters = append(baseFilters, req.Filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
-		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			baseFilters = append(baseFilters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, args, err := buildWhere(baseFilters, allowed)
-		if err != nil {
-			return FederatedPage{}, err
-		}
-		selects := make([]string, 0, len(columns)+2)
-		for _, column := range columns {
-			selects = append(selects, fmt.Sprintf("`%s`", column))
-		}
-		selects = append(selects,
-			"toString(`__loom_row_id`) AS `__loom_row_id`",
-			"concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`",
-		)
-		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		whereBySource = append(whereBySource, branch)
-		whereArgs = append(whereArgs, source.ID)
-		whereArgs = append(whereArgs, args...)
+	union, whereArgs, err := federatedRowUnion(dataset, columns, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return FederatedPage{}, err
 	}
-	union := strings.Join(whereBySource, " UNION ALL ")
 	queryColumns := append([]string(nil), columns...)
 	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
 	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
@@ -466,62 +419,17 @@ func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias s
 	if err != nil {
 		return FederatedDataset{}, err
 	}
-	allowed := make(map[string]struct{}, len(dataset.Columns))
-	for _, column := range dataset.Columns {
-		allowed[column.Name] = struct{}{}
-	}
-	columns := append([]string(nil), req.Columns...)
-	if len(columns) == 0 {
-		for _, column := range dataset.Columns {
-			columns = append(columns, column.Name)
-		}
-	}
-	if err := validateReaderColumns(columns, allowed); err != nil {
+	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
+	if err != nil {
 		return FederatedDataset{}, err
 	}
-	if req.Sort != nil {
-		if err := validateReaderColumns([]string{req.Sort.Column}, allowed); err != nil {
-			return FederatedDataset{}, fmt.Errorf("sort: %w", err)
-		}
-	}
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		filters := append([]Filter(nil), req.Filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
-		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, branchArgs, err := buildWhere(filters, allowed)
-		if err != nil {
-			return FederatedDataset{}, err
-		}
-		selects := make([]string, 0, len(columns)+2)
-		for _, column := range columns {
-			selects = append(selects, fmt.Sprintf("`%s`", column))
-		}
-		selects = append(selects,
-			"toString(`__loom_row_id`) AS `__loom_row_id`",
-			"concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`",
-		)
-		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		branches = append(branches, branch)
-		args = append(args, source.ID)
-		args = append(args, branchArgs...)
+	union, args, err := federatedRowUnion(dataset, columns, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return FederatedDataset{}, err
 	}
 	queryColumns := append([]string(nil), columns...)
 	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), strings.Join(branches, " UNION ALL "))
+	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
 	if req.Sort != nil {
 		direction := "ASC"
 		if req.Sort.Desc {
@@ -546,20 +454,7 @@ func (r *Reader) federatedCount(ctx context.Context, dataset FederatedDataset, a
 	branches := make([]string, 0, len(dataset.Sources))
 	args := make([]any, 0)
 	for _, source := range dataset.Sources {
-		filters := make([]Filter, 0, len(req.Filters)+1)
-		filters = append(filters, req.Filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
-		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, branchArgs, err := buildWhere(filters, allowed)
+		where, branchArgs, err := federatedSourceWhere(source, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
 		if err != nil {
 			return 0, err
 		}
@@ -620,19 +515,7 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 	branches := make([]string, 0, len(dataset.Sources))
 	args := make([]any, 0)
 	for _, source := range dataset.Sources {
-		filters := append([]Filter(nil), req.Filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
-		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, branchArgs, err := buildWhere(filters, allowed)
+		where, branchArgs, err := federatedSourceWhere(source, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
 		if err != nil {
 			return FederatedAggregateResult{}, err
 		}
@@ -673,6 +556,67 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 		return FederatedAggregateResult{}, err
 	}
 	return FederatedAggregateResult{Dataset: dataset, Columns: columns, Rows: rows}, nil
+}
+
+func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) ([]string, map[string]struct{}, error) {
+	allowed := make(map[string]struct{}, len(dataset.Columns))
+	columns := append([]string(nil), requested...)
+	for _, column := range dataset.Columns {
+		allowed[column.Name] = struct{}{}
+		if len(requested) == 0 {
+			columns = append(columns, column.Name)
+		}
+	}
+	if err := validateReaderColumns(columns, allowed); err != nil {
+		return nil, nil, err
+	}
+	if sort != nil {
+		if err := validateReaderColumns([]string{sort.Column}, allowed); err != nil {
+			return nil, nil, fmt.Errorf("sort: %w", err)
+		}
+	}
+	return columns, allowed, nil
+}
+
+func federatedSourceWhere(source Materialization, filters []Filter, allowed map[string]struct{}, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) ([]string, []any, error) {
+	filters = append([]Filter(nil), filters...)
+	if unrestrictedByProject != nil {
+		unrestricted = unrestrictedByProject[source.Project]
+	}
+	if pathsByProject != nil {
+		paths = pathsByProject[source.Project]
+	}
+	if !unrestricted {
+		filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
+	}
+	return buildWhere(filters, allowed)
+}
+
+func federatedRowUnion(dataset FederatedDataset, columns []string, filters []Filter, allowed map[string]struct{}, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) (string, []any, error) {
+	selects := make([]string, 0, len(columns)+2)
+	for _, column := range columns {
+		selects = append(selects, fmt.Sprintf("`%s`", column))
+	}
+	selects = append(selects,
+		"toString(`__loom_row_id`) AS `__loom_row_id`",
+		"concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`",
+	)
+	branches := make([]string, 0, len(dataset.Sources))
+	args := make([]any, 0)
+	for _, source := range dataset.Sources {
+		where, branchArgs, err := federatedSourceWhere(source, filters, allowed, paths, unrestricted, pathsByProject, unrestrictedByProject)
+		if err != nil {
+			return "", nil, err
+		}
+		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
+		if len(where) > 0 {
+			branch += " WHERE " + strings.Join(where, " AND ")
+		}
+		branches = append(branches, branch)
+		args = append(args, source.ID)
+		args = append(args, branchArgs...)
+	}
+	return strings.Join(branches, " UNION ALL "), args, nil
 }
 
 func validateReaderColumns(columns []string, allowed map[string]struct{}) error {

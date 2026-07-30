@@ -89,7 +89,7 @@ func BenchmarkValidateAndExtract(b *testing.B) {
 			stageTiming := make(map[string]float64)
 			for i := 0; i < b.N; i++ {
 				line := lines[i%len(lines)]
-				_, _, _ = loadRowGenerated(resourceType, line, "BENCHMARK", stageTiming)
+				_, _, _, _ = loadRowGenerated(resourceType, line, "BENCHMARK", stageTiming)
 			}
 		})
 	}

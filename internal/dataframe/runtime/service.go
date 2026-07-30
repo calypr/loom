@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
@@ -20,11 +20,7 @@ const defaultRowLimit = 25
 var ErrActiveGenerationConflict = errors.New("requested dataset generation conflicts with active generation")
 
 type ServiceConfig struct {
-	ConnectionOptions arangostore.ConnectionOptions
-	// Catalog callbacks are retained for callers that share a deployment config
-	// with GraphQL discovery. Recipe execution itself does not invoke them.
-	DiscoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	ConnectionOptions      arangostore.ConnectionOptions
 	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver dataset.ActiveManifestResolver
@@ -97,7 +93,7 @@ func (s *Service) prepareAndCompile(ctx context.Context, req RunRequest) (Compil
 	if err != nil {
 		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return CompiledQuery{}, QueryDiagnostics{}, err
 	}

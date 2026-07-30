@@ -18,7 +18,8 @@
       "catalogProjections": [{"name": "populated_fields", "includePaths": ["*"], "kinds": ["scalar"], "naming": "PATH", "valueMode": "FIRST", "maxColumns": 256}],
       "dynamicColumns": [
         {"name": "identifier_by_system", "source": {"select": "root.identifier[]"}, "key": {"select": "item.system"}, "value": {"select": "item.value"}, "maxColumns": 64},
-        {"name": "extension_by_url", "source": {"select": "root.extension[]"}, "key": {"select": "item.url"}, "value": {"call": "coalesce_string", "args": [{"select": "item.valueString"}, {"select": "item.valueCode"}, {"select": "item.valueInteger"}, {"select": "item.valueDecimal"}, {"select": "item.valueBoolean"}, {"select": "item.valueDate"}, {"select": "item.valueDateTime"}]}, "maxColumns": 128}
+        {"name": "extension_by_url", "source": {"select": "root.extension[]"}, "key": {"select": "item.url"}, "value": {"call": "coalesce_string", "args": [{"select": "item.valueString"}, {"select": "item.valueCode"}, {"select": "item.valueInteger"}, {"select": "item.valueDecimal"}, {"select": "item.valueBoolean"}, {"select": "item.valueDate"}, {"select": "item.valueDateTime"}]}, "maxColumns": 128},
+        {"name": "category_by_code", "source": {"select": "root.category[].coding[]"}, "key": {"select": "item.code"}, "value": {"select": "item.display"}, "maxColumns": 256}
       ],
       "traversals": [
         {

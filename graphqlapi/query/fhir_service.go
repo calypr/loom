@@ -7,14 +7,17 @@ package queryapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -42,25 +45,28 @@ type FHIRListRequest struct {
 type FHIRListResult struct {
 	Resources   []map[string]any
 	Diagnostics any
+	ReadContext FHIRReadContext
+}
+
+// FHIRReadContext pins reference lookups to the authorization decision and
+// active dataset generation used by the owning root resource.
+type FHIRReadContext struct {
+	Project           string
+	DatasetGeneration string
+	ScopeDigest       string
+	Scope             authscope.ReadScope
 }
 
 // ListFHIR executes one whole-document FHIR read through the production
 // semantic and physical compiler.  The Document expression is lowered by the
 // compiler to an envelope containing payload, id, resourceType, and _key.
 func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRListResult, error) {
-	resourceType := strings.TrimSpace(request.ResourceType)
-	if !fhirschema.HasResource(resourceType) {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidResourceType, "invalid resource type")
+	request, err := normalizeFHIRListRequest(request)
+	if err != nil {
+		return nil, err
 	}
-	limit := request.Limit
-	if limit == 0 {
-		limit = FHIRDefaultLimit
-	}
-	if limit < FHIRMinLimit {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must be positive")
-	}
-	if strings.TrimSpace(request.Project) == "" {
-		return nil, fmt.Errorf("project is required")
+	if request.Limit > FHIRMaxReadLimit && s.scopeResolver == nil {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must not exceed 10000 without project write access")
 	}
 
 	// Reuse the existing GraphQL input preparation.  Besides resolving active
@@ -68,19 +74,47 @@ func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRL
 	// provenance and preserves all existing filter/operator semantics.
 	in := model.FhirDataframeInput{
 		Project:          request.Project,
-		RootResourceType: resourceType,
+		RootResourceType: request.ResourceType,
 		RootFilters:      request.Filters,
 	}
 	prepared, scope, generation, err := s.prepareRunInput(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	if limit > FHIRMaxReadLimit && s.scopeResolver != nil {
+	if request.Limit > FHIRMaxReadLimit {
 		principal, _ := authscope.PrincipalFromContext(ctx)
 		if _, err := s.scopeResolver.ResolveWriteScopeForGeneration(ctx, principal, request.Project, generation, nil); err != nil {
 			return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must not exceed 10000 without project write access")
 		}
 	}
+	read := newFHIRReadContext(request.Project, generation, scope)
+	return s.listFHIRPrepared(ctx, request, prepared, read)
+}
+
+// ListFHIRInContext executes an internal reference batch against the exact
+// generation and read scope authorized for its owning resource.
+func (s *Service) ListFHIRInContext(ctx context.Context, read FHIRReadContext, request FHIRListRequest) (*FHIRListResult, error) {
+	request.Project = read.Project
+	normalized, err := normalizeFHIRListRequest(request)
+	if err != nil {
+		return nil, err
+	}
+	read.Project = strings.TrimSpace(read.Project)
+	read.Scope = read.Scope.Clone()
+	read.ScopeDigest = fhirReadScopeDigest(read.Scope)
+	prepared := model.FhirDataframeInput{
+		Project:           read.Project,
+		RootResourceType:  normalized.ResourceType,
+		RootFilters:       normalized.Filters,
+		AuthResourcePaths: cloneStrings(read.Scope.AuthResourcePaths),
+	}
+	if err := s.resolveNodeInputRefs(ctx, read.Project, read.DatasetGeneration, read.Scope, normalized.ResourceType, nil, normalized.Filters, nil, nil, nil); err != nil {
+		return nil, err
+	}
+	return s.listFHIRPrepared(ctx, normalized, prepared, read)
+}
+
+func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest, prepared model.FhirDataframeInput, read FHIRReadContext) (*FHIRListResult, error) {
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
 		return nil, err
@@ -96,19 +130,19 @@ func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRL
 	}}
 
 	bindings := recipe.RuntimeBindings{
-		Project: request.Project, DatasetGeneration: generation,
-		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
-		AuthScopeMode:     scope.Mode, PreviewLimit: limit,
+		Project: request.Project, DatasetGeneration: read.DatasetGeneration,
+		AuthResourcePaths: cloneStrings(read.Scope.AuthResourcePaths),
+		AuthScopeMode:     read.Scope.Mode, PreviewLimit: request.Limit,
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
+	resolved, err := semantic.ResolveRecipePlan(plan, "", read.DatasetGeneration)
 	if err != nil {
 		return nil, err
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, fmt.Errorf("compile FHIR query: %w", err)
 	}
@@ -162,11 +196,51 @@ func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRL
 			}
 		}
 		if typ, ok := envelope["resourceType"]; !ok || typ == nil || typ == "" {
-			envelope["resourceType"] = resourceType
+			envelope["resourceType"] = request.ResourceType
 		}
 		delete(envelope, "_key")
 		delete(envelope, "key")
 		resources = append(resources, envelope)
 	}
-	return &FHIRListResult{Resources: resources, Diagnostics: result.Diagnostics}, nil
+	return &FHIRListResult{Resources: resources, Diagnostics: result.Diagnostics, ReadContext: read}, nil
+}
+
+func normalizeFHIRListRequest(request FHIRListRequest) (FHIRListRequest, error) {
+	request.Project = strings.TrimSpace(request.Project)
+	request.ResourceType = strings.TrimSpace(request.ResourceType)
+	if !fhirschema.HasResource(request.ResourceType) {
+		return request, dataframeerrors.NewError(dataframeerrors.CodeInvalidResourceType, "invalid resource type")
+	}
+	if request.Limit == 0 {
+		request.Limit = FHIRDefaultLimit
+	}
+	if request.Limit < FHIRMinLimit {
+		return request, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must be positive")
+	}
+	if request.Project == "" {
+		return request, fmt.Errorf("project is required")
+	}
+	return request, nil
+}
+
+func newFHIRReadContext(project, generation string, scope authscope.ReadScope) FHIRReadContext {
+	scope = scope.Clone()
+	return FHIRReadContext{
+		Project:           strings.TrimSpace(project),
+		DatasetGeneration: generation,
+		Scope:             scope,
+		ScopeDigest:       fhirReadScopeDigest(scope),
+	}
+}
+
+func fhirReadScopeDigest(scope authscope.ReadScope) string {
+	paths := cloneStrings(scope.AuthResourcePaths)
+	sort.Strings(paths)
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(scope.Mode))
+	for _, path := range paths {
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(path))
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
 }

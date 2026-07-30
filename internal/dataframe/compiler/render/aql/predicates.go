@@ -3,9 +3,12 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func (r *physicalPlanRenderer) renderPredicate(predicate PhysicalPredicate) (string, error) {
+func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
 	if predicate.LeftExpression != nil {
 		return r.renderSelectorPredicate(predicate)
 	}
@@ -26,7 +29,7 @@ func (r *physicalPlanRenderer) renderPredicate(predicate PhysicalPredicate) (str
 	return left + " == " + right, nil
 }
 
-func (r *physicalPlanRenderer) renderSelectorPredicate(predicate PhysicalPredicate) (string, error) {
+func (r *physicalPlanRenderer) renderSelectorPredicate(predicate ir.PhysicalPredicate) (string, error) {
 	values, err := r.renderExpression(*predicate.LeftExpression)
 	if err != nil {
 		return "", err
@@ -58,7 +61,7 @@ func (r *physicalPlanRenderer) renderSelectorPredicate(predicate PhysicalPredica
 		match = "CONTAINS(TO_STRING(" + valueVar + "), " + right + ")"
 	case "GT", "GTE", "LT", "LTE":
 		left, comparisonRight := valueVar, right
-		if predicate.ValueKind == FilterDate || predicate.ValueKind == FilterDateTime {
+		if predicate.ValueKind == spec.FilterDate || predicate.ValueKind == spec.FilterDateTime {
 			left, comparisonRight = "DATE_TIMESTAMP("+valueVar+")", "DATE_TIMESTAMP("+right+")"
 		}
 		operatorText := map[string]string{"GT": ">", "GTE": ">=", "LT": "<", "LTE": "<="}[operator]
@@ -69,25 +72,25 @@ func (r *physicalPlanRenderer) renderSelectorPredicate(predicate PhysicalPredica
 	matching := "LENGTH(FOR " + valueVar + " IN " + values + " FILTER " + match + " LIMIT 1 RETURN 1)"
 	quantifier := predicate.Quantifier
 	if quantifier == "" {
-		quantifier = QuantifierAny
+		quantifier = spec.QuantifierAny
 	}
 	switch quantifier {
-	case QuantifierAny:
+	case spec.QuantifierAny:
 		return matching + " > 0", nil
-	case QuantifierNone:
+	case spec.QuantifierNone:
 		return matching + " == 0", nil
-	case QuantifierAll:
+	case spec.QuantifierAll:
 		return "LENGTH(" + values + ") > 0 AND LENGTH(FOR " + valueVar + " IN " + values + " FILTER NOT (" + match + ") LIMIT 1 RETURN 1) == 0", nil
 	default:
 		return "", fmt.Errorf("unsupported physical selector filter quantifier %q", quantifier)
 	}
 }
 
-func (r *physicalPlanRenderer) renderPredicateExpression(predicate PhysicalPredicateExpression, indent string) (string, error) {
+func (r *physicalPlanRenderer) renderPredicateExpression(predicate ir.PhysicalPredicateExpression, indent string) (string, error) {
 	switch predicate.Kind {
-	case PhysicalComparisonPredicate:
+	case ir.PhysicalComparisonPredicate:
 		return r.renderPredicate(*predicate.Comparison)
-	case PhysicalAllPredicate, PhysicalAnyPredicate:
+	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate:
 		parts := make([]string, 0, len(predicate.Children))
 		for _, child := range predicate.Children {
 			part, err := r.renderPredicateExpression(child, indent)
@@ -97,17 +100,17 @@ func (r *physicalPlanRenderer) renderPredicateExpression(predicate PhysicalPredi
 			parts = append(parts, "("+part+")")
 		}
 		join := " AND "
-		if predicate.Kind == PhysicalAnyPredicate {
+		if predicate.Kind == ir.PhysicalAnyPredicate {
 			join = " OR "
 		}
 		return strings.Join(parts, join), nil
-	case PhysicalNotPredicate:
+	case ir.PhysicalNotPredicate:
 		child, err := r.renderPredicateExpression(predicate.Children[0], indent)
 		if err != nil {
 			return "", err
 		}
 		return "NOT (" + child + ")", nil
-	case PhysicalExistsPredicate:
+	case ir.PhysicalExistsPredicate:
 		return r.renderExistsSubplan(*predicate.Exists, indent)
 	default:
 		return "", fmt.Errorf("unsupported physical predicate kind %q", predicate.Kind)
@@ -117,11 +120,11 @@ func (r *physicalPlanRenderer) renderPredicateExpression(predicate PhysicalPredi
 // renderExistsSubplan serializes a validated correlated subplan. EXISTS is
 // always bounded: relationship matching is a semi-join, never a row-expanding
 // traversal, so the renderer appends LIMIT 1 immediately before RETURN.
-func (r *physicalPlanRenderer) renderExistsSubplan(subplan PhysicalSubplan, indent string) (string, error) {
+func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, indent string) (string, error) {
 	lines := make([]string, 0, len(subplan.Operations)*3+2)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {
-		case PhysicalTraversalOp:
+		case ir.PhysicalTraversalOp:
 			traversal := operation.Traversal
 			lines = append(lines,
 				fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent+"  ", traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, traversal.SourceVariable, traversal.EdgeCollectionBindKey),
@@ -129,7 +132,7 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan PhysicalSubplan, inde
 				fmt.Sprintf("%s  FILTER %s.%s == @%s", indent+"  ", traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
 				fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent+"  ", traversal.TargetVariable, traversal.TargetTypeBindKey),
 			)
-		case PhysicalFilterOp, PhysicalDerivedLetOp:
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
 			rendered, err := r.renderScopeOperation(operation, indent+"    ")
 			if err != nil {
 				return "", fmt.Errorf("subplan operation %d (%s): %w", index, operation.Kind, err)

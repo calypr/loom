@@ -2,6 +2,8 @@ package ir
 
 import (
 	"regexp"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
@@ -116,7 +118,7 @@ type PhysicalSetProjection struct {
 type PhysicalSetProjectionField struct {
 	Name          string
 	ResourceType  string
-	Selector      Selector
+	Selector      spec.Selector
 	ExecutionMode PhysicalSelectorExecutionMode
 }
 
@@ -153,8 +155,8 @@ type PhysicalPredicate struct {
 	// their compact value-only form.
 	LeftExpression *PhysicalExpression
 	Right          *PhysicalValue
-	Quantifier     ArrayQuantifier
-	ValueKind      FilterValueKind
+	Quantifier     spec.ArrayQuantifier
+	ValueKind      spec.FilterValueKind
 }
 
 type PhysicalPredicateKind string

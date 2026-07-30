@@ -98,7 +98,7 @@ func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input mod
 	if err := requireRecipeControl(r.recipeControl); err != nil {
 		return nil, recipeGraphQLError(err)
 	}
-	preview, err := r.recipeControl.Preview(ctx, input.Name, bindings, r.previewExecute)
+	preview, err := r.recipeControl.Preview(ctx, input.Name, bindings)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}

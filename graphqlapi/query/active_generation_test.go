@@ -7,7 +7,7 @@ import (
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -81,11 +81,9 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		referenceCalls = append(referenceCalls, options)
 		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
 	}
-	dataframes := dataframe.NewService(dataframe.ServiceConfig{
+	dataframes := runtime.NewService(runtime.ServiceConfig{
 		ActiveManifestResolver: active,
-		DiscoverFields:         discoverFields,
-		DiscoverReferences:     discoverReferences,
-		ExecuteRows: func(_ context.Context, _ dataframe.ExecuteQueryOptions, _ string, bindVars map[string]any, _ func(map[string]any) error) error {
+		ExecuteRows: func(_ context.Context, _ runtime.ExecuteQueryOptions, _ string, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got := bindVars["dataset_generation"]; got != generation {
 				t.Fatalf("dataframe execution generation = %#v, want %q", got, generation)
 			}

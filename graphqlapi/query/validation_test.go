@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 )
 
 func TestValidateUsesProductionCompilerWithoutExecutingRows(t *testing.T) {
@@ -17,10 +17,8 @@ func TestValidateUsesProductionCompilerWithoutExecutingRows(t *testing.T) {
 	discoverReferences := func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		return []catalog.PopulatedReference{}, nil
 	}
-	inner := dataframe.NewService(dataframe.ServiceConfig{
-		DiscoverFields:     discoverFields,
-		DiscoverReferences: discoverReferences,
-		ExecuteRows: func(context.Context, dataframe.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+	inner := runtime.NewService(runtime.ServiceConfig{
+		ExecuteRows: func(context.Context, runtime.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
 			executed = true
 			return nil
 		},
@@ -55,10 +53,7 @@ func TestValidateResolvesFieldRefsBeforeCompilation(t *testing.T) {
 	discoverReferences := func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		return []catalog.PopulatedReference{}, nil
 	}
-	inner := dataframe.NewService(dataframe.ServiceConfig{
-		DiscoverFields:     discoverFields,
-		DiscoverReferences: discoverReferences,
-	})
+	inner := runtime.NewService(runtime.ServiceConfig{})
 	service := NewService(Config{Dataframes: inner, DiscoverFields: discoverFields, DiscoverReferences: discoverReferences})
 	fieldRef := "Patient.gender"
 	result, err := service.Validate(context.Background(), model.FhirDataframeInput{

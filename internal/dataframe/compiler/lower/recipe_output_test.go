@@ -23,7 +23,7 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 		if err := output.Plan.Validate(); err != nil {
 			t.Fatalf("output %q canonical plan invalid: %v", output.Name, err)
 		}
-		if output.Plan.Operations[0].Kind != PhysicalRootScanOp {
+		if output.Plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 			t.Fatalf("output %q first operation = %s, want ROOT_SCAN", output.Name, output.Plan.Operations[0].Kind)
 		}
 	}
@@ -61,7 +61,7 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 	}
 	var found *ir.PhysicalExpression
 	for _, operation := range compiled.Outputs[0].Plan.Operations {
-		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
 		for _, projection := range operation.Return.Projections {
@@ -104,7 +104,7 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestCompileResolvedRecipePlanLowersBoundedDynamicMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +571,7 @@ func TestCompileResolvedRecipePlanPreservesRestrictedEmptyAuthScope(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -600,7 +600,7 @@ func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

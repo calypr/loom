@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestEnsureStableRowIdentityIsDeterministicAndScoped(t *testing.T) {
-	identity := &compiler.RowIdentity{Grain: compiler.RowGrainPatient, Fields: []string{"project", "_key"}}
+	identity := &spec.RowIdentity{Grain: spec.RowGrainPatient, Fields: []string{"project", "_key"}}
 	first := map[string]any{"_key": "p1"}
 	second := map[string]any{"_key": "p1"}
 	binds := map[string]any{"project": "P1"}
@@ -44,7 +44,7 @@ func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
 	stream := OutputStream{
 		Name:        "DocumentReference",
 		Columns:     []string{"id"},
-		RowIdentity: &compiler.RowIdentity{Fields: []string{"_key"}},
+		RowIdentity: &spec.RowIdentity{Fields: []string{"_key"}},
 		stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{
 				"_key":                        "internal-key",

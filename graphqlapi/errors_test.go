@@ -4,15 +4,15 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func TestPresentErrorUsesStableExtensions(t *testing.T) {
-	err := dataframe.NewError(
-		dataframe.CodeUnknownField,
+	err := dataframeerrors.NewError(
+		dataframeerrors.CodeUnknownField,
 		"secret internal selector detail",
-		dataframe.WithFieldPath("rootFields", "2", "fieldRef"),
-		dataframe.WithDetails(map[string]any{"fieldRef": "Patient.missing", "aql": "FOR p IN Patient RETURN p"}),
+		dataframeerrors.WithFieldPath("rootFields", "2", "fieldRef"),
+		dataframeerrors.WithDetails(map[string]any{"fieldRef": "Patient.missing", "aql": "FOR p IN Patient RETURN p"}),
 	)
 	graphqlErr := PresentError(err, "request-123")
 	if graphqlErr == nil {
@@ -21,7 +21,7 @@ func TestPresentErrorUsesStableExtensions(t *testing.T) {
 	if graphqlErr.Message != "the selected field is not recognized" {
 		t.Fatalf("message = %q", graphqlErr.Message)
 	}
-	if graphqlErr.Extensions["code"] != string(dataframe.CodeUnknownField) {
+	if graphqlErr.Extensions["code"] != string(dataframeerrors.CodeUnknownField) {
 		t.Fatalf("extensions = %#v", graphqlErr.Extensions)
 	}
 	if graphqlErr.Extensions["requestId"] != "request-123" {
@@ -40,7 +40,7 @@ func TestPresentErrorRedactsUnknownErrors(t *testing.T) {
 	if graphqlErr.Message != "internal server error" {
 		t.Fatalf("unknown message = %q", graphqlErr.Message)
 	}
-	if graphqlErr.Extensions["code"] != string(dataframe.CodeInternalError) {
+	if graphqlErr.Extensions["code"] != string(dataframeerrors.CodeInternalError) {
 		t.Fatalf("unknown extensions = %#v", graphqlErr.Extensions)
 	}
 	if graphqlErr.Extensions["details"] != nil {
@@ -49,7 +49,7 @@ func TestPresentErrorRedactsUnknownErrors(t *testing.T) {
 }
 
 func TestExtensionsForErrorOmitsEmptyRequestID(t *testing.T) {
-	extensions := ExtensionsForError(dataframe.NewError(dataframe.CodeInvalidCursor, ""), "")
+	extensions := ExtensionsForError(dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, ""), "")
 	if _, ok := extensions["requestId"]; ok {
 		t.Fatalf("empty request ID should be omitted: %#v", extensions)
 	}

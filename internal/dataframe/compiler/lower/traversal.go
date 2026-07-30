@@ -3,6 +3,8 @@ package lower
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 // TraversalLoweringRequest is the backend-neutral input to the shared
@@ -22,7 +24,7 @@ type TraversalLoweringRequest struct {
 	TargetVariable string
 	EdgeVariable   string
 	BindPrefix     string
-	Policy         PhysicalOptimizationPolicy
+	Policy         ir.PhysicalOptimizationPolicy
 }
 
 // TraversalLoweringResult contains the canonical physical traversal and the
@@ -30,8 +32,8 @@ type TraversalLoweringRequest struct {
 // for callers that need to inspect the schema-derived contract; callers must
 // not mutate it or substitute a direction after construction.
 type TraversalLoweringResult struct {
-	Route     StorageRoute
-	Traversal PhysicalTraversal
+	Route     storageRoute
+	Traversal ir.PhysicalTraversal
 	BindVars  map[string]any
 }
 
@@ -87,7 +89,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 	edgeCollectionBind := prefix + "_edge_collection"
 	return TraversalLoweringResult{
 		Route: route,
-		Traversal: PhysicalTraversal{
+		Traversal: ir.PhysicalTraversal{
 			SourceVariable:        request.SourceVariable,
 			TargetVariable:        request.TargetVariable,
 			EdgeVariable:          request.EdgeVariable,
@@ -125,12 +127,12 @@ func isCompilerIdentifier(value string) bool {
 // physicalTraversalStrategyForRoute selects an execution strategy only after
 // route metadata has been validated. Endpoint lookup is a typed physical
 // choice; it does not permit callers to provide endpoint fields or AQL.
-func physicalTraversalStrategyForRoute(policy PhysicalOptimizationPolicy, route storageRoute) (PhysicalTraversalStrategy, string, string, []string) {
-	if !policy.RuleEnabled(PhysicalOptimizationRuleEndpointTraversal) {
-		return PhysicalTraversalNative, "", "", nil
+func physicalTraversalStrategyForRoute(policy ir.PhysicalOptimizationPolicy, route storageRoute) (ir.PhysicalTraversalStrategy, string, string, []string) {
+	if !policy.RuleEnabled(ir.PhysicalOptimizationRuleEndpointTraversal) {
+		return ir.PhysicalTraversalNative, "", "", nil
 	}
 	if parentField, joinField, fields, ok := route.endpointLookupFields(); ok && len(fields) > 0 {
-		return PhysicalTraversalEndpointLookup, parentField, joinField, append([]string(nil), fields...)
+		return ir.PhysicalTraversalEndpointLookup, parentField, joinField, append([]string(nil), fields...)
 	}
-	return PhysicalTraversalNative, "", "", nil
+	return ir.PhysicalTraversalNative, "", "", nil
 }

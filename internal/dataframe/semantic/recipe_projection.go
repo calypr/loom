@@ -61,7 +61,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		if err != nil {
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
 		}
-		fallbackSelectors := make([]Selector, 0, len(fallbacks))
+		fallbackSelectors := make([]spec.Selector, 0, len(fallbacks))
 		for index, fallback := range fallbacks {
 			parsed, err := recipeSelector(fallback.Expression)
 			if err != nil {
@@ -87,15 +87,15 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		}
 		projected := primary
 		switch selection.Projection {
-		case ProjectionFirst:
+		case spec.ProjectionFirst:
 			// FIRST over a repeated selector can produce no value, but it can
 			// never produce the source array. Carry that effective cardinality
 			// into the publication schema while retaining the selector AST for
 			// optimized PhysicalExtract lowering.
 			projected.Type.Cardinality = expression.OptionalOne
-		case ProjectionArray, ProjectionDistinctArray:
+		case spec.ProjectionArray, spec.ProjectionDistinctArray:
 			projected.Type.Cardinality = expression.Many
-		case ProjectionScalar:
+		case spec.ProjectionScalar:
 		default:
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: unsupported selector projection %q", path, selection.Projection)
 		}
@@ -131,13 +131,13 @@ func recipeProjectionField(field recipe.Field, scope scopeFrame, path string) (S
 
 // recipeSelector converts a checked expression selector to the schema selector
 // used by the existing semantic and physical extraction contracts.
-func recipeSelector(input expression.Expression) (Selector, error) {
+func recipeSelector(input expression.Expression) (spec.Selector, error) {
 	if input.Selector == nil {
-		return Selector{}, fmt.Errorf("expression is not a selector")
+		return spec.Selector{}, fmt.Errorf("expression is not a selector")
 	}
 	selector, err := spec.ParseSelector(input.Selector.Path)
 	if err != nil {
-		return Selector{}, err
+		return spec.Selector{}, err
 	}
 	return selector, nil
 }

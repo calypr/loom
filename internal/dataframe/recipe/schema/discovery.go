@@ -130,7 +130,10 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 				}
 			}
 		}
-		pivot.Columns = sortedLimited(columns, pivot.Discovery.MaxColumns)
+		if len(columns) > pivot.Discovery.MaxColumns {
+			return fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
+		}
+		pivot.Columns = sortedValues(columns)
 		if len(pivot.Columns) == 0 {
 			return fmt.Errorf("pivot %q discovery matched no columns", pivot.Name)
 		}
@@ -181,7 +184,7 @@ func relativePivotPath(itemSource, selector string) string {
 	return selector
 }
 
-func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType string, dynamics []recipe.DynamicColumn) error {
+func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
 		if len(dynamic.Columns) > 0 {
@@ -191,10 +194,7 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 			return fmt.Errorf("dynamic column %q has no static columns or key selector", dynamic.Name)
 		}
 		keySelect := strings.TrimPrefix(strings.TrimSpace(dynamic.Key.Select), "item.")
-		source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), "root.")
-		if dot := strings.IndexByte(source, '.'); dot >= 0 {
-			source = source[dot+1:]
-		}
+		source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), alias+".")
 		keyPath := source + "." + keySelect
 		candidates, err := discovery.Fields(ctx, scope, resourceType)
 		if err != nil {
@@ -215,7 +215,10 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 		if dynamic.MaxColumns <= 0 {
 			return fmt.Errorf("dynamic column %q requires maxColumns when discovered", dynamic.Name)
 		}
-		dynamic.Columns = sortedLimited(values, dynamic.MaxColumns)
+		if len(values) > dynamic.MaxColumns {
+			return fmt.Errorf("dynamic column %q discovery found %d columns, exceeding maxColumns %d", dynamic.Name, len(values), dynamic.MaxColumns)
+		}
+		dynamic.Columns = sortedValues(values)
 		// A keyed family is optional: a valid FHIR dataset may have no values
 		// for an extension/identifier family at all. Keep the declaration with
 		// an empty frozen column set so resolution remains schema-stable and the
@@ -288,15 +291,12 @@ func projectionName(set recipe.CatalogProjection, fieldPath string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-func sortedLimited(values map[string]struct{}, limit int) []string {
+func sortedValues(values map[string]struct{}) []string {
 	result := make([]string, 0, len(values))
 	for value := range values {
 		result = append(result, value)
 	}
 	sort.Strings(result)
-	if limit > 0 && len(result) > limit {
-		result = result[:limit]
-	}
 	return result
 }
 

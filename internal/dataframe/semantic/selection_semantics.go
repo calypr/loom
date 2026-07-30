@@ -16,10 +16,10 @@ type SelectionSemanticSpec struct {
 	NodeAlias     string
 	ResourceType  string
 	FieldRef      string
-	Selector      Selector
-	Fallbacks     []Selector
-	Cardinality   Cardinality
-	Projection    ProjectionMode
+	Selector      spec.Selector
+	Fallbacks     []spec.Selector
+	Cardinality   spec.Cardinality
+	Projection    spec.ProjectionMode
 	LegacyAuto    bool
 	RepeatedPaths []string
 }
@@ -82,15 +82,15 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 		paths = append(paths, fallbackPaths...)
 	}
 	paths = sortedUniqueStrings(paths)
-	cardinality := CardinalityOptionalOne
+	cardinality := spec.CardinalityOptionalOne
 	if repeated {
-		cardinality = CardinalityMany
+		cardinality = spec.CardinalityMany
 	}
 	projection, legacyAuto, err := projectionForValueMode(field.ValueMode, cardinality)
 	if err != nil {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
 	}
-	if err := ValidateProjection(cardinality, projection); err != nil {
+	if err := spec.ValidateProjection(cardinality, projection); err != nil {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
 	}
 	name := strings.TrimSpace(field.Name)
@@ -100,27 +100,27 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 	return SelectionSemanticSpec{
 		Alias: nodeAlias + "." + name, NodeAlias: nodeAlias,
 		ResourceType: resourceType, FieldRef: field.FieldRef,
-		Selector: field.Selector, Fallbacks: append([]Selector(nil), field.Fallbacks...),
+		Selector: field.Selector, Fallbacks: append([]spec.Selector(nil), field.Fallbacks...),
 		Cardinality: cardinality, Projection: projection, LegacyAuto: legacyAuto,
 		RepeatedPaths: paths,
 	}, nil
 }
 
-func projectionForValueMode(valueMode string, cardinality Cardinality) (ProjectionMode, bool, error) {
+func projectionForValueMode(valueMode string, cardinality spec.Cardinality) (spec.ProjectionMode, bool, error) {
 	switch strings.ToUpper(strings.TrimSpace(valueMode)) {
 	case "", "AUTO":
 		if cardinality.AllowsMany() {
 			// Legacy AUTO selected FIRST for an array-bearing selector. Preserve
 			// that behavior as an explicit semantic decision, not compiler magic.
-			return ProjectionFirst, true, nil
+			return spec.ProjectionFirst, true, nil
 		}
-		return ProjectionScalar, true, nil
+		return spec.ProjectionScalar, true, nil
 	case "FIRST":
-		return ProjectionFirst, false, nil
+		return spec.ProjectionFirst, false, nil
 	case "ALL":
-		return ProjectionArray, false, nil
+		return spec.ProjectionArray, false, nil
 	case "DISTINCT":
-		return ProjectionDistinctArray, false, nil
+		return spec.ProjectionDistinctArray, false, nil
 	default:
 		return "", false, fmt.Errorf("unsupported value mode %q", valueMode)
 	}

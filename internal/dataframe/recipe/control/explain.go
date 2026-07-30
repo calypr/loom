@@ -1,10 +1,7 @@
 package control
 
 import (
-	"context"
-
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/store/arango"
 )
 
@@ -20,7 +17,7 @@ type PhysicalOutputExplanation struct {
 	Name            string
 	PlanFingerprint string
 	Columns         []string
-	Diagnostics     compiler.CompilerPlanDiagnostics
+	Diagnostics     ir.CompilerPlanDiagnostics
 	Live            *ExplainAssessment
 }
 
@@ -65,12 +62,6 @@ type ExplainWarning struct {
 	Code    int
 	Message string
 }
-
-// ExplainPhysicalFunc allows the production recipe engine to provide its
-// canonical compiled outputs without coupling this control-plane package to
-// engine. The live flag requests a configured Arango Explain; when false
-// the callback must return compiler-only diagnostics and fingerprints.
-type ExplainPhysicalFunc func(context.Context, string, recipe.RuntimeBindings, bool) (PhysicalExplanation, error)
 
 // AssessmentFromArango converts the common store assessment to the sanitized
 // control-plane DTO. It copies every slice so callers cannot mutate shared

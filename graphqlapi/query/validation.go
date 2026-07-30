@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
-	"github.com/calypr/loom/internal/dataframe"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	dfspec "github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -25,13 +27,13 @@ type ValidationResult struct {
 	Limit              int
 	Columns            []string
 	PivotFields        []string
-	RowIdentity        *dataframe.RowIdentity
+	RowIdentity        *spec.RowIdentity
 	RequestFingerprint string
-	Warnings           []dataframe.ValidationWarning
-	Plan               dataframe.CompilerPlanDiagnostics
+	Warnings           []runtime.ValidationWarning
+	Plan               ir.CompilerPlanDiagnostics
 	PreviewAllowed     bool
 	ExportAllowed      bool
-	Diagnostics        dataframe.QueryDiagnostics
+	Diagnostics        runtime.QueryDiagnostics
 }
 
 // Validate resolves public fieldRefs, pins generation/scope, and delegates to
@@ -70,7 +72,7 @@ func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) 
 	}
 	preparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return ValidationResult{}, fmt.Errorf("compile GraphQL recipe: %w", err)
 	}
@@ -78,13 +80,13 @@ func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) 
 		return ValidationResult{}, fmt.Errorf("GraphQL dataframe recipe produced %d outputs, want 1", len(queries))
 	}
 	compiled := queries[0]
-	var identity *dataframe.RowIdentity
+	var identity *spec.RowIdentity
 	if value, ok := dfspec.DefaultRowIdentity(dfspec.RowGrain(resolved.SemanticPlan.Outputs[0].RowGrain)); ok {
 		identity = &value
 	}
-	warnings := make([]dataframe.ValidationWarning, 0, 1)
+	warnings := make([]runtime.ValidationWarning, 0, 1)
 	if len(normalized.RootFields) == 0 && len(normalized.RootPivots) == 0 && len(normalized.RootAggregates) == 0 && len(normalized.RootSlices) == 0 && len(normalized.Traverse) == 0 {
-		warnings = append(warnings, dataframe.ValidationWarning{Code: "NO_SELECTED_COLUMNS", Message: "No explicit fields, pivots, aggregates, slices, or traversals were selected; only the row identity will be returned."})
+		warnings = append(warnings, runtime.ValidationWarning{Code: "NO_SELECTED_COLUMNS", Message: "No explicit fields, pivots, aggregates, slices, or traversals were selected; only the row identity will be returned."})
 	}
 	compileDuration := time.Since(compileStarted)
 	// Keep the adapter's public normalized input as the fieldRef-resolved model
@@ -104,15 +106,15 @@ func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) 
 		Plan:               compiled.PlanDiagnostics,
 		PreviewAllowed:     true,
 		ExportAllowed:      true,
-		Diagnostics:        dataframe.QueryDiagnostics{InputResolution: time.Since(started) - preparationDuration - compileDuration, RequestPreparation: preparationDuration, Compilation: compileDuration, Total: time.Since(started), Plan: compiled.PlanDiagnostics},
+		Diagnostics:        runtime.QueryDiagnostics{InputResolution: time.Since(started) - preparationDuration - compileDuration, RequestPreparation: preparationDuration, Compilation: compileDuration, Total: time.Since(started), Plan: compiled.PlanDiagnostics},
 	}, nil
 }
 
-func cloneValidationWarnings(in []dataframe.ValidationWarning) []dataframe.ValidationWarning {
+func cloneValidationWarnings(in []runtime.ValidationWarning) []runtime.ValidationWarning {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]dataframe.ValidationWarning, len(in))
+	out := make([]runtime.ValidationWarning, len(in))
 	for i, warning := range in {
 		out[i] = warning
 		out[i].Path = append([]string(nil), warning.Path...)
@@ -126,7 +128,7 @@ func cloneValidationWarnings(in []dataframe.ValidationWarning) []dataframe.Valid
 	return out
 }
 
-func cloneRowIdentity(in *dataframe.RowIdentity) *dataframe.RowIdentity {
+func cloneRowIdentity(in *spec.RowIdentity) *spec.RowIdentity {
 	if in == nil {
 		return nil
 	}

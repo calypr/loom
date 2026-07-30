@@ -56,12 +56,6 @@ func readyManifest(t *testing.T, project, generation string) Manifest {
 	return transitionManifest(t, manifest, ManifestStateReady)
 }
 
-func failedManifest(t *testing.T, project, generation string) Manifest {
-	t.Helper()
-	manifest := fixtureManifest(t, project, generation)
-	return transitionManifest(t, manifest, ManifestStateFailed)
-}
-
 func repeated(char string, count int) string {
 	return strings.Repeat(char, count)
 }

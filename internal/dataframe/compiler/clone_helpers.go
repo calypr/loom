@@ -1,8 +1,11 @@
 package compiler
 
-import "github.com/calypr/loom/internal/dataframe/compiler/ir"
+import (
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
-func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan { return ir.ClonePhysicalPlan(plan) }
+func clonePhysicalPlan(plan ir.PhysicalPlan) ir.PhysicalPlan { return ir.ClonePhysicalPlan(plan) }
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -11,7 +14,7 @@ func cloneStrings(in []string) []string {
 	return append([]string(nil), in...)
 }
 
-func cloneRowIdentity(identity *RowIdentity) *RowIdentity {
+func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
 	if identity == nil {
 		return nil
 	}

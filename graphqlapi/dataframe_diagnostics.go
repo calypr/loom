@@ -4,10 +4,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 )
 
-func dataframeDiagnostics(in dataframe.QueryDiagnostics) *model.DataframeQueryDiagnostics {
+func dataframeDiagnostics(in runtime.QueryDiagnostics) *model.DataframeQueryDiagnostics {
 	return &model.DataframeQueryDiagnostics{
 		InputResolutionMs:    milliseconds(in.InputResolution),
 		RequestPreparationMs: milliseconds(in.RequestPreparation),
@@ -22,7 +23,7 @@ func dataframeDiagnostics(in dataframe.QueryDiagnostics) *model.DataframeQueryDi
 
 func milliseconds(value time.Duration) float64 { return float64(value) / float64(time.Millisecond) }
 
-func compilerPlanDiagnostics(in dataframe.CompilerPlanDiagnostics) *model.DataframeCompilerPlanDiagnostics {
+func compilerPlanDiagnostics(in ir.CompilerPlanDiagnostics) *model.DataframeCompilerPlanDiagnostics {
 	out := &model.DataframeCompilerPlanDiagnostics{
 		TraversalSets:                     in.TraversalSets,
 		SharedTraversalCount:              in.SharedTraversalCount,
@@ -46,7 +47,7 @@ func compilerPlanDiagnostics(in dataframe.CompilerPlanDiagnostics) *model.Datafr
 	return out
 }
 
-func optimizationPolicy(in dataframe.PhysicalOptimizationReport) *model.DataframeOptimizationPolicy {
+func optimizationPolicy(in ir.PhysicalOptimizationReport) *model.DataframeOptimizationPolicy {
 	out := &model.DataframeOptimizationPolicy{Name: in.Policy, Enabled: in.Enabled, MinimumSavings: in.MinimumSavings, Decisions: make([]*model.DataframeOptimizationDecision, 0, len(in.Decisions))}
 	for _, decision := range in.Decisions {
 		out.Decisions = append(out.Decisions, &model.DataframeOptimizationDecision{Rule: decision.Rule, Enabled: decision.Enabled, CandidateSets: decision.CandidateSets, EstimatedBaselineWork: decision.EstimatedBaselineWork, EstimatedOptimizedWork: decision.EstimatedOptimizedWork, EstimatedSavings: decision.EstimatedSavings, Reason: decision.Reason})

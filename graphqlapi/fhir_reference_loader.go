@@ -3,12 +3,13 @@ package graphqlapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/fhirstructs"
 	"github.com/calypr/loom/graphqlapi/model"
 	queryapi "github.com/calypr/loom/graphqlapi/query"
@@ -16,16 +17,25 @@ import (
 )
 
 const fhirReferenceBatchSize = 256
+const fhirReferenceMaxDepth = 4
 
 type fhirReferenceLoaderKey struct{}
 
-type fhirReferenceOwner struct{ project string }
+type fhirReferenceScopeKey struct {
+	project, generation, digest string
+}
+type fhirReferenceOwner struct {
+	read      queryapi.FHIRReadContext
+	contained map[string]map[string]any
+	depth     int
+}
 type fhirReferenceLookup struct {
-	project, target, id string
+	scope      fhirReferenceScopeKey
+	target, id string
 }
 type fhirReferenceResult struct {
-	value model.FHIRResource
-	err   error
+	resource map[string]any
+	err      error
 }
 type fhirReferenceWaiter struct{ ch chan fhirReferenceResult }
 
@@ -38,6 +48,7 @@ type fhirReferenceLoader struct {
 	owners   map[*fhirstructs.Reference]fhirReferenceOwner
 	cache    map[fhirReferenceLookup]fhirReferenceResult
 	pending  map[fhirReferenceLookup][]*fhirReferenceWaiter
+	contexts map[fhirReferenceScopeKey]queryapi.FHIRReadContext
 	timerSet bool
 }
 
@@ -54,6 +65,7 @@ func withFHIRReferenceLoader(ctx context.Context, resolver *Resolver) context.Co
 		owners:   make(map[*fhirstructs.Reference]fhirReferenceOwner),
 		cache:    make(map[fhirReferenceLookup]fhirReferenceResult),
 		pending:  make(map[fhirReferenceLookup][]*fhirReferenceWaiter),
+		contexts: make(map[fhirReferenceScopeKey]queryapi.FHIRReadContext),
 	})
 }
 
@@ -67,10 +79,11 @@ func fhirReferenceLoaderFromContext(ctx context.Context, resolver *Resolver) *fh
 		owners:   make(map[*fhirstructs.Reference]fhirReferenceOwner),
 		cache:    make(map[fhirReferenceLookup]fhirReferenceResult),
 		pending:  make(map[fhirReferenceLookup][]*fhirReferenceWaiter),
+		contexts: make(map[fhirReferenceScopeKey]queryapi.FHIRReadContext),
 	}
 }
 
-func (l *fhirReferenceLoader) register(value any, project string) {
+func (l *fhirReferenceLoader) register(value any, owner fhirReferenceOwner) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	seen := map[uintptr]bool{}
@@ -90,7 +103,7 @@ func (l *fhirReferenceLoader) register(value any, project string) {
 				return
 			}
 			if ref, ok := v.Interface().(*fhirstructs.Reference); ok {
-				l.owners[ref] = fhirReferenceOwner{project: project}
+				l.owners[ref] = owner
 			}
 			p := v.Pointer()
 			if seen[p] {
@@ -114,12 +127,32 @@ func (l *fhirReferenceLoader) register(value any, project string) {
 	visit(reflect.ValueOf(value))
 }
 
-func (l *fhirReferenceLoader) load(ctx context.Context, lookup fhirReferenceLookup) (model.FHIRResource, error) {
+func (l *fhirReferenceLoader) registerRoots(value any, resources []map[string]any, read queryapi.FHIRReadContext) {
+	v := reflect.ValueOf(value)
+	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) {
+		return
+	}
+	for i := 0; i < v.Len() && i < len(resources); i++ {
+		l.register(v.Index(i).Interface(), fhirReferenceOwner{
+			read:      read,
+			contained: indexContainedResources(resources[i]),
+		})
+	}
+}
+
+func (l *fhirReferenceLoader) load(ctx context.Context, lookup fhirReferenceLookup, read queryapi.FHIRReadContext) (map[string]any, error) {
 	l.mu.Lock()
 	if result, ok := l.cache[lookup]; ok {
 		l.mu.Unlock()
-		return result.value, result.err
+		return result.resource, result.err
 	}
+	l.contexts[lookup.scope] = read
 	waiter := &fhirReferenceWaiter{ch: make(chan fhirReferenceResult, 1)}
 	l.pending[lookup] = append(l.pending[lookup], waiter)
 	if !l.timerSet {
@@ -130,7 +163,7 @@ func (l *fhirReferenceLoader) load(ctx context.Context, lookup fhirReferenceLook
 	l.mu.Unlock()
 	select {
 	case result := <-waiter.ch:
-		return result.value, result.err
+		return result.resource, result.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -143,9 +176,13 @@ func (l *fhirReferenceLoader) dispatch(ctx context.Context) {
 	l.timerSet = false
 	l.mu.Unlock()
 
-	groups := make(map[string][]fhirReferenceLookup)
+	type groupKey struct {
+		scope  fhirReferenceScopeKey
+		target string
+	}
+	groups := make(map[groupKey][]fhirReferenceLookup)
 	for lookup := range pending {
-		group := lookup.project + "\x00" + lookup.target
+		group := groupKey{scope: lookup.scope, target: lookup.target}
 		groups[group] = append(groups[group], lookup)
 	}
 	for _, lookups := range groups {
@@ -168,8 +205,15 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 		id := lookup.id
 		values = append(values, &model.FhirFilterValueInput{Kind: model.FhirFilterValueKindString, String: &id})
 	}
-	result, err := l.resolver.query.ListFHIR(ctx, queryapi.FHIRListRequest{
-		Project: lookups[0].project, ResourceType: lookups[0].target, Limit: len(lookups),
+	l.mu.Lock()
+	read, ok := l.contexts[lookups[0].scope]
+	l.mu.Unlock()
+	if !ok {
+		l.resolveBatchError(lookups, pending, dataframeerrors.NewError(dataframeerrors.CodeReferenceNotResolved, "reference could not be resolved"))
+		return
+	}
+	result, err := l.resolver.query.ListFHIRInContext(ctx, read, queryapi.FHIRListRequest{
+		Project: read.Project, ResourceType: lookups[0].target, Limit: len(lookups),
 		Filters: []*model.FhirFilterInput{{Select: "id", Operator: model.FhirFilterOperatorIn, Values: values}},
 	})
 	byID := make(map[string]map[string]any)
@@ -185,12 +229,9 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 		if err != nil {
 			resolved.err = err
 		} else if resource, ok := byID[lookup.id]; ok {
-			resolved.value, resolved.err = decodeFHIRResource(lookup.target, resource)
+			resolved.resource = resource
 		} else {
 			resolved.err = dataframeerrors.NewError(dataframeerrors.CodeReferenceNotResolved, "reference could not be resolved")
-		}
-		if resolved.value != nil {
-			l.register(resolved.value, lookups[0].project)
 		}
 		l.mu.Lock()
 		l.cache[lookup] = resolved
@@ -202,57 +243,27 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 	}
 }
 
+func (l *fhirReferenceLoader) resolveBatchError(lookups []fhirReferenceLookup, pending map[fhirReferenceLookup][]*fhirReferenceWaiter, err error) {
+	for _, lookup := range lookups {
+		resolved := fhirReferenceResult{err: err}
+		l.mu.Lock()
+		l.cache[lookup] = resolved
+		waiters := pending[lookup]
+		l.mu.Unlock()
+		for _, waiter := range waiters {
+			waiter.ch <- resolved
+		}
+	}
+}
+
 func decodeFHIRResource(resourceType string, resource map[string]any) (model.FHIRResource, error) {
-	var value model.FHIRResource
-	switch resourceType {
-	case "BodyStructure":
-		value = &fhirstructs.BodyStructure{}
-	case "Condition":
-		value = &fhirstructs.Condition{}
-	case "DiagnosticReport":
-		value = &fhirstructs.DiagnosticReport{}
-	case "Patient":
-		value = &fhirstructs.Patient{}
-	case "Specimen":
-		value = &fhirstructs.Specimen{}
-	case "DocumentReference":
-		value = &fhirstructs.DocumentReference{}
-	case "Group":
-		value = &fhirstructs.Group{}
-	case "FamilyMemberHistory":
-		value = &fhirstructs.FamilyMemberHistory{}
-	case "ImagingStudy":
-		value = &fhirstructs.ImagingStudy{}
-	case "Medication":
-		value = &fhirstructs.Medication{}
-	case "MedicationAdministration":
-		value = &fhirstructs.MedicationAdministration{}
-	case "MedicationRequest":
-		value = &fhirstructs.MedicationRequest{}
-	case "MedicationStatement":
-		value = &fhirstructs.MedicationStatement{}
-	case "Observation":
-		value = &fhirstructs.Observation{}
-	case "Organization":
-		value = &fhirstructs.Organization{}
-	case "Practitioner":
-		value = &fhirstructs.Practitioner{}
-	case "PractitionerRole":
-		value = &fhirstructs.PractitionerRole{}
-	case "Procedure":
-		value = &fhirstructs.Procedure{}
-	case "ResearchStudy":
-		value = &fhirstructs.ResearchStudy{}
-	case "ResearchSubject":
-		value = &fhirstructs.ResearchSubject{}
-	case "Substance":
-		value = &fhirstructs.Substance{}
-	case "SubstanceDefinition":
-		value = &fhirstructs.SubstanceDefinition{}
-	case "Task":
-		value = &fhirstructs.Task{}
-	default:
-		return nil, fmt.Errorf("unsupported resource type %s", resourceType)
+	resourceValue, ok := fhirstructs.NewConcreteResource(resourceType)
+	if !ok {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidResourceType, "invalid resource type")
+	}
+	value, ok := resourceValue.(model.FHIRResource)
+	if !ok {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeResourceDecodeFailed, "resource decode failed")
 	}
 	data, err := json.Marshal(resource)
 	if err != nil {
@@ -264,20 +275,78 @@ func decodeFHIRResource(resourceType string, resource map[string]any) (model.FHI
 	return value, nil
 }
 
-func normalizeFHIRReference(ref string) (string, string, bool) {
+type parsedFHIRReference struct {
+	target, id string
+	contained  bool
+}
+
+func parseFHIRReference(ref string) (parsedFHIRReference, bool) {
 	ref = strings.TrimSpace(ref)
-	if scheme := strings.Index(ref, "://"); scheme >= 0 {
-		if slash := strings.Index(ref[scheme+3:], "/"); slash >= 0 {
-			ref = ref[scheme+3+slash:]
-		} else {
-			return "", "", false
+	if strings.HasPrefix(ref, "#") {
+		id := strings.TrimPrefix(ref, "#")
+		return parsedFHIRReference{id: id, contained: true}, id != "" && !strings.ContainsAny(id, "/?#")
+	}
+	parsed, err := url.Parse(ref)
+	if err != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return parsedFHIRReference{}, false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for _, part := range parts {
+		if part == "" {
+			return parsedFHIRReference{}, false
 		}
 	}
-	parts := strings.Split(strings.Trim(ref, "/"), "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
+	absolute := parsed.IsAbs() && parsed.Host != ""
+	if (parsed.IsAbs() && !absolute) || (parsed.Host != "" && !absolute) {
+		return parsedFHIRReference{}, false
 	}
-	return parts[0], parts[1], true
+	if len(parts) >= 4 && parts[len(parts)-2] == "_history" {
+		if parts[len(parts)-1] == "" {
+			return parsedFHIRReference{}, false
+		}
+		parts = parts[:len(parts)-2]
+	}
+	if (!absolute && len(parts) != 2) || (absolute && len(parts) < 2) {
+		return parsedFHIRReference{}, false
+	}
+	target, id := parts[len(parts)-2], parts[len(parts)-1]
+	if target == "" || id == "" || !fhirschema.HasResource(target) {
+		return parsedFHIRReference{}, false
+	}
+	return parsedFHIRReference{target: target, id: id}, true
+}
+
+func normalizeFHIRReference(ref string) (string, string, bool) {
+	parsed, ok := parseFHIRReference(ref)
+	return parsed.target, parsed.id, ok && !parsed.contained
+}
+
+func indexContainedResources(resource map[string]any) map[string]map[string]any {
+	raw, ok := resource["contained"]
+	if !ok {
+		return nil
+	}
+	var values []map[string]any
+	switch raw := raw.(type) {
+	case []any:
+		values = make([]map[string]any, 0, len(raw))
+		for _, value := range raw {
+			if item, ok := value.(map[string]any); ok {
+				values = append(values, item)
+			}
+		}
+	case []map[string]any:
+		values = raw
+	default:
+		return nil
+	}
+	contained := make(map[string]map[string]any, len(values))
+	for _, item := range values {
+		if id, ok := item["id"].(string); ok && id != "" {
+			contained[id] = item
+		}
+	}
+	return contained
 }
 
 func referenceError(optional bool) (model.FHIRResource, error) {

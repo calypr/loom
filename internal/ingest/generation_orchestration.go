@@ -178,16 +178,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		resourceType := ResourceTypeFromPath(file)
 		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 
-		result, fileErr := loadGenerationFile(
+		result, fileErr := loadFile(
 			ctx,
 			opts,
 			client,
 			schema,
 			file,
 			plan.Dataset.Generation,
+			false,
 			start,
 			summary.VerticesInserted,
 			summary.EdgesInserted,
+			insertRawDocuments,
 		)
 		if fileErr != nil {
 			return summary, fileErr

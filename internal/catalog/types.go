@@ -9,8 +9,6 @@ import (
 const (
 	FieldCatalogCollection        = "fhir_field_catalog"
 	RelationshipCatalogCollection = "fhir_relationship_catalog"
-	fieldCatalogDistinctCap       = 50
-	fieldCatalogPivotCap          = 50
 	fieldKindScalar               = "scalar"
 	fieldKindObject               = "object"
 	fieldKindArray                = "array"

@@ -39,14 +39,17 @@ func NewGeneratedRowBuilder(project, authResourcePath string) *GeneratedRowBuild
 }
 
 func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
-	vDoc, eDocs, err := loadRowGenerated(resourceType, line, b.project, stageSeconds)
+	vDoc, eDocs, errorType, err := loadRowGenerated(resourceType, line, b.project, stageSeconds)
 	if err != nil {
-		return rowBuildResult{}, rowErrorValidation, err
+		return rowBuildResult{}, errorType, err
 	}
 	if b.authResourcePath != "" {
 		vDoc.AuthResourcePath = b.authResourcePath
 		for i := range eDocs {
-			eDocs[i] = edgeWithAuthResourcePath(eDocs[i], b.authResourcePath)
+			eDocs[i], err = edgeWithAuthResourcePath(eDocs[i], b.authResourcePath)
+			if err != nil {
+				return rowBuildResult{}, rowErrorEdge, err
+			}
 		}
 	}
 	marshalStart := time.Now()
@@ -69,20 +72,20 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 	}, "", nil
 }
 
-func edgeWithAuthResourcePath(edge json.RawMessage, authResourcePath string) json.RawMessage {
+func edgeWithAuthResourcePath(edge json.RawMessage, authResourcePath string) (json.RawMessage, error) {
 	if authResourcePath == "" {
-		return edge
+		return edge, nil
 	}
 	var doc map[string]any
 	if err := sonic.ConfigFastest.Unmarshal(edge, &doc); err != nil {
-		return edge
+		return nil, err
 	}
 	doc["auth_resource_path"] = authResourcePath
 	out, err := sonic.ConfigFastest.Marshal(doc)
 	if err != nil {
-		return edge
+		return nil, err
 	}
-	return json.RawMessage(out)
+	return json.RawMessage(out), nil
 }
 
 type GenericRowBuilder struct {
@@ -156,7 +159,10 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 			return rowBuildResult{}, rowErrorEdge, err
 		}
 		if authResourcePath != "" {
-			eBytes = edgeWithAuthResourcePath(eBytes, authResourcePath)
+			eBytes, err = edgeWithAuthResourcePath(eBytes, authResourcePath)
+			if err != nil {
+				return rowBuildResult{}, rowErrorEdge, err
+			}
 		}
 		convertedEdges = append(convertedEdges, json.RawMessage(eBytes))
 	}

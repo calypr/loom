@@ -5,34 +5,36 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 // BuildGenericPhysicalPlan lowers generic navigation plus root and optional
 // child selections into the typed physical IR.
-func BuildGenericPhysicalPlan(semantic SemanticPlan) (PhysicalPlan, error) {
-	return BuildGenericPhysicalPlanWithPolicy(semantic, DefaultPhysicalOptimizationPolicy())
+func BuildGenericPhysicalPlan(semantic semanticpkg.SemanticPlan) (ir.PhysicalPlan, error) {
+	return BuildGenericPhysicalPlanWithPolicy(semantic, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 // BuildGenericPhysicalPlanWithPolicy threads an explicit optimizer policy
 // through physical construction so prepared-selector ablations happen before
 // references to prepared variables are attached to projections.
-func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOptimizationPolicy) (PhysicalPlan, error) {
+func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if strings.TrimSpace(semantic.Project) == "" {
-		return PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
+		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
-	if err := ValidateSemanticGraph(semantic); err != nil {
-		return PhysicalPlan{}, err
+	if err := semanticpkg.ValidateSemanticGraph(semantic); err != nil {
+		return ir.PhysicalPlan{}, err
 	}
 	if !fhirschema.ResourceExists(semantic.Root.ResourceType) {
-		return PhysicalPlan{}, fmt.Errorf("root resource type %q is not represented by the generated FHIR schema", semantic.Root.ResourceType)
+		return ir.PhysicalPlan{}, fmt.Errorf("root resource type %q is not represented by the generated FHIR schema", semantic.Root.ResourceType)
 	}
 	if err := validateGenericPhysicalNode(semantic.Root, true); err != nil {
-		return PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, err
 	}
 
-	physical := PhysicalPlan{
+	physical := ir.PhysicalPlan{
 		Version: 1,
-		Source: PhysicalSource{
+		Source: ir.PhysicalSource{
 			SemanticNode: semantic.Root.Alias,
 			ResourceType: semantic.Root.ResourceType,
 		},
@@ -44,28 +46,28 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 			"auth_resource_paths_unrestricted": semanticAuthScopeUnrestricted(semantic),
 			"scope_allowed":                    true,
 		},
-		Operations: []PhysicalOperation{
+		Operations: []ir.PhysicalOperation{
 			{
-				Kind:     PhysicalRootScanOp,
-				Source:   PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType},
-				RootScan: &PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"},
+				Kind:     ir.PhysicalRootScanOp,
+				Source:   ir.PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType},
+				RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"},
 			},
 		},
 	}
 	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", semantic.Root)
 	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", semantic.Root)
-	physical.Operations = appendAuthScope(physical.Operations, []PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", semantic.Root)
+	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", semantic.Root)
 	if err := appendRootPhysicalFilters(&physical, semantic.Root); err != nil {
-		return PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, err
 	}
 	if err := appendRequiredTraversalMatchFilters(&physical, semantic.Root); err != nil {
-		return PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, err
 	}
 
 	childSetIndex := 0
-	returnProjections := []PhysicalProjection{}
-	var walk func(parent SemanticNode, parentVariable, projectionPrefix string) error
-	walk = func(parent SemanticNode, parentVariable, projectionPrefix string) error {
+	returnProjections := []ir.PhysicalProjection{}
+	var walk func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string) error
+	walk = func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string) error {
 		for _, child := range parent.Children {
 			if child.MatchMode.Required() {
 				// Required routes are represented by the root semi-join emitted
@@ -83,7 +85,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 					if err != nil {
 						return err
 					}
-					physical.Operations = append(physical.Operations, PhysicalOperation{Kind: PhysicalSetOp, Source: PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
+					physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
 					returnProjections = append(returnProjections, projections...)
 					if err := walk(child, set.Variable, childProjectionPrefix); err != nil {
 						return err
@@ -94,7 +96,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 			if !physicalNodeNeedsMaterializedSet(child) {
 				traversalIndex := 1
 				for _, operation := range physical.Operations {
-					if operation.Kind == PhysicalTraversalOp {
+					if operation.Kind == ir.PhysicalTraversalOp {
 						traversalIndex++
 					}
 				}
@@ -111,12 +113,12 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 				for key, value := range traversal.BindVars {
 					physical.BindVars[key] = value
 				}
-				physical.Operations = append(physical.Operations, PhysicalOperation{Kind: PhysicalTraversalOp,
-					Source:    PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel},
+				physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp,
+					Source:    ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel},
 					Traversal: &traversal.Traversal})
 				physical.Operations = appendProjectScope(physical.Operations, []string{edgeVariable, nodeVariable}, child.EdgeLabel, child)
 				physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{edgeVariable, nodeVariable}, child.EdgeLabel, child)
-				physical.Operations = appendAuthScope(physical.Operations, []PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: nodeVariable, Path: []string{"auth_resource_path"}}}, fmt.Sprintf("traversal_%d_scope_allowed", traversalIndex), child)
+				physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: nodeVariable, Path: []string{"auth_resource_path"}}}, fmt.Sprintf("traversal_%d_scope_allowed", traversalIndex), child)
 				if err := walk(child, nodeVariable, projectionPrefix); err != nil {
 					return err
 				}
@@ -134,7 +136,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 			if err != nil {
 				return err
 			}
-			physical.Operations = append(physical.Operations, PhysicalOperation{Kind: PhysicalSetOp, Source: PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
+			physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
 			returnProjections = append(returnProjections, projections...)
 			if err := walk(child, set.Variable, childProjectionPrefix); err != nil {
 				return err
@@ -143,25 +145,25 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 		return nil
 	}
 	if err := walk(semantic.Root, "root", ""); err != nil {
-		return PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, err
 	}
 	projections, err := rootPhysicalProjections(&physical, semantic.Root)
 	if err != nil {
-		return PhysicalPlan{}, err
+		return ir.PhysicalPlan{}, err
 	}
 	projections = append(projections, returnProjections...)
 	physical.Operations = append(physical.Operations, physical.DeferredExpressionLets...)
 	physical.DeferredExpressionLets = nil
-	physical.Operations = append(physical.Operations, PhysicalOperation{
-		Kind:   PhysicalReturnOp,
-		Source: PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType, SemanticField: "_key"},
-		Return: &PhysicalReturn{Projections: projections},
+	physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalReturnOp,
+		Source: ir.PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType, SemanticField: "_key"},
+		Return: &ir.PhysicalReturn{Projections: projections},
 	})
 	if err := physical.Validate(); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("validate generic physical plan: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical plan: %w", err)
 	}
-	if err := ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("verify generic physical plan scope: %w", err)
+	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("verify generic physical plan scope: %w", err)
 	}
 	return physical, nil
 }
@@ -169,7 +171,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic SemanticPlan, policy PhysicalOp
 // physicalNodeNeedsMaterializedSet reports whether a node or any optional
 // descendant has shaped output. Materializing an otherwise unselected parent
 // is necessary to give nested sets a stable correlated source variable.
-func physicalNodeNeedsMaterializedSet(node SemanticNode) bool {
+func physicalNodeNeedsMaterializedSet(node semanticpkg.SemanticNode) bool {
 	if len(node.Fields) != 0 || len(node.Filters) != 0 || len(node.Pivots) != 0 || len(node.Aggregates) != 0 || len(node.Slices) != 0 || len(node.DynamicMaps) != 0 {
 		return true
 	}
@@ -181,15 +183,15 @@ func physicalNodeNeedsMaterializedSet(node SemanticNode) bool {
 	return false
 }
 
-func appendProjectScope(operations []PhysicalOperation, variables []string, relationship string, node SemanticNode) []PhysicalOperation {
-	right := PhysicalValue{BindKey: "project"}
+func appendProjectScope(operations []ir.PhysicalOperation, variables []string, relationship string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+	right := ir.PhysicalValue{BindKey: "project"}
 	for _, variable := range variables {
-		operations = append(operations, PhysicalOperation{
-			Kind:   PhysicalFilterOp,
-			Source: PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: relationship, SemanticField: "project"},
-			Filter: &PhysicalFilter{Predicate: PhysicalPredicate{
+		operations = append(operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalFilterOp,
+			Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: relationship, SemanticField: "project"},
+			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
 				Operator: "EQUALS",
-				Left:     PhysicalValue{Variable: variable, Path: []string{"project"}},
+				Left:     ir.PhysicalValue{Variable: variable, Path: []string{"project"}},
 				Right:    &right,
 			}},
 		})
@@ -201,15 +203,15 @@ func appendProjectScope(operations []PhysicalOperation, variables []string, rela
 // every physical document participating in a scan/traversal. With a nil bind
 // value this renders `dataset_generation == null`, deliberately isolating
 // legacy documents from later generation-qualified loads.
-func appendDatasetGenerationScope(operations []PhysicalOperation, variables []string, relationship string, node SemanticNode) []PhysicalOperation {
-	right := PhysicalValue{BindKey: datasetGenerationBindKey}
+func appendDatasetGenerationScope(operations []ir.PhysicalOperation, variables []string, relationship string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+	right := ir.PhysicalValue{BindKey: datasetGenerationBindKey}
 	for _, variable := range variables {
-		operations = append(operations, PhysicalOperation{
-			Kind:   PhysicalFilterOp,
-			Source: PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: relationship, SemanticField: datasetGenerationField},
-			Filter: &PhysicalFilter{Predicate: PhysicalPredicate{
+		operations = append(operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalFilterOp,
+			Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: relationship, SemanticField: datasetGenerationField},
+			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
 				Operator: "EQUALS",
-				Left:     PhysicalValue{Variable: variable, Path: []string{datasetGenerationField}},
+				Left:     ir.PhysicalValue{Variable: variable, Path: []string{datasetGenerationField}},
 				Right:    &right,
 			}},
 		})
@@ -217,23 +219,23 @@ func appendDatasetGenerationScope(operations []PhysicalOperation, variables []st
 	return operations
 }
 
-func appendAuthScope(operations []PhysicalOperation, scopedValues []PhysicalValue, resultVariable string, node SemanticNode) []PhysicalOperation {
-	inputs := append([]PhysicalValue(nil), scopedValues...)
-	inputs = append(inputs, PhysicalValue{BindKey: "auth_resource_paths"}, PhysicalValue{BindKey: "auth_resource_paths_unrestricted"})
-	operations = append(operations, PhysicalOperation{
-		Kind:       PhysicalDerivedLetOp,
-		Source:     PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: "auth_resource_path"},
-		DerivedLet: &PhysicalDerivedLet{Variable: resultVariable, Operator: "AUTH_RESOURCE_PATH_ALLOWED", Inputs: inputs},
+func appendAuthScope(operations []ir.PhysicalOperation, scopedValues []ir.PhysicalValue, resultVariable string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+	inputs := append([]ir.PhysicalValue(nil), scopedValues...)
+	inputs = append(inputs, ir.PhysicalValue{BindKey: "auth_resource_paths"}, ir.PhysicalValue{BindKey: "auth_resource_paths_unrestricted"})
+	operations = append(operations, ir.PhysicalOperation{
+		Kind:       ir.PhysicalDerivedLetOp,
+		Source:     ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: "auth_resource_path"},
+		DerivedLet: &ir.PhysicalDerivedLet{Variable: resultVariable, Operator: "AUTH_RESOURCE_PATH_ALLOWED", Inputs: inputs},
 	})
-	right := PhysicalValue{BindKey: "scope_allowed"}
-	return append(operations, PhysicalOperation{
-		Kind:   PhysicalFilterOp,
-		Source: PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: "auth_resource_path"},
-		Filter: &PhysicalFilter{Predicate: PhysicalPredicate{Operator: "EQUALS", Left: PhysicalValue{Variable: resultVariable}, Right: &right}},
+	right := ir.PhysicalValue{BindKey: "scope_allowed"}
+	return append(operations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalFilterOp,
+		Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: "auth_resource_path"},
+		Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: resultVariable}, Right: &right}},
 	})
 }
 
-func validateGenericPhysicalNode(node SemanticNode, root bool) error {
+func validateGenericPhysicalNode(node semanticpkg.SemanticNode, root bool) error {
 	for _, child := range node.Children {
 		if err := validateGenericPhysicalNode(child, false); err != nil {
 			return err

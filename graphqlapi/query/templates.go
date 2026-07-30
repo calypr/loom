@@ -116,12 +116,6 @@ func (s *Service) ListTemplates(ctx context.Context, req TemplateOptions) ([]Tem
 	return result, nil
 }
 
-// Templates is a short compatibility alias for callers that prefer the
-// noun-shaped service method while the GraphQL operation is being integrated.
-func (s *Service) Templates(ctx context.Context, req TemplateOptions) ([]TemplateAvailability, error) {
-	return s.ListTemplates(ctx, req)
-}
-
 func (s *Service) templateCapabilities(ctx context.Context, definitions []dataframetemplate.Definition, project, generation string, scope authscope.ReadScope) (dataframetemplate.CapabilitySnapshot, error) {
 	resourceTypes := make(map[string]struct{})
 	for _, definition := range definitions {

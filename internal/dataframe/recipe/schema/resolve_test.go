@@ -5,7 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -130,6 +131,29 @@ func TestResolveRejectsTruncatedDynamicKeyDiscovery(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsDynamicColumnsAboveRecipeLimit(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "limited",
+		TranslationVersion:  "v",
+		Outputs: []recipe.Output{{
+			Name:             "Patient",
+			RootResourceType: "Patient",
+			RowGrain:         "patient",
+			DynamicColumns: []recipe.DynamicColumn{{
+				Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"},
+				Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1,
+			}},
+		}},
+	}
+	_, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{{
+		Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"a", "b"},
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "exceeding maxColumns") {
+		t.Fatalf("expected maxColumns rejection, got %v", err)
+	}
+}
+
 func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "digest", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}}}
 	first, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/b", "/a"}}, nil)
@@ -174,10 +198,22 @@ func TestDefaultRecipeCatalogDeclarationsRemainSemanticallyCompilable(t *testing
 				FieldCandidate{ResourceType: resourceType, Path: "component[].code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "codeable_concept", PivotColumns: []string{"component"}, PivotColumnSelect: "component[].code.coding[].display", PivotValueSelect: "component[].code.coding[].display"},
 			)
 		}
+		if resourceType == "DocumentReference" {
+			byType[resourceType] = append(byType[resourceType], FieldCandidate{
+				ResourceType: resourceType, Path: "category[].coding[].code", Kind: "scalar", DistinctValues: []string{"PLATFORM", "PASSED_QC"},
+			})
+		}
 	}
 	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{byType: byType})
 	if err != nil {
 		t.Fatal(err)
+	}
+	documentReference := resolved.Bundle.Outputs[0]
+	if got := documentReference.DynamicColumns[2].Columns; strings.Join(got, ",") != "PASSED_QC,PLATFORM" {
+		t.Fatalf("DocumentReference category columns = %#v", got)
+	}
+	if got := documentReference.Traversals[0].DynamicColumns[0].Columns; strings.Join(got, ",") != "system" {
+		t.Fatalf("Specimen identifier columns = %#v", got)
 	}
 	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
 		t.Fatalf("resolved default recipe did not type-check: %v", err)
@@ -190,7 +226,7 @@ func TestDefaultRecipeCatalogDeclarationsRemainSemanticallyCompilable(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := compiler.CompileResolvedRecipePlan(physical, compiler.DefaultPhysicalOptimizationPolicy()); err != nil {
+	if _, err := lower.CompileResolvedRecipePlan(physical, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
 		t.Fatalf("resolved default recipe did not compile physically: %v", err)
 	}
 }

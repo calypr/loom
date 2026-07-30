@@ -63,9 +63,11 @@ func (s *Service) Preflight(req Request) ([]Column, error) {
 	if len(req.Schema) == 0 {
 		return nil, nil
 	}
+	resourceType := req.Run.Recipe.Outputs[0].RootResourceType
 	seen := make(map[string]struct{}, len(req.Schema))
 	result := make([]Column, 0, len(req.Schema))
 	for _, column := range req.Schema {
+		column.Name = FlatColumnName(resourceType, column.Name)
 		if err := validateSchemaColumn(column); err != nil {
 			return nil, err
 		}
@@ -146,9 +148,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 		}
 		created = true
 	}
-	streamResult, err := s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
+	_, err = s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
 		rowCount++
-		row = cloneMap(row)
+		qualified, qualifyErr := QualifyFlatRow(req.Run.Recipe.Outputs[0].RootResourceType, row)
+		if qualifyErr != nil {
+			return qualifyErr
+		}
+		row = qualified
 		if _, ok := row[authResourcePathColumn]; !ok {
 			if len(req.Run.Bindings.AuthResourcePaths) == 1 {
 				row[authResourcePathColumn] = req.Run.Bindings.AuthResourcePaths[0]
@@ -215,11 +221,6 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	}
 	if err := flush(); err != nil {
 		return fail(err)
-	}
-	if len(streamResult.Columns) > 0 {
-		// The runtime's finalized order is useful metadata, but the physical
-		// schema remains the deterministic order discovered above.
-		_ = streamResult
 	}
 	m.Columns = append([]Column{{Name: "__loom_row_id", ClickHouse: "UInt64"}}, columns...)
 	sort.Slice(m.Columns[1:], func(i, j int) bool { return m.Columns[i+1].Name < m.Columns[j+1].Name })

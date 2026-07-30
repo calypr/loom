@@ -16,7 +16,7 @@ type SemanticPlan struct {
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
-	RowIdentity       *RowIdentity
+	RowIdentity       *spec.RowIdentity
 	Root              SemanticNode
 }
 
@@ -24,10 +24,10 @@ type SemanticNode struct {
 	Alias        string
 	ResourceType string
 	EdgeLabel    string
-	MatchMode    TraversalMatchMode
+	MatchMode    spec.TraversalMatchMode
 	From         *SemanticExpression
 	Fields       []SemanticField
-	Filters      []TypedFilter
+	Filters      []spec.TypedFilter
 	Pivots       []SemanticPivot
 	Aggregates   []SemanticAggregate
 	Slices       []SemanticSlice
@@ -38,8 +38,8 @@ type SemanticNode struct {
 type SemanticField struct {
 	Name       string
 	FieldRef   string
-	Selector   Selector
-	Fallbacks  []Selector
+	Selector   spec.Selector
+	Fallbacks  []spec.Selector
 	ValueMode  string
 	Expr       *expression.Expression
 	ExprType   expression.Type
@@ -49,12 +49,12 @@ type SemanticField struct {
 type SemanticPivot struct {
 	Name             string
 	FieldRef         string
-	ColumnSelector   Selector
-	ValueSelector    Selector
-	ValueFallbacks   []Selector
+	ColumnSelector   spec.Selector
+	ValueSelector    spec.Selector
+	ValueFallbacks   []spec.Selector
 	ValueKind        expression.ValueKind
 	StringifyValue   bool
-	ItemSource       Selector
+	ItemSource       spec.Selector
 	ItemResourceType string
 	Columns          []string
 	Family           string
@@ -64,9 +64,9 @@ type SemanticAggregate struct {
 	Name            string
 	Operation       string
 	FieldRef        string
-	Selector        *Selector
+	Selector        *spec.Selector
 	PredicateField  string
-	Predicate       *Selector
+	Predicate       *spec.Selector
 	PredicateEquals string
 	ValueMode       string
 }
@@ -75,12 +75,12 @@ type SemanticSlice struct {
 	Name            string
 	Limit           int
 	PredicateField  string
-	Predicate       *Selector
+	Predicate       *spec.Selector
 	PredicateEquals string
 	Fields          []SemanticField
 }
 
-func validateSemanticSelector(resourceType string, selector Selector) error {
+func validateSemanticSelector(resourceType string, selector spec.Selector) error {
 	_, _, err := spec.SelectorCardinality(resourceType, selector)
 	return err
 }
@@ -92,7 +92,7 @@ type SemanticPlanExplanation struct {
 	Version           int
 	RootResourceType  string
 	DatasetGeneration string
-	RowIdentity       *RowIdentity
+	RowIdentity       *spec.RowIdentity
 	Nodes             []SemanticNodeExplanation
 }
 
@@ -101,7 +101,7 @@ type SemanticNodeExplanation struct {
 	ParentAlias    string
 	ResourceType   string
 	EdgeLabel      string
-	MatchMode      TraversalMatchMode
+	MatchMode      spec.TraversalMatchMode
 	FieldCount     int
 	PivotCount     int
 	AggregateCount int

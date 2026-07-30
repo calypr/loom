@@ -37,6 +37,12 @@ jobs:
     - name: Generate FHIR code
       run: make generate-fhir
 
+    - name: Generate GraphQL code
+      run: make generate-graphql
+
+    - name: Check generated code is current
+      run: git diff --exit-code -- fhirstructs fhirschema graphqlapi
+
     - name: Run GraphQL contract checks
       run: make graphql-check
 

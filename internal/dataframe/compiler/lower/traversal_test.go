@@ -1,9 +1,13 @@
 package lower
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+)
 
 func TestBuildPhysicalTraversalUsesSchemaDerivedInboundRoute(t *testing.T) {
-	policy := DefaultPhysicalOptimizationPolicy()
+	policy := ir.DefaultPhysicalOptimizationPolicy()
 	got, err := BuildPhysicalTraversal(TraversalLoweringRequest{
 		FromType:       "Patient",
 		EdgeLabel:      "subject_Patient",
@@ -17,13 +21,13 @@ func TestBuildPhysicalTraversalUsesSchemaDerivedInboundRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != PhysicalInbound {
-		t.Fatalf("route direction = %q, want %q", got.Route.Direction, PhysicalInbound)
+	if got.Route.Direction != ir.PhysicalInbound {
+		t.Fatalf("route direction = %q, want %q", got.Route.Direction, ir.PhysicalInbound)
 	}
-	if got.Traversal.Direction != PhysicalInbound || got.Traversal.EdgeTargetTypeField != "from_type" {
+	if got.Traversal.Direction != ir.PhysicalInbound || got.Traversal.EdgeTargetTypeField != "from_type" {
 		t.Fatalf("traversal route contract = %#v", got.Traversal)
 	}
-	if got.Traversal.Strategy != PhysicalTraversalEndpointLookup {
+	if got.Traversal.Strategy != ir.PhysicalTraversalEndpointLookup {
 		t.Fatalf("traversal strategy = %q, want endpoint lookup", got.Traversal.Strategy)
 	}
 	if got.Traversal.EndpointField != "_to" || got.Traversal.EndpointJoinField != "_from" {
@@ -50,12 +54,12 @@ func TestBuildPhysicalTraversalUsesSchemaDerivedOutboundRoute(t *testing.T) {
 		TargetVariable: "study_node",
 		EdgeVariable:   "study_edge",
 		BindPrefix:     "study_1",
-		Policy:         DefaultPhysicalOptimizationPolicy(),
+		Policy:         ir.DefaultPhysicalOptimizationPolicy(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != PhysicalOutbound || got.Traversal.Direction != PhysicalOutbound {
+	if got.Route.Direction != ir.PhysicalOutbound || got.Traversal.Direction != ir.PhysicalOutbound {
 		t.Fatalf("outbound route contract = route %#v traversal %#v", got.Route, got.Traversal)
 	}
 	if got.Traversal.EdgeTargetTypeField != "to_type" {
@@ -70,12 +74,12 @@ func TestBuildPhysicalTraversalUsesGeneratedOutboundReferenceForAnyFHIRType(t *t
 	got, err := BuildPhysicalTraversal(TraversalLoweringRequest{
 		FromType: "ResearchSubject", EdgeLabel: "subject_Patient", ToType: "Patient",
 		SourceVariable: "root", TargetVariable: "patient_node", EdgeVariable: "patient_edge",
-		BindPrefix: "subject_1", Policy: DefaultPhysicalOptimizationPolicy(),
+		BindPrefix: "subject_1", Policy: ir.DefaultPhysicalOptimizationPolicy(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != PhysicalOutbound || got.Traversal.Direction != PhysicalOutbound {
+	if got.Route.Direction != ir.PhysicalOutbound || got.Traversal.Direction != ir.PhysicalOutbound {
 		t.Fatalf("generated outbound route contract = route %#v traversal %#v", got.Route, got.Traversal)
 	}
 	if got.Traversal.EndpointField != "_from" || got.Traversal.EndpointJoinField != "_to" {
@@ -84,7 +88,7 @@ func TestBuildPhysicalTraversalUsesGeneratedOutboundReferenceForAnyFHIRType(t *t
 }
 
 func TestBuildPhysicalTraversalPolicyCanForceNativeRoute(t *testing.T) {
-	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleEndpointTraversal, false)
+	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false)
 	got, err := BuildPhysicalTraversal(TraversalLoweringRequest{
 		FromType:       "Patient",
 		EdgeLabel:      "subject_Patient",
@@ -98,7 +102,7 @@ func TestBuildPhysicalTraversalPolicyCanForceNativeRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Traversal.Strategy != PhysicalTraversalNative {
+	if got.Traversal.Strategy != ir.PhysicalTraversalNative {
 		t.Fatalf("strategy = %q, want native", got.Traversal.Strategy)
 	}
 	if got.Traversal.EndpointField != "" || got.Traversal.EndpointJoinField != "" || len(got.Traversal.EndpointIndexFields) != 0 {
@@ -115,7 +119,7 @@ func TestBuildPhysicalTraversalRejectsUnknownSchemaRoute(t *testing.T) {
 		TargetVariable: "node",
 		EdgeVariable:   "edge",
 		BindPrefix:     "traversal_1",
-		Policy:         DefaultPhysicalOptimizationPolicy(),
+		Policy:         ir.DefaultPhysicalOptimizationPolicy(),
 	})
 	if err == nil {
 		t.Fatal("BuildPhysicalTraversal() succeeded for an unknown schema route")

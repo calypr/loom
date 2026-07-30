@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/control"
 	"github.com/calypr/loom/internal/dataframe/runtime"
@@ -72,7 +73,7 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	}
 	result := control.PhysicalExplanation{Outputs: make([]control.PhysicalOutputExplanation, 0, len(resolved.Compiled.Outputs))}
 	for _, output := range resolved.Compiled.Outputs {
-		compiled, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, compiler.DefaultPhysicalOptimizationPolicy())
+		compiled, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return control.PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
@@ -107,7 +108,7 @@ func (c Control) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return resolved.Semantic, nil
 }
 
-func (c Control) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings, execute control.ExecuteFunc) (control.Preview, error) {
+func (c Control) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings) (control.Preview, error) {
 	if c.Engine == nil {
 		return control.Preview{}, fmt.Errorf("recipe engine is required")
 	}
@@ -115,17 +116,12 @@ func (c Control) Preview(ctx context.Context, name string, bindings recipe.Runti
 	if err != nil {
 		return control.Preview{}, err
 	}
-	// The callback remains in the transport-neutral interface for source
-	// compatibility, but the production engine never delegates preview work
-	// to it. Doing so would reintroduce a caller-selected renderer and bypass
-	// the canonical physical optimizer. All rows come from Engine.Preview.
-	_ = execute
 	resolved := full.Semantic
 	rows, err := c.Engine.Preview(ctx, full, bindings.PreviewLimit)
 	if err != nil {
 		return control.Preview{}, err
 	}
-	return control.Preview{Plan: resolved, Rows: rows, Outputs: outputRows(full, rows)}, nil
+	return control.Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
 }
 
 // Run executes the complete resolved recipe without a preview limit. It is an
@@ -143,7 +139,7 @@ func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBi
 	if err != nil {
 		return control.Preview{}, err
 	}
-	return control.Preview{Plan: full.Semantic, Rows: rows, Outputs: outputRows(full, rows)}, nil
+	return control.Preview{Plan: full.Semantic, Outputs: outputRows(full, rows)}, nil
 }
 
 func outputRows(resolved Resolved, rows map[string][]map[string]any) []control.OutputRows {
@@ -163,5 +159,5 @@ var _ interface {
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
 	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (control.PhysicalExplanation, error)
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
-	Preview(context.Context, string, recipe.RuntimeBindings, control.ExecuteFunc) (control.Preview, error)
+	Preview(context.Context, string, recipe.RuntimeBindings) (control.Preview, error)
 } = Control{}

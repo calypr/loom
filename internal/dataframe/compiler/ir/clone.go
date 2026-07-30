@@ -1,6 +1,10 @@
 package ir
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -214,7 +218,7 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Extract != nil {
 		extract := *expression.Extract
 		extract.Source = clonePhysicalValue(extract.Source)
-		extract.Fallbacks = append([]Selector(nil), extract.Fallbacks...)
+		extract.Fallbacks = append([]spec.Selector(nil), extract.Fallbacks...)
 		if extract.Prepared != nil {
 			prepared := *extract.Prepared
 			extract.Prepared = &prepared
@@ -224,8 +228,8 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Pivot != nil {
 		pivot := *expression.Pivot
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
-		pivot.ItemSource.Steps = append([]SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
-		pivot.ValueFallbacks = append([]Selector(nil), expression.Pivot.ValueFallbacks...)
+		pivot.ItemSource.Steps = append([]spec.SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
+		pivot.ValueFallbacks = append([]spec.Selector(nil), expression.Pivot.ValueFallbacks...)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
 		if pivot.PreparedKey != nil {
 			prepared := *pivot.PreparedKey

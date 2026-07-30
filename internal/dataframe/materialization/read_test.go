@@ -2,6 +2,7 @@ package materialization
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -74,5 +75,58 @@ func TestNumericCountAcceptsClickHouseRepresentations(t *testing.T) {
 				t.Fatalf("numericCount(%#v) = %d, want %d", test.value, got, test.want)
 			}
 		})
+	}
+}
+
+func TestFederatedRowUnionUsesPerProjectScopes(t *testing.T) {
+	dataset := FederatedDataset{
+		Columns: []Column{{Name: "id"}, {Name: "auth_resource_path"}},
+		Sources: []Materialization{
+			{ID: "source-a", Project: "project-a", PhysicalTable: "table_a"},
+			{ID: "source-b", Project: "project-b", PhysicalTable: "table_b"},
+		},
+	}
+	columns, allowed, err := federatedColumns(dataset, []string{"id"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, args, err := federatedRowUnion(
+		dataset, columns, []Filter{{Column: "id", Op: "EQ", Value: "patient-1"}}, allowed,
+		nil, false,
+		map[string][]string{"project-a": {"scope-a"}},
+		map[string]bool{"project-b": true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantQuery := "SELECT `id`, toString(`__loom_row_id`) AS `__loom_row_id`, concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id` FROM `table_a` WHERE `id` = ? AND `auth_resource_path` IN ? UNION ALL SELECT `id`, toString(`__loom_row_id`) AS `__loom_row_id`, concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id` FROM `table_b` WHERE `id` = ?"
+	if query != wantQuery {
+		t.Fatalf("query = %q, want %q", query, wantQuery)
+	}
+	if want := []any{"source-a", "patient-1", []string{"scope-a"}, "source-b", "patient-1"}; !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
+func TestFederatedSourceWherePreservesRestrictedEmptyScope(t *testing.T) {
+	source := Materialization{Project: "project-a"}
+	allowed := map[string]struct{}{"auth_resource_path": {}}
+	where, args, err := federatedSourceWhere(source, nil, allowed, nil, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"0"}; !reflect.DeepEqual(where, want) {
+		t.Fatalf("where = %#v, want %#v", where, want)
+	}
+	if len(args) != 0 {
+		t.Fatalf("args = %#v, want none for a false predicate", args)
+	}
+
+	where, args, err = federatedSourceWhere(source, nil, allowed, nil, true, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(where) != 0 || len(args) != 0 {
+		t.Fatalf("unrestricted source produced where=%#v args=%#v", where, args)
 	}
 }

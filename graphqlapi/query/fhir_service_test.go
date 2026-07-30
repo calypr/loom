@@ -6,8 +6,8 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 )
 
 type fhirLimitResourceAccess struct {
@@ -22,6 +22,12 @@ func (f fhirLimitResourceAccess) GetAllowedResources(_ context.Context, _ string
 }
 
 func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
+	if _, err := NewService(Config{}).ListFHIR(context.Background(), FHIRListRequest{
+		Project: "P1", ResourceType: "Patient", Limit: FHIRMaxReadLimit + 1,
+	}); err == nil {
+		t.Fatal("ListFHIR() accepted an uncapped read without a scope resolver")
+	}
+
 	for _, test := range []struct {
 		name      string
 		write     bool
@@ -44,8 +50,8 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 				DiscoverFields: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 					return nil, nil
 				},
-				Dataframes: dataframe.NewService(dataframe.ServiceConfig{
-					ExecuteRows: func(context.Context, dataframe.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+				Dataframes: runtime.NewService(runtime.ServiceConfig{
+					ExecuteRows: func(context.Context, runtime.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
 						return nil
 					},
 				}),
@@ -68,5 +74,23 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 				t.Fatalf("ListFHIR() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestFHIRReadScopeDigestIsStableAndModeSensitive(t *testing.T) {
+	first := fhirReadScopeDigest(authscope.ReadScope{
+		Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"b", "a"},
+	})
+	second := fhirReadScopeDigest(authscope.ReadScope{
+		Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"a", "b"},
+	})
+	unrestricted := fhirReadScopeDigest(authscope.ReadScope{
+		Mode: authscope.ReadScopeUnrestricted, AuthResourcePaths: []string{"a", "b"},
+	})
+	if first != second {
+		t.Fatalf("scope digest depends on path order: %q != %q", first, second)
+	}
+	if first == unrestricted {
+		t.Fatal("scope digest does not distinguish restricted and unrestricted modes")
 	}
 }

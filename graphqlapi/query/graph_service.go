@@ -14,6 +14,7 @@ import (
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	dfruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -196,7 +197,7 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, compiler.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, fmt.Errorf("compile FHIR graph: %w", err)
 	}
@@ -254,7 +255,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	// executing the result query. When requested, the runtime issues only an
 	// Arango EXPLAIN call; this transport contract never exposes AQL or bind
 	// variables.
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, compiler.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, err
 	}

@@ -4,17 +4,22 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{
+		Root: semantic.SemanticNode{
 			Alias:        "root",
 			ResourceType: "Patient",
-			Children: []SemanticNode{{
+			Children: []semantic.SemanticNode{{
 				Alias:        "specimen",
 				ResourceType: "Specimen",
 				EdgeLabel:    "subject_Patient",
@@ -25,7 +30,7 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -73,15 +78,15 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{
+		Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []SemanticNode{{
+			Children: []semantic.SemanticNode{{
 				Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-				Children: []SemanticNode{{
+				Children: []semantic.SemanticNode{{
 					Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 				}},
 			}},
@@ -90,7 +95,7 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,20 +123,20 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
-		Root:              SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:              semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := RenderPhysicalPlan(plan)
+	first, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := RenderPhysicalPlan(plan)
+	second, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,43 +158,43 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	gender := mustPhysicalSelector(t, "gender")
-	value := func(value PhysicalValue) PhysicalExpression {
-		return PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Value: &value}
+	value := func(value ir.PhysicalValue) ir.PhysicalExpression {
+		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &value}
 	}
-	genderExpression := PhysicalExpression{
-		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
-		Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
+	genderExpression := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
 	}
-	inner := PhysicalExpression{
-		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
-		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{
-			{Name: "z_key", Expression: value(PhysicalValue{Variable: "root", Path: []string{"_key"}})},
+	inner := ir.PhysicalExpression{
+		Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Object: &ir.PhysicalObject{Fields: []ir.PhysicalExpressionProjection{
+			{Name: "z_key", Expression: value(ir.PhysicalValue{Variable: "root", Path: []string{"_key"}})},
 			{Name: "a_gender", Expression: genderExpression},
 		}},
 	}
-	outer := PhysicalExpression{
-		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
-		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{
+	outer := ir.PhysicalExpression{
+		Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Object: &ir.PhysicalObject{Fields: []ir.PhysicalExpressionProjection{
 			{Name: "scalar", Expression: genderExpression},
 			{Name: "nested", Expression: inner},
 		}},
 	}
 	returnOp := plan.Operations[len(plan.Operations)-1].Return
-	returnOp.Projections = []PhysicalProjection{{Name: "row", Expression: &outer}}
+	returnOp.Projections = []ir.PhysicalProjection{{Name: "row", Expression: &outer}}
 
-	first, err := RenderPhysicalPlan(plan)
+	first, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
-	second, err := RenderPhysicalPlan(plan)
+	second, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("second RenderPhysicalPlan() error = %v", err)
 	}
@@ -232,25 +237,25 @@ func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	gender := mustPhysicalSelector(t, "gender")
-	optional := PhysicalExpression{
-		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalOmitNulls,
-		Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
+	optional := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalOmitNulls,
+		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: gender},
 	}
-	object := PhysicalExpression{
-		Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull,
-		Object: &PhysicalObject{Fields: []PhysicalExpressionProjection{{Name: "optional_gender", Expression: optional}}},
+	object := ir.PhysicalExpression{
+		Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Object: &ir.PhysicalObject{Fields: []ir.PhysicalExpressionProjection{{Name: "optional_gender", Expression: optional}}},
 	}
 	returnOp := plan.Operations[len(plan.Operations)-1].Return
-	returnOp.Projections = []PhysicalProjection{{Name: "row", Expression: &object}}
-	rendered, err := RenderPhysicalPlan(plan)
+	returnOp.Projections = []ir.PhysicalProjection{{Name: "row", Expression: &object}}
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
@@ -269,29 +274,29 @@ func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
 }
 
 func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	object := &PhysicalObject{}
-	cycle := PhysicalExpression{Kind: PhysicalObjectExpression, Cardinality: PhysicalObjectCardinality, NullBehavior: PhysicalPreserveNull, Object: object}
-	object.Fields = []PhysicalExpressionProjection{{Name: "self", Expression: cycle}}
-	plan.Operations[len(plan.Operations)-1].Return.Projections = []PhysicalProjection{{Name: "row", Expression: &cycle}}
+	object := &ir.PhysicalObject{}
+	cycle := ir.PhysicalExpression{Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Object: object}
+	object.Fields = []ir.PhysicalExpressionProjection{{Name: "self", Expression: cycle}}
+	plan.Operations[len(plan.Operations)-1].Return.Projections = []ir.PhysicalProjection{{Name: "row", Expression: &cycle}}
 	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "recursive cycle") {
 		t.Fatalf("Validate() error = %v; want recursive object cycle rejection", err)
 	}
 }
 
 func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T) {
-	newPlan := func(t *testing.T) PhysicalPlan {
+	newPlan := func(t *testing.T) ir.PhysicalPlan {
 		t.Helper()
-		plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+		plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 			Version: 1,
 			Project: "project-1",
-			Root:    SemanticNode{Alias: "root", ResourceType: "Patient"},
+			Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -301,48 +306,48 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 
 	tests := []struct {
 		name   string
-		mutate func(*PhysicalPlan)
+		mutate func(*ir.PhysicalPlan)
 		want   string
 	}{
 		{
 			name: "invalid physical plan",
-			mutate: func(plan *PhysicalPlan) {
+			mutate: func(plan *ir.PhysicalPlan) {
 				plan.Version = 0
 			},
 			want: "validate physical plan",
 		},
 		{
 			name: "unsupported filter operator",
-			mutate: func(plan *PhysicalPlan) {
+			mutate: func(plan *ir.PhysicalPlan) {
 				returnIndex := len(plan.Operations) - 1
-				unsupported := PhysicalOperation{
-					Kind: PhysicalFilterOp,
-					Filter: &PhysicalFilter{Predicate: PhysicalPredicate{
+				unsupported := ir.PhysicalOperation{
+					Kind: ir.PhysicalFilterOp,
+					Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
 						Operator: "NOT_EQUALS",
-						Left:     PhysicalValue{Variable: "root", Path: []string{"_key"}},
-						Right:    &PhysicalValue{BindKey: "project"},
+						Left:     ir.PhysicalValue{Variable: "root", Path: []string{"_key"}},
+						Right:    &ir.PhysicalValue{BindKey: "project"},
 					}},
 				}
-				plan.Operations = append(plan.Operations[:returnIndex], append([]PhysicalOperation{unsupported}, plan.Operations[returnIndex:]...)...)
+				plan.Operations = append(plan.Operations[:returnIndex], append([]ir.PhysicalOperation{unsupported}, plan.Operations[returnIndex:]...)...)
 			},
 			want: "unsupported physical filter operator",
 		},
 		{
 			name: "unsupported derived operator",
-			mutate: func(plan *PhysicalPlan) {
+			mutate: func(plan *ir.PhysicalPlan) {
 				returnIndex := len(plan.Operations) - 1
-				unsupported := PhysicalOperation{
-					Kind:       PhysicalDerivedLetOp,
-					DerivedLet: &PhysicalDerivedLet{Variable: "unsupported_value", Operator: "LENGTH", Inputs: []PhysicalValue{{Variable: "root"}}},
+				unsupported := ir.PhysicalOperation{
+					Kind:       ir.PhysicalDerivedLetOp,
+					DerivedLet: &ir.PhysicalDerivedLet{Variable: "unsupported_value", Operator: "LENGTH", Inputs: []ir.PhysicalValue{{Variable: "root"}}},
 				}
-				plan.Operations = append(plan.Operations[:returnIndex], append([]PhysicalOperation{unsupported}, plan.Operations[returnIndex:]...)...)
+				plan.Operations = append(plan.Operations[:returnIndex], append([]ir.PhysicalOperation{unsupported}, plan.Operations[returnIndex:]...)...)
 			},
 			want: "unsupported physical derived LET operator",
 		},
 		{
 			name: "collection key used as scalar bind",
-			mutate: func(plan *PhysicalPlan) {
-				value := PhysicalValue{BindKey: "root_collection"}
+			mutate: func(plan *ir.PhysicalPlan) {
+				value := ir.PhysicalValue{BindKey: "root_collection"}
 				plan.Operations[1].Filter.Predicate.Right = &value
 			},
 			want: "both a collection and scalar bind",
@@ -352,7 +357,7 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			plan := newPlan(t)
 			test.mutate(&plan)
-			_, err := RenderPhysicalPlan(plan)
+			_, err := aql.RenderPhysicalPlan(plan)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("RenderPhysicalPlan() error = %v; want substring %q", err, test.want)
 			}
@@ -361,29 +366,29 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 }
 
 func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
-		Root:    SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan.Operations = append(plan.Operations[:1], plan.Operations[2:]...)
 
-	_, err = RenderPhysicalPlan(plan)
+	_, err = aql.RenderPhysicalPlan(plan)
 	if err == nil || !strings.Contains(err.Error(), "generic physical plan scope") {
 		t.Fatalf("RenderPhysicalPlan() error = %v, want scope validation failure", err)
 	}
 }
 
 func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
-		Root: SemanticNode{
+		Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []SemanticNode{{
+			Children: []semantic.SemanticNode{{
 				Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
 			}},
 		},
@@ -397,17 +402,17 @@ func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testin
 			break
 		}
 	}
-	_, err = RenderPhysicalPlan(plan)
+	_, err = aql.RenderPhysicalPlan(plan)
 	if err == nil || !strings.Contains(err.Error(), "must constrain edge.from_type") {
 		t.Fatalf("RenderPhysicalPlan() error = %v, want inbound edge discriminator rejection", err)
 	}
 }
 
 func TestRenderPhysicalPlanKeepsCollectionAndProjectionValuesOutOfAQL(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
-		Root:    SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +426,7 @@ func TestRenderPhysicalPlanKeepsCollectionAndProjectionValuesOutOfAQL(t *testing
 		}
 	}
 
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,7 +54,7 @@ func validatePhysicalPreparedReference(reference PhysicalPreparedReference, defi
 	return nil
 }
 
-func validatePhysicalSelector(resourceType string, selector Selector) error {
+func validatePhysicalSelector(resourceType string, selector spec.Selector) error {
 	if len(selector.Steps) == 0 {
 		return fmt.Errorf("selector is required")
 	}

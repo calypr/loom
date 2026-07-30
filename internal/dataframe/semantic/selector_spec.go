@@ -5,9 +5,10 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/fhirschema"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func selectorSpecFromSelector(sel Selector) fhirschema.FieldSelectorSpec {
+func selectorSpecFromSelector(sel spec.Selector) fhirschema.FieldSelectorSpec {
 	sourcePath := ""
 	valuePath := ""
 	if len(sel.Steps) > 0 {
@@ -28,7 +29,7 @@ func selectorSpecFromSelector(sel Selector) fhirschema.FieldSelectorSpec {
 	return fhirschema.FieldSelectorSpec{SourcePath: sourcePath, Where: where, ValuePath: valuePath}
 }
 
-func selectorStepText(step SelectorStep) string {
+func selectorStepText(step spec.SelectorStep) string {
 	text := step.Field
 	if step.Iterate {
 		text += "[]"

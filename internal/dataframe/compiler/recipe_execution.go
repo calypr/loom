@@ -3,6 +3,10 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -11,8 +15,8 @@ import (
 // resolved recipe bundle. Lowering produces canonical physical plans; this
 // function applies the generic optimizer, inserts the typed execution window,
 // and renders through RenderPhysicalPlan for each output.
-func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
-	compiled, err := CompileResolvedRecipePlan(resolved, policy)
+func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -29,13 +33,13 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 
 // CompileRecipeOutputWithPolicy applies the common optimizer, execution
 // window, and canonical renderer to one already-lowered recipe output.
-func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy PhysicalOptimizationPolicy) (CompiledQuery, error) {
-	var physical PhysicalPlan
+func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+	var physical ir.PhysicalPlan
 	if output.OptimizedPlan != nil {
 		physical = clonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		var err error
-		physical, err = OptimizePhysicalPlanWithPolicy(output.Plan, policy)
+		physical, err = optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 		if err != nil {
 			return CompiledQuery{}, fmt.Errorf("optimize canonical recipe plan: %w", err)
 		}
@@ -49,7 +53,7 @@ func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.
 			return CompiledQuery{}, err
 		}
 	}
-	rendered, err := RenderPhysicalPlan(physical)
+	rendered, err := aql.RenderPhysicalPlan(physical)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
@@ -57,7 +61,7 @@ func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.
 	if len(output.Columns) != 0 {
 		columns = append([]string(nil), output.Columns...)
 	}
-	outputSchema := append([]CompiledOutputColumn(nil), output.OutputSchema...)
+	outputSchema := append([]lower.CompiledOutputColumn(nil), output.OutputSchema...)
 	publicColumns := publicOutputColumns(outputSchema)
 	if len(publicColumns) == 0 {
 		for _, column := range columns {
@@ -88,10 +92,10 @@ func CompileRecipeOutputWithPolicy(output CompiledRecipeOutput, bindings recipe.
 	}, nil
 }
 
-func appendAuthResourcePathProjection(physical *PhysicalPlan) error {
+func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
-		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
 		for _, projection := range operation.Return.Projections {
@@ -99,18 +103,18 @@ func appendAuthResourcePathProjection(physical *PhysicalPlan) error {
 				return nil
 			}
 		}
-		operation.Return.Projections = append(operation.Return.Projections, PhysicalProjection{
+		operation.Return.Projections = append(operation.Return.Projections, ir.PhysicalProjection{
 			Name: "auth_resource_path", Hidden: true,
-			Value: PhysicalValue{Variable: "root", Path: []string{"auth_resource_path"}},
+			Value: ir.PhysicalValue{Variable: "root", Path: []string{"auth_resource_path"}},
 		})
 		return nil
 	}
 	return fmt.Errorf("canonical plan has no RETURN operation for auth_resource_path projection")
 }
 
-func recipeOptimizationRules(plan PhysicalPlan) []string {
+func recipeOptimizationRules(plan ir.PhysicalPlan) []string {
 	for _, operation := range plan.Operations {
-		if operation.Kind == PhysicalFilterOp {
+		if operation.Kind == ir.PhysicalFilterOp {
 			return []string{OptimizerRuleFilterPushdown}
 		}
 	}

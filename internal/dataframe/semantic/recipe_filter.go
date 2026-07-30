@@ -13,7 +13,7 @@ import (
 // canonical typed-filter representation consumed by the semantic and physical
 // compilers. Selectors are relative to resourceType unless they are prefixed
 // with root.
-func LowerRecipeFilters(resourceType string, filters []recipe.Filter) ([]TypedFilter, error) {
+func LowerRecipeFilters(resourceType string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	return lowerRecipeFiltersForAlias(resourceType, "root", filters)
 }
 
@@ -21,15 +21,15 @@ func LowerRecipeFilters(resourceType string, filters []recipe.Filter) ([]TypedFi
 // LowerRecipeFilters. The alias prefix is accepted for GraphQL/catalog
 // round-trips, but is removed before schema resolution; the canonical typed
 // filter always carries a resource-relative selector.
-func LowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]TypedFilter, error) {
+func LowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	return lowerRecipeFiltersForAlias(resourceType, alias, filters)
 }
 
-func lowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]TypedFilter, error) {
+func lowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	if !fhirschema.HasResource(resourceType) {
 		return nil, fmt.Errorf("filter resource type %q is not represented by the active generated FHIR schema", resourceType)
 	}
-	out := make([]TypedFilter, 0, len(filters))
+	out := make([]spec.TypedFilter, 0, len(filters))
 	for index, input := range filters {
 		filter, err := lowerRecipeFilterForAlias(resourceType, alias, input)
 		if err != nil {
@@ -40,42 +40,42 @@ func lowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Fil
 	return out, nil
 }
 
-func lowerRecipeFilterForAlias(resourceType, alias string, input recipe.Filter) (TypedFilter, error) {
+func lowerRecipeFilterForAlias(resourceType, alias string, input recipe.Filter) (spec.TypedFilter, error) {
 	selectorText, err := normalizeRecipeFilterSelector(input.Select, alias)
 	if err != nil {
-		return TypedFilter{}, err
+		return spec.TypedFilter{}, err
 	}
 	selector, err := spec.ParseSelector(selectorText)
 	if err != nil {
-		return TypedFilter{}, fmt.Errorf("filter selector %q: %w", input.Select, err)
+		return spec.TypedFilter{}, fmt.Errorf("filter selector %q: %w", input.Select, err)
 	}
 	canonical := selector.CanonicalPath()
 	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, canonical)
 	if !ok {
-		return TypedFilter{}, fmt.Errorf("filter selector %q is not represented by generated resource type %q", canonical, resourceType)
+		return spec.TypedFilter{}, fmt.Errorf("filter selector %q is not represented by generated resource type %q", canonical, resourceType)
 	}
 	if metadata.Primitive == fhirschema.PrimitiveUnknown {
-		return TypedFilter{}, fmt.Errorf("filter selector %q does not resolve to a supported primitive", canonical)
+		return spec.TypedFilter{}, fmt.Errorf("filter selector %q does not resolve to a supported primitive", canonical)
 	}
 	fieldKind, err := recipeFilterKind(metadata.Primitive, canonical)
 	if err != nil {
-		return TypedFilter{}, err
+		return spec.TypedFilter{}, err
 	}
 	repeated, _, err := spec.SelectorCardinality(resourceType, selector)
 	if err != nil {
-		return TypedFilter{}, fmt.Errorf("filter selector %q: %w", canonical, err)
+		return spec.TypedFilter{}, fmt.Errorf("filter selector %q: %w", canonical, err)
 	}
 	// Terminal metadata includes repetition inherited from a repeated parent;
 	// the cardinality helper also proves that every repeated path was explicitly
 	// iterated. Keep the two facts in agreement rather than trusting the wire.
 	if repeated != metadata.Repeated {
-		return TypedFilter{}, fmt.Errorf("filter selector %q has inconsistent generated cardinality", canonical)
+		return spec.TypedFilter{}, fmt.Errorf("filter selector %q has inconsistent generated cardinality", canonical)
 	}
 	fieldRef := strings.TrimSpace(input.FieldRef)
 	if fieldRef == "" {
 		fieldRef = resourceType + "." + canonical
 	}
-	out := TypedFilter{
+	out := spec.TypedFilter{
 		FieldRef:   fieldRef,
 		Selector:   canonical,
 		FieldKind:  fieldKind,
@@ -85,10 +85,10 @@ func lowerRecipeFilterForAlias(resourceType, alias string, input recipe.Filter) 
 	}
 	out.Values, err = recipeFilterValues(input.Values)
 	if err != nil {
-		return TypedFilter{}, err
+		return spec.TypedFilter{}, err
 	}
-	if err := ValidateTypedFilterForResource(resourceType, out); err != nil {
-		return TypedFilter{}, fmt.Errorf("filter %q: %w", fieldRef, err)
+	if err := spec.ValidateTypedFilterForResource(resourceType, out); err != nil {
+		return spec.TypedFilter{}, fmt.Errorf("filter %q: %w", fieldRef, err)
 	}
 	return out, nil
 }

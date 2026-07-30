@@ -113,7 +113,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 4. Generate fhirschema metadata
+	// 4. Generate the concrete-resource registry and GraphQL markers.
+	if err := generateFHIRResources(&schema, filepath.Join(*structsDir, "resources.go"), filepath.Join(*structsDir, "graphql.go")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating resource registry: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 5. Generate fhirschema metadata
 	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating fhirschema/generated.go: %v\n", err)
 		os.Exit(1)

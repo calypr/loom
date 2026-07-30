@@ -7,6 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestBuildGraphPhysicalPlanRootOnly(t *testing.T) {
@@ -24,7 +25,7 @@ func TestBuildGraphPhysicalPlanRootOnly(t *testing.T) {
 }
 
 func TestBuildGraphPhysicalPlanOneHopRequired(t *testing.T) {
-	plan, err := BuildGraphPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: semantic.TraversalMatchRequired}}}}, 100, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := BuildGraphPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired}}}}, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("BuildGraphPhysicalPlan() error = %v", err)
 	}
@@ -38,7 +39,7 @@ func TestBuildGraphPhysicalPlanOneHopRequired(t *testing.T) {
 }
 
 func TestBuildGraphPhysicalPlanRootFallbackOnlyForOptionalBranches(t *testing.T) {
-	base := semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: semantic.TraversalMatchOptional}}}
+	base := semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchOptional}}}
 	optional, err := BuildGraphPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: base}, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +47,7 @@ func TestBuildGraphPhysicalPlanRootFallbackOnlyForOptionalBranches(t *testing.T)
 	if got := optional.Operations[len(optional.Operations)-1].GraphReturn.PathSets[0]; got != "path_root" {
 		t.Fatalf("optional path sets = %#v, want root fallback", optional.Operations[len(optional.Operations)-1].GraphReturn.PathSets)
 	}
-	base.Children[0].MatchMode = semantic.TraversalMatchRequired
+	base.Children[0].MatchMode = spec.TraversalMatchRequired
 	required, err := BuildGraphPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: base}, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)

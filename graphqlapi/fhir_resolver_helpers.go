@@ -71,7 +71,7 @@ func (r *queryResolver) listFHIR(ctx context.Context, project string, filters []
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("resource decode failed: %w", err)
 	}
-	fhirReferenceLoaderFromContext(ctx, r.Resolver).register(out, project)
+	fhirReferenceLoaderFromContext(ctx, r.Resolver).registerRoots(out, result.Resources, result.ReadContext)
 	return nil
 }
 
@@ -90,23 +90,63 @@ func (r *Resolver) resolveFHIRReference(ctx context.Context, ref *fhirstructs.Re
 		}
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeReferenceNotResolved, "reference could not be resolved")
 	}
-	target, id, valid := normalizeFHIRReference(*ref.Reference)
+	if owner.depth >= fhirReferenceMaxDepth {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeQueryDepthExceeded, "reference query depth limit exceeded")
+	}
+	parsed, valid := parseFHIRReference(*ref.Reference)
 	if !valid {
 		return referenceError(optional)
 	}
+	if parsed.contained {
+		resource, ok := owner.contained[parsed.id]
+		if !ok {
+			return referenceError(optional)
+		}
+		target, ok := resource["resourceType"].(string)
+		if !ok || !sameFHIRResourceType(target, requested) {
+			return referenceError(optional)
+		}
+		value, err := decodeFHIRResource(target, resource)
+		if err != nil {
+			return referenceError(optional)
+		}
+		loader.register(value, fhirReferenceOwner{
+			read:      owner.read,
+			contained: owner.contained,
+			depth:     owner.depth + 1,
+		})
+		return value, nil
+	}
 	if requested != nil {
-		expected := strings.TrimSuffix(requested.String(), "")
-		expected = strings.ReplaceAll(strings.ToLower(expected), "_", "")
-		if strings.ReplaceAll(strings.ToLower(target), "_", "") != expected {
-			if optional {
-				return nil, nil
-			}
-			return nil, dataframeerrors.NewError(dataframeerrors.CodeReferenceNotResolved, "reference could not be resolved")
+		if !sameFHIRResourceType(parsed.target, requested) {
+			return referenceError(optional)
 		}
 	}
-	value, err := loader.load(ctx, fhirReferenceLookup{project: owner.project, target: target, id: id})
+	scope := fhirReferenceScopeKey{
+		project:    owner.read.Project,
+		generation: owner.read.DatasetGeneration,
+		digest:     owner.read.ScopeDigest,
+	}
+	resource, err := loader.load(ctx, fhirReferenceLookup{scope: scope, target: parsed.target, id: parsed.id}, owner.read)
 	if err != nil {
 		return referenceError(optional)
 	}
+	value, err := decodeFHIRResource(parsed.target, resource)
+	if err != nil {
+		return referenceError(optional)
+	}
+	loader.register(value, fhirReferenceOwner{
+		read:      owner.read,
+		contained: indexContainedResources(resource),
+		depth:     owner.depth + 1,
+	})
 	return value, nil
+}
+
+func sameFHIRResourceType(resourceType string, requested *model.FHIRResourceType) bool {
+	if requested == nil {
+		return true
+	}
+	return strings.ReplaceAll(strings.ToLower(resourceType), "_", "") ==
+		strings.ReplaceAll(strings.ToLower(requested.String()), "_", "")
 }

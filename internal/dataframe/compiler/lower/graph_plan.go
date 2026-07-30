@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 const (
@@ -81,8 +82,8 @@ func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.Phy
 		pathSets = append(pathSets, "path_root")
 	}
 	routeOrder := 1
-	var walk func(parent SemanticNode, sourcePathSet string) error
-	walk = func(parent SemanticNode, sourcePathSet string) error {
+	var walk func(parent semantic.SemanticNode, sourcePathSet string) error
+	walk = func(parent semantic.SemanticNode, sourcePathSet string) error {
 		for _, child := range parent.Children {
 			index := routeOrder
 			routeOrder++
@@ -105,7 +106,7 @@ func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.Phy
 			setVariable := fmt.Sprintf("path_%d", index)
 			matchMode := child.MatchMode
 			if strings.TrimSpace(string(matchMode)) == "" {
-				matchMode = semantic.TraversalMatchRequired
+				matchMode = spec.TraversalMatchRequired
 			}
 			pathSets = append(pathSets, setVariable)
 			scope := make([]ir.PhysicalOperation, 0, 8+len(child.Filters))
@@ -141,13 +142,13 @@ func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.Phy
 	return physical, nil
 }
 
-func normalizeGraphMatchModes(node SemanticNode) SemanticNode {
+func normalizeGraphMatchModes(node semantic.SemanticNode) semantic.SemanticNode {
 	copy := node
-	copy.Children = make([]SemanticNode, len(node.Children))
+	copy.Children = make([]semantic.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		childCopy := normalizeGraphMatchModes(child)
 		if strings.TrimSpace(string(childCopy.MatchMode)) == "" {
-			childCopy.MatchMode = semantic.TraversalMatchRequired
+			childCopy.MatchMode = spec.TraversalMatchRequired
 		}
 		copy.Children[index] = childCopy
 	}
@@ -158,22 +159,22 @@ func normalizeGraphMatchModes(node SemanticNode) SemanticNode {
 // are reachable from the root through required ancestors. A required child
 // below an OPTIONAL branch cannot disqualify the root when that branch is
 // absent; its path set simply contributes no rows.
-func graphRequiredSemiJoinRoot(node SemanticNode) SemanticNode {
+func graphRequiredSemiJoinRoot(node semantic.SemanticNode) semantic.SemanticNode {
 	copy := node
-	copy.Children = make([]SemanticNode, len(node.Children))
+	copy.Children = make([]semantic.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		copy.Children[index] = graphRequiredSemiJoinNode(child, true)
 	}
 	return copy
 }
 
-func graphRequiredSemiJoinNode(node SemanticNode, ancestorsRequired bool) SemanticNode {
+func graphRequiredSemiJoinNode(node semantic.SemanticNode, ancestorsRequired bool) semantic.SemanticNode {
 	copy := node
 	if !ancestorsRequired {
-		copy.MatchMode = semantic.TraversalMatchOptional
+		copy.MatchMode = spec.TraversalMatchOptional
 	}
 	childAncestorsRequired := ancestorsRequired && node.MatchMode.Required()
-	copy.Children = make([]SemanticNode, len(node.Children))
+	copy.Children = make([]semantic.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		copy.Children[index] = graphRequiredSemiJoinNode(child, childAncestorsRequired)
 	}
@@ -200,14 +201,14 @@ func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, p
 	return BuildGraphPhysicalPlan(plan, limit, policy)
 }
 
-func graphAlias(node SemanticNode, fallback string) string {
+func graphAlias(node semantic.SemanticNode, fallback string) string {
 	if strings.TrimSpace(node.Alias) != "" {
 		return node.Alias
 	}
 	return fallback
 }
 
-func countGraphTraversals(node SemanticNode) int {
+func countGraphTraversals(node semantic.SemanticNode) int {
 	count := len(node.Children)
 	for _, child := range node.Children {
 		count += countGraphTraversals(child)
@@ -215,15 +216,15 @@ func countGraphTraversals(node SemanticNode) int {
 	return count
 }
 
-func graphHasRequiredTraversal(node SemanticNode) bool {
-	var walk func(SemanticNode, bool) bool
-	walk = func(parent SemanticNode, requiredPrefix bool) bool {
+func graphHasRequiredTraversal(node semantic.SemanticNode) bool {
+	var walk func(semantic.SemanticNode, bool) bool
+	walk = func(parent semantic.SemanticNode, requiredPrefix bool) bool {
 		for _, child := range parent.Children {
 			mode := child.MatchMode
 			if strings.TrimSpace(string(mode)) == "" {
-				mode = semantic.TraversalMatchRequired
+				mode = spec.TraversalMatchRequired
 			}
-			childRequired := mode == semantic.TraversalMatchRequired
+			childRequired := mode == spec.TraversalMatchRequired
 			if requiredPrefix && childRequired {
 				return true
 			}
@@ -236,8 +237,8 @@ func graphHasRequiredTraversal(node SemanticNode) bool {
 	return walk(node, true)
 }
 
-func validateGraphNode(node SemanticNode, root bool) error {
-	if !root && node.MatchMode != semantic.TraversalMatchRequired && node.MatchMode != semantic.TraversalMatchOptional && node.MatchMode != "" {
+func validateGraphNode(node semantic.SemanticNode, root bool) error {
+	if !root && node.MatchMode != spec.TraversalMatchRequired && node.MatchMode != spec.TraversalMatchOptional && node.MatchMode != "" {
 		return fmt.Errorf("graph traversal %q has invalid match mode %q", node.Alias, node.MatchMode)
 	}
 	if len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.Aggregates) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0 {
@@ -251,12 +252,12 @@ func validateGraphNode(node SemanticNode, root bool) error {
 	return nil
 }
 
-func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node SemanticNode, targetVariable string, binds map[string]any) error {
+func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node semantic.SemanticNode, targetVariable string, binds map[string]any) error {
 	for index, filter := range node.Filters {
-		if err := ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
+		if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
 			return fmt.Errorf("graph traversal %q filter %q: %w", node.Alias, filter.FieldRef, err)
 		}
-		selector, err := ParseSelector(filter.Selector)
+		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {
 			return fmt.Errorf("graph traversal %q filter selector: %w", node.Alias, err)
 		}
@@ -264,12 +265,12 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node SemanticNod
 			LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(node.ResourceType, selector)}},
 		}
-		if filter.Operator != FilterExists && filter.Operator != FilterMissing {
+		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 			if len(filter.Values) == 0 {
 				return fmt.Errorf("graph traversal %q filter %q has no value", node.Alias, filter.FieldRef)
 			}
 			key := fmt.Sprintf("graph_%s_filter_%d_value", sanitizeColumnName(node.Alias), index+1)
-			if filter.Operator == FilterIn {
+			if filter.Operator == spec.FilterIn {
 				values := make([]any, 0, len(filter.Values))
 				for _, value := range filter.Values {
 					literal, err := filterLiteral(value)

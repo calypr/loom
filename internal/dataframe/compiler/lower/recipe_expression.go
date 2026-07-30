@@ -81,7 +81,7 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 			Source:        ir.PhysicalValue{Variable: variable, Path: []string{"payload"}},
 			ResourceType:  resourceType,
 			Selector:      selector,
-			ExecutionMode: selectorExecutionModeForExpression(resourceType, selector, nil, ir.PhysicalValue{Variable: variable, Path: []string{"payload"}}, cardinality, behavior),
+			ExecutionMode: selectorExecutionModeForExpression(resourceType, selector, nil),
 		}
 		return result, nil
 	case expression.LiteralNode:

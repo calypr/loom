@@ -1,11 +1,16 @@
 package compiler
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+)
 
 // publicOutputColumns returns the ordered transport schema owned by the
 // compiler. Physical identity and executor-validation projections are kept in
 // OutputSchema but never leak into dataframe JSON/CSV/publication columns.
-func publicOutputColumns(schema []CompiledOutputColumn) []string {
+func publicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	columns := make([]string, 0, len(schema))
 	for _, column := range schema {
 		if column.Internal {
@@ -19,15 +24,15 @@ func publicOutputColumns(schema []CompiledOutputColumn) []string {
 // PublicOutputColumns returns a copy of the compiler-owned transport schema.
 // It is used by recipe execution adapters that need to carry the schema with
 // streamed rows without re-walking semantic recipe nodes.
-func PublicOutputColumns(schema []CompiledOutputColumn) []string {
+func PublicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	return publicOutputColumns(schema)
 }
 
 const genericPhysicalExecutionLimitBind = "limit"
 
-func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
+func physicalProjectionMetadata(plan ir.PhysicalPlan) ([]string, []string) {
 	for _, operation := range plan.Operations {
-		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
 		columns := make([]string, 0, len(operation.Return.Projections))
@@ -37,7 +42,7 @@ func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
 				continue
 			}
 			columns = append(columns, projection.Name)
-			if projection.Expression != nil && projection.Expression.Kind == PhysicalPivotExpression {
+			if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalPivotExpression {
 				pivots = append(pivots, projection.Name)
 			}
 		}
@@ -46,10 +51,10 @@ func physicalProjectionMetadata(plan PhysicalPlan) ([]string, []string) {
 	return nil, nil
 }
 
-func physicalTraversalCount(plan PhysicalPlan) int {
+func physicalTraversalCount(plan ir.PhysicalPlan) int {
 	count := 0
 	for _, operation := range plan.Operations {
-		if operation.Kind == PhysicalTraversalOp || operation.Kind == PhysicalPathExtendOp {
+		if operation.Kind == ir.PhysicalTraversalOp || operation.Kind == ir.PhysicalPathExtendOp {
 			count++
 		}
 	}
@@ -59,12 +64,12 @@ func physicalTraversalCount(plan PhysicalPlan) int {
 // withGenericPhysicalExecutionWindow inserts the deterministic root ordering
 // and optional preview bound before any traversal LET subquery, ensuring an
 // expensive optional navigation is evaluated only for selected root rows.
-func withGenericPhysicalExecutionWindow(plan PhysicalPlan, limit int) (PhysicalPlan, error) {
-	if err := ValidateGenericPhysicalPlanScope(plan); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("validate generic physical execution scope: %w", err)
+func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
+	if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution scope: %w", err)
 	}
-	if len(plan.Operations) == 0 || plan.Operations[0].Kind != PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
-		return PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a root scan")
+	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a root scan")
 	}
 
 	// The generic scope verifier defines the root scope as every operation up
@@ -75,38 +80,38 @@ func withGenericPhysicalExecutionWindow(plan PhysicalPlan, limit int) (PhysicalP
 	// RETURN for root-only plans. Put the root execution window before them so
 	// AQL can discard rows before evaluating the family maps, while traversal
 	// plans still insert the window before their first child SET.
-	for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == PhysicalExpressionLetOp {
+	for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == ir.PhysicalExpressionLetOp {
 		insertAt--
 	}
 	if insertAt <= 1 || insertAt >= len(plan.Operations) {
-		return PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")
+		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")
 	}
 
 	out := clonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
-	window := []PhysicalOperation{{
-		Kind:   PhysicalSortOp,
-		Source: PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"},
-		Sort:   &PhysicalSort{Value: PhysicalValue{Variable: root, Path: []string{"_key"}}},
+	window := []ir.PhysicalOperation{{
+		Kind:   ir.PhysicalSortOp,
+		Source: ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"},
+		Sort:   &ir.PhysicalSort{Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}}},
 	}}
 	if limit > 0 {
 		if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
-			return PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
+			return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
 		}
 		out.BindVars[genericPhysicalExecutionLimitBind] = limit
-		window = append(window, PhysicalOperation{
-			Kind:   PhysicalLimitOp,
-			Source: PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType},
-			Limit:  &PhysicalLimit{BindKey: genericPhysicalExecutionLimitBind},
+		window = append(window, ir.PhysicalOperation{
+			Kind:   ir.PhysicalLimitOp,
+			Source: ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType},
+			Limit:  &ir.PhysicalLimit{BindKey: genericPhysicalExecutionLimitBind},
 		})
 	}
-	operations := make([]PhysicalOperation, 0, len(out.Operations)+len(window))
+	operations := make([]ir.PhysicalOperation, 0, len(out.Operations)+len(window))
 	operations = append(operations, out.Operations[:insertAt]...)
 	operations = append(operations, window...)
 	operations = append(operations, out.Operations[insertAt:]...)
 	out.Operations = operations
-	if err := ValidateGenericPhysicalPlanScope(out); err != nil {
-		return PhysicalPlan{}, fmt.Errorf("validate generic physical execution window: %w", err)
+	if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution window: %w", err)
 	}
 	return out, nil
 }

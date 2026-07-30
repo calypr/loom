@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -61,7 +61,7 @@ func TestGDCFixtureCoversRichShape(t *testing.T) {
 	if !strings.Contains(fixture.Description, "nested") {
 		t.Fatal("GDC fixture description should identify nested shaping")
 	}
-	compiled, err := compileRecipe(fixture.Recipe, fixture.Project, 1000, dataframe.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compileRecipe(fixture.Recipe, fixture.Project, 1000, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile rich GDC fixture: %v", err)
 	}

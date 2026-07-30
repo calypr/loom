@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/fhirschema"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type compilerBenchmarkCase struct {
@@ -19,7 +21,7 @@ type compilerBenchmarkCase struct {
 }
 
 var (
-	benchmarkCompiled dataframe.CompiledQuery
+	benchmarkCompiled compiler.CompiledQuery
 	benchmarkErr      error
 )
 
@@ -35,7 +37,7 @@ func BenchmarkCompilerOracle(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				benchmarkCompiled, benchmarkErr = compileRecipe(testCase.recipe, testCase.project, testCase.limit, dataframe.DefaultPhysicalOptimizationPolicy())
+				benchmarkCompiled, benchmarkErr = compileRecipe(testCase.recipe, testCase.project, testCase.limit, ir.DefaultPhysicalOptimizationPolicy())
 			}
 		})
 	}
@@ -113,11 +115,11 @@ func benchmarkCaseNames(cases []compilerBenchmarkCase) []string {
 }
 
 func rootRecipe(resourceType string) recipe.Bundle {
-	grain, ok := dataframe.InferRowGrain(resourceType)
+	grain, ok := spec.InferRowGrain(resourceType)
 	if !ok {
 		// Keep malformed/abstract roots structurally valid long enough for the
 		// schema-backed compiler to emit the intended root rejection.
-		grain = dataframe.RowGrain("resource")
+		grain = spec.RowGrain("resource")
 	}
 	return recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "generated_" + resourceType, TranslationVersion: "benchmark", Outputs: []recipe.Output{{Name: "root", RootResourceType: resourceType, RowGrain: string(grain)}}}
 }

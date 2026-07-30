@@ -14,18 +14,18 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type Registry interface {
 	LoadRecipe(context.Context, string) (exec.Entry, error)
 }
-
-// LocalRegistry adapts the process-local registry for tests and local runs.
-// Production deployments should provide the durable Arango adapter.
-type LocalRegistry struct{ Registry *exec.Registry }
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
@@ -49,7 +49,7 @@ type Engine struct {
 // per output. It deliberately contains no recipe-specific physical model.
 type Resolved struct {
 	Semantic             semantic.ResolvedRecipePlan
-	Compiled             compiler.CompiledRecipe
+	Compiled             lower.CompiledRecipe
 	StoredRecipeDigest   string
 	ResolvedSchemaDigest string
 }
@@ -57,7 +57,7 @@ type Resolved struct {
 type OutputStream struct {
 	Name          string
 	Columns       []string
-	RowIdentity   *compiler.RowIdentity
+	RowIdentity   *spec.RowIdentity
 	Query         string
 	BindVars      map[string]any
 	DynamicChecks map[string]map[string]DynamicColumnCheck
@@ -125,16 +125,16 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	if err != nil {
 		return Resolved{}, err
 	}
-	compiled, err := compiler.CompileResolvedRecipePlan(resolved, compiler.DefaultPhysicalOptimizationPolicy())
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return Resolved{}, err
 	}
 	// Lowering and optimization are request-scoped work. Cache the optimized
 	// physical plan on the resolved result so preview/materialization streams
 	// only clone, window, and render it; they must not rebuild the recipe.
-	policy := compiler.DefaultPhysicalOptimizationPolicy()
+	policy := ir.DefaultPhysicalOptimizationPolicy()
 	for index := range compiled.Outputs {
-		optimized, optimizeErr := compiler.OptimizePhysicalPlanWithPolicy(compiled.Outputs[index].Plan, policy)
+		optimized, optimizeErr := optimize.OptimizePhysicalPlanWithPolicy(compiled.Outputs[index].Plan, policy)
 		if optimizeErr != nil {
 			return Resolved{}, fmt.Errorf("optimize output %q: %w", compiled.Outputs[index].Name, optimizeErr)
 		}
@@ -220,7 +220,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 		if selected != nil && !selected[output.Name] {
 			continue
 		}
-		query, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, compiler.DefaultPhysicalOptimizationPolicy())
+		query, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
@@ -232,7 +232,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 	return streams, nil
 }
 
-func selectedOutputNames(names []string, outputs []compiler.CompiledRecipeOutput) map[string]bool {
+func selectedOutputNames(names []string, outputs []lower.CompiledRecipeOutput) map[string]bool {
 	if len(names) == 0 {
 		return nil
 	}
@@ -322,7 +322,7 @@ func publicStreamRow(row map[string]any, columns []string) map[string]any {
 	return public
 }
 
-func ensureStableRowIdentity(row map[string]any, identity *compiler.RowIdentity, bindVars map[string]any) error {
+func ensureStableRowIdentity(row map[string]any, identity *spec.RowIdentity, bindVars map[string]any) error {
 	if row == nil {
 		return fmt.Errorf("row is nil")
 	}
@@ -352,7 +352,7 @@ func ensureStableRowIdentity(row map[string]any, identity *compiler.RowIdentity,
 	return nil
 }
 
-func cloneRowIdentity(identity *compiler.RowIdentity) *compiler.RowIdentity {
+func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
 	if identity == nil {
 		return nil
 	}
@@ -361,7 +361,7 @@ func cloneRowIdentity(identity *compiler.RowIdentity) *compiler.RowIdentity {
 	return &copy
 }
 
-func dynamicChecks(metadata []compiler.DynamicColumnMetadata) map[string]map[string]DynamicColumnCheck {
+func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string]DynamicColumnCheck {
 	checks := make(map[string]map[string]DynamicColumnCheck)
 	for _, column := range metadata {
 		if checks[column.DynamicName] == nil {
