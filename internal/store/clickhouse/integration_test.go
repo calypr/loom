@@ -9,9 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Run with LOOM_CLICKHOUSE_URL=clickhouse://127.0.0.1:9000 to exercise the
-// native driver against a real ClickHouse instance. The default unit suite
-// remains hermetic when ClickHouse is not running locally.
+// Run with LOOM_CLICKHOUSE_URL and optional LOOM_CLICKHOUSE_USERNAME/
+// LOOM_CLICKHOUSE_PASSWORD to exercise the native driver against a real
+// ClickHouse instance. The default unit suite remains hermetic when ClickHouse
+// is not running locally.
 func TestClickHouseNativeRoundTrip(t *testing.T) {
 	url := os.Getenv("LOOM_CLICKHOUSE_URL")
 	if url == "" {
@@ -21,7 +22,12 @@ func TestClickHouseNativeRoundTrip(t *testing.T) {
 	if database == "" {
 		database = "loom_test"
 	}
-	client, err := New(Options{URL: url, Database: database, Timeout: 10 * time.Second})
+	client, err := New(Options{
+		URL: url, Database: database,
+		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
+		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
+		Timeout:  10 * time.Second,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
