@@ -30,6 +30,8 @@ const (
 	CodeUnsupportedExportFormat  ErrorCode = "UNSUPPORTED_EXPORT_FORMAT"
 	CodeClientCanceled           ErrorCode = "CLIENT_CANCELED"
 	CodeBackendUnavailable       ErrorCode = "BACKEND_UNAVAILABLE"
+	CodeDatasetNotFound          ErrorCode = "DATASET_NOT_FOUND"
+	CodeSchemaConflict           ErrorCode = "SCHEMA_CONFLICT"
 	CodeInternalError            ErrorCode = "INTERNAL_ERROR"
 	CodeInvalidResourceType      ErrorCode = "INVALID_RESOURCE_TYPE"
 	CodeInvalidLimit             ErrorCode = "INVALID_LIMIT"
@@ -319,6 +321,10 @@ func defaultMessage(code ErrorCode) string {
 		return "the reference query depth limit was exceeded"
 	case CodeBackendUnavailable:
 		return "the dataframe backend is temporarily unavailable"
+	case CodeDatasetNotFound:
+		return "the requested dataset was not found"
+	case CodeSchemaConflict:
+		return "the published dataset sources have incompatible schemas"
 	default:
 		return "internal server error"
 	}

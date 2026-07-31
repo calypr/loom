@@ -14,7 +14,7 @@ type DataframeMaterialization {
   revision: String!
   state: DataframeMaterializationState!
   columns: [DataframeColumn!]!
-  rowCount: Int!
+  rowCount: Int
   createdAt: String!
   readyAt: String
   error: String

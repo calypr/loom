@@ -147,7 +147,7 @@ ClickHouse without accumulating in GraphQL or browser memory.
 The expected public service prefix is `${GEN3_API}/loom`, producing:
 
 - GraphQL: `${GEN3_LOOM_API}/graphql/flat`
-- health: `${GEN3_LOOM_API}/healthz`
+- health: `${GEN3_LOOM_API}/health`
 - export: `${GEN3_LOOM_API}/api/v1/dataframe/export`
 
 Recent routing work is assumed to provide this prefix. If the deployed

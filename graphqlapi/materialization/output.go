@@ -15,6 +15,9 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 	columns := make([]*model.DataframeColumn, 0, len(value.Columns))
 	for _, column := range value.Columns {
+		if column.Name == "auth_resource_path" || column.Name == "__loom_row_id" {
+			continue
+		}
 		logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
 		columns = append(columns, &model.DataframeColumn{Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: filterable, Sortable: sortable, Aggregatable: aggregatable})
 	}
@@ -27,10 +30,15 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	if value.Error != "" {
 		failure = &value.Error
 	}
+	var rowCount *int
+	if value.RowCountKnown || value.Project != "" {
+		count := int(value.RowCount)
+		rowCount = &count
+	}
 	return &model.DataframeMaterialization{
 		ID: value.ID, Name: value.Name, Revision: revision,
 		State: model.DataframeMaterializationState(value.State), Columns: columns,
-		RowCount:  int(value.RowCount),
+		RowCount:  rowCount,
 		CreatedAt: value.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
 		ReadyAt:   readyAt, Error: failure,
 	}
@@ -40,7 +48,7 @@ func FederatedMaterialization(dataset materialization.FederatedDataset) *model.D
 	return Model(materialization.Materialization{
 		ID: "federated:" + dataset.Name, Name: dataset.Name, Revision: dataset.Revision,
 		DatasetGeneration: "federated:" + dataset.Revision, State: materialization.StateReady,
-		Columns: dataset.Columns, RowCount: dataset.RowCount,
+		Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete,
 	})
 }
 

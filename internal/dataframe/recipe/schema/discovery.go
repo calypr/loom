@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path"
 	"sort"
 	"strings"
@@ -53,15 +54,17 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 	return fields, nil
 }
 
-func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, pivots []recipe.Pivot) error {
+func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, pivots []recipe.Pivot) ([]recipe.Pivot, error) {
+	resolved := pivots[:0]
 	for index := range pivots {
 		pivot := &pivots[index]
 		if pivot.Discovery == nil {
+			resolved = append(resolved, *pivot)
 			continue
 		}
 		candidates, err := discovery.Fields(ctx, scope, resourceType)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		columns := map[string]struct{}{}
 		var columnSelect, valueSelect string
@@ -131,11 +134,12 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 			}
 		}
 		if len(columns) > pivot.Discovery.MaxColumns {
-			return fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
+			return nil, fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
 		}
 		pivot.Columns = sortedValues(columns)
 		if len(pivot.Columns) == 0 {
-			return fmt.Errorf("pivot %q discovery matched no columns", pivot.Name)
+			log.Printf("dataframe schema discovery: omit pivot %q for %s: no columns matched", pivot.Name, resourceType)
+			continue
 		}
 		if pivot.ColumnExpr.Select == "" && pivot.ColumnExpr.Call == "" {
 			if hasPivotSpec {
@@ -150,20 +154,21 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 				}
 			} else {
 				if columnSelect == "" {
-					return fmt.Errorf("pivot %q discovery did not provide a column selector", pivot.Name)
+					return nil, fmt.Errorf("pivot %q discovery did not provide a column selector", pivot.Name)
 				}
 				pivot.ColumnExpr = recipe.Expression{Select: qualifyDiscoveredSelector(alias, columnSelect)}
 			}
 		}
 		if pivot.ValueExpr.Select == "" && pivot.ValueExpr.Call == "" {
 			if valueSelect == "" {
-				return fmt.Errorf("pivot %q discovery did not provide a value selector", pivot.Name)
+				return nil, fmt.Errorf("pivot %q discovery did not provide a value selector", pivot.Name)
 			}
 			pivot.ValueExpr = recipe.Expression{Select: qualifyDiscoveredSelector(alias, valueSelect)}
 		}
 		pivot.Discovery = nil
+		resolved = append(resolved, *pivot)
 	}
-	return nil
+	return resolved, nil
 }
 
 func qualifyPivotSelector(alias, itemSource, selector string) string {

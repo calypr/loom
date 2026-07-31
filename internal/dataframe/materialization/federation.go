@@ -4,21 +4,26 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataset"
 )
 
 // FederatedDataset is the logical reader view of one alias across all
 // authorized project publications. Project remains source metadata; it is
 // intentionally not a public dataframe row column.
 type FederatedDataset struct {
-	Name     string
-	Revision string
-	Sources  []Materialization
-	Columns  []Column
-	RowCount int64
+	Name             string
+	Revision         string
+	Sources          []Materialization
+	Columns          []Column
+	RowCount         int64
+	RowCountComplete bool
 }
 
 // FederatedPageRequest is the projectless reader request. The caller supplies
@@ -82,6 +87,10 @@ type FederatedAggregateResult struct {
 // each requested authorized project and reconciles one stable public schema.
 // The project list is an authorization result, never a browser input.
 func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, projects []string, alias string) (FederatedDataset, error) {
+	return resolveFederatedDataset(ctx, catalog, nil, projects, alias)
+}
+
+func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active dataset.ActiveManifestResolver, projects []string, alias string) (FederatedDataset, error) {
 	if catalog == nil {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog is required")
 	}
@@ -101,6 +110,19 @@ func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, project
 	if err != nil {
 		return FederatedDataset{}, err
 	}
+	activeGeneration := make(map[string]string, len(uniqueProjects))
+	if active != nil {
+		for _, project := range uniqueProjects {
+			manifest, resolveErr := dataset.ResolveReadyActiveManifest(ctx, active, project)
+			if errors.Is(resolveErr, dataset.ErrNoActiveGeneration) {
+				continue
+			}
+			if resolveErr != nil {
+				return FederatedDataset{}, resolveErr
+			}
+			activeGeneration[project] = manifest.Dataset.Generation
+		}
+	}
 	allowed := make(map[string]struct{}, len(uniqueProjects))
 	for _, project := range uniqueProjects {
 		allowed[project] = struct{}{}
@@ -113,8 +135,17 @@ func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, project
 		if _, ok := allowed[execution.Project]; !ok {
 			continue
 		}
+		if active != nil {
+			generation, ok := activeGeneration[execution.Project]
+			if !ok || execution.DatasetGeneration != generation {
+				continue
+			}
+		}
 		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil || pointer.ExecutionID != execution.ID {
+		if pointerErr != nil {
+			return FederatedDataset{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
+		if pointer.ExecutionID != execution.ID {
 			continue
 		}
 		if !hasOutputAlias(execution, alias) {
@@ -126,7 +157,7 @@ func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, project
 		}
 	}
 	if len(latest) == 0 {
-		return FederatedDataset{}, fmt.Errorf("published dataset %q was not found", alias)
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	sources := make([]Materialization, 0, len(latest))
 	for _, project := range uniqueProjects {
@@ -146,17 +177,29 @@ func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, project
 		}
 	}
 	if len(sources) == 0 {
-		return FederatedDataset{}, fmt.Errorf("published dataset %q was not found", alias)
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
+	sort.Slice(sources, func(i, j int) bool {
+		if sources[i].Project != sources[j].Project {
+			return sources[i].Project < sources[j].Project
+		}
+		if sources[i].DatasetGeneration != sources[j].DatasetGeneration {
+			return sources[i].DatasetGeneration < sources[j].DatasetGeneration
+		}
+		return sources[i].ID < sources[j].ID
+	})
 	columns, err := reconcileFederatedColumns(sources)
 	if err != nil {
-		return FederatedDataset{}, err
+		return FederatedDataset{}, dataframeerrors.Wrap(err, dataframeerrors.CodeSchemaConflict, "")
 	}
 	rowCount := int64(0)
 	parts := make([]string, 0, len(sources))
 	for _, source := range sources {
 		rowCount += source.RowCount
 		parts = append(parts, source.ID, source.DatasetGeneration, source.PhysicalTable)
+	}
+	for _, column := range columns {
+		parts = append(parts, column.Name, column.ClickHouse)
 	}
 	sort.Strings(parts)
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
@@ -198,30 +241,80 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("federation has no sources")
 	}
-	base := make([]Column, 0, len(sources[0].Columns))
-	for _, column := range sources[0].Columns {
-		if column.Name == "__loom_row_id" {
-			continue
-		}
-		base = append(base, column)
+	type parsedType struct {
+		base            string
+		array, nullable bool
 	}
-	for _, source := range sources[1:] {
-		candidate := make([]Column, 0, len(source.Columns))
+	parse := func(value string) (parsedType, error) {
+		value = strings.TrimSpace(value)
+		result := parsedType{}
+		if strings.HasPrefix(value, "Nullable(") && strings.HasSuffix(value, ")") {
+			result.nullable = true
+			value = value[len("Nullable(") : len(value)-1]
+		}
+		if strings.HasPrefix(value, "Array(") && strings.HasSuffix(value, ")") {
+			result.array = true
+			value = value[len("Array(") : len(value)-1]
+		}
+		if value == "" || strings.HasPrefix(value, "Nullable(") || strings.HasPrefix(value, "Array(") {
+			return result, fmt.Errorf("invalid ClickHouse type %q", value)
+		}
+		result.base = value
+		return result, nil
+	}
+	all := map[string]parsedType{}
+	firstOrder := make([]string, 0)
+	firstIndex := map[string]int{}
+	for sourceIndex, source := range sources {
+		seen := map[string]struct{}{}
 		for _, column := range source.Columns {
-			if column.Name != "__loom_row_id" {
-				candidate = append(candidate, column)
+			if column.Name == "__loom_row_id" {
+				continue
 			}
-		}
-		if len(candidate) != len(base) {
-			return nil, fmt.Errorf("incompatible schemas for federated dataset %q", source.Name)
-		}
-		for index := range base {
-			if base[index] != candidate[index] {
-				return nil, fmt.Errorf("incompatible schema column %q in federated dataset %q", base[index].Name, source.Name)
+			if _, ok := seen[column.Name]; ok {
+				return nil, fmt.Errorf("duplicate column %q in source %q", column.Name, source.ID)
+			}
+			seen[column.Name] = struct{}{}
+			parsed, err := parse(column.ClickHouse)
+			if err != nil {
+				return nil, err
+			}
+			if sourceIndex == 0 {
+				firstIndex[column.Name] = len(firstOrder)
+				firstOrder = append(firstOrder, column.Name)
+			}
+			if previous, ok := all[column.Name]; ok {
+				if previous.base != parsed.base || previous.array != parsed.array {
+					return nil, fmt.Errorf("incompatible schema column %q", column.Name)
+				}
+				previous.nullable = previous.nullable || parsed.nullable
+				all[column.Name] = previous
+			} else {
+				all[column.Name] = parsed
 			}
 		}
 	}
-	return base, nil
+	newNames := make([]string, 0)
+	for name := range all {
+		if _, ok := firstIndex[name]; !ok {
+			newNames = append(newNames, name)
+		}
+	}
+	sort.Strings(newNames)
+	order := append(firstOrder, newNames...)
+	result := make([]Column, 0, len(order))
+	for _, name := range order {
+		parsed := all[name]
+		typ := parsed.base
+		if parsed.array {
+			typ = "Array(" + typ + ")"
+		}
+		if parsed.nullable && !parsed.array {
+			typ = "Nullable(" + typ + ")"
+		}
+		result = append(result, Column{Name: name, ClickHouse: typ})
+	}
+	return result, nil
 }
 
 func nowPlusSecond() time.Time {
@@ -232,7 +325,194 @@ func (r *Reader) ResolveFederatedDataset(ctx context.Context, projects []string,
 	if r == nil || r.Catalog == nil {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog dependency is required")
 	}
-	return ResolveFederatedDataset(ctx, r.Catalog, projects, alias)
+	return resolveFederatedDataset(ctx, r.Catalog, r.ActiveManifestResolver, projects, alias)
+}
+
+// CurrentFederatedSources returns the exact READY pointer-backed publications
+// without touching schema reconciliation. It is the authorization snapshot
+// boundary used by GraphQL and export callers.
+func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string, alias string) ([]Materialization, error) {
+	if r == nil || r.Catalog == nil {
+		return nil, fmt.Errorf("bundle catalog dependency is required")
+	}
+	listed, ok := r.Catalog.(StaleBundleCatalog)
+	if !ok {
+		return nil, fmt.Errorf("bundle catalog does not support dataset resolution")
+	}
+	projects = normalizedProjects(projects)
+	alias = strings.TrimSpace(alias)
+	if len(projects) == 0 || alias == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	if err != nil {
+		return nil, err
+	}
+	activeGenerations := map[string]string{}
+	if r.ActiveManifestResolver != nil {
+		for _, project := range projects {
+			manifest, resolveErr := dataset.ResolveReadyActiveManifest(ctx, r.ActiveManifestResolver, project)
+			if errors.Is(resolveErr, dataset.ErrNoActiveGeneration) {
+				continue
+			}
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			activeGenerations[project] = manifest.Dataset.Generation
+		}
+	}
+	allowed := make(map[string]struct{}, len(projects))
+	for _, project := range projects {
+		allowed[project] = struct{}{}
+	}
+	latest := map[string]BundleExecution{}
+	for _, execution := range executions {
+		if execution.State != BundleReady {
+			continue
+		}
+		if _, ok := allowed[execution.Project]; !ok {
+			continue
+		}
+		if r.ActiveManifestResolver != nil {
+			generation, ok := activeGenerations[execution.Project]
+			if !ok || execution.DatasetGeneration != generation {
+				continue
+			}
+		}
+		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
+		if pointerErr != nil {
+			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
+		if pointer.ExecutionID != execution.ID {
+			continue
+		}
+		if !hasOutputAlias(execution, alias) {
+			continue
+		}
+		current, ok := latest[execution.Project]
+		if !ok || execution.UpdatedAt.After(current.UpdatedAt) {
+			latest[execution.Project] = execution
+		}
+	}
+	result := make([]Materialization, 0, len(latest))
+	for _, project := range projects {
+		execution, ok := latest[project]
+		if !ok {
+			continue
+		}
+		for _, output := range execution.Outputs {
+			outputAlias := output.Alias
+			if outputAlias == "" {
+				outputAlias = output.Name
+			}
+			if outputAlias == alias {
+				result = append(result, publishedMaterialization(execution, output, alias))
+				break
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Project != result[j].Project {
+			return result[i].Project < result[j].Project
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result, nil
+}
+
+func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string) ([]string, error) {
+	if r == nil || r.Catalog == nil {
+		return nil, fmt.Errorf("bundle catalog dependency is required")
+	}
+	listed, ok := r.Catalog.(StaleBundleCatalog)
+	if !ok {
+		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
+	}
+	projects = normalizedProjects(projects)
+	allowed := map[string]struct{}{}
+	for _, project := range projects {
+		allowed[project] = struct{}{}
+	}
+	activeGenerations := map[string]string{}
+	if r.ActiveManifestResolver != nil {
+		for _, project := range projects {
+			manifest, err := dataset.ResolveReadyActiveManifest(ctx, r.ActiveManifestResolver, project)
+			if errors.Is(err, dataset.ErrNoActiveGeneration) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			activeGenerations[project] = manifest.Dataset.Generation
+		}
+	}
+	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	if err != nil {
+		return nil, err
+	}
+	aliases := map[string]struct{}{}
+	for _, execution := range executions {
+		if _, ok := allowed[execution.Project]; !ok {
+			continue
+		}
+		if r.ActiveManifestResolver != nil {
+			generation, ok := activeGenerations[execution.Project]
+			if !ok || generation != execution.DatasetGeneration {
+				continue
+			}
+		}
+		pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
+		if err != nil {
+			return nil, err
+		}
+		if pointer.ExecutionID != execution.ID {
+			continue
+		}
+		for _, output := range execution.Outputs {
+			alias := output.Alias
+			if alias == "" {
+				alias = output.Name
+			}
+			aliases[alias] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(aliases))
+	for alias := range aliases {
+		result = append(result, alias)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func ReconcileFederatedDataset(alias string, sources []Materialization) (FederatedDataset, error) {
+	if len(sources) == 0 {
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	sort.Slice(sources, func(i, j int) bool {
+		if sources[i].Project != sources[j].Project {
+			return sources[i].Project < sources[j].Project
+		}
+		return sources[i].ID < sources[j].ID
+	})
+	columns, err := reconcileFederatedColumns(sources)
+	if err != nil {
+		return FederatedDataset{}, dataframeerrors.Wrap(err, dataframeerrors.CodeSchemaConflict, "")
+	}
+	parts := make([]string, 0, len(sources))
+	var rowCount int64
+	for _, source := range sources {
+		rowCount += source.RowCount
+		parts = append(parts, source.ID, source.DatasetGeneration, source.PhysicalTable)
+	}
+	for _, column := range columns {
+		parts = append(parts, column.Name, column.ClickHouse)
+	}
+	sort.Strings(parts)
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return FederatedDataset{Name: alias, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount}, nil
 }
 
 func (r *Reader) FederatedDatasets(ctx context.Context, projects []string) ([]FederatedDataset, error) {
@@ -264,7 +544,10 @@ func (r *Reader) FederatedDatasets(ctx context.Context, projects []string) ([]Fe
 			continue
 		}
 		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil || pointer.ExecutionID != execution.ID {
+		if pointerErr != nil {
+			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
+		if pointer.ExecutionID != execution.ID {
 			continue
 		}
 		for _, output := range execution.Outputs {
@@ -312,7 +595,10 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 			continue
 		}
 		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr == nil && pointer.ExecutionID == execution.ID {
+		if pointerErr != nil {
+			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
+		if pointer.ExecutionID == execution.ID {
 			projects[execution.Project] = struct{}{}
 		}
 	}
@@ -332,6 +618,13 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	if err != nil {
 		return FederatedPage{}, err
 	}
+	return r.PageFederatedDataset(ctx, dataset, req)
+}
+
+func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedPageRequest) (FederatedPage, error) {
+	if r == nil || r.ClickHouse == nil {
+		return FederatedPage{}, fmt.Errorf("ClickHouse dependency is required")
+	}
 	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
 	if err != nil {
 		return FederatedPage{}, err
@@ -347,20 +640,41 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	if err != nil {
 		return FederatedPage{}, err
 	}
-	union, whereArgs, err := federatedRowUnion(dataset, columns, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	unionColumns := append([]string(nil), columns...)
+	if req.Sort != nil && !contains(unionColumns, req.Sort.Column) {
+		unionColumns = append(unionColumns, req.Sort.Column)
+	}
+	for _, filter := range req.Filters {
+		if !contains(unionColumns, filter.Column) {
+			unionColumns = append(unionColumns, filter.Column)
+		}
+	}
+	union, unionArgs, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
 	if err != nil {
 		return FederatedPage{}, err
 	}
-	queryColumns := append([]string(nil), columns...)
+	where, whereArgs, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return FederatedPage{}, err
+	}
+	queryColumns := append([]string(nil), unionColumns...)
 	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
 	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
-	queryArgs := append([]any(nil), whereArgs...)
+	queryArgs := append([]any(nil), unionArgs...)
+	queryArgs = append(queryArgs, whereArgs...)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
 	if cursor != nil {
 		cursorWhere, cursorArgs, err := federatedCursorPredicate(cursor, req.Sort)
 		if err != nil {
 			return FederatedPage{}, err
 		}
-		query += " WHERE " + cursorWhere
+		if strings.Contains(query, " WHERE ") {
+			query += " AND " + cursorWhere
+		} else {
+			query += " WHERE " + cursorWhere
+		}
 		queryArgs = append(queryArgs, cursorArgs...)
 	}
 	if req.Sort != nil {
@@ -377,7 +691,7 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	if err != nil {
 		return FederatedPage{}, err
 	}
-	count, err := r.federatedCount(ctx, dataset, allowed, req)
+	count, err := r.federatedCountDataset(ctx, dataset, allowed, req)
 	if err != nil {
 		return FederatedPage{}, err
 	}
@@ -401,6 +715,11 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 	for _, row := range rows {
 		delete(row, "__loom_row_id")
 		delete(row, "__loom_global_row_id")
+		for _, column := range unionColumns {
+			if !contains(columns, column) {
+				delete(row, column)
+			}
+		}
 	}
 	return FederatedPage{Dataset: dataset, Columns: columns, Rows: rows, TotalCount: count, HasNext: hasNext, NextCursor: next}, nil
 }
@@ -419,17 +738,44 @@ func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias s
 	if err != nil {
 		return FederatedDataset{}, err
 	}
+	return r.StreamFederatedDataset(ctx, dataset, req, visit)
+}
+
+func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
+	if r == nil || r.ClickHouse == nil {
+		return FederatedDataset{}, fmt.Errorf("ClickHouse dependency is required")
+	}
+	if visit == nil {
+		return FederatedDataset{}, fmt.Errorf("dataframe stream visitor is required")
+	}
 	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
 	if err != nil {
 		return FederatedDataset{}, err
 	}
-	union, args, err := federatedRowUnion(dataset, columns, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	unionColumns := append([]string(nil), columns...)
+	if req.Sort != nil && !contains(unionColumns, req.Sort.Column) {
+		unionColumns = append(unionColumns, req.Sort.Column)
+	}
+	for _, filter := range req.Filters {
+		if !contains(unionColumns, filter.Column) {
+			unionColumns = append(unionColumns, filter.Column)
+		}
+	}
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
 	if err != nil {
 		return FederatedDataset{}, err
 	}
-	queryColumns := append([]string(nil), columns...)
+	where, whereArgs, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return FederatedDataset{}, err
+	}
+	args = append(args, whereArgs...)
+	queryColumns := append([]string(nil), unionColumns...)
 	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
 	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
 	if req.Sort != nil {
 		direction := "ASC"
 		if req.Sort.Desc {
@@ -442,6 +788,11 @@ func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias s
 	err = r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
 		delete(row, "__loom_row_id")
 		delete(row, "__loom_global_row_id")
+		for _, column := range unionColumns {
+			if !contains(columns, column) {
+				delete(row, column)
+			}
+		}
 		return visit(row)
 	}, args...)
 	if err != nil {
@@ -450,22 +801,21 @@ func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias s
 	return dataset, nil
 }
 
-func (r *Reader) federatedCount(ctx context.Context, dataset FederatedDataset, allowed map[string]struct{}, req FederatedPageRequest) (int64, error) {
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		where, branchArgs, err := federatedSourceWhere(source, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
-		if err != nil {
-			return 0, err
-		}
-		branch := fmt.Sprintf("SELECT count() AS `__loom_total` FROM `%s`", source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		branches = append(branches, branch)
-		args = append(args, branchArgs...)
+func (r *Reader) federatedCountDataset(ctx context.Context, dataset FederatedDataset, allowed map[string]struct{}, req FederatedPageRequest) (int64, error) {
+	union, args, err := federatedNormalizedUnion(dataset, datasetVisibleColumns(dataset), req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return 0, err
 	}
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, strings.Join(branches, " UNION ALL "), []string{"__loom_total"}, args...)
+	where, whereArgs, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return 0, err
+	}
+	args = append(args, whereArgs...)
+	query := fmt.Sprintf("SELECT count() AS `__loom_total` FROM (%s) AS __loom_federated", union)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_total"}, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -480,6 +830,16 @@ func (r *Reader) federatedCount(ctx context.Context, dataset FederatedDataset, a
 	return total, nil
 }
 
+func datasetVisibleColumns(dataset FederatedDataset) []string {
+	result := make([]string, 0, len(dataset.Columns))
+	for _, column := range dataset.Columns {
+		if column.Name != authResourcePathColumn && column.Name != "__loom_row_id" {
+			result = append(result, column.Name)
+		}
+	}
+	return result
+}
+
 func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alias string, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
 	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
 		return FederatedAggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
@@ -488,8 +848,18 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 	if err != nil {
 		return FederatedAggregateResult{}, err
 	}
+	return r.AggregateFederatedDataset(ctx, dataset, req)
+}
+
+func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
+	if r == nil || r.ClickHouse == nil {
+		return FederatedAggregateResult{}, fmt.Errorf("ClickHouse dependency is required")
+	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
+		if column.Name == authResourcePathColumn || column.Name == "__loom_row_id" {
+			continue
+		}
 		allowed[column.Name] = struct{}{}
 	}
 	for _, column := range req.GroupBy {
@@ -512,42 +882,46 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 		metricName = "count"
 	}
 	columns = append(columns, metricName)
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		where, branchArgs, err := federatedSourceWhere(source, req.Filters, allowed, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
-		if err != nil {
-			return FederatedAggregateResult{}, err
-		}
-		selects := make([]string, 0, len(req.GroupBy)+1)
-		for _, group := range req.GroupBy {
-			selects = append(selects, fmt.Sprintf("`%s`", group))
-		}
-		metric := "count()"
-		switch operation {
-		case "COUNT_DISTINCT":
-			metric = fmt.Sprintf("uniqExact(`%s`)", req.Column)
-		case "SUM":
-			metric = fmt.Sprintf("sum(`%s`)", req.Column)
-		case "AVG":
-			metric = fmt.Sprintf("avg(`%s`)", req.Column)
-		case "MIN":
-			metric = fmt.Sprintf("min(`%s`)", req.Column)
-		case "MAX":
-			metric = fmt.Sprintf("max(`%s`)", req.Column)
-		}
-		selects = append(selects, metric+" AS `"+metricName+"`")
-		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		if len(req.GroupBy) > 0 {
-			branch += " GROUP BY " + quotedColumns(req.GroupBy)
-		}
-		branches = append(branches, branch)
-		args = append(args, branchArgs...)
+	unionColumns := append([]string(nil), req.GroupBy...)
+	if operation != "COUNT" && !contains(unionColumns, req.Column) {
+		unionColumns = append(unionColumns, req.Column)
 	}
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_aggregate", quotedColumns(columns), strings.Join(branches, " UNION ALL "))
+	for _, filter := range req.Filters {
+		if !contains(unionColumns, filter.Column) {
+			unionColumns = append(unionColumns, filter.Column)
+		}
+	}
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return FederatedAggregateResult{}, err
+	}
+	where, whereArgs, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return FederatedAggregateResult{}, err
+	}
+	args = append(args, whereArgs...)
+	metric := "count()"
+	switch operation {
+	case "COUNT_DISTINCT":
+		metric = fmt.Sprintf("uniqExact(`%s`)", req.Column)
+	case "SUM":
+		metric = fmt.Sprintf("sum(`%s`)", req.Column)
+	case "AVG":
+		metric = fmt.Sprintf("avg(`%s`)", req.Column)
+	case "MIN":
+		metric = fmt.Sprintf("min(`%s`)", req.Column)
+	case "MAX":
+		metric = fmt.Sprintf("max(`%s`)", req.Column)
+	}
+	selectExpr := make([]string, 0, len(req.GroupBy)+1)
+	for _, group := range req.GroupBy {
+		selectExpr = append(selectExpr, fmt.Sprintf("`%s`", group))
+	}
+	selectExpr = append(selectExpr, metric+" AS `"+metricName+"`")
+	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_aggregate", strings.Join(selectExpr, ", "), union)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
 	if len(req.GroupBy) > 0 {
 		query += " ORDER BY " + quotedColumns(req.GroupBy)
 	}
@@ -559,23 +933,87 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 }
 
 func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) ([]string, map[string]struct{}, error) {
+	for _, column := range requested {
+		if column == authResourcePathColumn { return nil, nil, fmt.Errorf("column %q is internal to dataframe authorization", column) }
+	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	columns := append([]string(nil), requested...)
 	for _, column := range dataset.Columns {
+		if column.Name == "__loom_row_id" {
+			continue
+		}
 		allowed[column.Name] = struct{}{}
 		if len(requested) == 0 {
-			columns = append(columns, column.Name)
+			if column.Name != authResourcePathColumn {
+				columns = append(columns, column.Name)
+			}
 		}
 	}
 	if err := validateReaderColumns(columns, allowed); err != nil {
 		return nil, nil, err
 	}
 	if sort != nil {
+		if sort.Column == authResourcePathColumn { return nil, nil, fmt.Errorf("sort column %q is internal to dataframe authorization", sort.Column) }
 		if err := validateReaderColumns([]string{sort.Column}, allowed); err != nil {
 			return nil, nil, fmt.Errorf("sort: %w", err)
 		}
 	}
 	return columns, allowed, nil
+}
+
+// federatedNormalizedUnion creates the single typed source union used by rows,
+// counts and aggregates. User predicates are deliberately applied by callers
+// around this union; only per-source authorization remains inside branches.
+func federatedNormalizedUnion(dataset FederatedDataset, columns []string, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) (string, []any, error) {
+	branches := make([]string, 0, len(dataset.Sources))
+	args := make([]any, 0)
+	for _, source := range dataset.Sources {
+		present := make(map[string]Column, len(source.Columns))
+		for _, column := range source.Columns {
+			present[column.Name] = column
+		}
+		selects := make([]string, 0, len(columns)+2)
+		for _, column := range columns {
+			target, ok := findColumn(dataset.Columns, column)
+			if !ok {
+				return "", nil, fmt.Errorf("column %q is not in federated dataset schema", column)
+			}
+			if sourceColumn, exists := present[column]; exists {
+				selects = append(selects, fmt.Sprintf("CAST(`%s` AS %s) AS `%s`", sourceColumn.Name, target.ClickHouse, column))
+			} else if strings.HasPrefix(target.ClickHouse, "Array(") {
+				selects = append(selects, fmt.Sprintf("CAST([] AS %s) AS `%s`", target.ClickHouse, column))
+			} else {
+				typ := target.ClickHouse
+				if !strings.HasPrefix(typ, "Nullable(") {
+					typ = "Nullable(" + typ + ")"
+				}
+				selects = append(selects, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", typ, column))
+			}
+		}
+		selects = append(selects, "toString(`__loom_row_id`) AS `__loom_row_id`", "concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`")
+		branch := "SELECT " + strings.Join(selects, ", ") + " FROM `" + source.PhysicalTable + "`"
+		authUnrestricted := unrestricted
+		authPaths := paths
+		if unrestrictedByProject != nil {
+			authUnrestricted = unrestrictedByProject[source.Project]
+		}
+		if pathsByProject != nil {
+			authPaths = pathsByProject[source.Project]
+		}
+		if !authUnrestricted {
+			if _, ok := present[authResourcePathColumn]; ok {
+				branch += " WHERE `auth_resource_path` IN ?"
+				args = append(args, source.ID, authPaths)
+			} else {
+				branch += " WHERE 0"
+				args = append(args, source.ID)
+			}
+		} else {
+			args = append(args, source.ID)
+		}
+		branches = append(branches, branch)
+	}
+	return strings.Join(branches, " UNION ALL "), args, nil
 }
 
 func federatedSourceWhere(source Materialization, filters []Filter, allowed map[string]struct{}, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) ([]string, []any, error) {

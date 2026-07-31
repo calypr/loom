@@ -77,6 +77,22 @@ func TestResolveDiscoveryFreezesPivotAndKeyedColumns(t *testing.T) {
 	}
 }
 
+func TestResolveOmitsPivotWithNoDiscoveredColumns(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "document-reference", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document",
+		CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"status"}, Kinds: []string{"scalar"}, MaxColumns: 4}},
+		Pivots:             []recipe.Pivot{{Name: "empty", Discovery: &recipe.PivotDiscovery{Family: "observation_code_value", MaxColumns: 4}}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{{ResourceType: "DocumentReference", Path: "status", Kind: "scalar"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := resolved.Bundle.Outputs[0]
+	if len(output.Pivots) != 0 || len(output.Fields) != 1 || output.Fields[0].Name != "status" {
+		t.Fatalf("resolved output = %#v", output)
+	}
+}
+
 func TestResolveFillsDiscoveredPivotSelectorsInTraversalScope(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "pivot-selectors", TranslationVersion: "1", Outputs: []recipe.Output{{
 		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",

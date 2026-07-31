@@ -134,7 +134,7 @@ func Run() {
 			exitf("parse dataframer recipe %q: %v", *dataframerRecipe, err)
 		}
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
-			exitf("register default dataframe recipe: %v", err)
+			logger.Error("register default dataframe recipe failed; dataframe recipe control degraded", "error", err)
 		}
 	}
 	lifecycleStore, err := datasetarango.New(lifecycleClient)
@@ -187,7 +187,7 @@ func Run() {
 	}
 	defer registryClient.Close(context.Background())
 	if err := registryClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
-		exitf("bootstrap dataframe registry store: %v", err)
+		logger.Error("bootstrap dataframe registry failed; dataframe publication degraded", "error", err)
 	}
 	registry, err := materializationarango.New(registryClient)
 	if err != nil {
@@ -205,9 +205,9 @@ func Run() {
 		// it during server startup so a fresh ClickHouse instance does not require
 		// an operator to run a separate DDL/API step before materialization.
 		if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
-			exitf("ensure ClickHouse database %q: %v", *clickhouseDatabase, err)
+			logger.Error("ClickHouse database unavailable; dataframe service degraded", "database", *clickhouseDatabase, "error", err)
 		}
-		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000}
+		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
@@ -236,6 +236,9 @@ func Run() {
 		bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
 		if err != nil {
 			exitf("create dataframe bundle store: %v", err)
+		}
+		if err := bundleStore.Reconcile(context.Background(), time.Now().UTC().Add(-2*time.Minute)); err != nil {
+			logger.Error("dataframe publication reconciliation failed; dataframe service degraded", "error", err)
 		}
 		bundleTarget, err = publicationclickhouse.New(bundleStore)
 		if err != nil {
@@ -346,6 +349,17 @@ func Run() {
 		DisableSingleResourceImports: *datasetGenerations,
 		RawExporter:                  api.ArangoRawExporter{Query: lifecycleClient, Manifests: lifecycleStore},
 		Logger:                       logger,
+		CoreReadyCheck: func(ctx context.Context) error {
+			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
+		},
+		ClickHouseReadyCheck: func(ctx context.Context) error {
+			if clickhouse == nil {
+				return nil
+			}
+			_, err := clickhouse.QueryRowsArgs(ctx, "SELECT 1", []string{"ok"})
+			return err
+		},
+		ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled,
 	})
 	if err != nil {
 		exitf("create HTTP server: %v", err)

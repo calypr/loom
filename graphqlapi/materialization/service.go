@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataset"
 )
@@ -64,7 +65,7 @@ func (s *Service) projects(ctx context.Context, principal *authscope.Principal) 
 
 func (s *Service) Datasets(ctx context.Context) ([]dfmaterialization.Materialization, error) {
 	if s.reader == nil {
-		return nil, fmt.Errorf("dataframe materialization reads are not configured")
+		return nil, readerUnavailable()
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -74,32 +75,32 @@ func (s *Service) Datasets(ctx context.Context) ([]dfmaterialization.Materializa
 	if err != nil {
 		return nil, err
 	}
-	datasets, err := s.reader.FederatedDatasets(ctx, projects)
+	aliases, err := s.reader.CurrentFederatedAliases(ctx, projects)
 	if err != nil {
-		return nil, err
+		return nil, mapReaderError(err)
 	}
-	result := make([]dfmaterialization.Materialization, 0, len(datasets))
-	for _, dataset := range datasets {
-		result = append(result, federatedMaterialization(dataset))
+	result := make([]dfmaterialization.Materialization, 0, len(aliases))
+	for _, alias := range aliases {
+		if dataset, _, _, _, resolveErr := s.authorizedFederation(ctx, principal, alias); resolveErr == nil {
+			result = append(result, federatedMaterialization(dataset))
+		} else if normalized := dataframeerrors.Normalize(resolveErr); normalized.Retryable() {
+			return nil, resolveErr
+		}
 	}
 	return result, nil
 }
 
 func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput) (*dfmaterialization.Materialization, error) {
 	if s.reader == nil {
-		return nil, fmt.Errorf("dataframe materialization reads are not configured")
+		return nil, readerUnavailable()
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
 		return nil, err
 	}
-	projects, err := s.projects(ctx, principal)
+	dataset, _, _, _, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
-		return nil, err
-	}
-	dataset, err := s.reader.ResolveFederatedDataset(ctx, projects, input.DataType)
-	if err != nil {
-		return nil, err
+		return nil, mapReaderError(err)
 	}
 	value := federatedMaterialization(dataset)
 	return &value, nil
@@ -110,11 +111,11 @@ func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput
 // authorization before returning metadata.
 func (s *Service) Get(ctx context.Context, id string) (*dfmaterialization.Materialization, error) {
 	if s.reader == nil {
-		return nil, fmt.Errorf("dataframe materialization reads are not configured")
+		return nil, readerUnavailable()
 	}
 	value, err := s.reader.DatasetByPublishedID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, mapReaderError(err)
 	}
 	if err := s.authorizePublished(ctx, value); err != nil {
 		return nil, err
@@ -124,27 +125,31 @@ func (s *Service) Get(ctx context.Context, id string) (*dfmaterialization.Materi
 
 func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfmaterialization.Page, error) {
 	if s.reader == nil {
-		return dfmaterialization.Page{}, fmt.Errorf("dataframe materialization reads are not configured")
+		return dfmaterialization.Page{}, readerUnavailable()
 	}
 	if input.MaterializationID != nil && *input.MaterializationID != "" {
 		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
 		if err != nil {
-			return dfmaterialization.Page{}, err
+			return dfmaterialization.Page{}, mapReaderError(err)
 		}
 		if err := s.authorizePublished(ctx, value); err != nil {
 			return dfmaterialization.Page{}, err
 		}
-		return s.reader.PagePublishedID(ctx, value.ID, pageRequest(input))
+		page, err := s.reader.PagePublishedID(ctx, value.ID, pageRequest(input))
+		if err != nil {
+			return dfmaterialization.Page{}, mapReaderError(err)
+		}
+		return page, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
-		return dfmaterialization.Page{}, err
+		return dfmaterialization.Page{}, mapReaderError(err)
 	}
-	dataset, projects, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
+	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
-		return dfmaterialization.Page{}, err
+		return dfmaterialization.Page{}, mapReaderError(err)
 	}
-	page, err := s.reader.PageFederated(ctx, projects, input.DataType, dfmaterialization.FederatedPageRequest{
+	page, err := s.reader.PageFederatedDataset(ctx, dataset, dfmaterialization.FederatedPageRequest{
 		Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: stringValue(input.After),
 		AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	})
@@ -156,27 +161,31 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 
 func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
 	if s.reader == nil {
-		return dfmaterialization.AggregateResult{}, fmt.Errorf("dataframe materialization reads are not configured")
+		return dfmaterialization.AggregateResult{}, readerUnavailable()
 	}
 	if input.MaterializationID != nil && *input.MaterializationID != "" {
 		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
 		if err != nil {
-			return dfmaterialization.AggregateResult{}, err
+			return dfmaterialization.AggregateResult{}, mapReaderError(err)
 		}
 		if err := s.authorizePublished(ctx, value); err != nil {
 			return dfmaterialization.AggregateResult{}, err
 		}
-		return s.reader.AggregatePublishedID(ctx, value.ID, dfmaterialization.AggregateRequest{MaterializationID: value.ID, GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column)})
+		result, err := s.reader.AggregatePublishedID(ctx, value.ID, dfmaterialization.AggregateRequest{MaterializationID: value.ID, GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column)})
+		if err != nil {
+			return dfmaterialization.AggregateResult{}, mapReaderError(err)
+		}
+		return result, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
-		return dfmaterialization.AggregateResult{}, err
+		return dfmaterialization.AggregateResult{}, mapReaderError(err)
 	}
-	dataset, projects, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
+	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
 		return dfmaterialization.AggregateResult{}, err
 	}
-	result, err := s.reader.AggregateFederated(ctx, projects, input.DataType, dfmaterialization.FederatedAggregateRequest{
+	result, err := s.reader.AggregateFederatedDataset(ctx, dataset, dfmaterialization.FederatedAggregateRequest{
 		GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column), AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	})
 	if err != nil {
@@ -188,13 +197,13 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 
 func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
 	if s.reader == nil {
-		return dfmaterialization.AggregationsResult{}, fmt.Errorf("dataframe materialization reads are not configured")
+		return dfmaterialization.AggregationsResult{}, readerUnavailable()
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
-		return dfmaterialization.AggregationsResult{}, err
+		return dfmaterialization.AggregationsResult{}, mapReaderError(err)
 	}
-	dataset, projects, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
+	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
 		return dfmaterialization.AggregationsResult{}, err
 	}
@@ -215,7 +224,7 @@ func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAg
 		}
 		specs = append(specs, value)
 	}
-	result, err := s.reader.AggregateFederatedBatch(ctx, projects, input.DataType, dfmaterialization.AggregationsRequest{
+	result, err := s.reader.AggregateFederatedBatchDataset(ctx, dataset, dfmaterialization.AggregationsRequest{
 		Filters: convertFilters(input.Filters), Specs: specs, AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	})
 	if err != nil {
@@ -234,49 +243,74 @@ func (s *Service) authorizedFederation(ctx context.Context, principal *authscope
 	if err != nil {
 		return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
 	}
-	dataset, err := s.reader.ResolveFederatedDataset(ctx, candidates, alias)
+	sources, err := s.reader.CurrentFederatedSources(ctx, candidates, alias)
 	if err != nil {
-		return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
+		return dfmaterialization.FederatedDataset{}, nil, nil, nil, mapReaderError(err)
 	}
-	paths := make(map[string][]string, len(dataset.Sources))
-	unrestricted := make(map[string]bool, len(dataset.Sources))
-	authorizedProjects := make([]string, 0, len(dataset.Sources))
-	for _, source := range dataset.Sources {
+	paths := make(map[string][]string, len(sources))
+	unrestricted := make(map[string]bool, len(sources))
+	authorizedProjects := make([]string, 0, len(sources))
+	authorizedSources := make([]dfmaterialization.Materialization, 0, len(sources))
+	rowCountComplete := true
+	for _, source := range sources {
 		if s.scopeResolver != nil {
 			scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, source.Project, source.DatasetGeneration, nil)
 			if err != nil {
-				if len(principal.Projects) == 0 {
-					continue
-				}
-				return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
+				return dfmaterialization.FederatedDataset{}, nil, nil, nil, mapReaderError(err)
+			}
+			if !scope.Unrestricted() && len(scope.AuthResourcePaths) == 0 {
+				continue
+			}
+			if !scope.Unrestricted() {
+				rowCountComplete = false
 			}
 			paths[source.Project] = append([]string(nil), scope.AuthResourcePaths...)
 			unrestricted[source.Project] = scope.Unrestricted()
 			authorizedProjects = append(authorizedProjects, source.Project)
+			authorizedSources = append(authorizedSources, source)
 			continue
 		}
 		if source.AuthScopeMode == authscope.ReadScopeUnrestricted {
 			unrestricted[source.Project] = true
 			authorizedProjects = append(authorizedProjects, source.Project)
+			authorizedSources = append(authorizedSources, source)
 			continue
 		}
+		if len(principal.AuthResourcePaths) == 0 {
+			continue
+		}
+		rowCountComplete = false
 		paths[source.Project] = append([]string(nil), principal.AuthResourcePaths...)
 		authorizedProjects = append(authorizedProjects, source.Project)
+		authorizedSources = append(authorizedSources, source)
 	}
 	if len(authorizedProjects) == 0 {
-		return dfmaterialization.FederatedDataset{}, nil, nil, nil, fmt.Errorf("published dataset %q is not authorized", alias)
+		return dfmaterialization.FederatedDataset{}, nil, nil, nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	if len(authorizedProjects) != len(dataset.Sources) {
-		dataset, err = s.reader.ResolveFederatedDataset(ctx, authorizedProjects, alias)
-		if err != nil {
-			return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
-		}
+	dataset, err := dfmaterialization.ReconcileFederatedDataset(alias, authorizedSources)
+	if err != nil {
+		return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
 	}
+	dataset.RowCountComplete = rowCountComplete
 	return dataset, authorizedProjects, paths, unrestricted, nil
 }
 
+func mapReaderError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := dataframeerrors.AsUserError(err); ok {
+		return err
+	}
+	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+func readerUnavailable() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
 func federatedMaterialization(dataset dfmaterialization.FederatedDataset) dfmaterialization.Materialization {
-	return dfmaterialization.Materialization{ID: "federated:" + dataset.Name, Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount}
+	return dfmaterialization.Materialization{ID: "federated:" + dataset.Name, Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete}
 }
 
 func (s *Service) authorizePublished(ctx context.Context, value dfmaterialization.Materialization) error {

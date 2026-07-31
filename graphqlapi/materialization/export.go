@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
 )
 
@@ -16,7 +17,7 @@ import (
 // same federated reader contract used by interactive rows.
 func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization.ExportRequest, out io.Writer) error {
 	if s.reader == nil {
-		return fmt.Errorf("dataframe materialization reads are not configured")
+		return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	if out == nil {
 		return fmt.Errorf("dataframe export writer is required")
@@ -25,7 +26,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err != nil {
 		return err
 	}
-	dataset, projects, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, request.DataType)
+	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, request.DataType)
 	if err != nil {
 		return err
 	}
@@ -37,6 +38,9 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if len(columns) == 0 {
 		columns = make([]string, 0, len(dataset.Columns))
 		for _, column := range dataset.Columns {
+			if column.Name == "auth_resource_path" || column.Name == "__loom_row_id" {
+				continue
+			}
 			columns = append(columns, column.Name)
 		}
 	}
@@ -45,7 +49,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err := state.begin(); err != nil {
 		return err
 	}
-	_, err = s.reader.StreamFederated(ctx, projects, request.DataType, dfmaterialization.FederatedStreamRequest{
+	_, err = s.reader.StreamFederatedDataset(ctx, dataset, dfmaterialization.FederatedStreamRequest{
 		Columns: columns, Filters: request.Filters, Sort: request.Sort,
 		AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	}, state.visit)

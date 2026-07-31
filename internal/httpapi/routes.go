@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
+	"time"
 )
 
 func (s *HTTPServer) register() {
@@ -37,9 +39,43 @@ func (s *HTTPServer) registerGenerationRoutes() {
 }
 
 func (s *HTTPServer) registerHealthRoutes() {
-	s.app.Get("/healthz", func(c fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
-	})
+	s.app.Get("/health", s.health)
+}
+
+func (s *HTTPServer) health(c fiber.Ctx) error {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if time.Since(s.lastHealth) < 30*time.Second {
+		return s.writeHealth(c, s.lastHealthResult)
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	defer cancel()
+	result := healthResult{status: "ready", core: "ready", dataframe: "ready", httpStatus: fiber.StatusOK}
+	if s.coreReadyCheck != nil {
+		if err := s.coreReadyCheck(ctx); err != nil {
+			result = healthResult{status: "not_ready", core: "not_ready", httpStatus: fiber.StatusServiceUnavailable}
+			s.lastHealth, s.lastHealthResult = time.Now(), result
+			return s.writeHealth(c, result)
+		}
+	}
+	if !s.clickHouseEnabled {
+		result.dataframe = "disabled"
+	}
+	if s.clickHouseEnabled && s.clickHouseReadyCheck != nil {
+		if err := s.clickHouseReadyCheck(ctx); err != nil {
+			result.status, result.dataframe = "degraded", "backend_unavailable"
+		}
+	}
+	s.lastHealth, s.lastHealthResult = time.Now(), result
+	return s.writeHealth(c, result)
+}
+
+func (s *HTTPServer) writeHealth(c fiber.Ctx, result healthResult) error {
+	body := fiber.Map{"status": result.status, "core": result.core}
+	if result.dataframe != "" {
+		body["dataframe"] = result.dataframe
+	}
+	return c.Status(result.httpStatus).JSON(body)
 }
 
 func (s *HTTPServer) registerGraphQLRoutes() {

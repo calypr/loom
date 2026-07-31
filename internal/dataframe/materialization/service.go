@@ -3,6 +3,7 @@ package materialization
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -96,14 +97,10 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	m := Materialization{
 		ID: id, Name: req.Name, Project: req.Run.Bindings.Project,
 		DatasetGeneration: req.Run.Bindings.DatasetGeneration,
-		State:             StatePending, AuthScopeMode: req.Run.Bindings.AuthScopeMode,
+		State:             StateLoading, AuthScopeMode: req.Run.Bindings.AuthScopeMode,
 		AuthResourcePaths: append([]string(nil), req.Run.Bindings.AuthResourcePaths...),
 		PhysicalTable:     "loom_df_" + strings.ReplaceAll(id, "-", ""), CreatedAt: time.Now().UTC(),
 	}
-	if err := s.Registry.Save(ctx, m); err != nil {
-		return Materialization{}, err
-	}
-	m.State = StateLoading
 	if err := s.Registry.Save(ctx, m); err != nil {
 		return Materialization{}, err
 	}
@@ -130,11 +127,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	fail := func(err error) (Materialization, error) {
 		if created {
 			if cleanupErr := s.ClickHouse.DropTable(context.Background(), m.PhysicalTable); cleanupErr != nil {
-				err = fmt.Errorf("%w (drop failed materialization table: %v)", err, cleanupErr)
+				err = errors.Join(err, fmt.Errorf("drop failed materialization table: %w", cleanupErr))
 			}
 		}
 		m.State, m.Error = StateFailed, err.Error()
-		_ = s.Registry.Save(context.Background(), m)
+		if persistenceErr := s.Registry.Save(context.Background(), m); persistenceErr != nil {
+			err = errors.Join(err, persistenceErr)
+		}
 		return Materialization{}, err
 	}
 	if len(explicitSchema) > 0 {

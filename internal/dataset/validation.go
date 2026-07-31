@@ -35,6 +35,13 @@ var (
 	// or an active-generation lookup that cannot resolve exactly one READY
 	// manifest.
 	ErrInvalidActiveGeneration = errors.New("invalid active dataset generation")
+	// ErrNoActiveGeneration means the project has no active READY manifest.
+	// Callers may omit that project while federating; storage failures must not
+	// be confused with this absence.
+	ErrNoActiveGeneration = errors.New("no active dataset generation")
+	// ErrActiveGenerationNotFound is the storage-facing compatibility sentinel
+	// for an absent active pointer.
+	ErrActiveGenerationNotFound = errors.New("active dataset generation was not found")
 )
 
 func validateOpaqueIdentifier(field, value string, allowEmpty bool) error {

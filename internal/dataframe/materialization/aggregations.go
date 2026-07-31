@@ -60,6 +60,19 @@ func (r *Reader) AggregateFederatedBatch(ctx context.Context, projects []string,
 	if err != nil {
 		return AggregationsResult{}, err
 	}
+	return r.AggregateFederatedBatchDataset(ctx, dataset, req)
+}
+
+func (r *Reader) AggregateFederatedBatchDataset(ctx context.Context, dataset FederatedDataset, req AggregationsRequest) (AggregationsResult, error) {
+	if r == nil || r.ClickHouse == nil {
+		return AggregationsResult{}, fmt.Errorf("ClickHouse dependency is required")
+	}
+	if len(req.Specs) == 0 {
+		return AggregationsResult{}, fmt.Errorf("at least one aggregation specification is required")
+	}
+	if len(req.Specs) > maxAggregationSpecs {
+		return AggregationsResult{}, fmt.Errorf("too many aggregation specifications")
+	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
 		allowed[column.Name] = struct{}{}
@@ -231,33 +244,26 @@ func (r *Reader) aggregateValueBranches(dataset FederatedDataset, allowed map[st
 	if _, ok := allowed[column]; !ok {
 		return nil, nil, fmt.Errorf("aggregate column %q is not in federated dataset schema", column)
 	}
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		sourceFilters := append([]Filter(nil), filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
+	unionColumns := []string{column}
+	for _, filter := range filters {
+		if !contains(unionColumns, filter.Column) {
+			unionColumns = append(unionColumns, filter.Column)
 		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			sourceFilters = append(sourceFilters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, branchArgs, err := buildWhere(sourceFilters, allowed)
-		if err != nil {
-			return nil, nil, err
-		}
-		branch := fmt.Sprintf("SELECT `%s` AS `__loom_agg_key` FROM `%s`", column, source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		branches = append(branches, branch)
-		args = append(args, branchArgs...)
 	}
-	return branches, args, nil
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return nil, nil, err
+	}
+	where, whereArgs, err := buildWhere(filters, allowed)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, whereArgs...)
+	branch := fmt.Sprintf("SELECT `%s` AS `__loom_agg_key` FROM (%s) AS __loom_values", column, union)
+	if len(where) > 0 {
+		branch += " WHERE " + strings.Join(where, " AND ")
+	}
+	return []string{branch}, args, nil
 }
 
 // NormalizeAggregationResults provides deterministic result ordering for

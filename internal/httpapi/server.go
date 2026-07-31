@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 
@@ -29,6 +32,9 @@ type HTTPConfig struct {
 	DisableSingleResourceImports bool
 	RawExporter                  RawExporter
 	DataframeExporter            DataframeExporter
+	CoreReadyCheck               func(context.Context) error
+	ClickHouseReadyCheck         func(context.Context) error
+	ClickHouseEnabled            bool
 }
 
 type HTTPServer struct {
@@ -45,6 +51,17 @@ type HTTPServer struct {
 	disableSingleResourceImports bool
 	rawExporter                  RawExporter
 	dataframeExporter            DataframeExporter
+	coreReadyCheck               func(context.Context) error
+	clickHouseReadyCheck         func(context.Context) error
+	clickHouseEnabled            bool
+	healthMu                     sync.Mutex
+	lastHealth                   time.Time
+	lastHealthResult             healthResult
+}
+
+type healthResult struct {
+	status, core, dataframe string
+	httpStatus              int
 }
 
 type apiError struct {
@@ -98,6 +115,9 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		disableSingleResourceImports: cfg.DisableSingleResourceImports,
 		rawExporter:                  cfg.RawExporter,
 		dataframeExporter:            cfg.DataframeExporter,
+		coreReadyCheck:               cfg.CoreReadyCheck,
+		clickHouseReadyCheck:         cfg.ClickHouseReadyCheck,
+		clickHouseEnabled:            cfg.ClickHouseEnabled,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:         cfg.BodyLimit,

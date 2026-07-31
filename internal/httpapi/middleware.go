@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -17,6 +18,7 @@ func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 	}
 	c.Locals("request_id", requestID)
 	c.Set("X-Request-ID", requestID)
+	c.SetContext(context.WithValue(c.Context(), "loom.graphql.request_id", requestID))
 	return c.Next()
 }
 
@@ -46,7 +48,7 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
 	// Health probes must remain available before credentials are configured and
 	// are deliberately not project/data APIs.
-	if c.Path() == "/healthz" {
+	if c.Path() == "/health" {
 		return c.Next()
 	}
 	principal, err := s.authn.Authenticate(c.Context(), c.GetReqHeaders())

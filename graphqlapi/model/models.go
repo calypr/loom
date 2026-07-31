@@ -119,7 +119,7 @@ type DataframeMaterialization struct {
 	Revision  string                        `json:"revision"`
 	State     DataframeMaterializationState `json:"state"`
 	Columns   []*DataframeColumn            `json:"columns"`
-	RowCount  int                           `json:"rowCount"`
+	RowCount  *int                          `json:"rowCount,omitempty"`
 	CreatedAt string                        `json:"createdAt"`
 	ReadyAt   *string                       `json:"readyAt,omitempty"`
 	Error     *string                       `json:"error,omitempty"`

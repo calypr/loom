@@ -38,6 +38,7 @@ type Materialization struct {
 	Columns           []Column                `json:"columns"`
 	PhysicalTable     string                  `json:"physicalTable"`
 	RowCount          int64                   `json:"rowCount"`
+	RowCountKnown     bool                    `json:"-"`
 	CreatedAt         time.Time               `json:"createdAt"`
 	ReadyAt           *time.Time              `json:"readyAt,omitempty"`
 	Error             string                  `json:"error,omitempty"`

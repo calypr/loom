@@ -80,12 +80,14 @@ type BundleExecution struct {
 	ID  string `json:"id"`
 	Key string `json:"key"`
 	BundleIdentity
-	State     BundleState          `json:"state"`
-	Outputs   []BundleOutputRecord `json:"outputs,omitempty"`
-	CreatedAt time.Time            `json:"createdAt"`
-	UpdatedAt time.Time            `json:"updatedAt"`
-	ReadyAt   *time.Time           `json:"readyAt,omitempty"`
-	Error     string               `json:"error,omitempty"`
+	State          BundleState          `json:"state"`
+	Outputs        []BundleOutputRecord `json:"outputs,omitempty"`
+	CreatedAt      time.Time            `json:"createdAt"`
+	UpdatedAt      time.Time            `json:"updatedAt"`
+	ReadyAt        *time.Time           `json:"readyAt,omitempty"`
+	Error          string               `json:"error,omitempty"`
+	OwnerID        string               `json:"ownerId,omitempty"`
+	LeaseExpiresAt *time.Time           `json:"leaseExpiresAt,omitempty"`
 }
 
 type BundlePointer struct {
@@ -110,6 +112,12 @@ type BundleCatalog interface {
 	CompareAndSwapPointer(context.Context, string, string, string) error
 }
 
+type BundleLeaseCatalog interface {
+	AcquireBundleLease(context.Context, string, string, time.Time) (bool, error)
+	RenewBundleLease(context.Context, string, string, time.Time) (bool, error)
+	ReleaseBundleLease(context.Context, string, string) error
+}
+
 // ResolvePublishedOutput resolves the current READY output for one logical
 // dataset. The alias currently defaults to the output name; publication code
 // may set BundleOutputRecord.Alias when an Explorer-facing alias differs.
@@ -132,7 +140,8 @@ func ResolvePublishedOutput(ctx context.Context, catalog BundleCatalog, project,
 			continue
 		}
 		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil || pointer.ExecutionID != execution.ID {
+		if pointerErr != nil { return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr) }
+		if pointer.ExecutionID != execution.ID {
 			continue
 		}
 		for _, output := range execution.Outputs {
@@ -179,7 +188,8 @@ func ListPublishedOutputs(ctx context.Context, catalog BundleCatalog, project, g
 			continue
 		}
 		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil || pointer.ExecutionID != execution.ID {
+		if pointerErr != nil { return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr) }
+		if pointer.ExecutionID != execution.ID {
 			continue
 		}
 		for _, output := range execution.Outputs {

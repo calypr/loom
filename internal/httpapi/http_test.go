@@ -65,7 +65,7 @@ func TestCreateImportAccepted(t *testing.T) {
 	}
 }
 
-func TestHealthzDoesNotRequireAuthentication(t *testing.T) {
+func TestHealthDoesNotRequireAuthentication(t *testing.T) {
 	svc, err := NewService(ServiceConfig{Runner: fakeRunner{}})
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestHealthzDoesNotRequireAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := server.App().Test(httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	resp, err := server.App().Test(httptest.NewRequest(http.MethodGet, "/health", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

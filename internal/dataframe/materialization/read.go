@@ -8,13 +8,16 @@ import (
 	"strconv"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type Reader struct {
-	ClickHouse *clickhouse.Client
-	Catalog    BundleCatalog
-	MaxPage    int
+	ClickHouse             *clickhouse.Client
+	Catalog                BundleCatalog
+	MaxPage                int
+	ActiveManifestResolver dataset.ActiveManifestResolver
 }
 
 type Filter struct {
@@ -208,11 +211,14 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 		return Materialization{}, err
 	}
 	if execution.State != BundleReady {
-		return Materialization{}, fmt.Errorf("published dataset %q is not ready", id)
+		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
 	if err != nil || pointer.ExecutionID != execution.ID {
-		return Materialization{}, fmt.Errorf("published dataset %q is not current", id)
+		if err != nil {
+			return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", err)
+		}
+		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	for _, output := range execution.Outputs {
 		if output.Name == parts[1] {
@@ -223,7 +229,7 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 			return publishedMaterialization(execution, output, alias), nil
 		}
 	}
-	return Materialization{}, fmt.Errorf("published dataset id %q was not found", id)
+	return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 }
 
 func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {

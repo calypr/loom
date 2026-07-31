@@ -10,12 +10,17 @@ import (
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 func NewHandler(resolver *Resolver) http.Handler {
 	server := gqlhandler.NewDefaultServer(NewExecutableSchema(Config{
 		Resolvers: resolver,
 	}))
+	server.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
+		requestID, _ := ctx.Value(graphqlRequestIDContextKey).(string)
+		return PresentGraphQLError(err, requestID)
+	})
 	server.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
 		return next(withFHIRReferenceLoader(ctx, resolver))
 	})
@@ -23,9 +28,15 @@ func NewHandler(resolver *Resolver) http.Handler {
 		if ctx, ok := fiberadaptor.LocalContextFromHTTPRequest(r); ok {
 			r = r.WithContext(ctx)
 		}
+		if requestID, _ := r.Context().Value(graphqlRequestIDContextKey).(string); r.Header.Get("X-Request-ID") == "" && requestID != "" {
+			r.Header.Set("X-Request-ID", requestID)
+		}
+		r = r.WithContext(context.WithValue(r.Context(), graphqlRequestIDContextKey, r.Header.Get("X-Request-ID")))
 		server.ServeHTTP(w, r)
 	})
 }
+
+const graphqlRequestIDContextKey = "loom.graphql.request_id"
 
 func NewPlaygroundHandler(endpoint string) http.Handler {
 	return playground.Handler("FHIR GraphQL Playground", endpoint)

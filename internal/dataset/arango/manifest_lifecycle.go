@@ -27,10 +27,9 @@ var (
 	// ErrManifestTransitionConflict reports that the persisted manifest no
 	// longer exactly matches the caller's expected immutable version and state.
 	ErrManifestTransitionConflict = errors.New("dataset manifest transition conflict")
-	// ErrActiveGenerationNotFound reports a project with no active READY
-	// generation. It also protects callers from treating a corrupt active
-	// pointer as a usable generation.
-	ErrActiveGenerationNotFound = errors.New("active dataset generation was not found")
+	// ErrActiveGenerationNotFound is retained as a package alias for callers of
+	// the Arango adapter; the sentinel is owned by the dataset package.
+	ErrActiveGenerationNotFound = dataset.ErrActiveGenerationNotFound
 	// ErrActivationConflict reports a candidate that was not persisted READY,
 	// a missing active pointer record, or an invalid prior active pointer.
 	ErrActivationConflict = errors.New("dataset activation conflict")

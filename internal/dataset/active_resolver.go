@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -28,6 +29,9 @@ func ResolveReadyActiveManifest(ctx context.Context, resolver ActiveManifestReso
 	}
 	manifest, err := resolver.ResolveActiveManifest(ctx, project)
 	if err != nil {
+		if errors.Is(err, ErrActiveGenerationNotFound) || errors.Is(err, ErrNoActiveGeneration) {
+			return Manifest{}, ErrNoActiveGeneration
+		}
 		return Manifest{}, err
 	}
 	active, err := ActiveGenerationFor(manifest)

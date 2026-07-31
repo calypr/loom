@@ -13,6 +13,7 @@ import (
 const (
 	BundleExecutionsCollection = "loom_dataframe_bundle_executions"
 	BundlePointersCollection   = "loom_dataframe_bundle_pointers"
+	BundleLeasesCollection     = "loom_dataframe_bundle_leases"
 )
 
 // AQLExecutor is implemented by Loom's concrete Arango client. Keeping it
@@ -138,6 +139,37 @@ RETURN {updated: true}`, r.batchSize, map[string]interface{}{"@collection": Bund
 		return materialization.ErrBundlePointerConflict
 	}
 	return nil
+}
+
+func (r *Registry) AcquireBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
+	claimed := false
+	err := r.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+FILTER existing == null OR existing.expiresAt < @now OR existing.ownerId == @owner
+UPSERT {_key: @key}
+INSERT {_key: @key, ownerId: @owner, expiresAt: @expiresAt}
+UPDATE {ownerId: @owner, expiresAt: @expiresAt}
+IN @@collection
+RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": BundleLeasesCollection, "key": key, "owner": owner, "expiresAt": expires, "now": time.Now().UTC()}, func(row map[string]any) error { claimed = true; return nil })
+	return claimed, err
+}
+
+func (r *Registry) RenewBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
+	claimed := false
+	err := r.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+FILTER existing != null AND existing.ownerId == @owner
+UPDATE existing WITH {expiresAt: @expiresAt} IN @@collection
+RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": BundleLeasesCollection, "key": key, "owner": owner, "expiresAt": expires}, func(row map[string]any) error { claimed = true; return nil })
+	return claimed, err
+}
+
+func (r *Registry) ReleaseBundleLease(ctx context.Context, key, owner string) error {
+	executor, ok := r.client.(AQLExecutor)
+	if !ok {
+		return nil
+	}
+	return executor.ExecuteAQL(ctx, `LET existing = DOCUMENT(@@collection, @key)
+FILTER existing != null AND existing.ownerId == @owner
+REMOVE existing IN @@collection`, map[string]interface{}{"@collection": BundleLeasesCollection, "key": key, "owner": owner})
 }
 
 func pointerDocumentKey(name string) string {

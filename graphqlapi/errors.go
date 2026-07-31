@@ -1,6 +1,7 @@
 package graphqlapi
 
 import (
+	"errors"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -13,11 +14,36 @@ func PresentError(err error, requestID string) *gqlerror.Error {
 		return nil
 	}
 	userErr := dataframeerrors.Normalize(err)
-	return &gqlerror.Error{
+	result := &gqlerror.Error{
 		Err:        err,
 		Message:    dataframeerrors.PublicMessage(userErr),
 		Extensions: ExtensionsForError(userErr, requestID),
 	}
+	var original *gqlerror.Error
+	if errors.As(err, &original) && original != nil {
+		result.Path, result.Locations = original.Path, original.Locations
+	}
+	return result
+}
+
+func PresentGraphQLError(err error, requestID string) *gqlerror.Error {
+	var gqlErr *gqlerror.Error
+	if errors.As(err, &gqlErr) && gqlErr != nil {
+		// Parser and validation errors are already safe and actionable. Preserve
+		// their path/location while giving clients one stable non-retryable code.
+		if gqlErr.Err == nil {
+			copy := *gqlErr
+			copy.Extensions = map[string]any{"code": "GRAPHQL_VALIDATION_FAILED", "retryable": false}
+			if requestID != "" {
+				copy.Extensions["requestId"] = requestID
+			}
+			return &copy
+		}
+		presented := PresentError(gqlErr.Err, requestID)
+		presented.Path, presented.Locations = gqlErr.Path, gqlErr.Locations
+		return presented
+	}
+	return PresentError(err, requestID)
 }
 
 // GraphQLError is an error-returning convenience for resolver code.
