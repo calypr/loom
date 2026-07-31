@@ -50,12 +50,12 @@ func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("format generated metadata: %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "fhirschema", "generated.go"))
+	want, err := os.ReadFile(filepath.Join("..", "..", "generated", "fhirschema", "generated.go"))
 	if err != nil {
 		t.Fatalf("read checked-in metadata: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("checked-in fhirschema/generated.go is stale; run make generate-fhir")
+		t.Fatal("checked-in generated/fhirschema/generated.go is stale; run make generate-fhir")
 	}
 }
 
@@ -82,12 +82,12 @@ func TestFHIRStructGenerationMatchesCheckedInArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("format generated %s: %v", artifact.name, err)
 			}
-			want, err := os.ReadFile(filepath.Join("..", "..", "fhirstructs", artifact.name))
+			want, err := os.ReadFile(filepath.Join("..", "..", "generated", "fhir", artifact.name))
 			if err != nil {
 				t.Fatalf("read checked-in %s: %v", artifact.name, err)
 			}
 			if !bytes.Equal(got, want) {
-				t.Fatalf("checked-in fhirstructs/%s is stale; run make generate-fhir", artifact.name)
+				t.Fatalf("checked-in generated/fhir/%s is stale; run make generate-fhir", artifact.name)
 			}
 		})
 	}

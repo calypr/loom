@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"io"
 	"mime/multipart"
 	"os"
@@ -36,6 +37,12 @@ func (s *HTTPServer) createGeneration(c fiber.Ctx) error {
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 	stagedDir, err := stageGenerationFiles(files)
 	if err != nil {
+		if errors.Is(err, os.ErrInvalid) {
+			return &apiError{Status: fiber.StatusBadRequest, Code: "INVALID_GENERATION_FILE", Message: "uploaded filenames must be NDJSON basenames"}
+		}
+		if errors.Is(err, os.ErrExist) {
+			return &apiError{Status: fiber.StatusBadRequest, Code: "DUPLICATE_GENERATION_FILE", Message: "uploaded generation filenames must be unique"}
+		}
 		return &apiError{Status: fiber.StatusInternalServerError, Code: "stage_failed", Message: err.Error()}
 	}
 	defer os.RemoveAll(stagedDir)

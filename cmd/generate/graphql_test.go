@@ -18,12 +18,12 @@ func TestFHIRGraphQLGenerationMatchesCheckedInSDL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated SDL: %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "graphqlapi", "fhir_schema.graphqls"))
+	want, err := os.ReadFile(filepath.Join("..", "..", "generated", "graphqlapi", "schema", "fhir_schema.graphqls"))
 	if err != nil {
 		t.Fatalf("read checked-in SDL: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("checked-in graphqlapi/fhir_schema.graphqls is stale; run make generate-fhir")
+		t.Fatal("checked-in generated/graphqlapi/schema/fhir_schema.graphqls is stale; run make generate-fhir")
 	}
 }
 

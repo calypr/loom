@@ -32,6 +32,7 @@ type AtomicBundleTx interface {
 	CreateOutput(context.Context, string, []clickhouse.Column) error
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
 	Commit(context.Context) error
+	Abort(context.Context, error) error
 	Rollback(context.Context) error
 }
 
@@ -74,20 +75,24 @@ type BundleOutputRecord struct {
 	Columns                    []Column
 	RowCount, ByteCount        int64
 	State                      BundleState
+	FailureCode                string `json:"failureCode,omitempty"`
+	FailureRetryable           bool   `json:"failureRetryable,omitempty"`
 }
 
 type BundleExecution struct {
 	ID  string `json:"id"`
 	Key string `json:"key"`
 	BundleIdentity
-	State          BundleState          `json:"state"`
-	Outputs        []BundleOutputRecord `json:"outputs,omitempty"`
-	CreatedAt      time.Time            `json:"createdAt"`
-	UpdatedAt      time.Time            `json:"updatedAt"`
-	ReadyAt        *time.Time           `json:"readyAt,omitempty"`
-	Error          string               `json:"error,omitempty"`
-	OwnerID        string               `json:"ownerId,omitempty"`
-	LeaseExpiresAt *time.Time           `json:"leaseExpiresAt,omitempty"`
+	State            BundleState          `json:"state"`
+	Outputs          []BundleOutputRecord `json:"outputs,omitempty"`
+	CreatedAt        time.Time            `json:"createdAt"`
+	UpdatedAt        time.Time            `json:"updatedAt"`
+	ReadyAt          *time.Time           `json:"readyAt,omitempty"`
+	Error            string               `json:"error,omitempty"`
+	FailureCode      string               `json:"failureCode,omitempty"`
+	FailureRetryable bool                 `json:"failureRetryable,omitempty"`
+	OwnerID          string               `json:"ownerId,omitempty"`
+	LeaseExpiresAt   *time.Time           `json:"leaseExpiresAt,omitempty"`
 }
 
 type BundlePointer struct {
@@ -140,7 +145,9 @@ func ResolvePublishedOutput(ctx context.Context, catalog BundleCatalog, project,
 			continue
 		}
 		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil { return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr) }
+		if pointerErr != nil {
+			return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
 		if pointer.ExecutionID != execution.ID {
 			continue
 		}
@@ -188,7 +195,9 @@ func ListPublishedOutputs(ctx context.Context, catalog BundleCatalog, project, g
 			continue
 		}
 		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil { return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr) }
+		if pointerErr != nil {
+			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+		}
 		if pointer.ExecutionID != execution.ID {
 			continue
 		}

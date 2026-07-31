@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // ValidateTypedFilterForResource proves that a resolved filter selector has a

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataset"
+	publication "github.com/calypr/loom/internal/publication"
 )
 
 // FederatedDataset is the logical reader view of one alias across all
@@ -90,7 +90,7 @@ func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, project
 	return resolveFederatedDataset(ctx, catalog, nil, projects, alias)
 }
 
-func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active dataset.ActiveManifestResolver, projects []string, alias string) (FederatedDataset, error) {
+func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active publication.ActiveResolver, projects []string, alias string) (FederatedDataset, error) {
 	if catalog == nil {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog is required")
 	}
@@ -113,8 +113,8 @@ func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active 
 	activeGeneration := make(map[string]string, len(uniqueProjects))
 	if active != nil {
 		for _, project := range uniqueProjects {
-			manifest, resolveErr := dataset.ResolveReadyActiveManifest(ctx, active, project)
-			if errors.Is(resolveErr, dataset.ErrNoActiveGeneration) {
+			manifest, resolveErr := publication.ResolveActive(ctx, active, project)
+			if errors.Is(resolveErr, publication.ErrNoActiveGeneration) {
 				continue
 			}
 			if resolveErr != nil {
@@ -351,8 +351,8 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	activeGenerations := map[string]string{}
 	if r.ActiveManifestResolver != nil {
 		for _, project := range projects {
-			manifest, resolveErr := dataset.ResolveReadyActiveManifest(ctx, r.ActiveManifestResolver, project)
-			if errors.Is(resolveErr, dataset.ErrNoActiveGeneration) {
+			manifest, resolveErr := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
+			if errors.Is(resolveErr, publication.ErrNoActiveGeneration) {
 				continue
 			}
 			if resolveErr != nil {
@@ -439,8 +439,8 @@ func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string)
 	activeGenerations := map[string]string{}
 	if r.ActiveManifestResolver != nil {
 		for _, project := range projects {
-			manifest, err := dataset.ResolveReadyActiveManifest(ctx, r.ActiveManifestResolver, project)
-			if errors.Is(err, dataset.ErrNoActiveGeneration) {
+			manifest, err := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
+			if errors.Is(err, publication.ErrNoActiveGeneration) {
 				continue
 			}
 			if err != nil {
@@ -515,67 +515,8 @@ func ReconcileFederatedDataset(alias string, sources []Materialization) (Federat
 	return FederatedDataset{Name: alias, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount}, nil
 }
 
-func (r *Reader) FederatedDatasets(ctx context.Context, projects []string) ([]FederatedDataset, error) {
-	if r == nil || r.Catalog == nil {
-		return nil, fmt.Errorf("bundle catalog dependency is required")
-	}
-	listed, ok := r.Catalog.(StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
-	}
-	uniqueProjects := normalizedProjects(projects)
-	if len(uniqueProjects) == 0 {
-		return nil, fmt.Errorf("principal has no authorized projects")
-	}
-	allowed := make(map[string]struct{}, len(uniqueProjects))
-	for _, project := range uniqueProjects {
-		allowed[project] = struct{}{}
-	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
-	if err != nil {
-		return nil, err
-	}
-	aliases := make(map[string]struct{})
-	for _, execution := range executions {
-		if execution.State != BundleReady {
-			continue
-		}
-		if _, ok := allowed[execution.Project]; !ok {
-			continue
-		}
-		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			alias := output.Alias
-			if alias == "" {
-				alias = output.Name
-			}
-			aliases[alias] = struct{}{}
-		}
-	}
-	names := make([]string, 0, len(aliases))
-	for alias := range aliases {
-		names = append(names, alias)
-	}
-	sort.Strings(names)
-	result := make([]FederatedDataset, 0, len(names))
-	for _, alias := range names {
-		dataset, err := ResolveFederatedDataset(ctx, r.Catalog, uniqueProjects, alias)
-		if err != nil {
-			continue
-		}
-		result = append(result, dataset)
-	}
-	return result, nil
-}
-
 // PublishedProjects returns project identities that have a current READY
-// publication. It is used only as a candidate set when the authenticator does
+// generation. It is used only as a candidate set when the authenticator does
 // not embed project claims; row/source authorization still happens per source.
 func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	if r == nil || r.Catalog == nil {

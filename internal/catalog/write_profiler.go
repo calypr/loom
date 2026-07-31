@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func NewShapePlanCache() *ShapePlanCache {

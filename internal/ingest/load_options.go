@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/graphschema"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -29,7 +28,7 @@ type LoadOptions struct {
 	// directory import, writes generation-qualified graph identities, and only
 	// activates the generation after every graph file and catalog finalization
 	// succeeds.
-	Dataset *dataset.DatasetRef
+	Dataset *publication.Ref
 	// PreflightSampleRows bounds the number of payloads inspected from every
 	// staged file before Loom opens or mutates Arango. Zero uses the safe
 	// default; full row validation still happens in the loader.
@@ -50,11 +49,11 @@ type LoadSummary struct {
 	// SchemaIdentity is the exact configured graph-schema evidence used for
 	// this load. It remains nil when Loom cannot load the configured schema, so
 	// an early failure never looks like a successful schema observation.
-	SchemaIdentity *graphschema.Identity `json:"schema_identity,omitempty"`
+	SchemaIdentity *publication.SchemaSnapshot `json:"schema_identity,omitempty"`
 	// Dataset is the immutable target when this was a generation load. It is
 	// present even on a failed generation load so callers can identify the
 	// inactive manifest that needs operational inspection.
-	Dataset *dataset.DatasetRef `json:"dataset,omitempty"`
+	Dataset *publication.Ref `json:"dataset,omitempty"`
 }
 
 // normalizeLoadOptions applies the operational defaults shared by both loader
@@ -100,7 +99,7 @@ var (
 // an operator to reconcile; it must never be downgraded to FAILED because the
 // activation request may have committed before its error reached the caller.
 type ActivationOutcomeError struct {
-	Dataset dataset.DatasetRef
+	Dataset publication.Ref
 	Err     error
 }
 
@@ -123,7 +122,7 @@ func (e *ActivationOutcomeError) Unwrap() error {
 // graph may contain partial immutable documents, but the lifecycle manifest is
 // deliberately left FAILED and cannot be selected for reads.
 type GenerationLoadIncompleteError struct {
-	Dataset          dataset.DatasetRef
+	Dataset          publication.Ref
 	ValidationErrors int
 	GenerationErrors int
 	EdgeErrors       int
@@ -144,14 +143,14 @@ func (e *GenerationLoadIncompleteError) Error() string {
 }
 
 type generationLoadPlan struct {
-	Dataset  dataset.DatasetRef
-	Manifest dataset.Manifest
+	Dataset  publication.Ref
+	Manifest publication.Manifest
 }
 
 // newGenerationLoadPlan validates and snapshots all immutable information
 // after input preflight and before a database connection is opened. Nil keeps
 // the legacy loader path exactly unversioned.
-func newGenerationLoadPlan(opts LoadOptions, files []string, identity graphschema.Identity) (*generationLoadPlan, error) {
+func newGenerationLoadPlan(opts LoadOptions, files []string, schemaSnapshot publication.SchemaSnapshot) (*generationLoadPlan, error) {
 	if opts.Dataset == nil {
 		return nil, nil
 	}
@@ -177,11 +176,7 @@ func newGenerationLoadPlan(opts LoadOptions, files []string, identity graphschem
 		return nil, fmt.Errorf("%w: %q", ErrGenerationLoadRequiresFiles, opts.MetaDir)
 	}
 
-	schemaSnapshot, err := dataset.SnapshotSchemaIdentity(identity)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot dataset generation schema identity: %w", err)
-	}
-	manifest, err := dataset.NewManifest(ref, schemaSnapshot)
+	manifest, err := publication.NewManifest(ref, schemaSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("create dataset generation manifest: %w", err)
 	}

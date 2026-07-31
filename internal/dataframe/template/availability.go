@@ -3,7 +3,7 @@ package template
 import (
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // Resolve computes availability without persistence or compiler access. The

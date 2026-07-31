@@ -8,7 +8,6 @@ import (
 	"github.com/bmeg/jsonschema/v6"
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
-	jsgarango "github.com/calypr/loom/internal/graphstore"
 )
 
 type rowErrorType string
@@ -126,7 +125,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	stageSeconds["validate"] += time.Since(validateStart).Seconds()
 
 	vertexStart := time.Now()
-	vDoc, err := jsgarango.VertexFromFHIRWithExtra(b.project, resourceType, payload, extraArgs)
+	vDoc, err := VertexFromFHIRWithExtra(b.project, resourceType, payload, extraArgs)
 	stageSeconds["vertex_build"] += time.Since(vertexStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorValidation, err
@@ -148,7 +147,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 	convertedEdges := make([]json.RawMessage, 0, len(gripEdges))
 	authResourcePath, _ := b.extraArgs["auth_resource_path"].(string)
 	for _, generatedEdge := range gripEdges {
-		edge, err := jsgarango.EdgeFromGrip(b.project, resourceType, generatedEdge)
+		edge, err := EdgeFromGrip(b.project, resourceType, generatedEdge)
 		if err != nil {
 			return rowBuildResult{}, rowErrorEdge, err
 		}

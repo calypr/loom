@@ -8,12 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	fhir "github.com/calypr/loom/fhirstructs"
+	fhir "github.com/calypr/loom/generated/fhir"
 	"github.com/calypr/loom/internal/catalog"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
-	jsgarango "github.com/calypr/loom/internal/graphstore"
 )
 
 func BenchmarkValidateAndExtract(b *testing.B) {
@@ -156,7 +155,7 @@ func BenchmarkVertexSerialization(b *testing.B) {
 	if err := sonic.ConfigFastest.Unmarshal(line, &mapPayload); err != nil {
 		b.Fatalf("failed to decode: %v", err)
 	}
-	genericDoc := jsgarango.VertexDocument{
+	genericDoc := VertexDocument{
 		Key:          "sample-key",
 		ID:           "sample-id",
 		Project:      "project-id",
@@ -169,7 +168,7 @@ func BenchmarkVertexSerialization(b *testing.B) {
 	if err := sonic.ConfigFastest.Unmarshal(line, &structPayload); err != nil {
 		b.Fatalf("failed to decode: %v", err)
 	}
-	structDoc := jsgarango.VertexDocument{
+	structDoc := VertexDocument{
 		Key:          "sample-key",
 		ID:           "sample-id",
 		Project:      "project-id",
@@ -178,7 +177,7 @@ func BenchmarkVertexSerialization(b *testing.B) {
 	}
 
 	// 3. Prepare RawMessage payload
-	rawDoc := jsgarango.VertexDocument{
+	rawDoc := VertexDocument{
 		Key:          "sample-key",
 		ID:           "sample-id",
 		Project:      "project-id",

@@ -15,8 +15,8 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -110,7 +110,7 @@ func parseLoadCommand(args []string, generationMode bool, errorHandling flag.Err
 	if config.Options.Truncate {
 		return loadCommandConfig{}, fmt.Errorf("--truncate=true is not permitted for load-generation")
 	}
-	ref, err := dataset.NewDatasetRef(config.Options.Project, config.Generation)
+	ref, err := publication.NewRef(config.Options.Project, config.Generation)
 	if err != nil {
 		return loadCommandConfig{}, fmt.Errorf("invalid --generation for load-generation: %w", err)
 	}

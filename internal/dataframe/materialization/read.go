@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataset"
+	publication "github.com/calypr/loom/internal/publication"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -17,7 +17,7 @@ type Reader struct {
 	ClickHouse             *clickhouse.Client
 	Catalog                BundleCatalog
 	MaxPage                int
-	ActiveManifestResolver dataset.ActiveManifestResolver
+	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Filter struct {

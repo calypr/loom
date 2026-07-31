@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	publication "github.com/calypr/loom/internal/publication"
 )
 
 type ImportRequest struct {
@@ -72,7 +72,7 @@ func (r IngestRunner) Run(ctx context.Context, req ImportRequest, sink ingest.Ev
 }
 
 func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	ref, err := dataset.NewDatasetRef(req.Project, req.Generation)
+	ref, err := publication.NewRef(req.Project, req.Generation)
 	if err != nil {
 		return ingest.LoadSummary{}, err
 	}

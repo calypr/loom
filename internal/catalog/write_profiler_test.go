@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {

@@ -21,12 +21,12 @@ func TestFHIRResourceRegistryMatchesCheckedInFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join("..", "..", "fhirstructs", name))
+		want, err := os.ReadFile(filepath.Join("..", "..", "generated", "fhir", name))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(got, want) {
-			t.Fatalf("checked-in fhirstructs/%s is stale; run make generate-fhir", name)
+			t.Fatalf("checked-in generated/fhir/%s is stale; run make generate-fhir", name)
 		}
 	}
 }

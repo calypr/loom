@@ -18,6 +18,9 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeNoActiveGeneration, CodeResourceDecodeFailed, CodeReferenceNotResolved, CodeQueryDepthExceeded,
 		CodeInvalidRequest, CodeInvalidData, CodeUnauthenticated, CodeForbidden, CodeRecipeNotFound,
 		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
+		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown,
+		CodeInvalidGenerationFile, CodeDuplicateGenerationFile,
+		CodePublicationInProgress, CodePublicationConflict, CodePublicationLeaseLost, CodeOutputEncodingFailed,
 	}
 	if !reflect.DeepEqual(AllErrorCodes, want) {
 		t.Fatalf("error registry = %#v, want %#v", AllErrorCodes, want)

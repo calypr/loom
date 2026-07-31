@@ -33,11 +33,11 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 	for _, schema := range schemas {
 		columns, err := toColumns(schema.Columns)
 		if err != nil {
-			_ = tx.Rollback(context.Background())
+			_ = tx.Abort(context.Background(), fmt.Errorf("output %q schema: %w", schema.Name, err))
 			return nil, fmt.Errorf("output %q schema: %w", schema.Name, err)
 		}
 		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
-			_ = tx.Rollback(context.Background())
+			_ = tx.Abort(context.Background(), fmt.Errorf("output %q create: %w", schema.Name, err))
 			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
 		}
 		result.columns[schema.Name] = columns
@@ -81,11 +81,15 @@ func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput
 }
 
 func (t *transaction) Rollback(ctx context.Context) error {
+	return t.Abort(ctx, fmt.Errorf("publication rolled back"))
+}
+
+func (t *transaction) Abort(ctx context.Context, cause error) error {
 	if t.closed {
 		return nil
 	}
 	t.closed = true
-	return t.tx.Rollback(ctx)
+	return t.tx.Abort(ctx, cause)
 }
 
 func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {

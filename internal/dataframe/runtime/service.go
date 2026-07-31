@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	"github.com/calypr/loom/internal/dataset"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -23,14 +23,14 @@ type ServiceConfig struct {
 	ConnectionOptions      arangostore.ConnectionOptions
 	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	ScopeResolver          *authscope.ScopeResolver
-	ActiveManifestResolver dataset.ActiveManifestResolver
+	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Service struct {
 	connOpts               arangostore.ConnectionOptions
 	executeRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver          *authscope.ScopeResolver
-	activeManifestResolver dataset.ActiveManifestResolver
+	activeManifestResolver publication.ActiveResolver
 }
 
 func NewService(cfg ServiceConfig) *Service {
@@ -114,7 +114,7 @@ func (s *Service) prepareBindings(ctx context.Context, bindings recipe.RuntimeBi
 		return recipe.RuntimeBindings{}, err
 	}
 	if s.activeManifestResolver != nil {
-		manifest, err := dataset.ResolveReadyActiveManifest(ctx, s.activeManifestResolver, bindings.Project)
+		manifest, err := publication.ResolveActive(ctx, s.activeManifestResolver, bindings.Project)
 		if err != nil {
 			return recipe.RuntimeBindings{}, fmt.Errorf("resolve active dataset generation: %w", err)
 		}

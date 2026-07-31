@@ -6,10 +6,10 @@ import (
 	"errors"
 	"io"
 
-	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataset"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -35,44 +35,44 @@ type QueryRowsClient interface {
 type ArangoRawExporter struct {
 	Query     QueryRowsClient
 	Manifests interface {
-		ReadManifest(context.Context, dataset.DatasetRef) (dataset.Manifest, error)
-		ResolveActiveManifest(context.Context, string) (dataset.Manifest, error)
+		ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
+		ResolveActiveManifest(context.Context, string) (publication.Manifest, error)
 	}
 }
 
-func (e ArangoRawExporter) ExportRaw(ctx context.Context, project, generation string, scope authscope.ReadScope, out io.Writer) error {
-	return e.ExportRawFiltered(ctx, RawDumpRequest{Project: project, Generation: generation}, scope, out)
+func (e ArangoRawExporter) ExportRaw(ctx context.Context, project, generationID string, scope authscope.ReadScope, out io.Writer) error {
+	return e.ExportRawFiltered(ctx, RawDumpRequest{Project: project, Generation: generationID}, scope, out)
 }
 
-func (e ArangoRawExporter) ResolveGeneration(ctx context.Context, project, generation string) (string, error) {
-	manifest, err := e.resolveManifest(ctx, project, generation)
+func (e ArangoRawExporter) ResolveGeneration(ctx context.Context, project, generationID string) (string, error) {
+	manifest, err := e.resolveManifest(ctx, project, generationID)
 	if err != nil {
 		return "", err
 	}
 	return manifest.Dataset.Generation, nil
 }
 
-func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generation string) (dataset.Manifest, error) {
-	if generation == "" {
+func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generationID string) (publication.Manifest, error) {
+	if generationID == "" {
 		manifest, err := e.Manifests.ResolveActiveManifest(ctx, project)
 		if err != nil {
-			return dataset.Manifest{}, classifyRawExportError(err)
+			return publication.Manifest{}, classifyRawExportError(err)
 		}
 		if !manifest.IsReady() {
-			return dataset.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
+			return publication.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 		}
 		return manifest, nil
 	}
-	ref, err := dataset.NewDatasetRef(project, generation)
+	ref, err := publication.NewRef(project, generationID)
 	if err != nil {
-		return dataset.Manifest{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
+		return publication.Manifest{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	manifest, err := e.Manifests.ReadManifest(ctx, ref)
 	if err != nil {
-		return dataset.Manifest{}, classifyRawExportError(err)
+		return publication.Manifest{}, classifyRawExportError(err)
 	}
 	if !manifest.IsReady() {
-		return dataset.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
+		return publication.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 	}
 	return manifest, nil
 }
@@ -86,7 +86,7 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 			return err
 		}
 		generation = manifest.Dataset.Generation
-		resourceTypes = manifest.SchemaIdentity.GeneratedResourceTypes()
+		resourceTypes = manifest.SchemaIdentity.GeneratedResourceTypes
 	}
 	if req.ResourceType != "" {
 		found := false
@@ -146,7 +146,7 @@ func classifyRawExportError(err error) error {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
-	if errors.Is(err, dataset.ErrNoActiveGeneration) || errors.Is(err, dataset.ErrActiveGenerationNotFound) {
+	if errors.Is(err, publication.ErrNoActiveGeneration) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeNoActiveGeneration, "")
 	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))

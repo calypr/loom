@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/ingest"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -51,6 +53,33 @@ func MapDataframeError(err error, requestID string) MappedError {
 	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) {
 		err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
+	var preflightErr *ingest.PreflightError
+	if errors.As(err, &preflightErr) {
+		return MappedError{Status: http.StatusUnprocessableEntity, Body: ErrorResponse{Error: HTTPErrorBody{
+			Code: "INGEST_PREFLIGHT_FAILED", Message: messageForCode("INGEST_PREFLIGHT_FAILED"), Details: preflightDetails(preflightErr), RequestID: requestID,
+		}}, Cause: err}
+	}
+	var incompleteErr *ingest.GenerationLoadIncompleteError
+	if errors.As(err, &incompleteErr) {
+		return MappedError{Status: http.StatusUnprocessableEntity, Body: ErrorResponse{Error: HTTPErrorBody{
+			Code: "GENERATION_LOAD_INCOMPLETE", Message: messageForCode("GENERATION_LOAD_INCOMPLETE"), Details: map[string]any{
+				"validationErrors": incompleteErr.ValidationErrors,
+				"generationErrors": incompleteErr.GenerationErrors,
+				"edgeErrors":       incompleteErr.EdgeErrors,
+			}, RequestID: requestID,
+		}}, Cause: err}
+	}
+	var activationErr *ingest.ActivationOutcomeError
+	if errors.As(err, &activationErr) {
+		return MappedError{Status: http.StatusConflict, Body: ErrorResponse{Error: HTTPErrorBody{
+			Code: "GENERATION_ACTIVATION_UNKNOWN", Message: messageForCode("GENERATION_ACTIVATION_UNKNOWN"), Retryable: false, RequestID: requestID,
+		}}, Cause: err}
+	}
+	if errors.Is(err, os.ErrInvalid) {
+		return MappedError{Status: http.StatusBadRequest, Body: ErrorResponse{Error: HTTPErrorBody{
+			Code: "INVALID_REQUEST", Message: messageForCode("INVALID_REQUEST"), RequestID: requestID,
+		}}, Cause: err}
+	}
 	var fiberErr *fiber.Error
 	if errors.As(err, &fiberErr) {
 		code := "INTERNAL_ERROR"
@@ -84,6 +113,9 @@ func MapDataframeError(err error, requestID string) MappedError {
 			// A legacy authorization adapter may still return an opaque denial;
 			// retain the route's safe FORBIDDEN/UNAUTHENTICATED classification.
 			code := normalizeHTTPCode(mapped.Code)
+			if code == "INVALID_DATA" {
+				return MappedError{Status: statusForCode(code, mapped.Status), Body: ErrorResponse{Error: HTTPErrorBody{Code: code, Message: messageForCode(code), Retryable: false, RequestID: requestID}}, Cause: mapped.Cause}
+			}
 			if code != "FORBIDDEN" && code != "UNAUTHENTICATED" {
 				return MapDataframeError(mapped.Cause, requestID)
 			}
@@ -123,6 +155,27 @@ func MapDataframeError(err error, requestID string) MappedError {
 	}
 }
 
+func preflightDetails(err *ingest.PreflightError) map[string]any {
+	if err == nil || len(err.Report.Issues) == 0 {
+		return nil
+	}
+	issues := make([]map[string]any, 0, len(err.Report.Issues))
+	for _, issue := range err.Report.Issues {
+		item := map[string]any{"code": issue.Code}
+		if issue.File != "" {
+			item["file"] = issue.File
+		}
+		if issue.ResourceType != "" {
+			item["resourceType"] = issue.ResourceType
+		}
+		if issue.Row > 0 {
+			item["row"] = issue.Row
+		}
+		issues = append(issues, item)
+	}
+	return map[string]any{"issues": issues}
+}
+
 func normalizeHTTPCode(code string) string {
 	if strings.EqualFold(strings.TrimSpace(code), "legacy_import_disabled") {
 		// Preserve this pre-existing control-plane response for clients while
@@ -156,7 +209,7 @@ func normalizeHTTPCode(code string) string {
 		return "INVALID_REQUEST"
 	case "EXPORT_FAILED":
 		return "INTERNAL_ERROR"
-	case "PROJECT_REQUIRED", "ROOT_RESOURCE_TYPE_REQUIRED", "UNAUTHORIZED_PROJECT", "UNKNOWN_FIELD", "FIELD_NOT_POPULATED", "INVALID_TRAVERSAL", "UNSAFE_TRAVERSAL_ROUTE", "INVALID_FILTER", "UNBOUNDED_PIVOT", "INVALID_PIVOT_COLUMN", "INVALID_SLICE", "PLAN_TOO_EXPENSIVE", "INVALID_CURSOR", "STALE_CURSOR", "DATASET_GENERATION_CHANGED", "UNSUPPORTED_EXPORT_FORMAT", "CLIENT_CANCELED", "BACKEND_UNAVAILABLE", "DATASET_NOT_FOUND", "SCHEMA_CONFLICT", "INVALID_RESOURCE_TYPE", "NO_ACTIVE_GENERATION", "RESOURCE_DECODE_FAILED", "REFERENCE_NOT_RESOLVED", "QUERY_DEPTH_EXCEEDED", "INVALID_REQUEST", "INVALID_DATA", "UNAUTHENTICATED", "RECIPE_NOT_FOUND", "RECIPE_EXECUTION_NOT_FOUND", "EXPORT_LIMIT_EXCEEDED", "NOT_FOUND", "METHOD_NOT_ALLOWED", "PAYLOAD_TOO_LARGE", "LEGACY_IMPORT_DISABLED":
+	case "PROJECT_REQUIRED", "ROOT_RESOURCE_TYPE_REQUIRED", "UNAUTHORIZED_PROJECT", "UNKNOWN_FIELD", "FIELD_NOT_POPULATED", "INVALID_TRAVERSAL", "UNSAFE_TRAVERSAL_ROUTE", "INVALID_FILTER", "UNBOUNDED_PIVOT", "INVALID_PIVOT_COLUMN", "INVALID_SLICE", "PLAN_TOO_EXPENSIVE", "INVALID_CURSOR", "STALE_CURSOR", "DATASET_GENERATION_CHANGED", "UNSUPPORTED_EXPORT_FORMAT", "CLIENT_CANCELED", "BACKEND_UNAVAILABLE", "DATASET_NOT_FOUND", "SCHEMA_CONFLICT", "INVALID_RESOURCE_TYPE", "NO_ACTIVE_GENERATION", "RESOURCE_DECODE_FAILED", "REFERENCE_NOT_RESOLVED", "QUERY_DEPTH_EXCEEDED", "INVALID_REQUEST", "INVALID_DATA", "UNAUTHENTICATED", "RECIPE_NOT_FOUND", "RECIPE_EXECUTION_NOT_FOUND", "EXPORT_LIMIT_EXCEEDED", "INGEST_PREFLIGHT_FAILED", "GENERATION_LOAD_INCOMPLETE", "GENERATION_ACTIVATION_UNKNOWN", "INVALID_GENERATION_FILE", "DUPLICATE_GENERATION_FILE", "PUBLICATION_IN_PROGRESS", "PUBLICATION_CONFLICT", "PUBLICATION_LEASE_LOST", "OUTPUT_ENCODING_FAILED", "NOT_FOUND", "METHOD_NOT_ALLOWED", "PAYLOAD_TOO_LARGE", "LEGACY_IMPORT_DISABLED":
 		return code
 	default:
 		return "INTERNAL_ERROR"
@@ -173,8 +226,16 @@ func statusForCode(code string, fallback int) int {
 		return http.StatusNotFound
 	case "SCHEMA_CONFLICT", "STALE_CURSOR", "DATASET_GENERATION_CHANGED":
 		return http.StatusConflict
-	case "INVALID_DATA":
+	case "INVALID_DATA", "INGEST_PREFLIGHT_FAILED", "GENERATION_LOAD_INCOMPLETE":
 		return http.StatusUnprocessableEntity
+	case "GENERATION_ACTIVATION_UNKNOWN":
+		return http.StatusConflict
+	case "PUBLICATION_IN_PROGRESS", "PUBLICATION_CONFLICT":
+		return http.StatusConflict
+	case "PUBLICATION_LEASE_LOST":
+		return http.StatusServiceUnavailable
+	case "OUTPUT_ENCODING_FAILED":
+		return http.StatusInternalServerError
 	case "EXPORT_LIMIT_EXCEEDED":
 		return http.StatusRequestEntityTooLarge
 	case "UNSUPPORTED_MEDIA_TYPE":
@@ -203,12 +264,22 @@ func messageForCode(code string) string {
 		return "the requested resource is not available"
 	case "INVALID_REQUEST":
 		return "the request is invalid"
-	case "INVALID_DATA":
+	case "INVALID_DATA", "INGEST_PREFLIGHT_FAILED", "GENERATION_LOAD_INCOMPLETE":
 		return "the uploaded data is invalid"
 	case "UNSUPPORTED_MEDIA_TYPE":
 		return "the request media type is not supported"
 	case "BACKEND_UNAVAILABLE":
 		return "the backend is temporarily unavailable"
+	case "GENERATION_ACTIVATION_UNKNOWN":
+		return "generation activation status is unknown; inspect the active generation before retrying"
+	case "PUBLICATION_IN_PROGRESS":
+		return "an identical publication is already in progress"
+	case "PUBLICATION_CONFLICT":
+		return "the publication changed while it was being committed"
+	case "PUBLICATION_LEASE_LOST":
+		return "publication ownership was lost"
+	case "OUTPUT_ENCODING_FAILED":
+		return "the response data could not be encoded"
 	case "CLIENT_CANCELED":
 		return "the request was canceled"
 	case "DATASET_NOT_FOUND":

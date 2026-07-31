@@ -30,10 +30,10 @@ build-server:
 generate-graphql:
 	mkdir -p $(GOCACHE_DIR)
 	@status=0; fix_status=0; \
-	for config in gqlgen.yml graphqlapi/clickhouse/gqlgen.yml; do \
+	for config in gqlgen.yml gqlgen.clickhouse.yml; do \
 		GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config $$config || status=$$?; \
 	done; \
-	for generated in graphqlapi/schema.generated.go graphqlapi/clickhouse/generated.go; do \
+	for generated in generated/graphqlapi/executor/schema.generated.go generated/graphqlapi/clickhouse/executor/generated.go; do \
 		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix $$generated || fix_status=$$?; \
 	done; \
 	test $$fix_status -eq 0; \
@@ -41,12 +41,12 @@ generate-graphql:
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out fhirstructs -metadata-out fhirschema/generated.go
-	gofmt -w fhirstructs/model.go fhirstructs/validate.go fhirstructs/extract.go fhirstructs/helpers.go fhirstructs/resources.go fhirstructs/graphql.go fhirschema/generated.go
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out generated/fhir -metadata-out generated/fhirschema/generated.go
+	gofmt -w generated/fhir/*.go generated/fhirschema/generated.go
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./graphqlapi -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/graphqlapi/... ./generated/graphqlapi/... -count=1
 
 gqlgen-check: graphql-check
 

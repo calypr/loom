@@ -83,7 +83,7 @@ func (s *HTTPServer) loadRaw(c fiber.Ctx) error {
 	defer os.RemoveAll(dir)
 	rows, err := ingest.PartitionNDJSON(c.Request().BodyStream(), dir)
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "invalid_ndjson", Message: err.Error()}
+		return &apiError{Status: fiber.StatusUnprocessableEntity, Code: "INVALID_DATA", Message: "uploaded NDJSON is invalid", Cause: err}
 	}
 	req := GenerationLoadRequest{
 		Project:          project,

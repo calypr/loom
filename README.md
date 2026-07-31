@@ -290,8 +290,15 @@ without rebuilding the server image.
 | Path | Responsibility |
 | --- | --- |
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
+| [`schemas/`](schemas) | Source FHIR graph schema. |
+| [`gqlgen.yml`](gqlgen.yml), [`gqlgen.clickhouse.yml`](gqlgen.clickhouse.yml) | gqlgen source configuration. |
+| [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
+| [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
+| [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
+| [`generated/graphqlapi`](generated/graphqlapi) | gqlgen models, executors, and resolver bindings. |
+| [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
-| [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
+| [`internal/publication`](internal/publication) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
@@ -299,8 +306,10 @@ without rebuilding the server image.
 | [`internal/dataframe/materialization`](internal/dataframe/materialization) | ClickHouse table lifecycle, durable publication pointers, and federated reads. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
-| [`graphqlapi`](graphqlapi) | Graph control-plane schema and resolvers. |
-| [`graphqlapi/clickhouse`](graphqlapi/clickhouse) | Dedicated flat-reader GraphQL schema and resolvers. |
+| [`internal/graphqlapi`](internal/graphqlapi) | GraphQL HTTP transport and error presentation. |
+| [`internal/graphqlapi/query`](internal/graphqlapi/query) | Arango graph and FHIR dataframe API services. |
+| [`internal/graphqlapi/materialization`](internal/graphqlapi/materialization) | Published-dataframe transport mapping. |
+| [`internal/graphqlapi/clickhouse`](internal/graphqlapi/clickhouse) | Dedicated flat-reader GraphQL HTTP transport. |
 
 ## Build, generation, and tests
 
@@ -314,7 +323,8 @@ make conformance           # compiler conformance corpus
 ```
 
 The generated FHIR metadata and GraphQL bindings are checked in. Regenerate
-them when their inputs change; do not hand-edit generated files.
+them when their inputs change; resolver adapter bodies are the documented
+gqlgen-managed exception.
 [`docs/CODE_GENERATION.md`](docs/CODE_GENERATION.md) explains every generated
 directory, its source of truth, and the required regeneration order.
 

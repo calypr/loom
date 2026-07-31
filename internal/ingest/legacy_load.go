@@ -5,10 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/graphschema"
-
 	"github.com/bmeg/jsonschemagraph/graph"
+	"github.com/calypr/loom/internal/catalog"
 )
 
 func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -26,7 +24,7 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	// Keep graph.Load as the authoritative graph parser so its established
 	// validation and error behavior remain unchanged. Identity records evidence
 	// for the same configured file once graph loading succeeds.
-	schemaIdentity, err := graphschema.Load(opts.Schema)
+	schemaIdentity, err := loadSchemaSnapshot(opts.Schema)
 	if err != nil {
 		return summary, err
 	}
@@ -38,8 +36,8 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	emitEvent(opts.EventSink, "go_preflight_start", map[string]any{
 		"files":              len(files),
 		"sampleRows":         preflightSampleRows,
-		"schemaSha256":       schemaIdentity.SchemaSHA256(),
-		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes()),
+		"schemaSha256":       schemaIdentity.SchemaSHA256,
+		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes),
 	})
 	preflightStart := time.Now()
 	preflight, err := PreflightFiles(files, schema, preflightSampleRows)

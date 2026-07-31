@@ -504,7 +504,7 @@ internal/dataframe/materialization/
   aggregate.go              # terms, stats, histograms, nested aggregations
   export.go                 # reusable streaming query plan
 
-graphqlapi/materialization/
+internal/graphqlapi/materialization/
   service.go                # principal-scoped transport authorization
   input.go                  # GraphQL input to canonical reader models
   output.go                 # public metadata and normalized result mapping

@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/spec"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, bindVars map[string]any) error {

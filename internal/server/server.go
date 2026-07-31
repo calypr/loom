@@ -16,10 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/calypr/loom/graphqlapi"
-	clickhousegraphql "github.com/calypr/loom/graphqlapi/clickhouse"
-	materializationapi "github.com/calypr/loom/graphqlapi/materialization"
-	queryapi "github.com/calypr/loom/graphqlapi/query"
+	graphresolver "github.com/calypr/loom/generated/graphqlapi/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -32,10 +29,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
 	"github.com/calypr/loom/internal/dataframe/runtime"
-	"github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/graphqlapi"
+	clickhousegraphql "github.com/calypr/loom/internal/graphqlapi/clickhouse"
+	materializationapi "github.com/calypr/loom/internal/graphqlapi/materialization"
+	queryapi "github.com/calypr/loom/internal/graphqlapi/query"
 	api "github.com/calypr/loom/internal/httpapi"
 	"github.com/calypr/loom/internal/ingest"
+	publicationcontract "github.com/calypr/loom/internal/publication"
+	publicationarango "github.com/calypr/loom/internal/publication/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -116,7 +117,7 @@ func Run() {
 		exitf("open dataset lifecycle store: %v", err)
 	}
 	defer lifecycleClient.Close(context.Background())
-	if err := lifecycleClient.Bootstrap(context.Background(), datasetarango.BootstrapSpec()); err != nil {
+	if err := lifecycleClient.Bootstrap(context.Background(), publicationarango.BootstrapSpec()); err != nil {
 		exitf("bootstrap dataset lifecycle store: %v", err)
 	}
 	var dataframeDegradation error
@@ -147,14 +148,14 @@ func Run() {
 			recordDataframeDegradation("register default dataframe recipe", err)
 		}
 	}
-	lifecycleStore, err := datasetarango.New(lifecycleClient)
+	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
 		exitf("create dataset lifecycle store: %v", err)
 	}
-	// Keep this as an interface, not a typed *datasetarango.Store nil. Passing a
+	// Keep this as an interface, not a typed *publicationarango.Store nil. Passing a
 	// typed nil into queryapi.Config makes the interface non-nil and
 	// incorrectly activates immutable-generation lookup for legacy META loads.
-	var activeManifestResolver dataset.ActiveManifestResolver
+	var activeManifestResolver publicationcontract.ActiveResolver
 	if *datasetGenerations {
 		activeManifestResolver = lifecycleStore
 	}
@@ -258,7 +259,7 @@ func Run() {
 			}
 		}
 	}
-	resolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
+	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			ConnectionOptions:      connOpts,
 			DiscoverReferences:     discoverReferences,
@@ -270,14 +271,14 @@ func Run() {
 		MaterializationReader: materializationReader,
 		RecipeControl:         engine.Control{Engine: recipeEngine, ExplainConnection: &connOpts},
 		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
-		RecipeExecutions:      graphqlapi.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
-		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphqlapi.RecipeExecution, error) {
+		RecipeExecutions:      graphresolver.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
+		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
 			if bundleTarget == nil {
 				cause := dataframeDegradation
 				if cause == nil {
 					cause = dataframeerrors.ErrBackendUnavailable
 				}
-				return graphqlapi.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+				return graphresolver.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 			}
 			bindings.IncludeAuthResourcePath = true
 			var identity materialization.BundleIdentity
@@ -312,14 +313,14 @@ func Run() {
 			})
 			if err != nil {
 				logger.Error("recipe materialization failed", "name", name, "project", bindings.Project, "error", err.Error())
-				return graphqlapi.RecipeExecution{}, err
+				return graphresolver.RecipeExecution{}, err
 			}
 			published, err := registry.FindExecutionByKey(ctx, identity.Key())
 			if err != nil {
 				logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
-				return graphqlapi.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
+				return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
 			}
-			return graphqlapi.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
+			return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
 		},
 	})
 	clickhouseService := materializationapi.NewService(materializationapi.Config{

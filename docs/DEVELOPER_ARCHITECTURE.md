@@ -6,6 +6,28 @@ authority for FHIR structure is the checked-in
 generated Go metadata derived from it. Code should not add a second handwritten
 FHIR model or a parallel AQL implementation.
 
+## Repository boundaries
+
+The top-level directories have distinct ownership:
+
+| Path | Ownership |
+| --- | --- |
+| `schemas/` | Source schemas edited by developers. |
+| `gqlgen.yml`, `gqlgen.clickhouse.yml` | GraphQL generator configuration. |
+| `generated/` | Checked-in generated output; never server business logic. |
+| `internal/` | Handwritten server implementation. |
+| `cmd/` | Executable entry points and developer generators. |
+
+Generated FHIR structs live in `generated/fhir`; raw generated schema tables
+live in `generated/fhirschema`. `internal/fhir/schema` adds the handwritten
+selector, traversal, and compiler semantics that consume those tables.
+
+GraphQL is split the same way. Handwritten schemas, HTTP transport, error
+presentation, query services, and materialization mapping live under
+`internal/graphqlapi`. gqlgen models, executors, and resolver bindings live
+under `generated/graphqlapi`. The root gqlgen configurations are inputs, so
+they do not live in `generated/`.
+
 ## Runtime surfaces
 
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
@@ -55,9 +77,11 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/dataset`, `internal/dataset/arango`, and
-`internal/graphschema`. Their manifest records project, generation, and
-schema identity; the active pointer selects one READY generation per project.
+Immutable loads use `internal/publication` and `internal/publication/arango`. Dataset
+owns schema identity and generation manifests; ingest owns the Arango vertex
+and edge document shapes it writes. Their manifest records project, generation,
+and schema identity; the active pointer selects one READY generation per
+project.
 The generation-qualified physical keys and mandatory generation predicates are
 part of the query correctness contract, not an optional filter.
 
@@ -67,8 +91,9 @@ The current runtime call path is:
 
 ```text
 GraphQL request
-  -> graphqlapi resolver
-  -> dataframebuilder.Service
+  -> internal/graphqlapi HTTP handler
+  -> generated gqlgen executor and resolver binding
+  -> internal/graphqlapi/query.Service
   -> dataframe/runtime.Service
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
@@ -83,9 +108,21 @@ Runtime preparation and execution live in `internal/dataframe/runtime`;
 compiler orchestration lives in `internal/dataframe/compiler`; structured transport
 errors live in `internal/dataframe/errors`; and guided templates live in
 `internal/dataframe/template`. `internal/catalog` owns scoped observed-field
-and relationship facts. `fhirschema` owns generated structural metadata. These
+and relationship facts. `internal/fhir/schema` owns structural metadata and
+selector semantics. These
 boundaries matter: catalog observations constrain what is populated, while
 schema metadata constrains what a request means.
+
+The ClickHouse read path is parallel but separate:
+
+```text
+GraphQL request
+  -> internal/graphqlapi/clickhouse HTTP handler
+  -> generated ClickHouse executor and resolver binding
+  -> internal/graphqlapi/materialization.Service
+  -> dataframe/materialization.Reader
+  -> ClickHouse
+```
 
 Generic lowering is the default direction. It accepts generated reverse/builder
 relationship routes proven to correspond to the physical `INBOUND` `fhir_edge`
@@ -136,13 +173,11 @@ compiler and did not work with immutable generation keys.
 
 Run `make generate-fhir` after changing the graph schema and
 `make generate-graphql` after changing the GraphQL schema. Do not hand-edit
-generated `fhirstructs`, compiler metadata, or gqlgen output. The gqlgen
-executable output uses follow-schema layout: `graphqlapi/schema.generated.go`,
-`graphqlapi/fhir_schema.generated.go`, `graphqlapi/root_.generated.go`, and
-`graphqlapi/prelude.generated.go` are generated from the corresponding schema
-sources and share the `graphqlapi` package. See
+generated FHIR resources, schema metadata, or gqlgen output. Generated Go
+artifacts live under `generated/`; handwritten transport and service code stays
+under `internal/`. See
 [`CODE_GENERATION.md`](CODE_GENERATION.md) for the full source/output map and
-why generated code is necessarily package-local rather than in one directory.
+package boundaries.
 
 The normal verification targets are:
 

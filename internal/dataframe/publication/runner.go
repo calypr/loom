@@ -3,10 +3,13 @@ package publication
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"strings"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // Publish consumes each stream once and keeps at most one bounded batch in
@@ -24,7 +27,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	}
 	schemas, err := validateOutputs(normalizedOutputs)
 	if err != nil {
-		return Result{}, err
+		return Result{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 	}
 	limits = limits.normalized()
 	tx, err := target.Begin(ctx, identity, schemas)
@@ -32,10 +35,15 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, err
 	}
 	fail := func(cause error) (Result, error) {
-		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-			return Result{}, fmt.Errorf("%w (publication rollback failed: %v)", cause, rollbackErr)
+		var abortErr error
+		if aborter, ok := tx.(interface {
+			Abort(context.Context, error) error
+		}); ok {
+			abortErr = aborter.Abort(context.Background(), cause)
+		} else {
+			abortErr = tx.Rollback(context.Background())
 		}
-		return Result{}, cause
+		return Result{}, errors.Join(cause, abortErr)
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
@@ -58,11 +66,11 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 				return err
 			}
 			if err := validateRow(output.Columns, row); err != nil {
-				return err
+				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 			}
 			encoded, err := json.Marshal(row)
 			if err != nil {
-				return fmt.Errorf("output %q encode row: %w", output.Name, err)
+				return dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
 			}
 			if len(encoded) > limits.BatchBytes {
 				return fmt.Errorf("output %q row exceeds batch byte limit %d", output.Name, limits.BatchBytes)

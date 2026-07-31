@@ -42,6 +42,8 @@ type Materialization struct {
 	CreatedAt         time.Time               `json:"createdAt"`
 	ReadyAt           *time.Time              `json:"readyAt,omitempty"`
 	Error             string                  `json:"error,omitempty"`
+	FailureCode       string                  `json:"failureCode,omitempty"`
+	FailureRetryable  bool                    `json:"failureRetryable,omitempty"`
 }
 
 type Registry interface {

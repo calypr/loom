@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	fhir "github.com/calypr/loom/fhirstructs"
+	fhir "github.com/calypr/loom/generated/fhir"
 )
 
 func TestGeneratedLoadCapabilityFallsBackForSchemaOnlyRoots(t *testing.T) {
