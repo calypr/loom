@@ -24,9 +24,18 @@ func (s *HTTPServer) exportDataframe(c fiber.Ctx) error {
 	c.Set(fiber.HeaderContentType, exportContentType(request.Format.Normalize()))
 	c.Set(fiber.HeaderContentDisposition, `attachment; filename="`+filename+`"`)
 	if err := s.dataframeExporter.ExportDataframe(c.Context(), request, c); err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "export_failed", Message: err.Error()}
+		resetExportResponse(c)
+		return &apiError{Status: fiber.StatusBadRequest, Code: "EXPORT_FAILED", Message: "export failed", Cause: err}
 	}
 	return nil
+}
+
+func resetExportResponse(c fiber.Ctx) {
+	// Fiber buffers response writes until the handler returns. Clear any
+	// partial export before the central error handler emits JSON.
+	c.Response().ResetBody()
+	c.Response().Header.Del(fiber.HeaderContentType)
+	c.Response().Header.Del(fiber.HeaderContentDisposition)
 }
 
 func exportContentType(format dfmaterialization.ExportFormat) string {

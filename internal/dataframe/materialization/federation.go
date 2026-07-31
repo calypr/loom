@@ -612,7 +612,7 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 
 func (r *Reader) PageFederated(ctx context.Context, projects []string, alias string, req FederatedPageRequest) (FederatedPage, error) {
 	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedPage{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
 	if err != nil {
@@ -623,7 +623,7 @@ func (r *Reader) PageFederated(ctx context.Context, projects []string, alias str
 
 func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedPageRequest) (FederatedPage, error) {
 	if r == nil || r.ClickHouse == nil {
-		return FederatedPage{}, fmt.Errorf("ClickHouse dependency is required")
+		return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
 	if err != nil {
@@ -638,7 +638,7 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 	}
 	cursor, err := decodeCursor(req.After)
 	if err != nil {
-		return FederatedPage{}, err
+		return FederatedPage{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidCursor, "")
 	}
 	unionColumns := append([]string(nil), columns...)
 	if req.Sort != nil && !contains(unionColumns, req.Sort.Column) {
@@ -689,7 +689,7 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 	query += fmt.Sprintf(" LIMIT %d", first+1)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, queryArgs...)
 	if err != nil {
-		return FederatedPage{}, err
+		return FederatedPage{}, backendCallError(err)
 	}
 	count, err := r.federatedCountDataset(ctx, dataset, allowed, req)
 	if err != nil {
@@ -707,7 +707,7 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 		if req.Sort != nil {
 			sortValue = last[req.Sort.Column]
 			if sortValue == nil {
-				return FederatedPage{}, fmt.Errorf("cannot create keyset cursor from NULL sort value in %q", req.Sort.Column)
+				return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 			}
 		}
 		next = encodeCursor(rowID, sortValue)
@@ -729,10 +729,10 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 // are removed before the visitor is called.
 func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias string, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
 	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedDataset{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	if visit == nil {
-		return FederatedDataset{}, fmt.Errorf("dataframe stream visitor is required")
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
 	if err != nil {
@@ -743,10 +743,10 @@ func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias s
 
 func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
 	if r == nil || r.ClickHouse == nil {
-		return FederatedDataset{}, fmt.Errorf("ClickHouse dependency is required")
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	if visit == nil {
-		return FederatedDataset{}, fmt.Errorf("dataframe stream visitor is required")
+		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
 	if err != nil {
@@ -796,7 +796,7 @@ func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDa
 		return visit(row)
 	}, args...)
 	if err != nil {
-		return FederatedDataset{}, err
+		return FederatedDataset{}, backendCallError(err)
 	}
 	return dataset, nil
 }
@@ -817,7 +817,7 @@ func (r *Reader) federatedCountDataset(ctx context.Context, dataset FederatedDat
 	}
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_total"}, args...)
 	if err != nil {
-		return 0, err
+		return 0, backendCallError(err)
 	}
 	var total int64
 	for _, row := range rows {
@@ -842,7 +842,7 @@ func datasetVisibleColumns(dataset FederatedDataset) []string {
 
 func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alias string, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
 	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedAggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
 	if err != nil {
@@ -853,7 +853,7 @@ func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alia
 
 func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
 	if r == nil || r.ClickHouse == nil {
-		return FederatedAggregateResult{}, fmt.Errorf("ClickHouse dependency is required")
+		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
@@ -864,16 +864,16 @@ func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset Federate
 	}
 	for _, column := range req.GroupBy {
 		if _, ok := allowed[column]; !ok {
-			return FederatedAggregateResult{}, fmt.Errorf("group column %q is not in federated dataset schema", column)
+			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	operation := strings.ToUpper(req.Operation)
 	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
-		return FederatedAggregateResult{}, fmt.Errorf("unsupported dataframe aggregate operation %q", req.Operation)
+		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	if operation != "COUNT" {
 		if _, ok := allowed[req.Column]; !ok {
-			return FederatedAggregateResult{}, fmt.Errorf("aggregate column %q is not in federated dataset schema", req.Column)
+			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	columns := append([]string(nil), req.GroupBy...)
@@ -927,14 +927,16 @@ func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset Federate
 	}
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
-		return FederatedAggregateResult{}, err
+		return FederatedAggregateResult{}, backendCallError(err)
 	}
 	return FederatedAggregateResult{Dataset: dataset, Columns: columns, Rows: rows}, nil
 }
 
 func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) ([]string, map[string]struct{}, error) {
 	for _, column := range requested {
-		if column == authResourcePathColumn { return nil, nil, fmt.Errorf("column %q is internal to dataframe authorization", column) }
+		if column == authResourcePathColumn {
+			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
 	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	columns := append([]string(nil), requested...)
@@ -953,9 +955,11 @@ func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) 
 		return nil, nil, err
 	}
 	if sort != nil {
-		if sort.Column == authResourcePathColumn { return nil, nil, fmt.Errorf("sort column %q is internal to dataframe authorization", sort.Column) }
+		if sort.Column == authResourcePathColumn {
+			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
 		if err := validateReaderColumns([]string{sort.Column}, allowed); err != nil {
-			return nil, nil, fmt.Errorf("sort: %w", err)
+			return nil, nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	return columns, allowed, nil
@@ -976,7 +980,7 @@ func federatedNormalizedUnion(dataset FederatedDataset, columns []string, paths 
 		for _, column := range columns {
 			target, ok := findColumn(dataset.Columns, column)
 			if !ok {
-				return "", nil, fmt.Errorf("column %q is not in federated dataset schema", column)
+				return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 			}
 			if sourceColumn, exists := present[column]; exists {
 				selects = append(selects, fmt.Sprintf("CAST(`%s` AS %s) AS `%s`", sourceColumn.Name, target.ClickHouse, column))

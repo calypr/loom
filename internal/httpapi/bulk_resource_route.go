@@ -27,7 +27,7 @@ func (s *HTTPServer) bulkResource(c fiber.Ctx) error {
 	authResourcePath := strings.TrimSpace(c.Req().FormValue("auth_resource_path"))
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 	}
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 
@@ -53,7 +53,7 @@ func (s *HTTPServer) bulkResource(c fiber.Ctx) error {
 	}
 	result, err := s.service.Run(c.Context(), req)
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "bulk_load_failed", Message: err.Error()}
+		return &apiError{Status: fiber.StatusBadRequest, Code: "BULK_LOAD_FAILED", Message: "bulk load failed", Cause: err}
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

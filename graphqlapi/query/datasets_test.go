@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -21,7 +22,7 @@ func (r datasetDiscoveryManifestResolver) ResolveActiveManifest(_ context.Contex
 	}
 	manifest, ok := r.manifests[project]
 	if !ok {
-		return dataset.Manifest{}, errors.New("no active generation")
+		return dataset.Manifest{}, dataset.ErrNoActiveGeneration
 	}
 	return manifest.Clone(), nil
 }
@@ -65,7 +66,7 @@ func TestDiscoverDatasetsIntersectsConfiguredProjectsAndSkipsInvalidActive(t *te
 		DatasetProjectAllowlist: []string{"P2", "P1", "P3"},
 		ActiveManifestResolver: datasetDiscoveryManifestResolver{
 			manifests: map[string]dataset.Manifest{"P1": builderReadyManifest(t, "P1", "generation-1")},
-			errors:    map[string]error{"P2": errors.New("active pointer missing")},
+			errors:    map[string]error{"P2": dataset.ErrNoActiveGeneration},
 		},
 		DiscoverDatasets: func(_ context.Context, options catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error) {
 			called = true
@@ -81,6 +82,29 @@ func TestDiscoverDatasetsIntersectsConfiguredProjectsAndSkipsInvalidActive(t *te
 	}
 	if !called {
 		t.Fatal("catalog discovery was not called for surviving project")
+	}
+}
+
+func TestDiscoverDatasetsPropagatesActiveGenerationBackendFailure(t *testing.T) {
+	backendErr := errors.New("arango unavailable")
+	service := NewService(Config{
+		DatasetProjectAllowlist: []string{"P1"},
+		ActiveManifestResolver:  datasetDiscoveryManifestResolver{errors: map[string]error{"P1": backendErr}},
+		DiscoverDatasets: func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error) {
+			t.Fatal("catalog discovery should not run")
+			return nil, nil
+		},
+	})
+	_, err := service.DiscoverDatasets(context.Background())
+	if err == nil {
+		t.Fatal("DiscoverDatasets() error = nil")
+	}
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeBackendUnavailable) || !userErr.Retryable() {
+		t.Fatalf("error = %v (%T), want retryable backend unavailable", err, err)
+	}
+	if !errors.Is(err, backendErr) {
+		t.Fatalf("error %v does not preserve backend cause", err)
 	}
 }
 

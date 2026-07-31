@@ -50,7 +50,7 @@ func (s *HTTPServer) createImport(c fiber.Ctx) error {
 
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 	}
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 
@@ -78,7 +78,7 @@ func (s *HTTPServer) createImport(c fiber.Ctx) error {
 	}
 	result, err := s.service.Run(c.Context(), req)
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "invalid_import_request", Message: err.Error()}
+		return &apiError{Status: fiber.StatusBadRequest, Code: "IMPORT_FAILED", Message: "import failed", Cause: err}
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

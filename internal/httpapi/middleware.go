@@ -26,7 +26,7 @@ func (s *HTTPServer) recoveryMiddleware(c fiber.Ctx) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered)
-			err = &apiError{Status: fiber.StatusInternalServerError, Code: "internal_error", Message: "internal server error"}
+			err = &apiError{Status: fiber.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: "internal server error", Cause: errors.New("panic recovered")}
 		}
 	}()
 	return c.Next()
@@ -53,7 +53,7 @@ func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
 	}
 	principal, err := s.authn.Authenticate(c.Context(), c.GetReqHeaders())
 	if err != nil {
-		return &apiError{Status: fiber.StatusUnauthorized, Code: "unauthorized", Message: err.Error()}
+		return &apiError{Status: fiber.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "authentication is required", Cause: err}
 	}
 	c.Locals("principal", principal)
 	c.SetContext(authscope.ContextWithPrincipal(c.Context(), principal))

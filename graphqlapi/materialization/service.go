@@ -6,7 +6,7 @@ package materializationapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
@@ -44,7 +44,7 @@ func NewService(cfg Config) *Service {
 func (s *Service) principal(ctx context.Context) (*authscope.Principal, error) {
 	principal, ok := authscope.PrincipalFromContext(ctx)
 	if !ok || principal == nil {
-		return nil, fmt.Errorf("an authenticated principal is required")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeUnauthenticated, "")
 	}
 	return principal, nil
 }
@@ -55,10 +55,10 @@ func (s *Service) projects(ctx context.Context, principal *authscope.Principal) 
 	}
 	projects, err := s.reader.PublishedProjects(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mapReaderError(err)
 	}
 	if len(projects) == 0 {
-		return nil, fmt.Errorf("principal has no authorized projects")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
 	}
 	return projects, nil
 }
@@ -73,7 +73,7 @@ func (s *Service) Datasets(ctx context.Context) ([]dfmaterialization.Materializa
 	}
 	projects, err := s.projects(ctx, principal)
 	if err != nil {
-		return nil, err
+		return nil, mapReaderError(err)
 	}
 	aliases, err := s.reader.CurrentFederatedAliases(ctx, projects)
 	if err != nil {
@@ -83,7 +83,7 @@ func (s *Service) Datasets(ctx context.Context) ([]dfmaterialization.Materializa
 	for _, alias := range aliases {
 		if dataset, _, _, _, resolveErr := s.authorizedFederation(ctx, principal, alias); resolveErr == nil {
 			result = append(result, federatedMaterialization(dataset))
-		} else if normalized := dataframeerrors.Normalize(resolveErr); normalized.Retryable() {
+		} else if normalized := dataframeerrors.Normalize(resolveErr); normalized.Code() != string(dataframeerrors.CodeDatasetNotFound) {
 			return nil, resolveErr
 		}
 	}
@@ -154,7 +154,7 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 		AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	})
 	if err != nil {
-		return dfmaterialization.Page{}, err
+		return dfmaterialization.Page{}, mapReaderError(err)
 	}
 	return dfmaterialization.Page{Materialization: federatedMaterialization(dataset), Columns: page.Columns, Rows: page.Rows, TotalCount: page.TotalCount, HasNext: page.HasNext, NextCursor: page.NextCursor}, nil
 }
@@ -183,13 +183,13 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	}
 	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
-		return dfmaterialization.AggregateResult{}, err
+		return dfmaterialization.AggregateResult{}, mapReaderError(err)
 	}
 	result, err := s.reader.AggregateFederatedDataset(ctx, dataset, dfmaterialization.FederatedAggregateRequest{
 		GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column), AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
 	})
 	if err != nil {
-		return dfmaterialization.AggregateResult{}, err
+		return dfmaterialization.AggregateResult{}, mapReaderError(err)
 	}
 	result.Dataset = dataset
 	return dfmaterialization.AggregateResult{Materialization: federatedMaterialization(result.Dataset), Columns: result.Columns, Rows: result.Rows}, nil
@@ -205,7 +205,7 @@ func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAg
 	}
 	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, input.DataType)
 	if err != nil {
-		return dfmaterialization.AggregationsResult{}, err
+		return dfmaterialization.AggregationsResult{}, mapReaderError(err)
 	}
 	specs := make([]dfmaterialization.AggregationSpec, 0, len(input.Specs))
 	for _, spec := range input.Specs {
@@ -241,7 +241,7 @@ func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMess
 func (s *Service) authorizedFederation(ctx context.Context, principal *authscope.Principal, alias string) (dfmaterialization.FederatedDataset, []string, map[string][]string, map[string]bool, error) {
 	candidates, err := s.projects(ctx, principal)
 	if err != nil {
-		return dfmaterialization.FederatedDataset{}, nil, nil, nil, err
+		return dfmaterialization.FederatedDataset{}, nil, nil, nil, mapReaderError(err)
 	}
 	sources, err := s.reader.CurrentFederatedSources(ctx, candidates, alias)
 	if err != nil {
@@ -302,6 +302,15 @@ func mapReaderError(err error) error {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
+	if errors.Is(err, authscope.ErrUnauthenticated) {
+		return dataframeerrors.NewError(dataframeerrors.CodeUnauthenticated, "")
+	}
+	if errors.Is(err, authscope.ErrForbidden) {
+		return dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
+	}
+	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
 
@@ -326,7 +335,7 @@ func (s *Service) authorizePublished(ctx context.Context, value dfmaterializatio
 		}
 	}
 	if !allowed {
-		return fmt.Errorf("principal is not authorized for published dataset")
+		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	if s.scopeResolver != nil {
 		scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, value.Project, value.DatasetGeneration, value.AuthResourcePaths)
@@ -334,7 +343,7 @@ func (s *Service) authorizePublished(ctx context.Context, value dfmaterializatio
 			return err
 		}
 		if value.AuthScopeMode != authscope.ReadScopeUnrestricted && scope.Unrestricted() {
-			return fmt.Errorf("published dataset is outside caller scope")
+			return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 		}
 	}
 	return nil

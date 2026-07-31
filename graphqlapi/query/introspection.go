@@ -2,31 +2,31 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*IntrospectionResponse, error) {
 	if req.Project == "" {
-		return nil, fmt.Errorf("project is required")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if req.RootResourceType == "" {
-		return nil, fmt.Errorf("rootResourceType is required")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeRootResourceTypeRequired, "")
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
-		return nil, err
+		return nil, classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, req.Project)
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	scope, err := s.resolveReadScopeForGeneration(ctx, principal, req.Project, generation, req.AuthResourcePaths)
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 
 	traversals, err := s.discoverReferences(ctx, catalog.PopulatedReferenceOptions{
@@ -74,7 +74,7 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 		PivotOnly:                     false,
 	})
 	if err != nil {
-		return ResourceHints{}, err
+		return ResourceHints{}, queryBackend(err)
 	}
 
 	pivotFields := []catalog.PopulatedField{}
@@ -89,7 +89,7 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 			PivotOnly:                     true,
 		})
 		if err != nil {
-			return ResourceHints{}, err
+			return ResourceHints{}, queryBackend(err)
 		}
 	}
 
@@ -113,7 +113,7 @@ func (s *Service) buildRelatedResourceHints(ctx context.Context, project, datase
 		if !ok {
 			hints, err := s.buildResourceHints(ctx, project, datasetGeneration, scope, ref.ToType, nil, includePivotOnlyFields)
 			if err != nil {
-				return nil, err
+				return nil, queryBackend(err)
 			}
 			typeCache[ref.ToType] = hints
 			target = hints

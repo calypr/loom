@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, error) {
@@ -21,23 +22,23 @@ func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframe
 // resolved scope and generation into recipe.RuntimeBindings.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	if input.Project == "" {
-		return input, authscope.ReadScope{}, "", fmt.Errorf("project is required")
+		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if input.RootResourceType == "" {
-		return input, authscope.ReadScope{}, "", fmt.Errorf("rootResourceType is required")
+		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeRootResourceTypeRequired, "")
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
-		return input, authscope.ReadScope{}, "", err
+		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, input.Project)
 	if err != nil {
-		return input, authscope.ReadScope{}, "", err
+		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	scope, err := s.resolveReadScopeForGeneration(ctx, principal, input.Project, generation, input.AuthResourcePaths)
 	if err != nil {
-		return input, authscope.ReadScope{}, "", err
+		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 
 	input.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
@@ -45,11 +46,11 @@ func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframe
 		input.AuthResourcePaths = nil
 	}
 	if err := s.resolveNodeInputRefs(ctx, input.Project, generation, scope, input.RootResourceType, input.RootFields, input.RootFilters, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
-		return input, authscope.ReadScope{}, "", err
+		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	for _, step := range input.Traverse {
 		if err := s.resolveTraversalInputRefs(ctx, input.Project, generation, scope, step); err != nil {
-			return input, authscope.ReadScope{}, "", err
+			return input, authscope.ReadScope{}, "", classifyError(err)
 		}
 	}
 	return input, scope.Clone(), generation, nil
@@ -80,7 +81,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		ResourceType:                  resourceType,
 	})
 	if err != nil {
-		return err
+		return queryBackend(err)
 	}
 
 	for _, field := range fields {
@@ -90,7 +91,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		if strings.TrimSpace(derefString(field.FieldRef)) != "" {
 			selectorText, err := resolveFieldRef(resourceType, discovered, derefString(field.FieldRef))
 			if err != nil {
-				return err
+				return classifyError(err)
 			}
 			field.Selector = selectorInputFromExpression(selectorText)
 		}
@@ -198,14 +199,14 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 func resolvePivotFieldRef(resourceType string, discovered []catalog.PopulatedField, fieldRef string) (catalog.PopulatedField, error) {
 	fieldRef = strings.TrimSpace(fieldRef)
 	if fieldRef == "" {
-		return catalog.PopulatedField{}, fmt.Errorf("fieldRef is required")
+		return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	for _, field := range discovered {
 		if defaultFieldRef(resourceType, field.Path) == fieldRef {
 			return field, nil
 		}
 	}
-	return catalog.PopulatedField{}, fmt.Errorf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType)
+	return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
 }
 
 func authorizeProject(principal *authscope.Principal, project string, ignorePrincipalProjects bool) error {
@@ -220,12 +221,13 @@ func authorizeProject(principal *authscope.Principal, project string, ignorePrin
 			return nil
 		}
 	}
-	return fmt.Errorf("principal is not authorized for project %q", project)
+	return fmt.Errorf("%w: project access denied", authscope.ErrForbidden)
 }
 
 func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {
 	if s.scopeResolver != nil {
-		return s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
+		returnScope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
+		return returnScope, queryBackend(err)
 	}
 	if len(requested) == 0 {
 		if principal == nil || len(principal.AuthResourcePaths) == 0 {
@@ -251,7 +253,7 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 			}
 		}
 		if !found {
-			return authscope.ReadScope{}, fmt.Errorf("authResourcePath %q is outside caller scope", path)
+			return authscope.ReadScope{}, dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
 		}
 	}
 	return authscope.ReadScope{

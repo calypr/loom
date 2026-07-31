@@ -2,7 +2,6 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
@@ -14,7 +13,7 @@ func (s *Service) resolveRecipeBundle(ctx context.Context, bundle recipe.Bundle,
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...), AuthScopeMode: string(bindings.AuthScopeMode),
 	}, recipeFieldDiscovery{read: s.discoverFields})
 	if err != nil {
-		return recipe.Bundle{}, fmt.Errorf("resolve GraphQL recipe schema: %w", err)
+		return recipe.Bundle{}, queryInvalidErrorOrBackend(err)
 	}
 	return resolved.Bundle, nil
 }

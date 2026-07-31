@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	queryapi "github.com/calypr/loom/graphqlapi/query"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -117,8 +119,16 @@ func Run() {
 	if err := lifecycleClient.Bootstrap(context.Background(), datasetarango.BootstrapSpec()); err != nil {
 		exitf("bootstrap dataset lifecycle store: %v", err)
 	}
+	var dataframeDegradation error
+	recordDataframeDegradation := func(stage string, cause error) {
+		if cause == nil {
+			return
+		}
+		dataframeDegradation = errors.Join(dataframeDegradation, fmt.Errorf("%s: %w", stage, cause))
+		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
+	}
 	if err := lifecycleClient.Bootstrap(context.Background(), recipearango.BootstrapSpec()); err != nil {
-		exitf("bootstrap recipe registry: %v", err)
+		recordDataframeDegradation("bootstrap recipe registry", err)
 	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
@@ -134,7 +144,7 @@ func Run() {
 			exitf("parse dataframer recipe %q: %v", *dataframerRecipe, err)
 		}
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
-			logger.Error("register default dataframe recipe failed; dataframe recipe control degraded", "error", err)
+			recordDataframeDegradation("register default dataframe recipe", err)
 		}
 	}
 	lifecycleStore, err := datasetarango.New(lifecycleClient)
@@ -181,17 +191,16 @@ func Run() {
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
 	})
-	registryClient, err := arangostore.Open(context.Background(), connOpts.URL, connOpts.Database)
-	if err != nil {
-		exitf("open dataframe registry store: %v", err)
-	}
-	defer registryClient.Close(context.Background())
-	if err := registryClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
-		logger.Error("bootstrap dataframe registry failed; dataframe publication degraded", "error", err)
-	}
-	registry, err := materializationarango.New(registryClient)
+	// The lifecycle client already owns this Arango database. Reusing it avoids
+	// a second connection that can fail independently during optional startup.
+	registry, err := materializationarango.New(lifecycleClient)
 	if err != nil {
 		exitf("create dataframe registry: %v", err)
+	}
+	publicationReady := true
+	if err := lifecycleClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
+		recordDataframeDegradation("bootstrap dataframe registry", err)
+		publicationReady = false
 	}
 	var clickhouse *clickhousestore.Client
 	var materializationReader *materialization.Reader
@@ -205,7 +214,8 @@ func Run() {
 		// it during server startup so a fresh ClickHouse instance does not require
 		// an operator to run a separate DDL/API step before materialization.
 		if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
-			logger.Error("ClickHouse database unavailable; dataframe service degraded", "database", *clickhouseDatabase, "error", err)
+			recordDataframeDegradation("ClickHouse database", err)
+			publicationReady = false
 		}
 		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
@@ -232,17 +242,20 @@ func Run() {
 		exitf("create dataframe recipe engine: %v", err)
 	}
 	var bundleTarget publication.Target
-	if serverConfig.Server.ClickHouse.Enabled {
+	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
 		bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
 		if err != nil {
 			exitf("create dataframe bundle store: %v", err)
 		}
 		if err := bundleStore.Reconcile(context.Background(), time.Now().UTC().Add(-2*time.Minute)); err != nil {
-			logger.Error("dataframe publication reconciliation failed; dataframe service degraded", "error", err)
+			recordDataframeDegradation("dataframe publication reconciliation", err)
+			publicationReady = false
 		}
-		bundleTarget, err = publicationclickhouse.New(bundleStore)
-		if err != nil {
-			exitf("create dataframe publication target: %v", err)
+		if publicationReady {
+			bundleTarget, err = publicationclickhouse.New(bundleStore)
+			if err != nil {
+				exitf("create dataframe publication target: %v", err)
+			}
 		}
 	}
 	resolver := graphqlapi.NewResolver(graphqlapi.ResolverConfig{
@@ -260,7 +273,11 @@ func Run() {
 		RecipeExecutions:      graphqlapi.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
 		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphqlapi.RecipeExecution, error) {
 			if bundleTarget == nil {
-				return graphqlapi.RecipeExecution{}, fmt.Errorf("ClickHouse materialization is disabled")
+				cause := dataframeDegradation
+				if cause == nil {
+					cause = dataframeerrors.ErrBackendUnavailable
+				}
+				return graphqlapi.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 			}
 			bindings.IncludeAuthResourcePath = true
 			var identity materialization.BundleIdentity
@@ -353,6 +370,9 @@ func Run() {
 			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
 		},
 		ClickHouseReadyCheck: func(ctx context.Context) error {
+			if dataframeDegradation != nil {
+				return dataframeDegradation
+			}
 			if clickhouse == nil {
 				return nil
 			}

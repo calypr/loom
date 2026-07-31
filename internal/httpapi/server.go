@@ -65,9 +65,12 @@ type healthResult struct {
 }
 
 type apiError struct {
-	Status  int
-	Code    string
-	Message string
+	Status    int
+	Code      string
+	Message   string
+	Cause     error
+	FieldPath []string
+	Details   map[string]any
 }
 
 func (e *apiError) Error() string { return e.Message }
@@ -125,16 +128,16 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		StreamRequestBody: true,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			requestID := requestIDFromCtx(c)
-			var apiErr *apiError
-			if errors.As(err, &apiErr) {
-				return c.Status(apiErr.Status).JSON(errorEnvelope{
-					Error: errorBody{Code: apiErr.Code, Message: apiErr.Message, RequestID: requestID},
-				})
+			mapped := MapDataframeError(err, requestID)
+			if mapped.Cause != nil {
+				var apiErr *apiError
+				if mapped.Body.Error.Code == "INTERNAL_ERROR" || mapped.Body.Error.Code == "BACKEND_UNAVAILABLE" {
+					server.logger.Error("request failed", "request_id", requestID, "path", c.Path(), "code", mapped.Body.Error.Code, "error", mapped.Cause)
+				} else if errors.As(err, &apiErr) && apiErr.Cause != nil {
+					server.logger.Debug("request rejected", "request_id", requestID, "path", c.Path(), "code", mapped.Body.Error.Code)
+				}
 			}
-			server.logger.Error("unhandled request error", "request_id", requestID, "path", c.Path(), "error", err.Error())
-			return c.Status(fiber.StatusInternalServerError).JSON(errorEnvelope{
-				Error: errorBody{Code: "internal_error", Message: "internal server error", RequestID: requestID},
-			})
+			return c.Status(mapped.Status).JSON(mapped.Body)
 		},
 	})
 	server.app = app

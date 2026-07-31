@@ -21,7 +21,7 @@ func (s *HTTPServer) exportGeneration(c fiber.Ctx) error {
 	if s.scopeResolver != nil {
 		resolved, err := s.scopeResolver.ResolveReadScopeForGeneration(c.Context(), principal, project, generation, nil)
 		if err != nil {
-			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 		}
 		if resolved.Mode == authscope.ReadScopeRestricted && len(resolved.AuthResourcePaths) == 0 {
 			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "caller has no read access to project"}
@@ -30,7 +30,8 @@ func (s *HTTPServer) exportGeneration(c fiber.Ctx) error {
 	}
 	c.Set(fiber.HeaderContentType, "application/x-ndjson")
 	if err := s.rawExporter.ExportRaw(c.Context(), project, generation, scope, c); err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "export_failed", Message: err.Error()}
+		resetExportResponse(c)
+		return &apiError{Status: fiber.StatusBadRequest, Code: "EXPORT_FAILED", Message: "export failed", Cause: err}
 	}
 	return nil
 }

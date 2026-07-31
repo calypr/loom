@@ -9,12 +9,12 @@ package queryapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	dfruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -94,27 +94,30 @@ func normalizeFHIRGraphQuery(in FHIRGraphQuery) (FHIRGraphQuery, error) {
 	in.Project = strings.TrimSpace(in.Project)
 	in.RootResourceType = strings.TrimSpace(in.RootResourceType)
 	if in.Project == "" || in.RootResourceType == "" {
-		return in, fmt.Errorf("project and rootResourceType are required")
+		if in.Project == "" {
+			return in, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+		}
+		return in, dataframeerrors.NewError(dataframeerrors.CodeRootResourceTypeRequired, "")
 	}
 	if in.Limit == 0 {
 		in.Limit = FhirGraphDefaultLimit
 	}
 	if in.Limit < 1 || in.Limit > FhirGraphMaxLimit {
-		return in, fmt.Errorf("graph limit must be between 1 and %d", FhirGraphMaxLimit)
+		return in, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "")
 	}
 	steps, _, err := normalizeFHIRGraphTraversals(in.Traverse, 1)
 	if err != nil {
 		return in, err
 	}
 	if steps > FhirGraphMaxSteps {
-		return in, fmt.Errorf("graph traversal declarations exceed maximum %d", FhirGraphMaxSteps)
+		return in, dataframeerrors.NewError(dataframeerrors.CodeInvalidTraversal, "")
 	}
 	return in, nil
 }
 
 func normalizeFHIRGraphTraversals(in []FHIRGraphTraversal, depth int) (int, int, error) {
 	if depth > FhirGraphMaxDepth {
-		return 0, depth, fmt.Errorf("graph traversal depth exceeds maximum %d", FhirGraphMaxDepth)
+		return 0, depth, dataframeerrors.NewError(dataframeerrors.CodeQueryDepthExceeded, "")
 	}
 	total, maxDepth := 0, depth
 	for i := range in {
@@ -123,7 +126,7 @@ func normalizeFHIRGraphTraversals(in []FHIRGraphTraversal, depth int) (int, int,
 		step.ToResourceType = strings.TrimSpace(step.ToResourceType)
 		step.Alias = strings.TrimSpace(step.Alias)
 		if step.EdgeLabel == "" || step.ToResourceType == "" || step.Alias == "" {
-			return 0, maxDepth, fmt.Errorf("traverse[%d] requires edgeLabel, toResourceType, and alias", i)
+			return 0, maxDepth, dataframeerrors.NewError(dataframeerrors.CodeInvalidTraversal, "")
 		}
 		if !step.MatchMode.IsValid() {
 			step.MatchMode = model.FhirTraversalMatchModeRequired
@@ -180,7 +183,7 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	}
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation,
 		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode,
@@ -191,19 +194,19 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return nil, fmt.Errorf("compile FHIR graph: %w", err)
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	runtimeResult, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	paths := make([]FHIRGraphPath, 0, len(runtimeResult.Rows))
 	for _, row := range runtimeResult.Rows {
@@ -236,7 +239,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	}
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode, PreviewLimit: normalized.Limit + 1}
 	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
@@ -245,11 +248,11 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	// The compiler facade performs semantic/physical validation without
 	// executing the result query. When requested, the runtime issues only an
@@ -263,7 +266,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 		// Explain only: this invokes Arango's EXPLAIN endpoint and never opens a
 		// result cursor. The assessment is intentionally not returned here.
 		if _, err := dfruntime.ExplainCompiledQueryAssessment(ctx, s.connOpts, compiled); err != nil {
-			return nil, fmt.Errorf("explain FHIR graph: %w", err)
+			return nil, queryBackend(err)
 		}
 	}
 	count, depth := graphTraversalStats(normalized.Traverse, 1)
@@ -293,7 +296,7 @@ func decodeGraphPath(row map[string]any) (FHIRGraphPath, bool, error) {
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
-		return FHIRGraphPath{}, false, fmt.Errorf("graph path decode failed: %w", err)
+		return FHIRGraphPath{}, false, dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	var raw struct {
 		TerminalAlias string            `json:"terminalAlias"`
@@ -301,7 +304,7 @@ func decodeGraphPath(row map[string]any) (FHIRGraphPath, bool, error) {
 		Relationships []json.RawMessage `json:"relationships"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return FHIRGraphPath{}, false, fmt.Errorf("graph path decode failed: %w", err)
+		return FHIRGraphPath{}, false, dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	if raw.Nodes == nil {
 		return FHIRGraphPath{}, false, nil
@@ -317,7 +320,7 @@ func decodeGraphPath(row map[string]any) (FHIRGraphPath, bool, error) {
 	for _, encoded := range raw.Relationships {
 		var relationship FHIRGraphRelationship
 		if err := json.Unmarshal(encoded, &relationship); err != nil {
-			return FHIRGraphPath{}, false, fmt.Errorf("graph relationship decode failed: %w", err)
+			return FHIRGraphPath{}, false, dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 		}
 		path.Relationships = append(path.Relationships, relationship)
 	}
@@ -337,7 +340,7 @@ func decodeGraphNode(encoded json.RawMessage) (FHIRGraphNode, error) {
 		Key          string          `json:"key"`
 	}
 	if err := json.Unmarshal(encoded, &raw); err != nil {
-		return FHIRGraphNode{}, fmt.Errorf("graph node decode failed: %w", err)
+		return FHIRGraphNode{}, dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	resourceBytes := raw.Resource
 	if len(resourceBytes) == 0 || string(resourceBytes) == "null" {
@@ -346,7 +349,7 @@ func decodeGraphNode(encoded json.RawMessage) (FHIRGraphNode, error) {
 	resource := map[string]any{}
 	if len(resourceBytes) != 0 && string(resourceBytes) != "null" {
 		if err := json.Unmarshal(resourceBytes, &resource); err != nil {
-			return FHIRGraphNode{}, fmt.Errorf("graph resource decode failed: %w", err)
+			return FHIRGraphNode{}, dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 		}
 	}
 	if raw.ID == "" {
@@ -358,7 +361,7 @@ func decodeGraphNode(encoded json.RawMessage) (FHIRGraphNode, error) {
 		}
 	}
 	if raw.ID == "" {
-		return FHIRGraphNode{}, fmt.Errorf("graph resource decode failed: missing id")
+		return FHIRGraphNode{}, dataframeerrors.NewError(dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	delete(resource, "_key")
 	delete(resource, "_id")
@@ -379,7 +382,7 @@ func decodeGraphNode(encoded json.RawMessage) (FHIRGraphNode, error) {
 		}
 	}
 	if raw.ResourceType == "" {
-		return FHIRGraphNode{}, fmt.Errorf("graph resource decode failed: missing resourceType")
+		return FHIRGraphNode{}, dataframeerrors.NewError(dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	return FHIRGraphNode{Alias: raw.Alias, ResourceType: raw.ResourceType, ID: raw.ID, Resource: resource}, nil
 }

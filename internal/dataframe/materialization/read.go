@@ -65,7 +65,7 @@ type AggregateResult struct {
 
 func (r *Reader) AggregateDataset(ctx context.Context, project, generation, alias string, req AggregateRequest) (AggregateResult, error) {
 	if r.ClickHouse == nil || r.Catalog == nil {
-		return AggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
 	if err != nil {
@@ -77,7 +77,7 @@ func (r *Reader) AggregateDataset(ctx context.Context, project, generation, alia
 
 func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req AggregateRequest) (AggregateResult, error) {
 	if r.ClickHouse == nil || r.Catalog == nil {
-		return AggregateResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	m, err := r.publishedByID(ctx, id)
 	if err != nil {
@@ -89,7 +89,7 @@ func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req Aggreg
 
 func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m Materialization) (AggregateResult, error) {
 	if m.State != StateReady {
-		return AggregateResult{}, fmt.Errorf("materialization %q is not ready", m.ID)
+		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	allowed := map[string]struct{}{}
 	for _, column := range m.Columns {
@@ -97,7 +97,7 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	}
 	for _, column := range req.GroupBy {
 		if _, ok := allowed[column]; !ok {
-			return AggregateResult{}, fmt.Errorf("group column %q is not in materialization schema", column)
+			return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	where, args, err := buildWhere(req.Filters, allowed)
@@ -106,11 +106,11 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	}
 	operation := strings.ToUpper(req.Operation)
 	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
-		return AggregateResult{}, fmt.Errorf("unsupported dataframe aggregate operation %q", req.Operation)
+		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	if operation != "COUNT" {
 		if _, ok := allowed[req.Column]; !ok {
-			return AggregateResult{}, fmt.Errorf("aggregate column %q is not in materialization schema", req.Column)
+			return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	selects := make([]string, 0, len(req.GroupBy)+1)
@@ -151,14 +151,14 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	}
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
-		return AggregateResult{}, err
+		return AggregateResult{}, backendCallError(err)
 	}
 	return AggregateResult{Materialization: m, Columns: columns, Rows: rows}, nil
 }
 
 func (r *Reader) PageDataset(ctx context.Context, project, generation, alias string, req PageRequest) (Page, error) {
 	if r.ClickHouse == nil || r.Catalog == nil {
-		return Page{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
 	if err != nil {
@@ -170,7 +170,7 @@ func (r *Reader) PageDataset(ctx context.Context, project, generation, alias str
 
 func (r *Reader) PagePublishedID(ctx context.Context, id string, req PageRequest) (Page, error) {
 	if r.ClickHouse == nil || r.Catalog == nil {
-		return Page{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
+		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	m, err := r.publishedByID(ctx, id)
 	if err != nil {
@@ -234,7 +234,7 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 
 func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {
 	if m.State != StateReady {
-		return Page{}, fmt.Errorf("materialization %q is not ready", m.ID)
+		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	allowed := map[string]struct{}{}
 	for _, column := range m.Columns {
@@ -252,18 +252,18 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	}
 	for _, column := range columns {
 		if column == "__loom_row_id" {
-			return Page{}, fmt.Errorf("column %q is internal to dataframe pagination", column)
+			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 		if _, ok := allowed[column]; !ok {
-			return Page{}, fmt.Errorf("column %q is not in materialization schema", column)
+			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	if req.Sort != nil {
 		if req.Sort.Column == "__loom_row_id" {
-			return Page{}, fmt.Errorf("column %q is internal to dataframe pagination", req.Sort.Column)
+			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 		if _, ok := allowed[req.Sort.Column]; !ok {
-			return Page{}, fmt.Errorf("sort column %q is not in materialization schema", req.Sort.Column)
+			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	first := req.First
@@ -275,7 +275,7 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	}
 	cursor, err := decodeCursor(req.After)
 	if err != nil {
-		return Page{}, err
+		return Page{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidCursor, "")
 	}
 	where, whereArgs, err := buildWhere(req.Filters, allowed)
 	if err != nil {
@@ -287,7 +287,7 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	}
 	countRows, err := r.ClickHouse.QueryRowsArgs(ctx, countQuery, []string{"__loom_total"}, whereArgs...)
 	if err != nil {
-		return Page{}, err
+		return Page{}, backendCallError(err)
 	}
 	if len(countRows) == 0 {
 		return Page{}, fmt.Errorf("ClickHouse count query returned no rows")
@@ -335,7 +335,7 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	query += fmt.Sprintf(" LIMIT %d", first+1)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, whereArgs...)
 	if err != nil {
-		return Page{}, err
+		return Page{}, backendCallError(err)
 	}
 	hasNext := len(rows) > first
 	if hasNext {
@@ -388,7 +388,7 @@ func buildWhere(filters []Filter, allowed map[string]struct{}) ([]string, []any,
 	args := make([]any, 0, len(filters))
 	for _, filter := range filters {
 		if _, ok := allowed[filter.Column]; !ok {
-			return nil, nil, fmt.Errorf("filter column %q is not in materialization schema", filter.Column)
+			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidFilter, "")
 		}
 		switch strings.ToUpper(filter.Op) {
 		case "EQ":
@@ -433,7 +433,7 @@ func buildWhere(filters []Filter, allowed map[string]struct{}) ([]string, []any,
 			where = append(where, fmt.Sprintf("hasAny(`%s`, ?)", filter.Column))
 			args = append(args, filter.Value)
 		default:
-			return nil, nil, fmt.Errorf("unsupported dataframe filter operation %q", filter.Op)
+			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidFilter, "")
 		}
 	}
 	return where, args, nil
@@ -468,11 +468,11 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 	}
 	data, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return nil, fmt.Errorf("invalid dataframe cursor: %w", err)
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidCursor, "")
 	}
 	var value pageCursor
 	if err := json.Unmarshal(data, &value); err != nil || value.RowID == "" {
-		return nil, fmt.Errorf("invalid dataframe cursor")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 	}
 	return &value, nil
 }
@@ -483,7 +483,7 @@ func cursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
 		return row, []any{cursor.RowID}, nil
 	}
 	if cursor.SortValue == nil {
-		return "", nil, fmt.Errorf("keyset cursor is missing sort value")
+		return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 	}
 	operator := ">"
 	if sort.Desc {

@@ -2,8 +2,9 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -16,7 +17,10 @@ func (s *Service) resolveActiveGeneration(ctx context.Context, project string) (
 	}
 	manifest, err := dataset.ResolveReadyActiveManifest(ctx, s.activeManifestResolver, project)
 	if err != nil {
-		return "", fmt.Errorf("resolve active dataset generation: %w", err)
+		if errors.Is(err, dataset.ErrNoActiveGeneration) {
+			return "", dataframeerrors.Wrap(err, dataframeerrors.CodeNoActiveGeneration, "")
+		}
+		return "", queryBackend(err)
 	}
 	return manifest.Dataset.Generation, nil
 }

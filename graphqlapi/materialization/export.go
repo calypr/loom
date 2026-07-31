@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -20,7 +19,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 		return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	if out == nil {
-		return fmt.Errorf("dataframe export writer is required")
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -32,7 +31,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	}
 	format := request.Format.Normalize()
 	if format != dfmaterialization.ExportCSV && format != dfmaterialization.ExportTSV && format != dfmaterialization.ExportJSON && format != dfmaterialization.ExportJSONL {
-		return fmt.Errorf("unsupported dataframe export format %q", request.Format)
+		return dataframeerrors.NewError(dataframeerrors.CodeUnsupportedExportFormat, "")
 	}
 	columns := append([]string(nil), request.Columns...)
 	if len(columns) == 0 {
@@ -72,7 +71,7 @@ type exportCountingWriter struct {
 
 func (w *exportCountingWriter) Write(value []byte) (int, error) {
 	if w.maxBytes > 0 && w.bytes+int64(len(value)) > w.maxBytes {
-		return 0, fmt.Errorf("dataframe export exceeds byte limit")
+		return 0, dataframeerrors.NewError(dataframeerrors.CodeExportLimitExceeded, "")
 	}
 	n, err := w.out.Write(value)
 	w.bytes += int64(n)
@@ -111,7 +110,7 @@ func (w *exportWriter) begin() error {
 
 func (w *exportWriter) visit(row map[string]any) error {
 	if w.out.maxRows > 0 && w.out.rows >= w.out.maxRows {
-		return fmt.Errorf("dataframe export exceeds row limit")
+		return dataframeerrors.NewError(dataframeerrors.CodeExportLimitExceeded, "")
 	}
 	w.out.rows++
 	switch w.format {
@@ -134,7 +133,7 @@ func (w *exportWriter) visit(row map[string]any) error {
 	case dfmaterialization.ExportJSONL:
 		return json.NewEncoder(w.out).Encode(rowWithoutInternal(row))
 	default:
-		return fmt.Errorf("unsupported dataframe export format %q", w.format)
+		return dataframeerrors.NewError(dataframeerrors.CodeUnsupportedExportFormat, "")
 	}
 }
 

@@ -2,7 +2,6 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
@@ -10,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -98,7 +98,7 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	preparationStarted := time.Now()
 	bundle, err := RecipeBundleFromInput(normalizedInput)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project:           normalizedInput.Project,
@@ -109,28 +109,28 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	}
 	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalidErrorOrBackend(err)
 	}
 	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalidErrorOrBackend(err)
 	}
 	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "", generation)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalidErrorOrBackend(err)
 	}
 	requestPreparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return nil, fmt.Errorf("compile GraphQL recipe: %w", err)
+		return nil, queryInvalidErrorOrBackend(err)
 	}
 	if len(queries) != 1 {
-		return nil, fmt.Errorf("GraphQL dataframe recipe produced %d outputs, want 1", len(queries))
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	result, err := s.dataframes.RunCompiled(ctx, queries[0])
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	result.Diagnostics.Compilation = time.Since(compileStarted)
 	result.Diagnostics.InputResolution = inputResolutionDuration

@@ -3,11 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 
 	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -55,23 +56,23 @@ func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generat
 	if generation == "" {
 		manifest, err := e.Manifests.ResolveActiveManifest(ctx, project)
 		if err != nil {
-			return dataset.Manifest{}, err
+			return dataset.Manifest{}, classifyRawExportError(err)
 		}
 		if !manifest.IsReady() {
-			return dataset.Manifest{}, fmt.Errorf("active dataset generation for %s is not READY", project)
+			return dataset.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 		}
 		return manifest, nil
 	}
 	ref, err := dataset.NewDatasetRef(project, generation)
 	if err != nil {
-		return dataset.Manifest{}, err
+		return dataset.Manifest{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	manifest, err := e.Manifests.ReadManifest(ctx, ref)
 	if err != nil {
-		return dataset.Manifest{}, err
+		return dataset.Manifest{}, classifyRawExportError(err)
 	}
 	if !manifest.IsReady() {
-		return dataset.Manifest{}, fmt.Errorf("dataset generation %s/%s is not READY", project, generation)
+		return dataset.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 	}
 	return manifest, nil
 }
@@ -96,7 +97,7 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 			}
 		}
 		if !found {
-			return fmt.Errorf("resource type %q is not supported", req.ResourceType)
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidResourceType, "")
 		}
 		resourceTypes = []string{req.ResourceType}
 	}
@@ -107,7 +108,7 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 		collection := resourceType
 		exists, err := e.Query.CollectionExists(ctx, collection)
 		if err != nil {
-			return fmt.Errorf("inspect resource collection %s: %w", collection, err)
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
 		if !exists {
 			continue
@@ -126,7 +127,7 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 			written++
 			return encoder.Encode(row)
 		}); err != nil {
-			return fmt.Errorf("export %s/%s %s: %w", req.Project, generation, resourceType, err)
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
 		if remaining > 0 {
 			remaining -= written
@@ -136,4 +137,17 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 		}
 	}
 	return nil
+}
+
+func classifyRawExportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := dataframeerrors.AsUserError(err); ok {
+		return err
+	}
+	if errors.Is(err, dataset.ErrNoActiveGeneration) || errors.Is(err, dataset.ErrActiveGenerationNotFound) {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeNoActiveGeneration, "")
+	}
+	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }

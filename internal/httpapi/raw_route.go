@@ -41,7 +41,7 @@ func (s *HTTPServer) dumpRaw(c fiber.Ctx) error {
 	if s.scopeResolver != nil {
 		scope, err = s.scopeResolver.ResolveReadScopeForGeneration(c.Context(), principal, project, generation, nil)
 		if err != nil {
-			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 		}
 		if scope.Mode == authscope.ReadScopeRestricted && len(scope.AuthResourcePaths) == 0 {
 			return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "caller has no read access to project"}
@@ -55,7 +55,8 @@ func (s *HTTPServer) dumpRaw(c fiber.Ctx) error {
 		Limit:        limit,
 		Legacy:       legacy,
 	}, scope, c); err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "export_failed", Message: err.Error()}
+		resetExportResponse(c)
+		return &apiError{Status: fiber.StatusBadRequest, Code: "EXPORT_FAILED", Message: "export failed", Cause: err}
 	}
 	return nil
 }
@@ -72,7 +73,7 @@ func (s *HTTPServer) loadRaw(c fiber.Ctx) error {
 	authResourcePath := authscope.NormalizeAuthResourcePath(strings.TrimSpace(c.Query("auth_resource_path")))
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 	}
 
 	dir, err := os.MkdirTemp("", "loom-raw-")
@@ -103,7 +104,7 @@ func (s *HTTPServer) loadRaw(c fiber.Ctx) error {
 		result, err = s.service.RunBundle(c.Context(), req)
 	}
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "raw_load_failed", Message: err.Error()}
+		return &apiError{Status: fiber.StatusBadRequest, Code: "RAW_LOAD_FAILED", Message: "raw load failed", Cause: err}
 	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"rows": rows, "result": result})
 }

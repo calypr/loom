@@ -2,11 +2,11 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframetemplate "github.com/calypr/loom/internal/dataframe/template"
 )
 
@@ -81,19 +81,19 @@ type TemplateAvailability struct {
 // are selected before any catalog reads.
 func (s *Service) ListTemplates(ctx context.Context, req TemplateOptions) ([]TemplateAvailability, error) {
 	if strings.TrimSpace(req.Project) == "" {
-		return nil, fmt.Errorf("project is required")
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
-		return nil, err
+		return nil, classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, req.Project)
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	scope, err := s.resolveReadScopeForGeneration(ctx, principal, req.Project, generation, req.AuthResourcePaths)
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 
 	registry := dataframetemplate.DefaultRegistry()
@@ -149,7 +149,7 @@ func (s *Service) templateCapabilities(ctx context.Context, definitions []datafr
 			AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths), ResourceType: resourceType,
 		})
 		if err != nil {
-			return dataframetemplate.CapabilitySnapshot{}, err
+			return dataframetemplate.CapabilitySnapshot{}, queryBackend(err)
 		}
 		fieldCapabilities := make([]dataframetemplate.FieldCapability, 0, len(fields))
 		for _, field := range fields {
@@ -170,7 +170,7 @@ func (s *Service) templateCapabilities(ctx context.Context, definitions []datafr
 			Mode: catalog.TraversalModeBuilder,
 		})
 		if err != nil {
-			return dataframetemplate.CapabilitySnapshot{}, err
+			return dataframetemplate.CapabilitySnapshot{}, queryBackend(err)
 		}
 		for _, ref := range refs {
 			if ref.FromType == resourceType {

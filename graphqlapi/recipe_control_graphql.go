@@ -2,21 +2,25 @@ package graphqlapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 
 	"github.com/calypr/loom/graphqlapi/model"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/control"
+	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func requireRecipeControl(control RecipeControl) error {
 	if control == nil {
-		return fmt.Errorf("recipe control plane is not configured")
+		return dataframeerrors.Wrap(nil, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	return nil
 }
@@ -25,16 +29,29 @@ func recipeGraphQLError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if _, ok := dataframeerrors.AsUserError(err); !ok {
+		var validation *recipe.ValidationError
+		switch {
+		case errors.As(err, &validation):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
+		case errors.Is(err, recipeexec.ErrRecipeNotFound):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
+		case errors.Is(err, context.Canceled):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeClientCanceled, "")
+		case errors.Is(err, context.DeadlineExceeded):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		}
+	}
 	return GraphQLError(err, "")
 }
 
 func graphqlRecipeBindings(bindings *model.DataframeRecipeBindingsInput) (recipe.RuntimeBindings, error) {
 	if bindings == nil {
-		return recipe.RuntimeBindings{}, fmt.Errorf("recipe bindings are required")
+		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	value := recipeBindings(*bindings)
 	if value.PreviewLimit < 0 {
-		return recipe.RuntimeBindings{}, fmt.Errorf("preview limit must not be negative")
+		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "")
 	}
 	return value, nil
 }

@@ -73,40 +73,42 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	c.mu.Unlock()
 	endpoint, err := fenceUserEndpoint(authorizationHeader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	authHeader, err := validateAuthorizationHeader(authorizationHeader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build authorization snapshot request: %w", err)
+		return nil, fmt.Errorf("%w: build authorization snapshot request: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	req.Header.Set("Authorization", authHeader)
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("authorization snapshot request failed: %w", err)
+		return nil, fmt.Errorf("%w: authorization snapshot request failed: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read authorization snapshot response: %w", err)
+		return nil, fmt.Errorf("%w: read authorization snapshot response: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	if resp.StatusCode >= 400 {
-		message := strings.TrimSpace(string(body))
-		if message == "" {
-			message = fmt.Sprintf("authorization snapshot request failed with status %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("%w: authorization snapshot rejected", ErrUnauthenticated)
 		}
-		return nil, fmt.Errorf("%s", message)
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf("%w: authorization snapshot denied", ErrForbidden)
+		}
+		return nil, fmt.Errorf("%w: authorization snapshot request failed", ErrAuthorizationBackendUnavailable)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("invalid authorization snapshot response: %w", err)
+		return nil, fmt.Errorf("%w: invalid authorization snapshot response: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	snapshot, err := parseResourceAccessSnapshot(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: invalid authorization snapshot response: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	c.mu.Lock()
 	c.cache[key] = cachedResourceAccess{snapshot: cloneResourceAccess(snapshot), expiresAt: time.Now().Add(c.cacheTTL)}

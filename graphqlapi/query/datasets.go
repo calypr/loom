@@ -2,12 +2,13 @@ package queryapi
 
 import (
 	"context"
-	"log"
+	"errors"
 	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -34,11 +35,13 @@ func (s *Service) DiscoverDatasets(ctx context.Context) ([]DatasetSummary, error
 		if s.activeManifestResolver != nil {
 			manifest, err := dataset.ResolveReadyActiveManifest(ctx, s.activeManifestResolver, project)
 			if err != nil {
-				// A project without a valid active READY generation is not an
-				// advertised dataset. Discovery is best-effort per project so one
-				// stale active pointer does not hide unrelated visible projects.
-				log.Printf("dataframe dataset discovery: skip project %q: %v", project, err)
-				continue
+				// Absence is a valid per-project state. Any other resolver or
+				// storage failure must remain visible so callers can retry rather
+				// than observing a misleading empty dataset list.
+				if errors.Is(err, dataset.ErrNoActiveGeneration) {
+					continue
+				}
+				return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "the dataframe backend is temporarily unavailable", dataframeerrors.WithRetryable(true))
 			}
 			generation = manifest.Dataset.Generation
 			state = string(manifest.State)
@@ -55,7 +58,7 @@ func (s *Service) DiscoverDatasets(ctx context.Context) ([]DatasetSummary, error
 	for _, project := range selectedProjects {
 		scope, err := s.resolveReadScopeForGeneration(ctx, principal, project, generations[project], nil)
 		if err != nil {
-			return nil, err
+			return nil, classifyError(err)
 		}
 		scopes[project] = catalog.DatasetAuthScope{
 			AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
@@ -72,7 +75,7 @@ func (s *Service) DiscoverDatasets(ctx context.Context) ([]DatasetSummary, error
 		CursorBatch:                1000,
 	})
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	result := make([]DatasetSummary, 0, len(catalogSummaries))
 	for _, summary := range catalogSummaries {

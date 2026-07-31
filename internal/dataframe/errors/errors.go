@@ -39,6 +39,13 @@ const (
 	CodeResourceDecodeFailed     ErrorCode = "RESOURCE_DECODE_FAILED"
 	CodeReferenceNotResolved     ErrorCode = "REFERENCE_NOT_RESOLVED"
 	CodeQueryDepthExceeded       ErrorCode = "QUERY_DEPTH_EXCEEDED"
+	CodeInvalidRequest           ErrorCode = "INVALID_REQUEST"
+	CodeInvalidData              ErrorCode = "INVALID_DATA"
+	CodeUnauthenticated          ErrorCode = "UNAUTHENTICATED"
+	CodeForbidden                ErrorCode = "FORBIDDEN"
+	CodeRecipeNotFound           ErrorCode = "RECIPE_NOT_FOUND"
+	CodeRecipeExecutionNotFound  ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
+	CodeExportLimitExceeded      ErrorCode = "EXPORT_LIMIT_EXCEEDED"
 )
 
 // AllErrorCodes is the compatibility registry. Keep its order stable when
@@ -62,7 +69,22 @@ var AllErrorCodes = []ErrorCode{
 	CodeUnsupportedExportFormat,
 	CodeClientCanceled,
 	CodeBackendUnavailable,
+	CodeDatasetNotFound,
+	CodeSchemaConflict,
 	CodeInternalError,
+	CodeInvalidResourceType,
+	CodeInvalidLimit,
+	CodeNoActiveGeneration,
+	CodeResourceDecodeFailed,
+	CodeReferenceNotResolved,
+	CodeQueryDepthExceeded,
+	CodeInvalidRequest,
+	CodeInvalidData,
+	CodeUnauthenticated,
+	CodeForbidden,
+	CodeRecipeNotFound,
+	CodeRecipeExecutionNotFound,
+	CodeExportLimitExceeded,
 }
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -256,7 +278,9 @@ func IsUserCorrectable(code ErrorCode) bool {
 		CodeStaleCursor,
 		CodeUnsupportedExportFormat:
 		return true
-	case CodeInvalidResourceType, CodeInvalidLimit:
+	case CodeInvalidResourceType, CodeInvalidLimit,
+		CodeInvalidRequest, CodeInvalidData, CodeRecipeNotFound,
+		CodeRecipeExecutionNotFound, CodeExportLimitExceeded:
 		return true
 	default:
 		return false
@@ -325,6 +349,20 @@ func defaultMessage(code ErrorCode) string {
 		return "the requested dataset was not found"
 	case CodeSchemaConflict:
 		return "the published dataset sources have incompatible schemas"
+	case CodeInvalidRequest:
+		return "the request is invalid"
+	case CodeInvalidData:
+		return "the submitted data is invalid"
+	case CodeUnauthenticated:
+		return "authentication is required"
+	case CodeForbidden:
+		return "the caller is not permitted to perform this operation"
+	case CodeRecipeNotFound:
+		return "the requested recipe was not found"
+	case CodeRecipeExecutionNotFound:
+		return "the requested recipe execution was not found"
+	case CodeExportLimitExceeded:
+		return "the export exceeds the configured limit"
 	default:
 		return "internal server error"
 	}

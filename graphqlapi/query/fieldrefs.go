@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/fhirschema"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 type FieldHint struct {
@@ -82,14 +83,14 @@ func fieldHintFromDiscovered(field catalog.PopulatedField, fieldRef string, labe
 func resolveFieldRef(resourceType string, discovered []catalog.PopulatedField, fieldRef string) (string, error) {
 	fieldRef = strings.TrimSpace(fieldRef)
 	if fieldRef == "" {
-		return "", fmt.Errorf("fieldRef is required")
+		return "", dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "fieldRef is required")
 	}
 	for _, field := range discovered {
 		if defaultFieldRef(resourceType, field.Path) == fieldRef {
 			return field.Path, nil
 		}
 	}
-	return "", fmt.Errorf("unknown fieldRef %q for resourceType %q", fieldRef, resourceType)
+	return "", dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown fieldRef %q for resourceType %q", fieldRef, resourceType))
 }
 
 func defaultFieldRef(resourceType string, path string) string {

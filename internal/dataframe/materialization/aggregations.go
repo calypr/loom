@@ -148,7 +148,7 @@ func (r *Reader) aggregateTerms(ctx context.Context, dataset FederatedDataset, a
 	query := fmt.Sprintf("SELECT `__loom_agg_key`, count() AS `__loom_doc_count` FROM (%s) AS __loom_values GROUP BY `__loom_agg_key` ORDER BY `__loom_doc_count` DESC, `__loom_agg_key` ASC LIMIT %d", strings.Join(branches, " UNION ALL "), size+1)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_agg_key", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	missing, err := r.missingCount(ctx, dataset, allowed, req, filters, spec.Column)
 	if err != nil {
@@ -175,7 +175,7 @@ func (r *Reader) aggregateHistogram(ctx context.Context, dataset FederatedDatase
 	query := fmt.Sprintf("SELECT %s AS `__loom_bucket`, count() AS `__loom_doc_count` FROM (%s) AS __loom_values WHERE `__loom_agg_key` IS NOT NULL GROUP BY `__loom_bucket` ORDER BY `__loom_bucket` ASC LIMIT %d", key, strings.Join(branches, " UNION ALL "), size)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_bucket", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	resultRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -193,7 +193,7 @@ func (r *Reader) aggregateDateHistogram(ctx context.Context, dataset FederatedDa
 	args = append([]any{spec.DateInterval}, args...)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_bucket", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	resultRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -211,7 +211,7 @@ func (r *Reader) aggregateStats(ctx context.Context, dataset FederatedDataset, a
 	columns := []string{"count", "value_count", "distinct_count", "min", "max", "sum", "avg"}
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	return AggregationResult{Name: spec.Name, Kind: "STATS", Columns: columns, Rows: rows}, nil
 }
@@ -232,7 +232,7 @@ func (r *Reader) missingCount(ctx context.Context, dataset FederatedDataset, all
 	query := fmt.Sprintf("SELECT count() AS `__loom_missing` FROM (%s) AS __loom_values WHERE `__loom_agg_key` IS NULL", strings.Join(branches, " UNION ALL "))
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_missing"}, args...)
 	if err != nil {
-		return 0, err
+		return 0, backendCallError(err)
 	}
 	if len(rows) == 0 {
 		return 0, nil

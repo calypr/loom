@@ -3,7 +3,6 @@ package graphqlapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -66,10 +65,10 @@ func (r *queryResolver) listFHIR(ctx context.Context, project string, filters []
 	}
 	data, err := json.Marshal(result.Resources)
 	if err != nil {
-		return fmt.Errorf("resource decode failed: %w", err)
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("resource decode failed: %w", err)
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeResourceDecodeFailed, "")
 	}
 	fhirReferenceLoaderFromContext(ctx, r.Resolver).registerRoots(out, result.Resources, result.ReadContext)
 	return nil

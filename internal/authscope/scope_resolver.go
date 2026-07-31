@@ -182,7 +182,7 @@ func (r *ScopeResolver) ResolveReadScopeForGeneration(ctx context.Context, princ
 	}
 	for _, path := range normalizedRequested {
 		if _, ok := effectiveSet[path]; !ok {
-			return ReadScope{}, fmt.Errorf("authResourcePath %q is outside caller scope", path)
+			return ReadScope{}, fmt.Errorf("%w: authResourcePath %q is outside caller scope", ErrForbidden, path)
 		}
 	}
 	return ReadScope{AuthResourcePaths: normalizedRequested, Mode: ReadScopeRestricted}, nil
@@ -197,7 +197,7 @@ func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal
 		return nil
 	}
 	if strings.TrimSpace(authResourcePath) == "" {
-		return fmt.Errorf("auth_resource_path is required when scoped authorization is enabled")
+		return fmt.Errorf("%w: auth_resource_path is required when scoped authorization is enabled", ErrForbidden)
 	}
 	normalized := NormalizeAuthResourcePath(authResourcePath)
 	for _, path := range callerPaths {
@@ -205,7 +205,7 @@ func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal
 			return nil
 		}
 	}
-	return fmt.Errorf("auth_resource_path %q is outside caller scope for project %q", normalized, project)
+	return fmt.Errorf("%w: auth_resource_path %q is outside caller scope for project %q", ErrForbidden, normalized, project)
 }
 
 // ResolveWriteScopeForGeneration proves that the caller may publish or mutate
@@ -245,13 +245,13 @@ func (r *ScopeResolver) ResolveWriteScopeForGeneration(ctx context.Context, prin
 		}
 		for _, path := range normalizedRequested {
 			if _, ok := effectiveSet[path]; !ok {
-				return ReadScope{}, fmt.Errorf("authResourcePath %q is outside caller write scope", path)
+				return ReadScope{}, fmt.Errorf("%w: authResourcePath %q is outside caller write scope", ErrForbidden, path)
 			}
 		}
 		effective = normalizedRequested
 	}
 	if len(effective) == 0 {
-		return ReadScope{}, fmt.Errorf("caller has no write access to project %q", project)
+		return ReadScope{}, fmt.Errorf("%w: caller has no write access to project %q", ErrForbidden, project)
 	}
 	return ReadScope{AuthResourcePaths: effective, Mode: ReadScopeRestricted}, nil
 }

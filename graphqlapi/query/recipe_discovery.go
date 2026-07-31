@@ -36,7 +36,7 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 		AuthResourcePathsUnrestricted: unrestricted, ResourceType: resourceType,
 	})
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	result := make([]schema.FieldCandidate, 0, len(fields))
 	for _, field := range fields {

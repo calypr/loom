@@ -31,7 +31,7 @@ func (s *HTTPServer) createGeneration(c fiber.Ctx) error {
 	authResourcePath := strings.TrimSpace(c.Req().FormValue("auth_resource_path"))
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: err.Error()}
+		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
 	}
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 	stagedDir, err := stageGenerationFiles(files)
@@ -45,7 +45,7 @@ func (s *HTTPServer) createGeneration(c fiber.Ctx) error {
 	}
 	result, err := s.service.RunGeneration(c.Context(), req)
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "invalid_generation_request", Message: err.Error()}
+		return &apiError{Status: fiber.StatusBadRequest, Code: "GENERATION_LOAD_FAILED", Message: "generation load failed", Cause: err}
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
 }

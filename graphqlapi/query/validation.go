@@ -2,12 +2,12 @@ package queryapi
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/calypr/loom/graphqlapi/model"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -55,29 +55,29 @@ func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) 
 	preparationStarted := time.Now()
 	bundle, err := RecipeBundleFromInput(normalized)
 	if err != nil {
-		return ValidationResult{}, err
+		return ValidationResult{}, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode, PreviewLimit: limit}
 	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
 	if err != nil {
-		return ValidationResult{}, err
+		return ValidationResult{}, queryInvalidErrorOrBackend(err)
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return ValidationResult{}, err
+		return ValidationResult{}, queryInvalidErrorOrBackend(err)
 	}
 	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
 	if err != nil {
-		return ValidationResult{}, err
+		return ValidationResult{}, queryInvalidErrorOrBackend(err)
 	}
 	preparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return ValidationResult{}, fmt.Errorf("compile GraphQL recipe: %w", err)
+		return ValidationResult{}, queryInvalidErrorOrBackend(err)
 	}
 	if len(queries) != 1 {
-		return ValidationResult{}, fmt.Errorf("GraphQL dataframe recipe produced %d outputs, want 1", len(queries))
+		return ValidationResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	compiled := queries[0]
 	var identity *spec.RowIdentity

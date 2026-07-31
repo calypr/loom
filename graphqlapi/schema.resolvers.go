@@ -8,11 +8,11 @@ package graphqlapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	materializationapi "github.com/calypr/loom/graphqlapi/materialization"
 	"github.com/calypr/loom/graphqlapi/model"
 	queryapi "github.com/calypr/loom/graphqlapi/query"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
@@ -45,7 +45,7 @@ func (r *mutationResolver) RunDataframeRecipe(ctx context.Context, input model.R
 	bindings.OutputNames = append([]string(nil), input.Outputs...)
 	runner, ok := r.recipeControl.(RecipeRunControl)
 	if !ok {
-		return nil, recipeGraphQLError(fmt.Errorf("full recipe execution is not configured"))
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
 	result, err := runner.Run(ctx, input.Name, bindings)
 	if err != nil {
@@ -90,7 +90,7 @@ func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input mod
 	}
 	if input.Limit != nil {
 		if *input.Limit < 0 {
-			return nil, recipeGraphQLError(fmt.Errorf("preview limit must not be negative"))
+			return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, ""))
 		}
 		bindings.PreviewLimit = *input.Limit
 	}
@@ -119,7 +119,7 @@ func (r *mutationResolver) MaterializeDataframeRecipeBundle(ctx context.Context,
 		return nil, recipeGraphQLError(err)
 	}
 	if r.recipeMaterialize == nil {
-		return nil, recipeGraphQLError(fmt.Errorf("recipe materializer is not configured"))
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
 	execution, err := r.recipeMaterialize(ctx, input.Name, bindings)
 	if err != nil {
@@ -220,14 +220,14 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 // DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.
 func (r *queryResolver) DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error) {
 	if r.recipeExecutions == nil {
-		return nil, recipeGraphQLError(fmt.Errorf("recipe execution reader is not configured"))
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
 	execution, err := r.recipeExecutions(ctx, id)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
 	if execution == nil {
-		return nil, recipeGraphQLError(fmt.Errorf("recipe execution %q was not found", id))
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, ""))
 	}
 	return executionModel(*execution), nil
 }
@@ -257,7 +257,7 @@ func (r *queryResolver) ExplainDataframeRecipe(ctx context.Context, input model.
 		}
 		result.Physical = physicalExplanation(physical)
 	} else if input.Live != nil && *input.Live {
-		return nil, recipeGraphQLError(fmt.Errorf("physical recipe explainer is not configured"))
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
 	return result, nil
 }

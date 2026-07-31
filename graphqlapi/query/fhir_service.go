@@ -117,10 +117,10 @@ func (s *Service) ListFHIRInContext(ctx context.Context, read FHIRReadContext, r
 func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest, prepared model.FhirDataframeInput, read FHIRReadContext) (*FHIRListResult, error) {
 	bundle, err := RecipeBundleFromInput(prepared)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	if len(bundle.Outputs) != 1 {
-		return nil, fmt.Errorf("FHIR query produced %d outputs, want one", len(bundle.Outputs))
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	// The whole-document expression is backend-neutral.  Compiler support is
 	// additive to the existing selector/literal/call expression nodes.
@@ -136,22 +136,22 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	resolved, err := semantic.ResolveRecipePlan(plan, "", read.DatasetGeneration)
 	if err != nil {
-		return nil, err
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return nil, fmt.Errorf("compile FHIR query: %w", err)
+		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	if len(queries) != 1 {
-		return nil, fmt.Errorf("FHIR query produced %d physical queries, want one", len(queries))
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	result, err := s.dataframes.RunCompiled(ctx, queries[0])
 	if err != nil {
-		return nil, err
+		return nil, queryBackend(err)
 	}
 	resources := make([]map[string]any, 0, len(result.Rows))
 	for _, row := range result.Rows {
@@ -165,10 +165,10 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 			// those through JSON without exposing backend implementation details.
 			data, marshalErr := json.Marshal(value)
 			if marshalErr != nil {
-				return nil, fmt.Errorf("resource decode failed: %w", marshalErr)
+				return nil, dataframeerrors.Wrap(marshalErr, dataframeerrors.CodeResourceDecodeFailed, "")
 			}
 			if unmarshalErr := json.Unmarshal(data, &envelope); unmarshalErr != nil {
-				return nil, fmt.Errorf("resource decode failed: %w", unmarshalErr)
+				return nil, dataframeerrors.Wrap(unmarshalErr, dataframeerrors.CodeResourceDecodeFailed, "")
 			}
 		}
 		if envelope == nil {
@@ -218,7 +218,7 @@ func normalizeFHIRListRequest(request FHIRListRequest) (FHIRListRequest, error) 
 		return request, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must be positive")
 	}
 	if request.Project == "" {
-		return request, fmt.Errorf("project is required")
+		return request, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	return request, nil
 }
