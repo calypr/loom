@@ -57,10 +57,29 @@ browser-supplied physical table name.
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /graphql/flat` | ClickHouse reader: discover published datasets, fetch rows with filters/keyset cursors, and aggregate registered outputs. |
 | `POST /api/v1/imports` | Legacy one-resource import compatibility path; disabled in dataset-generation mode. |
+| `GET /api/v1/raw` | Stream project-scoped FHIR resources as raw NDJSON, optionally filtered by `resourceType` and `limit`. |
+| `PUT /api/v1/raw` | Load mixed-resource FHIR NDJSON; Loom infers each row's `resourceType`. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
+
+Raw NDJSON uses ordinary FHIR resources without a Loom-specific envelope:
+
+```bash
+curl -H 'Authorization: Bearer ...' \
+  'http://127.0.0.1:8080/api/v1/raw?project=ARANGODB_PROTO&resourceType=Patient&limit=10'
+
+curl -X PUT -H 'Authorization: Bearer ...' \
+  -H 'Content-Type: application/x-ndjson' \
+  --data-binary @mixed.ndjson \
+  'http://127.0.0.1:8080/api/v1/raw?project=ARANGODB_PROTO&generation=restore-1'
+```
+
+`project` is required for reads. Writes default to the standalone `default`
+project when omitted. Generation-mode servers require `generation` on writes;
+mutable servers omit it. The normal read-scope and write-authorization
+boundaries apply before Arango is accessed.
 
 ## Data lifecycle
 

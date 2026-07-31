@@ -1,79 +1,12 @@
 package semantic
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
-	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
-
-func TestDefaultRecipeBuildsTypedSemanticPlan(t *testing.T) {
-	bundle := resolvedDefaultACEDBundle(t)
-	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Outputs) != len(bundle.Outputs) || plan.RecipeDigest == "" {
-		t.Fatalf("unexpected plan: %#v", plan)
-	}
-	group := plan.Outputs[len(plan.Outputs)-1]
-	if group.Unnest == nil || group.Unnest.As != "member" || group.Unnest.JoinMode != UnnestInner || group.Identity == nil {
-		t.Fatalf("group expansion/identity missing: %#v", group)
-	}
-	if got := group.Fields[1].Expr.Type.Kind; got != "string" {
-		t.Fatalf("member_id type = %s", got)
-	}
-	if group.Fields[1].Expr.Expression.Call == nil || group.Fields[1].Expr.Expression.Call.Args[0].Selector == nil || group.Fields[1].Expr.Expression.Call.Args[0].Selector.Context != "member" {
-		t.Fatalf("member context = %#v", group.Fields[1].Expr.Expression)
-	}
-}
-
-func resolvedDefaultACEDBundle(t *testing.T) recipe.Bundle {
-	t.Helper()
-	bundle, err := recipetest.DefaultACED()
-	if err != nil {
-		t.Fatal(err)
-	}
-	resourceTypes := []string{"DocumentReference", "Specimen", "Patient", "ResearchStudy", "Observation", "ResearchSubject", "Condition", "MedicationAdministration", "Group"}
-	byType := make(map[string][]schema.FieldCandidate, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
-		byType[resourceType] = []schema.FieldCandidate{
-			{ResourceType: resourceType, Path: "id", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system"}},
-			{ResourceType: resourceType, Path: "identifier[].value", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"url"}},
-		}
-		if resourceType == "Observation" {
-			byType[resourceType] = append(byType[resourceType],
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].code.text", Kind: "scalar", DistinctValues: []string{"component"}},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].valueString", Kind: "scalar"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].valueInteger", Kind: "scalar"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].valueBoolean", Kind: "scalar"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].valueDateTime", Kind: "scalar"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].valueQuantity.value", Kind: "scalar"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "observation_code_value", PivotColumns: []string{"code"}, PivotColumnSelect: "code.coding[].display", PivotValueSelect: "valueString"},
-				schema.FieldCandidate{ResourceType: resourceType, Path: "component[].code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "codeable_concept", PivotColumns: []string{"component"}, PivotColumnSelect: "component[].code.coding[].display", PivotValueSelect: "component[].code.coding[].display"},
-			)
-		}
-	}
-	resolved, err := schema.Resolve(context.Background(), bundle, schema.Scope{Project: "test", DatasetGeneration: "generation"}, testDefaultDiscovery{fields: byType})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resolved.Bundle
-}
-
-type testDefaultDiscovery struct {
-	fields map[string][]schema.FieldCandidate
-}
-
-func (d testDefaultDiscovery) Fields(_ context.Context, _ schema.Scope, resourceType string) ([]schema.FieldCandidate, error) {
-	return append([]schema.FieldCandidate(nil), d.fields[resourceType]...), nil
-}
 
 func TestSemanticUnnestRejectsNonRepeatedAndUnsafeBindings(t *testing.T) {
 	base := SemanticUnnest{

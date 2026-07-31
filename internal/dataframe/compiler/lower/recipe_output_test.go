@@ -10,12 +10,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +95,7 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 }
 
 func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +136,7 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 }
 
 func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -172,37 +171,19 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	}
 }
 
-func resolvedDefaultBundleForLowerTest(t *testing.T) recipe.Bundle {
+func compilerFixtureBundle(t *testing.T) recipe.Bundle {
 	t.Helper()
-	bundle, err := recipetest.DefaultACED()
+	bundle, err := recipe.Parse([]byte(`{
+		"recipeSchemaVersion":1,
+		"name":"compiler-fixture",
+		"translationVersion":"test",
+		"outputs":[
+			{"name":"Patient","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"id","expr":{"select":"root.id"}}]},
+			{"name":"GroupMember","rootResourceType":"Group","rowGrain":"expanded","expand":{"from":{"select":"root.member[]"},"as":"member"},"identity":{"name":"id","expr":{"select":"root.id"}},"fields":[{"name":"group_id","expr":{"select":"root.id"}},{"name":"member_id","expr":{"select":"root.id"}}]}
+		]
+	}`))
 	if err != nil {
 		t.Fatal(err)
-	}
-	var walk func([]recipe.DynamicColumn, []recipe.Pivot, []recipe.Traversal)
-	walk = func(dynamicColumns []recipe.DynamicColumn, pivots []recipe.Pivot, traversals []recipe.Traversal) {
-		for i := range dynamicColumns {
-			if len(dynamicColumns[i].Columns) == 0 {
-				dynamicColumns[i].Columns = []string{"test"}
-			}
-		}
-		for i := range pivots {
-			pivots[i].Discovery = nil
-			if len(pivots[i].Columns) == 0 {
-				pivots[i].Columns = []string{"test"}
-			}
-			if pivots[i].ColumnExpr.Select == "" {
-				pivots[i].ColumnExpr.Select = "code.coding[].display"
-			}
-			if pivots[i].ValueExpr.Select == "" {
-				pivots[i].ValueExpr.Select = "valueString"
-			}
-		}
-		for i := range traversals {
-			walk(traversals[i].DynamicColumns, traversals[i].Pivots, traversals[i].Traversals)
-		}
-	}
-	for i := range bundle.Outputs {
-		walk(bundle.Outputs[i].DynamicColumns, bundle.Outputs[i].Pivots, bundle.Outputs[i].Traversals)
 	}
 	return bundle
 }

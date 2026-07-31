@@ -313,6 +313,10 @@ func Run() {
 			ConnectionOptions: connOpts,
 			Schema:            *schema,
 		}},
+		BundleRunner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
+			ConnectionOptions: connOpts,
+			Schema:            *schema,
+		}},
 		GenerationRunner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            *schema,

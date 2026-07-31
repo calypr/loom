@@ -167,6 +167,10 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return nil
 }
 
+func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error) {
+	return c.db.CollectionExists(ctx, name)
+}
+
 // ExecuteAQL runs a write/query statement and drains its cursor. It is kept
 // deliberately small so durable registries can perform compare-and-swap
 // updates without exposing the Arango driver through their public APIs.

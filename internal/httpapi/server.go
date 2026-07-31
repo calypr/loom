@@ -100,8 +100,9 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		dataframeExporter:            cfg.DataframeExporter,
 	}
 	app := fiber.New(fiber.Config{
-		BodyLimit:      cfg.BodyLimit,
-		ReadBufferSize: cfg.ReadBufferSize,
+		BodyLimit:         cfg.BodyLimit,
+		ReadBufferSize:    cfg.ReadBufferSize,
+		StreamRequestBody: true,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			requestID := requestIDFromCtx(c)
 			var apiErr *apiError

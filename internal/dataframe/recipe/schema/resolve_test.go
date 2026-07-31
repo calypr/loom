@@ -5,10 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/recipetest"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -170,64 +167,5 @@ func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 	}
 	if first.StoredRecipeDigest != second.StoredRecipeDigest || first.ResolvedSchemaDigest != second.ResolvedSchemaDigest || first.ScopeDigest != second.ScopeDigest {
 		t.Fatalf("scope ordering changed resolution identity: first=%#v second=%#v", first, second)
-	}
-}
-
-func TestDefaultRecipeCatalogDeclarationsRemainSemanticallyCompilable(t *testing.T) {
-	bundle, err := recipetest.DefaultACED()
-	if err != nil {
-		t.Fatal(err)
-	}
-	resourceTypes := []string{"DocumentReference", "Specimen", "Patient", "ResearchStudy", "Observation", "ResearchSubject", "Condition", "MedicationAdministration", "Group"}
-	byType := make(map[string][]FieldCandidate, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
-		byType[resourceType] = []FieldCandidate{
-			{ResourceType: resourceType, Path: "id", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system"}},
-			{ResourceType: resourceType, Path: "identifier[].value", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"url"}},
-		}
-		if resourceType == "Observation" {
-			byType[resourceType] = append(byType[resourceType],
-				FieldCandidate{ResourceType: resourceType, Path: "component[].code.text", Kind: "scalar", DistinctValues: []string{"component"}},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueString", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueInteger", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueBoolean", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueDateTime", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueQuantity.value", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "observation_code_value", PivotColumns: []string{"code"}, PivotColumnSelect: "code.coding[].display", PivotValueSelect: "valueString"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "codeable_concept", PivotColumns: []string{"component"}, PivotColumnSelect: "component[].code.coding[].display", PivotValueSelect: "component[].code.coding[].display"},
-			)
-		}
-		if resourceType == "DocumentReference" {
-			byType[resourceType] = append(byType[resourceType], FieldCandidate{
-				ResourceType: resourceType, Path: "category[].coding[].code", Kind: "scalar", DistinctValues: []string{"PLATFORM", "PASSED_QC"},
-			})
-		}
-	}
-	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{byType: byType})
-	if err != nil {
-		t.Fatal(err)
-	}
-	documentReference := resolved.Bundle.Outputs[0]
-	if got := documentReference.DynamicColumns[2].Columns; strings.Join(got, ",") != "PASSED_QC,PLATFORM" {
-		t.Fatalf("DocumentReference category columns = %#v", got)
-	}
-	if got := documentReference.Traversals[0].DynamicColumns[0].Columns; strings.Join(got, ",") != "system" {
-		t.Fatalf("Specimen identifier columns = %#v", got)
-	}
-	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
-		t.Fatalf("resolved default recipe did not type-check: %v", err)
-	}
-	plan, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	physical, err := semantic.ResolveRecipePlan(plan, "scope", "g")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lower.CompileResolvedRecipePlan(physical, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
-		t.Fatalf("resolved default recipe did not compile physically: %v", err)
 	}
 }

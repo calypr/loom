@@ -53,6 +53,10 @@ type GenerationRunner interface {
 	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
 }
 
+type BundleRunner interface {
+	RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
+}
+
 type IngestRunner struct {
 	BaseOptions ingest.LoadOptions
 }
@@ -82,8 +86,18 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	return ingest.Load(ctx, opts)
 }
 
+func (r IngestRunner) RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
+	opts := r.BaseOptions
+	opts.Project = req.Project
+	opts.AuthResourcePath = req.AuthResourcePath
+	opts.MetaDir = req.StagedDir
+	opts.EventSink = sink
+	return ingest.Load(ctx, opts)
+}
+
 type ServiceConfig struct {
 	Runner           Runner
+	BundleRunner     BundleRunner
 	GenerationRunner GenerationRunner
 	Logger           *slog.Logger
 	OnSuccess        func(project string)
@@ -91,6 +105,7 @@ type ServiceConfig struct {
 
 type Service struct {
 	runner           Runner
+	bundleRunner     BundleRunner
 	generationRunner GenerationRunner
 	logger           *slog.Logger
 	onSuccess        func(project string)
@@ -105,10 +120,28 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	return &Service{
 		runner:           cfg.Runner,
+		bundleRunner:     cfg.BundleRunner,
 		generationRunner: cfg.GenerationRunner,
 		logger:           cfg.Logger,
 		onSuccess:        cfg.OnSuccess,
 	}, nil
+}
+
+func (s *Service) RunBundle(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
+	if s.bundleRunner == nil {
+		return nil, errors.New("bundle runner is not configured")
+	}
+	if req.Project == "" || req.StagedDir == "" {
+		return nil, errors.New("project and staged directory are required")
+	}
+	summary, err := s.bundleRunner.RunBundle(ctx, req, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.onSuccess != nil {
+		s.onSuccess(req.Project)
+	}
+	return &GenerationLoadResult{Project: req.Project, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary}, nil
 }
 
 func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {

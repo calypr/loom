@@ -12,9 +12,17 @@ func (s *HTTPServer) register() {
 	s.registerBulkResourceRoutes()
 	s.registerImportRoutes()
 	s.registerGenerationRoutes()
+	s.registerRawRoutes()
 	if s.dataframeExporter != nil {
 		s.app.Post("/loom/api/v1/dataframe/export", s.exportDataframe)
 	}
+}
+
+func (s *HTTPServer) registerRawRoutes() {
+	if s.rawExporter != nil {
+		s.app.Get("/api/v1/raw", s.dumpRaw)
+	}
+	s.app.Put("/api/v1/raw", s.loadRaw)
 }
 
 func (s *HTTPServer) registerBulkResourceRoutes() {
