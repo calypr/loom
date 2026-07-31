@@ -33,7 +33,7 @@ generate-graphql:
 	for config in gqlgen.yml gqlgen.clickhouse.yml; do \
 		GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config $$config || status=$$?; \
 	done; \
-	for generated in generated/graphqlapi/executor/schema.generated.go generated/graphqlapi/clickhouse/executor/generated.go; do \
+	for generated in generated/graphql/graph/executor/schema.generated.go generated/graphql/flat/executor/generated.go; do \
 		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix $$generated || fix_status=$$?; \
 	done; \
 	test $$fix_status -eq 0; \
@@ -46,7 +46,7 @@ generate-fhir:
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/graphqlapi/... ./generated/graphqlapi/... -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/api/graphql/... ./generated/graphql/... -count=1
 
 gqlgen-check: graphql-check
 

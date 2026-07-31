@@ -19,17 +19,17 @@ under `internal`:
 | --- | --- | --- |
 | `generated/fhir/` | `fhir` | Public generated FHIR resource structs and validation helpers. |
 | `generated/fhirschema/` | `fhirschema` | Raw generated schema tables consumed by the internal schema package. |
-| `generated/graphqlapi/executor/` | `executor` | Primary gqlgen executable schema. |
-| `generated/graphqlapi/model/` | `model` | Shared GraphQL input/output models. |
-| `generated/graphqlapi/resolver/` | `resolver` | Primary gqlgen resolver bindings. |
-| `generated/graphqlapi/clickhouse/executor/` | `executor` | Flat-reader executable schema. |
-| `generated/graphqlapi/clickhouse/resolver/` | `resolver` | Flat-reader resolver bindings. |
+| `generated/graphql/graph/executor/` | `executor` | Primary gqlgen executable schema. |
+| `generated/graphql/graph/model/` | `model` | Shared GraphQL input/output models. |
+| `generated/graphql/graph/resolver/` | `resolver` | Primary gqlgen resolver bindings. |
+| `generated/graphql/flat/executor/` | `executor` | Flat-reader executable schema. |
+| `generated/graphql/flat/resolver/` | `resolver` | Flat-reader resolver bindings. |
 
 The generated executors expose gqlgen's resolver interfaces. gqlgen requires
 resolver receivers and preserved resolver implementations to share one Go
 package, so its resolver directories also contain thin GraphQL adapter glue.
-Application behavior remains in `internal/graphqlapi/query`,
-`internal/graphqlapi/materialization`, and the internal dataframe services.
+Application behavior remains in `internal/api/graphql/graph/query`,
+`internal/api/graphql/graph/materialization`, and the internal dataframe services.
 Database access and compiler logic do not belong in `generated/`.
 
 Resolver implementations are the narrow exception to the no-edit rule: gqlgen
@@ -41,28 +41,28 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 
 | Directory | Responsibility |
 | --- | --- |
-| `internal/graphqlapi/schema/` | Handwritten primary GraphQL schema. |
-| `internal/graphqlapi/clickhouse/schema/` | Handwritten flat-reader schema. |
-| `internal/graphqlapi/` | HTTP handler and shared GraphQL error presentation. |
-| `internal/graphqlapi/query/` | Arango graph and FHIR dataframe request services. |
-| `internal/graphqlapi/materialization/` | Published-dataframe transport mapping. |
-| `internal/graphqlapi/clickhouse/` | Flat-reader HTTP handler. |
+| `internal/api/graphql/graph/schema/` | Handwritten primary GraphQL schema. |
+| `internal/api/graphql/flat/schema/` | Handwritten flat-reader schema. |
+| `internal/api/graphql/graph/` | HTTP handler and shared GraphQL error presentation. |
+| `internal/api/graphql/graph/query/` | Arango graph and FHIR dataframe request services. |
+| `internal/api/graphql/graph/materialization/` | Published-dataframe transport mapping. |
+| `internal/api/graphql/flat/` | Flat-reader HTTP handler. |
 
 ## Sources of truth and outputs
 
 | Input | Command | Generated outputs |
 | --- | --- | --- |
-| `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphqlapi/schema/fhir_schema.graphqls` |
-| `internal/graphqlapi/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphqlapi/` |
-| `internal/graphqlapi/clickhouse/schema/schema.graphqls` and `gqlgen.clickhouse.yml` | `make generate-graphql` | Flat-reader executor and resolver bindings under `generated/graphqlapi/clickhouse/` |
+| `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphql/graph/schema/fhir_schema.graphqls` |
+| `internal/api/graphql/graph/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` |
+| `internal/api/graphql/flat/schema/schema.graphqls` and `gqlgen.clickhouse.yml` | `make generate-graphql` | Flat-reader executor and resolver bindings under `generated/graphql/flat/` |
 
-`generated/graphqlapi/executor/fhir_schema.generated.go` and
-`generated/graphqlapi/executor/root_.generated.go` are
+`generated/graphql/graph/executor/fhir_schema.generated.go` and
+`generated/graphql/graph/executor/root_.generated.go` are
 large because gqlgen emits executable dispatch code for every selectable field
 in the typed FHIR schema. They are generated runtime code, not duplicate data
 models or a second query engine.
 
-`generated/graphqlapi/resolver/fhir_schema.resolvers.go` contains generated
+`generated/graphql/graph/resolver/fhir_schema.resolvers.go` contains generated
 field bindings that call shared helpers. It lets all JSON FHIR property names
 remain selectable without hand-writing one resolver per field.
 

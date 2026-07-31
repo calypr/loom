@@ -1,20 +1,20 @@
 schema:
-  - internal/graphqlapi/schema/schema.graphqls
-  - generated/graphqlapi/schema/fhir_schema.graphqls
+  - internal/api/graphql/graph/schema/schema.graphqls
+  - generated/graphql/graph/schema/fhir_schema.graphqls
 
 exec:
   layout: follow-schema
-  dir: generated/graphqlapi/executor
+  dir: generated/graphql/graph/executor
   filename_template: "{name}.generated.go"
   package: executor
 
 model:
-  filename: generated/graphqlapi/model/models.go
+  filename: generated/graphql/graph/model/models.go
   package: model
 
 resolver:
   layout: follow-schema
-  dir: generated/graphqlapi/resolver
+  dir: generated/graphql/graph/resolver
   package: resolver
 
 skip_mod_tidy: true

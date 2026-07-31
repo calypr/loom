@@ -504,12 +504,12 @@ internal/dataframe/materialization/
   aggregate.go              # terms, stats, histograms, nested aggregations
   export.go                 # reusable streaming query plan
 
-internal/graphqlapi/materialization/
+internal/api/graphql/graph/materialization/
   service.go                # principal-scoped transport authorization
   input.go                  # GraphQL input to canonical reader models
   output.go                 # public metadata and normalized result mapping
 
-internal/httpapi/
+internal/api/http/
   dataframe_export.go       # authenticated streaming export route
 ```
 

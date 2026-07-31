@@ -24,8 +24,8 @@ selector, traversal, and compiler semantics that consume those tables.
 
 GraphQL is split the same way. Handwritten schemas, HTTP transport, error
 presentation, query services, and materialization mapping live under
-`internal/graphqlapi`. gqlgen models, executors, and resolver bindings live
-under `generated/graphqlapi`. The root gqlgen configurations are inputs, so
+`internal/api/graphql/graph`. gqlgen models, executors, and resolver bindings live
+under `generated/graphql/graph`. The root gqlgen configurations are inputs, so
 they do not live in `generated/`.
 
 ## Runtime surfaces
@@ -91,9 +91,9 @@ The current runtime call path is:
 
 ```text
 GraphQL request
-  -> internal/graphqlapi HTTP handler
+  -> internal/api/graphql/graph HTTP handler
   -> generated gqlgen executor and resolver binding
-  -> internal/graphqlapi/query.Service
+  -> internal/api/graphql/graph/query.Service
   -> dataframe/runtime.Service
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
@@ -117,9 +117,9 @@ The ClickHouse read path is parallel but separate:
 
 ```text
 GraphQL request
-  -> internal/graphqlapi/clickhouse HTTP handler
+  -> internal/api/graphql/flat HTTP handler
   -> generated ClickHouse executor and resolver binding
-  -> internal/graphqlapi/materialization.Service
+  -> internal/api/graphql/graph/materialization.Service
   -> dataframe/materialization.Reader
   -> ClickHouse
 ```

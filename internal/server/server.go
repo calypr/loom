@@ -16,7 +16,14 @@ import (
 	"syscall"
 	"time"
 
-	graphresolver "github.com/calypr/loom/generated/graphqlapi/resolver"
+	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
+	dumpapi "github.com/calypr/loom/internal/api/bulk/dump"
+	loadapi "github.com/calypr/loom/internal/api/bulk/load"
+	clickhousegraphql "github.com/calypr/loom/internal/api/graphql/flat"
+	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
+	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -29,11 +36,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
 	"github.com/calypr/loom/internal/dataframe/runtime"
-	"github.com/calypr/loom/internal/graphqlapi"
-	clickhousegraphql "github.com/calypr/loom/internal/graphqlapi/clickhouse"
-	materializationapi "github.com/calypr/loom/internal/graphqlapi/materialization"
-	queryapi "github.com/calypr/loom/internal/graphqlapi/query"
-	api "github.com/calypr/loom/internal/httpapi"
 	"github.com/calypr/loom/internal/ingest"
 	publicationcontract "github.com/calypr/loom/internal/publication"
 	publicationarango "github.com/calypr/loom/internal/publication/arango"
@@ -329,16 +331,16 @@ func Run() {
 		ActiveManifestResolver: activeManifestResolver,
 	})
 
-	importService, err := api.NewService(api.ServiceConfig{
-		Runner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
+	importService, err := loadapi.NewService(loadapi.ServiceConfig{
+		Runner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            *schema,
 		}},
-		BundleRunner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
+		BundleRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            *schema,
 		}},
-		GenerationRunner: api.IngestRunner{BaseOptions: ingest.LoadOptions{
+		GenerationRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            *schema,
 		}},
@@ -355,18 +357,9 @@ func Run() {
 	}
 
 	server, err := api.NewHTTPServer(api.HTTPConfig{
-		Service:                      importService,
-		Authenticator:                authenticator,
-		Authorizer:                   authorizer,
-		ScopeResolver:                scopeResolver,
-		GraphQLHandler:               graphqlapi.NewHandler(resolver),
-		ClickHouseGraphQLHandler:     clickhousegraphql.NewHandler(clickhouseService),
-		DataframeExporter:            clickhouseService,
-		GraphQLPlaygroundHandler:     graphqlapi.NewPlaygroundHandler("/graphql/graph"),
-		ApolloSandboxHandler:         graphqlapi.NewApolloSandboxHandler("/graphql/graph"),
-		DisableSingleResourceImports: *datasetGenerations,
-		RawExporter:                  api.ArangoRawExporter{Query: lifecycleClient, Manifests: lifecycleStore},
-		Logger:                       logger,
+		Authenticator: authenticator,
+		Authorizer:    authorizer,
+		Logger:        logger,
 		CoreReadyCheck: func(ctx context.Context) error {
 			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
 		},
@@ -385,6 +378,14 @@ func Run() {
 	if err != nil {
 		exitf("create HTTP server: %v", err)
 	}
+	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: importService, Authorizer: authorizer, ScopeResolver: scopeResolver, DisableSingleResourceImports: *datasetGenerations})
+	if err != nil {
+		exitf("create load handler: %v", err)
+	}
+	loadHandler.RegisterRoutes(server.App())
+	dumpapi.NewHandler(dumpapi.Config{RawExporter: dumpapi.ArangoRawExporter{Query: lifecycleClient, Manifests: lifecycleStore}, DataframeExporter: clickhouseService, ScopeResolver: scopeResolver, DisableSingleResourceImports: *datasetGenerations}).RegisterRoutes(server.App())
+	graphapi.RegisterRoutes(server.App(), graphapi.RouteConfig{Handler: graphapi.NewHandler(resolver), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")})
+	clickhousegraphql.RegisterRoutes(server.App(), clickhousegraphql.NewHandler(clickhouseService))
 
 	errCh := make(chan error, 1)
 	go func() {

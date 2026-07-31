@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	graphresolver "github.com/calypr/loom/generated/graphqlapi/resolver"
+	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"

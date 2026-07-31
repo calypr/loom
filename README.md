@@ -295,7 +295,7 @@ without rebuilding the server image.
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
 | [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
 | [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
-| [`generated/graphqlapi`](generated/graphqlapi) | gqlgen models, executors, and resolver bindings. |
+| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and resolver bindings. |
 | [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/publication`](internal/publication) | Immutable generation and active-manifest contracts. |
@@ -306,10 +306,10 @@ without rebuilding the server image.
 | [`internal/dataframe/materialization`](internal/dataframe/materialization) | ClickHouse table lifecycle, durable publication pointers, and federated reads. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
-| [`internal/graphqlapi`](internal/graphqlapi) | GraphQL HTTP transport and error presentation. |
-| [`internal/graphqlapi/query`](internal/graphqlapi/query) | Arango graph and FHIR dataframe API services. |
-| [`internal/graphqlapi/materialization`](internal/graphqlapi/materialization) | Published-dataframe transport mapping. |
-| [`internal/graphqlapi/clickhouse`](internal/graphqlapi/clickhouse) | Dedicated flat-reader GraphQL HTTP transport. |
+| [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
+| [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
+| [`internal/api/graphql/graph/materialization`](internal/api/graphql/graph/materialization) | Published-dataframe transport mapping. |
+| [`internal/api/graphql/flat`](internal/api/graphql/flat) | Dedicated flat-reader GraphQL HTTP transport. |
 
 ## Build, generation, and tests
 

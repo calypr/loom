@@ -67,7 +67,7 @@ func main() {
 	schemaPath := fs.String("schema", "schemas/graph-fhir.json", "Path to graph-fhir JSON schema")
 	structsDir := fs.String("structs-out", "generated/fhir", "Directory for generated FHIR Go structs, validation, and edge extraction")
 	metadataOut := fs.String("metadata-out", "generated/fhirschema/generated.go", "Path for generated compiler FHIR schema metadata")
-	graphqlOut := fs.String("graphql-out", "generated/graphqlapi/schema/fhir_schema.graphqls", "Path for generated FHIR GraphQL schema")
+	graphqlOut := fs.String("graphql-out", "generated/graphql/graph/schema/fhir_schema.graphqls", "Path for generated FHIR GraphQL schema")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(2)
