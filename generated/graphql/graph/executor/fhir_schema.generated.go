@@ -1155,7 +1155,7 @@ func (ec *executionContext) field_Reference_resource_args(ctx context.Context, r
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "type",
 		func(ctx context.Context, v any) (*model.FHIRResourceType, error) {
-			return ec.unmarshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐFHIRResourceType(ctx, v)
+			return ec.unmarshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFHIRResourceType(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -45324,7 +45324,7 @@ func (ec *executionContext) _Reference_resource(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v model.FHIRResource) graphql.Marshaler {
-			return ec.marshalOFHIRResource2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐFHIRResource(ctx, selections, v)
+			return ec.marshalOFHIRResource2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFHIRResource(ctx, selections, v)
 		},
 		true,
 		false,
@@ -106726,14 +106726,14 @@ func (ec *executionContext) marshalOFHIRPrimitiveExtension2ᚖgithubᚗcomᚋcal
 	return ec._FHIRPrimitiveExtension(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOFHIRResource2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐFHIRResource(ctx context.Context, sel ast.SelectionSet, v model.FHIRResource) graphql.Marshaler {
+func (ec *executionContext) marshalOFHIRResource2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFHIRResource(ctx context.Context, sel ast.SelectionSet, v model.FHIRResource) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._FHIRResource(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐFHIRResourceType(ctx context.Context, v any) (*model.FHIRResourceType, error) {
+func (ec *executionContext) unmarshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFHIRResourceType(ctx context.Context, v any) (*model.FHIRResourceType, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -106742,7 +106742,7 @@ func (ec *executionContext) unmarshalOFHIRResourceType2ᚖgithubᚗcomᚋcalypr�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐFHIRResourceType(ctx context.Context, sel ast.SelectionSet, v *model.FHIRResourceType) graphql.Marshaler {
+func (ec *executionContext) marshalOFHIRResourceType2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFHIRResourceType(ctx context.Context, sel ast.SelectionSet, v *model.FHIRResourceType) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

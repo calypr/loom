@@ -19841,7 +19841,7 @@ func newExecutionContext(
 }
 
 var sources = []*ast.Source{
-	{Name: "../../../internal/api/graphql/graph/schema/schema.graphqls", Input: `type Query {
+	{Name: "../../../../internal/api/graphql/graph/schema/schema.graphqls", Input: `type Query {
   dataframeBuilderIntrospection(
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!

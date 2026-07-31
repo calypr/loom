@@ -800,7 +800,7 @@ func (ec *executionContext) field_Query_dataframeAggregate_args(ctx context.Cont
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeAggregateInput, error) {
-			return ec.unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregateInput(ctx, v)
+			return ec.unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -814,7 +814,7 @@ func (ec *executionContext) field_Query_dataframeAggregations_args(ctx context.C
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
-			return ec.unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationsInput(ctx, v)
+			return ec.unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -828,7 +828,7 @@ func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Contex
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
-			return ec.unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeDatasetInput(ctx, v)
+			return ec.unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeDatasetInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -842,7 +842,7 @@ func (ec *executionContext) field_Query_dataframeRows_args(ctx context.Context, 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeRowsInput, error) {
-			return ec.unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeRowsInput(ctx, v)
+			return ec.unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowsInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -924,7 +924,7 @@ func (ec *executionContext) _DataframeAggregateResult_materialization(ctx contex
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1002,7 +1002,7 @@ func (ec *executionContext) _DataframeAggregationsResult_materialization(ctx con
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1310,7 +1310,7 @@ func (ec *executionContext) _DataframeMaterialization_state(ctx context.Context,
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v model.DataframeMaterializationState) graphql.Marshaler {
-			return ec.marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterializationState(ctx, selections, v)
+			return ec.marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1333,7 +1333,7 @@ func (ec *executionContext) _DataframeMaterialization_columns(ctx context.Contex
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
-			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeColumnᚄ(ctx, selections, v)
+			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1549,7 +1549,7 @@ func (ec *executionContext) _DataframeRowConnection_materialization(ctx context.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1650,7 +1650,7 @@ func (ec *executionContext) _DataframeRowConnection_pageInfo(ctx context.Context
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframePageInfo) graphql.Marshaler {
-			return ec.marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframePageInfo(ctx, selections, v)
+			return ec.marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframePageInfo(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1682,7 +1682,7 @@ func (ec *executionContext) _Query_dataframeDatasets(ctx context.Context, field 
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterializationᚄ(ctx, selections, v)
+			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1715,7 +1715,7 @@ func (ec *executionContext) _Query_dataframeDataset(ctx context.Context, field g
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		false,
@@ -1759,7 +1759,7 @@ func (ec *executionContext) _Query_dataframeRows(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
-			return ec.marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeRowConnection(ctx, selections, v)
+			return ec.marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1803,7 +1803,7 @@ func (ec *executionContext) _Query_dataframeAggregate(ctx context.Context, field
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregateResult) graphql.Marshaler {
-			return ec.marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregateResult(ctx, selections, v)
+			return ec.marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateResult(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1847,7 +1847,7 @@ func (ec *executionContext) _Query_dataframeAggregations(ctx context.Context, fi
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
-			return ec.marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx, selections, v)
+			return ec.marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx, selections, v)
 		},
 		true,
 		true,
@@ -3046,7 +3046,7 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 			it.GroupBy = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -3173,14 +3173,14 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 			it.DataType = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Filters = data
 		case "specs":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("specs"))
-			data, err := ec.unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx, v)
+			data, err := ec.unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -3302,14 +3302,14 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 			it.Columns = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Filters = data
 		case "sort":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sort"))
-			data, err := ec.unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeSortInput(ctx, v)
+			data, err := ec.unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSortInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -4341,16 +4341,16 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregateInput(ctx context.Context, v any) (model.DataframeAggregateInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateInput(ctx context.Context, v any) (model.DataframeAggregateInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeAggregateResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregateResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregateResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregateResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregateResult) graphql.Marshaler {
 	return ec._DataframeAggregateResult(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregateResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregateResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregateResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4360,13 +4360,13 @@ func (ec *executionContext) marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋc
 	return ec._DataframeAggregateResult(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx context.Context, v any) ([]*model.DataframeAggregationSpecInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx context.Context, v any) ([]*model.DataframeAggregationSpecInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
 	res := make([]*model.DataframeAggregationSpecInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -4374,21 +4374,21 @@ func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithub
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationSpecInput(ctx context.Context, v any) (*model.DataframeAggregationSpecInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInput(ctx context.Context, v any) (*model.DataframeAggregationSpecInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregationSpecInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationsInput(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsInput(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregationsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeAggregationsResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregationsResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregationsResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregationsResult) graphql.Marshaler {
 	return ec._DataframeAggregationsResult(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4398,11 +4398,11 @@ func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcom�
 	return ec._DataframeAggregationsResult(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeColumn(ctx, sel, v[i])
+		return ec.marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumn(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -4414,7 +4414,7 @@ func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalypr�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeColumn(ctx context.Context, sel ast.SelectionSet, v *model.DataframeColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumn(ctx context.Context, sel ast.SelectionSet, v *model.DataframeColumn) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4424,21 +4424,21 @@ func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋl
 	return ec._DataframeColumn(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeDatasetInput(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
+func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeDatasetInput(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
 	res, err := ec.unmarshalInputDataframeDatasetInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInput(ctx context.Context, v any) (*model.DataframeFilterInput, error) {
+func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInput(ctx context.Context, v any) (*model.DataframeFilterInput, error) {
 	res, err := ec.unmarshalInputDataframeFilterInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterializationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx, sel, v[i])
+		return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -4450,7 +4450,7 @@ func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcom�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4460,17 +4460,17 @@ func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋc
 	return ec._DataframeMaterialization(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterializationState(ctx context.Context, v any) (model.DataframeMaterializationState, error) {
+func (ec *executionContext) unmarshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx context.Context, v any) (model.DataframeMaterializationState, error) {
 	var res model.DataframeMaterializationState
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterializationState(ctx context.Context, sel ast.SelectionSet, v model.DataframeMaterializationState) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx context.Context, sel ast.SelectionSet, v model.DataframeMaterializationState) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframePageInfo(ctx context.Context, sel ast.SelectionSet, v *model.DataframePageInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframePageInfo(ctx context.Context, sel ast.SelectionSet, v *model.DataframePageInfo) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4480,11 +4480,11 @@ func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalypr�
 	return ec._DataframePageInfo(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeRowConnection2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v model.DataframeRowConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRowConnection2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v model.DataframeRowConnection) graphql.Marshaler {
 	return ec._DataframeRowConnection(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -4494,7 +4494,7 @@ func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcal
 	return ec._DataframeRowConnection(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeRowsInput(ctx context.Context, v any) (model.DataframeRowsInput, error) {
+func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowsInput(ctx context.Context, v any) (model.DataframeRowsInput, error) {
 	res, err := ec.unmarshalInputDataframeRowsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -4745,7 +4745,7 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
-func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInputᚄ(ctx context.Context, v any) ([]*model.DataframeFilterInput, error) {
+func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx context.Context, v any) ([]*model.DataframeFilterInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -4754,7 +4754,7 @@ func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋ
 	res := make([]*model.DataframeFilterInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeFilterInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -4762,14 +4762,14 @@ func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋ
 	return res, nil
 }
 
-func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._DataframeMaterialization(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlapiᚋmodelᚐDataframeSortInput(ctx context.Context, v any) (*model.DataframeSortInput, error) {
+func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSortInput(ctx context.Context, v any) (*model.DataframeSortInput, error) {
 	if v == nil {
 		return nil, nil
 	}

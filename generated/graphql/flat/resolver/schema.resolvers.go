@@ -11,8 +11,8 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/flat/executor"
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // Aggregations is the resolver for the aggregations field.
