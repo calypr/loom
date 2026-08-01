@@ -12,7 +12,8 @@ import (
 
 // TestReaderAgainstRealClickHouse exercises publication resolution, native
 // decoding, federated rows, streaming, and the aggregate contract. Set
-// LOOM_CLICKHOUSE_URL to run it locally or in CI.
+// LOOM_CLICKHOUSE_URL and, when required, LOOM_CLICKHOUSE_USERNAME and
+// LOOM_CLICKHOUSE_PASSWORD to run it locally or in CI.
 func TestReaderAgainstRealClickHouse(t *testing.T) {
 	url := os.Getenv("LOOM_CLICKHOUSE_URL")
 	if url == "" {
@@ -22,7 +23,12 @@ func TestReaderAgainstRealClickHouse(t *testing.T) {
 	if database == "" {
 		database = "loom_test"
 	}
-	client, err := clickhousestore.New(clickhousestore.Options{URL: url, Database: database, Timeout: 20 * time.Second})
+	client, err := clickhousestore.New(clickhousestore.Options{
+		URL: url, Database: database,
+		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
+		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
+		Timeout:  20 * time.Second,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +37,7 @@ func TestReaderAgainstRealClickHouse(t *testing.T) {
 	if err := client.EnsureDatabase(ctx); err != nil {
 		t.Fatal(err)
 	}
-	table := "loom_reader_it_" + uuid.NewString()[:12]
+	table := "loom_reader_it_" + uuid.NewString()[:8]
 	defer client.DropTable(ctx, table)
 	columns := []clickhousestore.Column{
 		{Name: "__loom_row_id", Type: "String"},

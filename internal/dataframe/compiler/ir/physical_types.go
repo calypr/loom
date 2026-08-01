@@ -56,9 +56,12 @@ const (
 	// PhysicalSortOp and PhysicalLimitOp describe the root execution window.
 	// They are intentionally typed so preview ordering and bounds cannot be
 	// smuggled into an AQL string by a caller.
-	PhysicalSortOp   PhysicalOperationKind = "SORT"
-	PhysicalLimitOp  PhysicalOperationKind = "LIMIT"
-	PhysicalReturnOp PhysicalOperationKind = "RETURN"
+	PhysicalSortOp        PhysicalOperationKind = "SORT"
+	PhysicalLimitOp       PhysicalOperationKind = "LIMIT"
+	PhysicalReturnOp      PhysicalOperationKind = "RETURN"
+	PhysicalPathSeedOp    PhysicalOperationKind = "PATH_SEED"
+	PhysicalPathExtendOp  PhysicalOperationKind = "PATH_EXTEND"
+	PhysicalGraphReturnOp PhysicalOperationKind = "GRAPH_RETURN"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
@@ -76,6 +79,9 @@ type PhysicalOperation struct {
 	Sort          *PhysicalSort
 	Limit         *PhysicalLimit
 	Return        *PhysicalReturn
+	PathSeed      *PhysicalPathSeed
+	PathExtend    *PhysicalPathExtend
+	GraphReturn   *PhysicalGraphReturn
 }
 
 type PhysicalRootScan struct {

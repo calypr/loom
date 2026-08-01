@@ -1,5 +1,11 @@
 package compiler
 
+import (
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
+
 // CompiledQuery is the executable result of the canonical recipe compiler.
 // It contains parameterized AQL plus stable metadata for execution, export,
 // and diagnostics; it does not expose a transport-specific request builder.
@@ -14,7 +20,7 @@ type CompiledQuery struct {
 	FileSummaries     bool
 	StudyLookup       bool
 	OptimizationRules []string
-	RowIdentity       *RowIdentity
+	RowIdentity       *spec.RowIdentity
 	Query             string
 	BindVars          map[string]any
 	Columns           []string
@@ -22,9 +28,9 @@ type CompiledQuery struct {
 	// physical RETURN projections. PublicColumns is the transport-safe view;
 	// Columns remains the legacy execution metadata used by generic runtime
 	// callers and may include the stable physical row identity.
-	OutputSchema    []CompiledOutputColumn
+	OutputSchema    []lower.CompiledOutputColumn
 	PublicColumns   []string
 	PivotFields     []string
 	Limit           int
-	PlanDiagnostics CompilerPlanDiagnostics
+	PlanDiagnostics ir.CompilerPlanDiagnostics
 }

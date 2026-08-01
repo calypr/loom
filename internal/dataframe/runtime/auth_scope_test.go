@@ -7,8 +7,10 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 type restrictedEmptyResourceAccess struct{}
@@ -54,11 +56,11 @@ func TestServiceRestrictedEmptyScopeStaysRestrictedInCatalogAndAQL(t *testing.T)
 }
 
 func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
-	plan, err := compiler.BuildGenericPhysicalPlan(compiler.SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:       1,
 		Project:       "P1",
 		AuthScopeMode: authscope.ReadScopeRestricted,
-		Root:          compiler.SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:          semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +68,7 @@ func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
 	if got, ok := plan.BindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 		t.Fatalf("physical unrestricted bind = %#v, want false", plan.BindVars["auth_resource_paths_unrestricted"])
 	}
-	rendered, err := compiler.RenderPhysicalPlan(plan)
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}

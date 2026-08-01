@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/store/arango"
 )
 
@@ -40,14 +41,14 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 		t.Fatal("gdc-case-matrix fixture is missing")
 	}
 
-	defaultPolicy := dataframe.DefaultPhysicalOptimizationPolicy()
+	defaultPolicy := ir.DefaultPhysicalOptimizationPolicy()
 	policies := []struct {
 		name   string
-		policy dataframe.PhysicalOptimizationPolicy
+		policy ir.PhysicalOptimizationPolicy
 	}{
-		{name: "none", policy: dataframe.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
-		{name: "sharing-only", policy: defaultPolicy.WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, false)},
-		{name: "prepared-only", policy: defaultPolicy.WithRule(dataframe.PhysicalOptimizationRuleTraversalSharing, false).WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, true)},
+		{name: "none", policy: ir.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
+		{name: "sharing-only", policy: defaultPolicy.WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)},
+		{name: "prepared-only", policy: defaultPolicy.WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, true)},
 		{name: "defaults", policy: defaultPolicy},
 	}
 
@@ -76,7 +77,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = dataframe.ExecuteQueryRows(ctx, dataframe.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+			err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -108,7 +109,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				}
 				t.Fatalf("result hash = %s, want %s", resultHash, expectedHash)
 			}
-			profile, err := dataframe.ProfileCompiledQuery(ctx, opts, compiled, 2)
+			profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,10 +162,10 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 		t.Run(fixtureID, func(t *testing.T) {
 			policies := []struct {
 				name   string
-				policy dataframe.PhysicalOptimizationPolicy
+				policy ir.PhysicalOptimizationPolicy
 			}{
-				{name: "unshared", policy: dataframe.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
-				{name: "sharing", policy: dataframe.DefaultPhysicalOptimizationPolicy().WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, false)},
+				{name: "unshared", policy: ir.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
+				{name: "sharing", policy: ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)},
 			}
 			var expectedHash string
 			for _, candidate := range policies {
@@ -178,7 +179,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = dataframe.ExecuteQueryRows(ctx, dataframe.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -216,7 +217,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				} else if resultHash != expectedHash {
 					t.Fatalf("%s result hash = %s, want %s", candidate.name, resultHash, expectedHash)
 				}
-				profile, err := dataframe.ProfileCompiledQuery(ctx, opts, compiled, 2)
+				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -271,10 +272,10 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 		t.Run(fixtureID, func(t *testing.T) {
 			policies := []struct {
 				name   string
-				policy dataframe.PhysicalOptimizationPolicy
+				policy ir.PhysicalOptimizationPolicy
 			}{
-				{name: "direct", policy: dataframe.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
-				{name: "prepared", policy: dataframe.DefaultPhysicalOptimizationPolicy().WithRule(dataframe.PhysicalOptimizationRuleTraversalSharing, false)},
+				{name: "direct", policy: ir.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1}},
+				{name: "prepared", policy: ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false)},
 			}
 			var expectedHash string
 			for _, candidate := range policies {
@@ -289,7 +290,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = dataframe.ExecuteQueryRows(ctx, dataframe.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -318,7 +319,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				profile, err := dataframe.ProfileCompiledQuery(ctx, opts, compiled, 2)
+				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -327,7 +328,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				if len(topNodes) > 10 {
 					topNodes = topNodes[:10]
 				}
-				explain, err := dataframe.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -378,7 +379,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			t.Fatalf("fixture %q is missing", fixtureID)
 		}
 		t.Run(fixtureID, func(t *testing.T) {
-			policy := dataframe.DefaultPhysicalOptimizationPolicy().WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, false)
+			policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
 			compiled, err := compileRecipe(fixture.Recipe, project, fixture.Limit, policy)
 			if err != nil {
 				t.Fatal(err)
@@ -390,7 +391,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = dataframe.ExecuteQueryRows(ctx, dataframe.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+				err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -414,7 +415,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			}
 			warm := append([]float64(nil), executeSeconds[1:]...)
 			sort.Float64s(warm)
-			profile, err := dataframe.ProfileCompiledQuery(ctx, opts, compiled, 2)
+			profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -423,7 +424,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			if len(topNodes) > 10 {
 				topNodes = topNodes[:10]
 			}
-			explain, err := dataframe.ExplainCompiledQuery(ctx, opts, compiled)
+			explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -473,13 +474,13 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 			if fixtureID == "gdc-case-matrix" {
 				limit = 1000
 			}
-			basePolicy := dataframe.DefaultPhysicalOptimizationPolicy().WithRule(dataframe.PhysicalOptimizationRulePreparedSelectors, false)
+			basePolicy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
 			policies := []struct {
 				name   string
-				policy dataframe.PhysicalOptimizationPolicy
+				policy ir.PhysicalOptimizationPolicy
 			}{
-				{name: "full", policy: basePolicy.WithRule(dataframe.PhysicalOptimizationRuleCompactProjection, false)},
-				{name: "compact", policy: basePolicy.WithRule(dataframe.PhysicalOptimizationRuleCompactProjection, true)},
+				{name: "full", policy: basePolicy.WithRule(ir.PhysicalOptimizationRuleCompactProjection, false)},
+				{name: "compact", policy: basePolicy.WithRule(ir.PhysicalOptimizationRuleCompactProjection, true)},
 			}
 			var expectedHash string
 			for _, candidate := range policies {
@@ -494,7 +495,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = dataframe.ExecuteQueryRows(ctx, dataframe.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -523,17 +524,17 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				profile, err := dataframe.ProfileCompiledQuery(ctx, opts, compiled, 2)
+				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
 				if err != nil {
 					t.Fatal(err)
 				}
 				summary := arango.SummarizeProfile(profile)
-				explain, err := dataframe.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
 				assessment := arango.AssessExplainResult(explain)
-				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d indexes=%#v compact_rule=%t", candidate.name, len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, assessment.Indexes, candidate.policy.RuleEnabled(dataframe.PhysicalOptimizationRuleCompactProjection))
+				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d indexes=%#v compact_rule=%t", candidate.name, len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, assessment.Indexes, candidate.policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection))
 			}
 		})
 	}

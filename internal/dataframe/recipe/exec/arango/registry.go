@@ -35,6 +35,18 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 }
 
 func (r *Registry) SaveRecipe(ctx context.Context, entry exec.Entry) error {
+	return r.saveRecipe(ctx, entry, entry.Digest)
+}
+
+func (r *Registry) ReplaceRecipe(ctx context.Context, entry exec.Entry) error {
+	existing, err := r.LoadRecipe(ctx, entry.Bundle.Name)
+	if err != nil {
+		return err
+	}
+	return r.saveRecipe(ctx, entry, existing.Digest)
+}
+
+func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry, key string) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -45,7 +57,7 @@ func (r *Registry) SaveRecipe(ctx context.Context, entry exec.Entry) error {
 	}
 	doc["name"] = entry.Bundle.Name
 	doc["digest"] = entry.Digest
-	doc["_key"] = entry.Digest
+	doc["_key"] = key
 	data, err = json.Marshal(doc)
 	if err != nil {
 		return err

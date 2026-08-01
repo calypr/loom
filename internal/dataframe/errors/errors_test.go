@@ -8,6 +8,23 @@ import (
 )
 
 func TestErrorCodesAreUniqueAndStable(t *testing.T) {
+	want := []ErrorCode{
+		CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
+		CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
+		CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
+		CodePlanTooExpensive, CodeInvalidCursor, CodeStaleCursor, CodeDatasetGenerationChanged,
+		CodeUnsupportedExportFormat, CodeClientCanceled, CodeBackendUnavailable, CodeDatasetNotFound,
+		CodeSchemaConflict, CodeInternalError, CodeInvalidResourceType, CodeInvalidLimit,
+		CodeNoActiveGeneration, CodeResourceDecodeFailed, CodeReferenceNotResolved, CodeQueryDepthExceeded,
+		CodeInvalidRequest, CodeInvalidData, CodeUnauthenticated, CodeForbidden, CodeRecipeNotFound,
+		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
+		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown,
+		CodeInvalidGenerationFile, CodeDuplicateGenerationFile,
+		CodePublicationInProgress, CodePublicationConflict, CodePublicationLeaseLost, CodeOutputEncodingFailed,
+	}
+	if !reflect.DeepEqual(AllErrorCodes, want) {
+		t.Fatalf("error registry = %#v, want %#v", AllErrorCodes, want)
+	}
 	seen := make(map[ErrorCode]struct{}, len(AllErrorCodes))
 	for _, code := range AllErrorCodes {
 		if code == "" {
@@ -18,8 +35,8 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		}
 		seen[code] = struct{}{}
 	}
-	if len(seen) != 19 {
-		t.Fatalf("error registry length = %d, want 19", len(seen))
+	if len(seen) != len(AllErrorCodes) {
+		t.Fatalf("error registry contains duplicate entries")
 	}
 }
 

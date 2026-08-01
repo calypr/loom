@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
@@ -34,7 +35,7 @@ func cloneRecipeNodeForPhysical(node semantic.SemanticNode) semantic.SemanticNod
 		// selector relative to the root resource. The checked recipe expression
 		// replaces this seed immediately after the skeleton is built.
 		if copy.Fields[index].Expr == nil || copy.Fields[index].Expr.Selector == nil {
-			if selector, err := ParseSelector("id"); err == nil {
+			if selector, err := spec.ParseSelector("id"); err == nil {
 				copy.Fields[index].Selector = selector
 			}
 		}

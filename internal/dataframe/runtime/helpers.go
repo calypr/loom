@@ -3,7 +3,7 @@ package runtime
 import (
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func cloneStrings(in []string) []string {
@@ -35,7 +35,7 @@ const (
 	datasetGenerationField   = "dataset_generation"
 )
 
-func cloneRowIdentity(in *compiler.RowIdentity) *compiler.RowIdentity {
+func cloneRowIdentity(in *spec.RowIdentity) *spec.RowIdentity {
 	if in == nil {
 		return nil
 	}

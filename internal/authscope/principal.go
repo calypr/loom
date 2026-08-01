@@ -1,6 +1,17 @@
 package authscope
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// Transport-neutral authorization conditions. Callers classify these
+// sentinels at the API boundary instead of matching driver/Fence messages.
+var (
+	ErrUnauthenticated                 = errors.New("authentication is required")
+	ErrForbidden                       = errors.New("authorization denied")
+	ErrAuthorizationBackendUnavailable = errors.New("authorization backend unavailable")
+)
 
 // Permission is the method recorded by Fence for a resource grant.
 // Values are intentionally normalized at the authorization boundary so Loom

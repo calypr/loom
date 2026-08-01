@@ -15,6 +15,18 @@ type bundleCatalogFixture struct {
 	pointers   map[string]BundlePointer
 }
 
+type leaseBundleCatalog struct {
+	*bundleCatalogFixture
+	acquire      bool
+	acquireCalls int
+	releaseCalls int
+	releaseErr   error
+	renewResult  bool
+	renewErr     error
+	saveErr      error
+	pointerErr   error
+}
+
 func newBundleCatalogFixture() *bundleCatalogFixture {
 	return &bundleCatalogFixture{executions: map[string]BundleExecution{}, pointers: map[string]BundlePointer{}}
 }
@@ -43,6 +55,30 @@ func (c *bundleCatalogFixture) GetPointer(_ context.Context, name string) (Bundl
 		return BundlePointer{}, ErrBundleNotFound
 	}
 	return p, nil
+}
+
+func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e BundleExecution) error {
+	if c.saveErr != nil {
+		return c.saveErr
+	}
+	return c.bundleCatalogFixture.SaveExecution(ctx, e)
+}
+func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (BundlePointer, error) {
+	if c.pointerErr != nil {
+		return BundlePointer{}, c.pointerErr
+	}
+	return c.bundleCatalogFixture.GetPointer(ctx, name)
+}
+func (c *leaseBundleCatalog) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	c.acquireCalls++
+	return c.acquire, nil
+}
+func (c *leaseBundleCatalog) RenewBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	return c.renewResult, c.renewErr
+}
+func (c *leaseBundleCatalog) ReleaseBundleLease(context.Context, string, string) error {
+	c.releaseCalls++
+	return c.releaseErr
 }
 func (c *bundleCatalogFixture) CompareAndSwapPointer(_ context.Context, name, expected, next string) error {
 	p, ok := c.pointers[name]
@@ -215,4 +251,47 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	if _, err := store.BeginBundleFor(context.Background(), identity); !errors.Is(err, ErrBundleInFlight) {
 		t.Fatalf("duplicate execution error = %v", err)
 	}
+}
+
+func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, pointerErr: errors.New("pointer lookup failed")}
+	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "pointer-failure"})
+	if err == nil || !errors.Is(err, catalog.pointerErr) {
+		t.Fatalf("BeginBundleFor() error = %v", err)
+	}
+	if catalog.acquireCalls != 0 || catalog.releaseCalls != 0 {
+		t.Fatalf("lease calls = acquire %d release %d, want no lease on pointer failure", catalog.acquireCalls, catalog.releaseCalls)
+	}
+}
+
+func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, saveErr: errors.New("save failed")}
+	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "save-failure"})
+	if err == nil || !errors.Is(err, catalog.saveErr) {
+		t.Fatalf("BeginBundleFor() error = %v", err)
+	}
+	if catalog.releaseCalls != 1 {
+		t.Fatalf("lease release calls = %d, want 1", catalog.releaseCalls)
+	}
+}
+
+func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true}
+	client := newBundleClickHouseFixture()
+	store, _ := NewClickHouseBundleStore(client, catalog)
+	store.leaseRenewInterval = time.Millisecond
+	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-loss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); !errors.Is(err, ErrBundleLeaseLost) {
+		t.Fatalf("InsertRows() error = %v, want lease loss", err)
+	}
+	_ = tx.Rollback(context.Background())
 }

@@ -1,0 +1,66 @@
+# Separate gqlgen configuration for the flat/ClickHouse GraphQL surface.
+schema:
+  - internal/api/graphql/flat/schema/schema.graphqls
+
+exec:
+  filename: generated/graphql/flat/executor/generated.go
+  package: executor
+
+model:
+  filename: generated/graphql/flat/executor/model.go
+  package: executor
+
+resolver:
+  layout: follow-schema
+  dir: generated/graphql/flat/resolver
+  package: resolver
+
+skip_mod_tidy: true
+skip_validation: true
+
+models:
+  JSON:
+    model:
+      - encoding/json.RawMessage
+  DataframeMaterialization:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeMaterialization
+  DataframeMaterializationState:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeMaterializationState
+  DataframeColumn:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeColumn
+  DataframeDatasetInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeDatasetInput
+  DataframeFilterInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeFilterInput
+  DataframeSortInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeSortInput
+  DataframeRowsInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeRowsInput
+  DataframePageInfo:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframePageInfo
+  DataframeRowConnection:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeRowConnection
+  DataframeAggregateInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeAggregateInput
+  DataframeAggregateResult:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeAggregateResult
+  DataframeAggregationSpecInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeAggregationSpecInput
+  DataframeAggregationsInput:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeAggregationsInput
+  DataframeAggregationsResult:
+    model:
+      - github.com/calypr/loom/generated/graphql/graph/model.DataframeAggregationsResult

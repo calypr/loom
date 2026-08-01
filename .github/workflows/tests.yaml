@@ -11,6 +11,11 @@ jobs:
     services:
       clickhouse:
         image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_DB: loom_test
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
         ports:
           - 9000:9000
           - 8123:8123
@@ -23,6 +28,8 @@ jobs:
     env:
       LOOM_CLICKHOUSE_URL: clickhouse://127.0.0.1:9000
       LOOM_CLICKHOUSE_DATABASE: loom_test
+      LOOM_CLICKHOUSE_USERNAME: loom_ci
+      LOOM_CLICKHOUSE_PASSWORD: loom_ci_password
 
     steps:
     - name: Checkout repository
@@ -36,6 +43,12 @@ jobs:
 
     - name: Generate FHIR code
       run: make generate-fhir
+
+    - name: Generate GraphQL code
+      run: make generate-graphql
+
+    - name: Check generated code is current
+      run: git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql
 
     - name: Run GraphQL contract checks
       run: make graphql-check

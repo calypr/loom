@@ -12,6 +12,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 var semanticBindingNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -31,7 +32,7 @@ type OutputPlan struct {
 	Name             string
 	Root             SemanticNode
 	RootResourceType string
-	RowGrain         RowGrain
+	RowGrain         spec.RowGrain
 	Identity         *SemanticExpression
 	// Unnest is the canonical semantic row-producing operation for an output.
 	// Persisted recipe expand syntax is lowered into this operation; consumers
@@ -140,7 +141,7 @@ type RecipePlanExplanation struct {
 type OutputPlanExplanation struct {
 	Name               string
 	Root               string
-	RowGrain           RowGrain
+	RowGrain           spec.RowGrain
 	Fields             []ExpressionExplanation
 	Identity           *ExpressionExplanation
 	Unnest             *UnnestExplanation

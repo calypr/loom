@@ -9,17 +9,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (OutputPlan, error) {
 	if !fhirschema.HasResource(output.RootResourceType) {
 		return OutputPlan{}, fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType)
 	}
-	grain := RowGrain(output.RowGrain)
-	if err := ValidateRootGrain(output.RootResourceType, grain); err != nil {
+	grain := spec.RowGrain(output.RowGrain)
+	if err := spec.ValidateRootGrain(output.RootResourceType, grain); err != nil {
 		// Persisted recipes may introduce a product-specific grain when they
 		// also declare the row-shaping operation and an explicit identity. The
 		// GraphQL request contract remains strict and continues to use
@@ -61,10 +62,10 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 			return OutputPlan{}, fmt.Errorf("expand: %w", err)
 		}
 		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy, Unnest: unnest}
-		return finishRecipeOutput(plan, output, scope, bindings)
+		return finishRecipeOutput(plan, output, scope)
 	}
 	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy}
-	return finishRecipeOutput(plan, output, scope, bindings)
+	return finishRecipeOutput(plan, output, scope)
 }
 
 func validCustomGrain(value string) bool {
@@ -80,7 +81,7 @@ func validCustomGrain(value string) bool {
 	return true
 }
 
-func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame, bindings recipe.RuntimeBindings) (OutputPlan, error) {
+func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame) (OutputPlan, error) {
 	if plan.Collision == "" {
 		plan.Collision = "error"
 	}
@@ -132,7 +133,6 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame,
 	}
 	plan.DynamicMaps = append(plan.DynamicMaps, dynamicMaps...)
 	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, dynamicMaps...)
-	_ = bindings // retained in RecipePlan; output compilation is scope-only
 	return plan, nil
 }
 

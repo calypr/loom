@@ -1,7 +1,7 @@
 package spec
 
 import (
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type Selector = fhirschema.Selector

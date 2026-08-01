@@ -6,6 +6,28 @@ authority for FHIR structure is the checked-in
 generated Go metadata derived from it. Code should not add a second handwritten
 FHIR model or a parallel AQL implementation.
 
+## Repository boundaries
+
+The top-level directories have distinct ownership:
+
+| Path | Ownership |
+| --- | --- |
+| `schemas/` | Source schemas edited by developers. |
+| `gqlgen.yml`, `gqlgen.clickhouse.yml` | GraphQL generator configuration. |
+| `generated/` | Checked-in generated output; never server business logic. |
+| `internal/` | Handwritten server implementation. |
+| `cmd/` | Executable entry points and developer generators. |
+
+Generated FHIR structs live in `generated/fhir`; raw generated schema tables
+live in `generated/fhirschema`. `internal/fhir/schema` adds the handwritten
+selector, traversal, and compiler semantics that consume those tables.
+
+GraphQL is split the same way. Handwritten schemas, HTTP transport, error
+presentation, query services, and materialization mapping live under
+`internal/api/graphql/graph`. gqlgen models, executors, and resolver bindings live
+under `generated/graphql/graph`. The root gqlgen configurations are inputs, so
+they do not live in `generated/`.
+
 ## Runtime surfaces
 
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
@@ -23,8 +45,9 @@ The GraphQL dataframe mutation is the live compiler transport. Do not add a
 second query compiler or hand-maintained AQL path behind another endpoint.
 
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
-Arango control-plane GraphQL endpoint, while `/graphql/flat` is the dedicated
-published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
+Arango graph/control-plane GraphQL endpoint, `/graphql/dataframe` is the
+Arango-backed FHIR dataframe compiler endpoint, and `/graphql/flat` is the
+dedicated published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
 dynamic-data contract defined in
 [`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
 Only registered READY publication outputs are exposed; adding a dataset or
@@ -54,9 +77,11 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/dataset`, `internal/dataset/arango`, and
-`internal/graphschema`. Their manifest records project, generation, and
-schema identity; the active pointer selects one READY generation per project.
+Immutable loads use `internal/publication` and `internal/publication/arango`. Dataset
+owns schema identity and generation manifests; ingest owns the Arango vertex
+and edge document shapes it writes. Their manifest records project, generation,
+and schema identity; the active pointer selects one READY generation per
+project.
 The generation-qualified physical keys and mandatory generation predicates are
 part of the query correctness contract, not an optional filter.
 
@@ -66,11 +91,10 @@ The current runtime call path is:
 
 ```text
 GraphQL request
-  -> graphqlapi resolver
-  -> dataframebuilder.Service
-  -> dataframe compatibility façade
+  -> internal/api/graphql/graph HTTP handler
+  -> generated gqlgen executor and resolver binding
+  -> internal/api/graphql/graph/query.Service
   -> dataframe/runtime.Service
-  -> dataframe/compiler facade
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
   -> dataframe/compiler/ir typed physical plan
@@ -80,14 +104,25 @@ GraphQL request
   -> Arango query execution/streaming
 ```
 
-`internal/dataframe` is now a compatibility façade. Runtime preparation and
-execution live in `internal/dataframe/runtime`; pure semantic/physical
-compilation lives in `internal/dataframe/compiler`; structured transport
+Runtime preparation and execution live in `internal/dataframe/runtime`;
+compiler orchestration lives in `internal/dataframe/compiler`; structured transport
 errors live in `internal/dataframe/errors`; and guided templates live in
 `internal/dataframe/template`. `internal/catalog` owns scoped observed-field
-and relationship facts. `fhirschema` owns generated structural metadata. These
+and relationship facts. `internal/fhir/schema` owns structural metadata and
+selector semantics. These
 boundaries matter: catalog observations constrain what is populated, while
 schema metadata constrains what a request means.
+
+The ClickHouse read path is parallel but separate:
+
+```text
+GraphQL request
+  -> internal/api/graphql/flat HTTP handler
+  -> generated ClickHouse executor and resolver binding
+  -> internal/api/graphql/graph/materialization.Service
+  -> dataframe/materialization.Reader
+  -> ClickHouse
+```
 
 Generic lowering is the default direction. It accepts generated reverse/builder
 relationship routes proven to correspond to the physical `INBOUND` `fhir_edge`
@@ -96,15 +131,13 @@ layout, plus the explicitly proven `ResearchSubject --study--> ResearchStudy`
 sufficient proof; every other forward route remains rejected until it has a
 verified storage contract.
 
-The compiler facade orchestrates independent `spec`, `semantic`, `compiler/ir`,
+The compiler package orchestrates independent `spec`, `semantic`, `compiler/ir`,
 `compiler/lower`, `compiler/optimize`, and `compiler/render/aql` packages.
 `spec` owns request contracts, `semantic` owns backend-independent meaning,
 `ir` owns typed physical operations and scope proofs, `lower` owns FHIR route
 and endpoint decisions, `optimize` owns semantics-preserving IR rewrites, and
 `render/aql` owns serialization only. Runtime code may call the compiler, but
 no compiler child may import runtime, catalog, or HTTP/GraphQL transport code.
-The root dataframe import path remains stable through direct aliases and
-forwarding functions so external callers do not need a flag-day migration.
 
 When adding code, use this lookup table:
 
@@ -140,7 +173,11 @@ compiler and did not work with immutable generation keys.
 
 Run `make generate-fhir` after changing the graph schema and
 `make generate-graphql` after changing the GraphQL schema. Do not hand-edit
-generated `fhirstructs`, compiler metadata, or gqlgen output.
+generated FHIR resources, schema metadata, or gqlgen output. Generated Go
+artifacts live under `generated/`; handwritten transport and service code stays
+under `internal/`. See
+[`CODE_GENERATION.md`](CODE_GENERATION.md) for the full source/output map and
+package boundaries.
 
 The normal verification targets are:
 

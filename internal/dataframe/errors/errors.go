@@ -3,7 +3,6 @@ package dataframeerrors
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 )
@@ -13,25 +12,49 @@ import (
 type ErrorCode string
 
 const (
-	CodeProjectRequired          ErrorCode = "PROJECT_REQUIRED"
-	CodeRootResourceTypeRequired ErrorCode = "ROOT_RESOURCE_TYPE_REQUIRED"
-	CodeUnauthorizedProject      ErrorCode = "UNAUTHORIZED_PROJECT"
-	CodeUnknownField             ErrorCode = "UNKNOWN_FIELD"
-	CodeFieldNotPopulated        ErrorCode = "FIELD_NOT_POPULATED"
-	CodeInvalidTraversal         ErrorCode = "INVALID_TRAVERSAL"
-	CodeUnsafeTraversalRoute     ErrorCode = "UNSAFE_TRAVERSAL_ROUTE"
-	CodeInvalidFilter            ErrorCode = "INVALID_FILTER"
-	CodeUnboundedPivot           ErrorCode = "UNBOUNDED_PIVOT"
-	CodeInvalidPivotColumn       ErrorCode = "INVALID_PIVOT_COLUMN"
-	CodeInvalidSlice             ErrorCode = "INVALID_SLICE"
-	CodePlanTooExpensive         ErrorCode = "PLAN_TOO_EXPENSIVE"
-	CodeInvalidCursor            ErrorCode = "INVALID_CURSOR"
-	CodeStaleCursor              ErrorCode = "STALE_CURSOR"
-	CodeDatasetGenerationChanged ErrorCode = "DATASET_GENERATION_CHANGED"
-	CodeUnsupportedExportFormat  ErrorCode = "UNSUPPORTED_EXPORT_FORMAT"
-	CodeClientCanceled           ErrorCode = "CLIENT_CANCELED"
-	CodeBackendUnavailable       ErrorCode = "BACKEND_UNAVAILABLE"
-	CodeInternalError            ErrorCode = "INTERNAL_ERROR"
+	CodeProjectRequired             ErrorCode = "PROJECT_REQUIRED"
+	CodeRootResourceTypeRequired    ErrorCode = "ROOT_RESOURCE_TYPE_REQUIRED"
+	CodeUnauthorizedProject         ErrorCode = "UNAUTHORIZED_PROJECT"
+	CodeUnknownField                ErrorCode = "UNKNOWN_FIELD"
+	CodeFieldNotPopulated           ErrorCode = "FIELD_NOT_POPULATED"
+	CodeInvalidTraversal            ErrorCode = "INVALID_TRAVERSAL"
+	CodeUnsafeTraversalRoute        ErrorCode = "UNSAFE_TRAVERSAL_ROUTE"
+	CodeInvalidFilter               ErrorCode = "INVALID_FILTER"
+	CodeUnboundedPivot              ErrorCode = "UNBOUNDED_PIVOT"
+	CodeInvalidPivotColumn          ErrorCode = "INVALID_PIVOT_COLUMN"
+	CodeInvalidSlice                ErrorCode = "INVALID_SLICE"
+	CodePlanTooExpensive            ErrorCode = "PLAN_TOO_EXPENSIVE"
+	CodeInvalidCursor               ErrorCode = "INVALID_CURSOR"
+	CodeStaleCursor                 ErrorCode = "STALE_CURSOR"
+	CodeDatasetGenerationChanged    ErrorCode = "DATASET_GENERATION_CHANGED"
+	CodeUnsupportedExportFormat     ErrorCode = "UNSUPPORTED_EXPORT_FORMAT"
+	CodeClientCanceled              ErrorCode = "CLIENT_CANCELED"
+	CodeBackendUnavailable          ErrorCode = "BACKEND_UNAVAILABLE"
+	CodeDatasetNotFound             ErrorCode = "DATASET_NOT_FOUND"
+	CodeSchemaConflict              ErrorCode = "SCHEMA_CONFLICT"
+	CodeInternalError               ErrorCode = "INTERNAL_ERROR"
+	CodeInvalidResourceType         ErrorCode = "INVALID_RESOURCE_TYPE"
+	CodeInvalidLimit                ErrorCode = "INVALID_LIMIT"
+	CodeNoActiveGeneration          ErrorCode = "NO_ACTIVE_GENERATION"
+	CodeResourceDecodeFailed        ErrorCode = "RESOURCE_DECODE_FAILED"
+	CodeReferenceNotResolved        ErrorCode = "REFERENCE_NOT_RESOLVED"
+	CodeQueryDepthExceeded          ErrorCode = "QUERY_DEPTH_EXCEEDED"
+	CodeInvalidRequest              ErrorCode = "INVALID_REQUEST"
+	CodeInvalidData                 ErrorCode = "INVALID_DATA"
+	CodeUnauthenticated             ErrorCode = "UNAUTHENTICATED"
+	CodeForbidden                   ErrorCode = "FORBIDDEN"
+	CodeRecipeNotFound              ErrorCode = "RECIPE_NOT_FOUND"
+	CodeRecipeExecutionNotFound     ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
+	CodeExportLimitExceeded         ErrorCode = "EXPORT_LIMIT_EXCEEDED"
+	CodeIngestPreflightFailed       ErrorCode = "INGEST_PREFLIGHT_FAILED"
+	CodeGenerationLoadIncomplete    ErrorCode = "GENERATION_LOAD_INCOMPLETE"
+	CodeGenerationActivationUnknown ErrorCode = "GENERATION_ACTIVATION_UNKNOWN"
+	CodeInvalidGenerationFile       ErrorCode = "INVALID_GENERATION_FILE"
+	CodeDuplicateGenerationFile     ErrorCode = "DUPLICATE_GENERATION_FILE"
+	CodePublicationInProgress       ErrorCode = "PUBLICATION_IN_PROGRESS"
+	CodePublicationConflict         ErrorCode = "PUBLICATION_CONFLICT"
+	CodePublicationLeaseLost        ErrorCode = "PUBLICATION_LEASE_LOST"
+	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 )
 
 // AllErrorCodes is the compatibility registry. Keep its order stable when
@@ -55,7 +78,31 @@ var AllErrorCodes = []ErrorCode{
 	CodeUnsupportedExportFormat,
 	CodeClientCanceled,
 	CodeBackendUnavailable,
+	CodeDatasetNotFound,
+	CodeSchemaConflict,
 	CodeInternalError,
+	CodeInvalidResourceType,
+	CodeInvalidLimit,
+	CodeNoActiveGeneration,
+	CodeResourceDecodeFailed,
+	CodeReferenceNotResolved,
+	CodeQueryDepthExceeded,
+	CodeInvalidRequest,
+	CodeInvalidData,
+	CodeUnauthenticated,
+	CodeForbidden,
+	CodeRecipeNotFound,
+	CodeRecipeExecutionNotFound,
+	CodeExportLimitExceeded,
+	CodeIngestPreflightFailed,
+	CodeGenerationLoadIncomplete,
+	CodeGenerationActivationUnknown,
+	CodeInvalidGenerationFile,
+	CodeDuplicateGenerationFile,
+	CodePublicationInProgress,
+	CodePublicationConflict,
+	CodePublicationLeaseLost,
+	CodeOutputEncodingFailed,
 }
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -228,6 +275,18 @@ func PublicMessage(err error) string {
 	return defaultMessage(ErrorCode(userErr.Code()))
 }
 
+// SanitizePersistedFailure converts an opaque durable failure string into the
+// stable public contract. Durable records intentionally retain only a legacy
+// text field, so unknown text is always treated as an internal failure and is
+// never returned to clients.
+func SanitizePersistedFailure(raw string) (message, code string, retryable bool) {
+	if strings.TrimSpace(raw) == "" {
+		return "", "", false
+	}
+	normalized := Normalize(errors.New(raw))
+	return PublicMessage(normalized), normalized.Code(), normalized.Retryable()
+}
+
 // IsUserCorrectable identifies failures for which the frontend should guide
 // the user back to the request editor. Runtime Retryable on an Error remains
 // the authoritative value for a specific occurrence.
@@ -249,17 +308,23 @@ func IsUserCorrectable(code ErrorCode) bool {
 		CodeStaleCursor,
 		CodeUnsupportedExportFormat:
 		return true
+	case CodeInvalidResourceType, CodeInvalidLimit,
+		CodeInvalidRequest, CodeInvalidData, CodeRecipeNotFound,
+		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
+		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete,
+		CodeInvalidGenerationFile, CodeDuplicateGenerationFile:
+		return true
 	default:
 		return false
 	}
 }
 
 func IsRetryableCode(code ErrorCode) bool {
-	return code == CodeBackendUnavailable
+	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost
 }
 
 func IsOperatorFailure(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodeInternalError
+	return code == CodeBackendUnavailable || code == CodeInternalError || code == CodePublicationLeaseLost
 }
 
 func defaultMessage(code ErrorCode) string {
@@ -298,8 +363,56 @@ func defaultMessage(code ErrorCode) string {
 		return "the requested export format is not supported"
 	case CodeClientCanceled:
 		return "the request was canceled"
+	case CodeInvalidResourceType:
+		return "the requested resource type is invalid"
+	case CodeInvalidLimit:
+		return "the requested limit is invalid"
+	case CodeNoActiveGeneration:
+		return "the project has no active dataset generation"
+	case CodeResourceDecodeFailed:
+		return "the resource could not be decoded"
+	case CodeReferenceNotResolved:
+		return "the requested reference could not be resolved"
+	case CodeQueryDepthExceeded:
+		return "the reference query depth limit was exceeded"
 	case CodeBackendUnavailable:
 		return "the dataframe backend is temporarily unavailable"
+	case CodeDatasetNotFound:
+		return "the requested dataset was not found"
+	case CodeSchemaConflict:
+		return "the published dataset sources have incompatible schemas"
+	case CodeInvalidRequest:
+		return "the request is invalid"
+	case CodeInvalidData:
+		return "the submitted data is invalid"
+	case CodeUnauthenticated:
+		return "authentication is required"
+	case CodeForbidden:
+		return "the caller is not permitted to perform this operation"
+	case CodeRecipeNotFound:
+		return "the requested recipe was not found"
+	case CodeRecipeExecutionNotFound:
+		return "the requested recipe execution was not found"
+	case CodeExportLimitExceeded:
+		return "the export exceeds the configured limit"
+	case CodeIngestPreflightFailed:
+		return "ingestion preflight failed"
+	case CodeGenerationLoadIncomplete:
+		return "dataset generation loading was incomplete"
+	case CodeGenerationActivationUnknown:
+		return "dataset generation activation status is unknown"
+	case CodeInvalidGenerationFile:
+		return "a generation file name is invalid"
+	case CodeDuplicateGenerationFile:
+		return "a generation file name is duplicated"
+	case CodePublicationInProgress:
+		return "an identical publication is already in progress"
+	case CodePublicationConflict:
+		return "the publication changed while it was being committed"
+	case CodePublicationLeaseLost:
+		return "publication ownership was lost"
+	case CodeOutputEncodingFailed:
+		return "the response data could not be encoded"
 	default:
 		return "internal server error"
 	}
@@ -371,10 +484,3 @@ func cloneSafeValue(value any) (any, bool) {
 
 // Ensure the concrete type continues to satisfy the public contract.
 var _ UserError = (*Error)(nil)
-
-// Errorf is a small convenience for semantic owners that already have a
-// formatted safe message. The message is still replaced by the stable public
-// message at transport boundaries.
-func Errorf(code ErrorCode, format string, args ...any) *Error {
-	return NewError(code, fmt.Sprintf(format, args...))
-}

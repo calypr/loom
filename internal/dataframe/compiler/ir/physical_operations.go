@@ -2,6 +2,8 @@ package ir
 
 import (
 	"regexp"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
@@ -9,6 +11,7 @@ import (
 // scope: an operation may reference only variables introduced before it.
 type PhysicalSet struct {
 	Variable string
+	Kind     PhysicalSetKind
 	Subplan  PhysicalSubplan
 	Unique   bool
 	// Output describes a compact, identity-safe projection of each set item.
@@ -28,6 +31,58 @@ type PhysicalSet struct {
 	// relationship materialization must not rely on Arango traversal order.
 	SortByKey bool
 	Prepared  *PhysicalPreparedSet
+}
+
+type PhysicalSetKind string
+
+const (
+	PhysicalNodeSetKind     PhysicalSetKind = "NODE_SET"
+	PhysicalNodePathSetKind PhysicalSetKind = "NODE_PATH"
+)
+
+// PhysicalPathNode is a public path node backed by a stored document. Value is
+// typed so path lowering cannot smuggle AQL text into the renderer.
+type PhysicalPathNode struct {
+	Alias        string
+	ResourceType string
+	Value        PhysicalValue
+}
+
+// PhysicalPathRelationship carries relationship metadata while keeping raw
+// edge documents private to the compiler/runtime.
+type PhysicalPathRelationship struct {
+	Alias            string
+	LabelBindKey     string
+	FromResourceType string
+	ToResourceType   string
+}
+
+type PhysicalPathSeed struct {
+	Variable   string
+	Node       PhysicalPathNode
+	RouteOrder int
+}
+
+// PhysicalPathExtend appends one depth-one traversal to an existing path
+// set. SourcePath identifies the terminal stored document inside each source
+// item (empty means the item itself). MatchMode is REQUIRED or OPTIONAL.
+type PhysicalPathExtend struct {
+	Variable       string
+	SourceVariable string
+	SourcePath     []string
+	Traversal      PhysicalTraversal
+	Node           PhysicalPathNode
+	Relationship   PhysicalPathRelationship
+	MatchMode      string
+	RouteOrder     int
+	// Scope contains typed edge/target filters and authorization operations
+	// evaluated inside the correlated traversal subquery.
+	Scope []PhysicalOperation
+}
+
+type PhysicalGraphReturn struct {
+	PathSets     []string
+	LimitBindKey string
 }
 
 // PhysicalUnnestJoinMode controls the row-preservation contract for a
@@ -63,7 +118,7 @@ type PhysicalSetProjection struct {
 type PhysicalSetProjectionField struct {
 	Name          string
 	ResourceType  string
-	Selector      Selector
+	Selector      spec.Selector
 	ExecutionMode PhysicalSelectorExecutionMode
 }
 
@@ -100,8 +155,8 @@ type PhysicalPredicate struct {
 	// their compact value-only form.
 	LeftExpression *PhysicalExpression
 	Right          *PhysicalValue
-	Quantifier     ArrayQuantifier
-	ValueKind      FilterValueKind
+	Quantifier     spec.ArrayQuantifier
+	ValueKind      spec.FilterValueKind
 }
 
 type PhysicalPredicateKind string

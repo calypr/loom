@@ -9,8 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/graphschema"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -21,7 +20,7 @@ func TestNewGenerationLoadPlanRejectsUnsafeOrIncompleteInputs(t *testing.T) {
 	if err := os.WriteFile(file, []byte(`{"resourceType":"Patient"}`+"\n"), 0o644); err != nil {
 		t.Fatalf("write staged file: %v", err)
 	}
-	validRef, err := dataset.NewDatasetRef("project-a", "generation-a")
+	validRef, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +33,9 @@ func TestNewGenerationLoadPlanRejectsUnsafeOrIncompleteInputs(t *testing.T) {
 	}{
 		{
 			name:  "invalid dataset reference",
-			opts:  LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &dataset.DatasetRef{Project: "project-a"}},
+			opts:  LoadOptions{MetaDir: dir, Project: "project-a", Dataset: &publication.Ref{Project: "project-a"}},
 			files: []string{file},
-			want:  dataset.ErrInvalidDatasetRef,
+			want:  publication.ErrInvalidDatasetRef,
 		},
 		{
 			name:  "project mismatch",
@@ -79,7 +78,7 @@ func TestNewGenerationLoadPlanSnapshotsDatasetAndSchemaBeforeBackend(t *testing.
 	if err := os.WriteFile(file, []byte(`{"resourceType":"Patient"}`+"\n"), 0o644); err != nil {
 		t.Fatalf("write staged file: %v", err)
 	}
-	ref, err := dataset.NewDatasetRef("project-a", "generation-a")
+	ref, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +86,13 @@ func TestNewGenerationLoadPlanSnapshotsDatasetAndSchemaBeforeBackend(t *testing.
 	if err != nil {
 		t.Fatalf("newGenerationLoadPlan: %v", err)
 	}
-	if !plan.Dataset.Equal(ref) || !plan.Manifest.Dataset.Equal(ref) {
+	if plan.Dataset != ref || plan.Manifest.Dataset != ref {
 		t.Fatalf("generation plan dataset = %#v manifest = %#v, want %v", plan.Dataset, plan.Manifest.Dataset, ref)
 	}
-	if got, want := plan.Manifest.State, dataset.ManifestStatePreflight; got != want {
+	if got, want := plan.Manifest.State, publication.StateLoading; got != want {
 		t.Fatalf("generation manifest state = %q, want %q", got, want)
 	}
-	if got, want := plan.Manifest.SchemaIdentity.SchemaSHA256(), identity.SchemaSHA256(); got != want {
+	if got, want := plan.Manifest.SchemaIdentity.SchemaSHA256, identity.SchemaSHA256; got != want {
 		t.Fatalf("generation schema digest = %q, want %q", got, want)
 	}
 }
@@ -101,7 +100,7 @@ func TestNewGenerationLoadPlanSnapshotsDatasetAndSchemaBeforeBackend(t *testing.
 func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T) {
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
-	ref, err := dataset.NewDatasetRef("project-a", "generation-a")
+	ref, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +135,7 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 
 func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 	dir := t.TempDir()
-	ref, err := dataset.NewDatasetRef("project-a", "generation-a")
+	ref, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +167,7 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 }
 
 func TestSingleResourceImportsRejectDatasetGenerationBeforeFileOrTempIO(t *testing.T) {
-	ref, err := dataset.NewDatasetRef("project-a", "generation-a")
+	ref, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,9 +192,9 @@ func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 	}
 }
 
-func loadGenerationSchemaIdentity(t *testing.T) graphschema.Identity {
+func loadGenerationSchemaIdentity(t *testing.T) publication.SchemaSnapshot {
 	t.Helper()
-	identity, err := graphschema.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	identity, err := loadSchemaSnapshot(repoPath(t, "schemas", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema identity: %v", err)
 	}

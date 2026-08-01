@@ -8,42 +8,40 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
+	publication "github.com/calypr/loom/internal/publication"
 )
 
 type dataframeActiveManifestResolver struct {
-	manifest dataset.Manifest
+	manifest publication.Manifest
 	err      error
 	projects []string
 }
 
-func (r *dataframeActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (dataset.Manifest, error) {
+func (r *dataframeActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (publication.Manifest, error) {
 	r.projects = append(r.projects, project)
 	if r.err != nil {
-		return dataset.Manifest{}, r.err
+		return publication.Manifest{}, r.err
 	}
-	return r.manifest.Clone(), nil
+	return r.manifest, nil
 }
 
-func dataframeReadyManifest(t *testing.T, project, generation string) dataset.Manifest {
+func dataframeReadyManifest(t *testing.T, project, generationID string) publication.Manifest {
 	t.Helper()
-	schema, err := dataset.NewSchemaIdentitySnapshot("urn:loom:dataframe-active-test", "", strings.Repeat("a", 64), []string{"Patient"})
+	schema, err := publication.NewSchemaSnapshot("urn:loom:dataframe-active-test", "", strings.Repeat("a", 64), []string{"Patient"})
 	if err != nil {
 		t.Fatalf("NewSchemaIdentitySnapshot() error = %v", err)
 	}
-	ref, err := dataset.NewDatasetRef(project, generation)
+	ref, err := publication.NewRef(project, generationID)
 	if err != nil {
 		t.Fatalf("NewDatasetRef() error = %v", err)
 	}
-	manifest, err := dataset.NewManifest(ref, schema)
+	manifest, err := publication.NewManifest(ref, schema)
 	if err != nil {
 		t.Fatalf("NewManifest() error = %v", err)
 	}
-	for _, state := range []dataset.ManifestState{dataset.ManifestStateLoading, dataset.ManifestStateAnalyzing, dataset.ManifestStateReady} {
-		manifest, err = manifest.Transition(state)
-		if err != nil {
-			t.Fatalf("Transition(%s) error = %v", state, err)
-		}
+	manifest, err = manifest.Transition(publication.StateReady)
+	if err != nil {
+		t.Fatalf("Transition(READY) error = %v", err)
 	}
 	return manifest
 }

@@ -3,23 +3,31 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func buildNavigationRenderLayout(plan PhysicalPlan) (physicalNavigationRenderLayout, error) {
+const (
+	genericPhysicalExecutionLimitBind = "limit"
+	datasetGenerationBindKey          = "dataset_generation"
+	datasetGenerationField            = "dataset_generation"
+)
+
+func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRenderLayout, error) {
 	if len(plan.Operations) < 6 {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires ROOT_SCAN, scope operations, and RETURN")
 	}
-	if plan.Operations[0].Kind != PhysicalRootScanOp {
+	if plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires ROOT_SCAN as the first operation")
 	}
 	last := len(plan.Operations) - 1
-	if plan.Operations[last].Kind != PhysicalReturnOp {
+	if plan.Operations[last].Kind != ir.PhysicalReturnOp {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires RETURN as the final operation")
 	}
 
 	layout := physicalNavigationRenderLayout{
 		root:      *plan.Operations[0].RootScan,
-		rootScope: append([]PhysicalOperation(nil), plan.Operations[1:5]...),
+		rootScope: append([]ir.PhysicalOperation(nil), plan.Operations[1:5]...),
 		returnOp:  *plan.Operations[last].Return,
 	}
 	rootScopeVariable, err := validateGenericNavigationScopeBlock(layout.rootScope, layout.root.Variable, "", layout.root.Variable)
@@ -28,7 +36,7 @@ func buildNavigationRenderLayout(plan PhysicalPlan) (physicalNavigationRenderLay
 	}
 
 	index := 5
-	for index < last && plan.Operations[index].Kind == PhysicalFilterOp && plan.Operations[index].Filter.Expression != nil {
+	for index < last && plan.Operations[index].Kind == ir.PhysicalFilterOp && plan.Operations[index].Filter.Expression != nil {
 		layout.rootPredicates = append(layout.rootPredicates, plan.Operations[index])
 		index++
 	}
@@ -36,45 +44,45 @@ func buildNavigationRenderLayout(plan PhysicalPlan) (physicalNavigationRenderLay
 	// before the execution window so a row-grain-aware compiler can put a
 	// database-side LIMIT after expansion. This remains a canonical physical
 	// operation; the slice only captures the validated renderer layout.
-	for index < last && plan.Operations[index].Kind == PhysicalUnnestOp {
+	for index < last && plan.Operations[index].Kind == ir.PhysicalUnnestOp {
 		if plan.Operations[index].Unnest == nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("unnest at operation %d is missing payload", index)
 		}
 		layout.unnests = append(layout.unnests, *plan.Operations[index].Unnest)
 		index++
 	}
-	if index < last && plan.Operations[index].Kind == PhysicalSortOp {
+	if index < last && plan.Operations[index].Kind == ir.PhysicalSortOp {
 		if err := validateGenericNavigationRootSort(plan.Operations[index], layout.root.Variable); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: %w", index, err)
 		}
 		layout.rootWindow = append(layout.rootWindow, plan.Operations[index])
 		index++
-		if index < last && plan.Operations[index].Kind == PhysicalLimitOp {
+		if index < last && plan.Operations[index].Kind == ir.PhysicalLimitOp {
 			if err := validateGenericNavigationRootLimit(plan.Operations[index]); err != nil {
 				return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: %w", index, err)
 			}
 			layout.rootWindow = append(layout.rootWindow, plan.Operations[index])
 			index++
 		}
-	} else if index < last && plan.Operations[index].Kind == PhysicalLimitOp {
+	} else if index < last && plan.Operations[index].Kind == ir.PhysicalLimitOp {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: LIMIT requires deterministic root SORT", index)
 	}
 	for index < last {
 		operation := plan.Operations[index]
-		if operation.Kind == PhysicalExpressionLetOp {
+		if operation.Kind == ir.PhysicalExpressionLetOp {
 			layout.expressionLets = append(layout.expressionLets, operation)
 			index++
 			continue
 		}
-		if operation.Kind == PhysicalSetOp {
+		if operation.Kind == ir.PhysicalSetOp {
 			layout.sets = append(layout.sets, *operation.Set)
 			index++
 			continue
 		}
-		if operation.Kind == PhysicalUnnestOp {
+		if operation.Kind == ir.PhysicalUnnestOp {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("unnest at operation %d must appear before the root execution window and traversal/set operations", index)
 		}
-		if operation.Kind != PhysicalTraversalOp {
+		if operation.Kind != ir.PhysicalTraversalOp {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer expected TRAVERSAL at operation %d, got %s", index, operation.Kind)
 		}
 		const traversalScopeLength = 6 // edge + target project/generation, then auth LET/filter
@@ -85,7 +93,7 @@ func buildNavigationRenderLayout(plan PhysicalPlan) (physicalNavigationRenderLay
 		if err := validateGenericNavigationTraversal(plan, traversal); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("traversal at operation %d: %w", index, err)
 		}
-		scope := append([]PhysicalOperation(nil), plan.Operations[index+1:index+1+traversalScopeLength]...)
+		scope := append([]ir.PhysicalOperation(nil), plan.Operations[index+1:index+1+traversalScopeLength]...)
 		if _, err := validateGenericNavigationScopeBlock(scope, traversal.TargetVariable, traversal.EdgeVariable, traversal.TargetVariable); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("traversal at operation %d scope: %w", index, err)
 		}
@@ -105,12 +113,12 @@ func buildNavigationRenderLayout(plan PhysicalPlan) (physicalNavigationRenderLay
 	return layout, nil
 }
 
-func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTraversal) error {
-	if traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalOutbound {
+func validateGenericNavigationTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
+	if traversal.Direction != ir.PhysicalInbound && traversal.Direction != ir.PhysicalOutbound {
 		return fmt.Errorf("generic navigation traversal direction must be INBOUND or OUTBOUND, got %q", traversal.Direction)
 	}
 	wantEdgeTypeField := "from_type"
-	if traversal.Direction == PhysicalOutbound {
+	if traversal.Direction == ir.PhysicalOutbound {
 		wantEdgeTypeField = "to_type"
 	}
 	if traversal.EdgeTargetTypeField != wantEdgeTypeField {
@@ -125,15 +133,15 @@ func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTra
 	}
 	strategy := traversal.Strategy
 	if strategy == "" {
-		strategy = PhysicalTraversalNative
+		strategy = ir.PhysicalTraversalNative
 	}
-	if strategy != PhysicalTraversalNative && strategy != PhysicalTraversalEndpointLookup {
+	if strategy != ir.PhysicalTraversalNative && strategy != ir.PhysicalTraversalEndpointLookup {
 		return fmt.Errorf("unsupported generic navigation traversal strategy %q", strategy)
 	}
-	if strategy == PhysicalTraversalEndpointLookup {
+	if strategy == ir.PhysicalTraversalEndpointLookup {
 		wantEndpoint, wantJoin := "_to", "_from"
 		wantIndexType := "from_type"
-		if traversal.Direction == PhysicalOutbound {
+		if traversal.Direction == ir.PhysicalOutbound {
 			wantEndpoint, wantJoin, wantIndexType = "_from", "_to", "to_type"
 		}
 		if traversal.EndpointField != wantEndpoint || traversal.EndpointJoinField != wantJoin {
@@ -152,14 +160,14 @@ func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTra
 	return nil
 }
 
-func validateGenericNavigationRootSort(operation PhysicalOperation, rootVariable string) error {
-	if operation.Sort == nil || !sameRenderPhysicalValue(operation.Sort.Value, PhysicalValue{Variable: rootVariable, Path: []string{"_key"}}) {
+func validateGenericNavigationRootSort(operation ir.PhysicalOperation, rootVariable string) error {
+	if operation.Sort == nil || !sameRenderPhysicalValue(operation.Sort.Value, ir.PhysicalValue{Variable: rootVariable, Path: []string{"_key"}}) {
 		return fmt.Errorf("SORT must order the root variable %s._key", rootVariable)
 	}
 	return nil
 }
 
-func validateGenericNavigationRootLimit(operation PhysicalOperation) error {
+func validateGenericNavigationRootLimit(operation ir.PhysicalOperation) error {
 	if operation.Limit == nil || operation.Limit.BindKey != genericPhysicalExecutionLimitBind {
 		return fmt.Errorf("LIMIT must use @%s", genericPhysicalExecutionLimitBind)
 	}
@@ -171,7 +179,7 @@ func validateGenericNavigationRootLimit(operation PhysicalOperation) error {
 // appendAuthScope. The standalone
 // scope verifier is intentionally more flexible; rendering is stricter so it
 // can relocate the whole block safely into a LET subquery.
-func validateGenericNavigationScopeBlock(operations []PhysicalOperation, resourceVariable, edgeVariable, targetVariable string) (string, error) {
+func validateGenericNavigationScopeBlock(operations []ir.PhysicalOperation, resourceVariable, edgeVariable, targetVariable string) (string, error) {
 	expectedProjectVariables := []string{resourceVariable}
 	expectedGenerationVariables := []string{resourceVariable}
 	if edgeVariable != "" {
@@ -179,39 +187,39 @@ func validateGenericNavigationScopeBlock(operations []PhysicalOperation, resourc
 		expectedGenerationVariables = []string{edgeVariable, targetVariable}
 	}
 	expectedLength := len(expectedProjectVariables) + len(expectedGenerationVariables) + 2
-	if len(operations) != expectedLength || operations[0].Kind != PhysicalFilterOp {
+	if len(operations) != expectedLength || operations[0].Kind != ir.PhysicalFilterOp {
 		return "", fmt.Errorf("requires project filters for every graph document, dataset_generation filters, LET AUTH_RESOURCE_PATH_ALLOWED, FILTER scope_allowed in order")
 	}
 	for index, variable := range expectedProjectVariables {
 		operation := operations[index]
-		if operation.Kind != PhysicalFilterOp || !matchesPhysicalEquality(operation.Filter.Predicate, PhysicalValue{Variable: variable, Path: []string{"project"}}, PhysicalValue{BindKey: "project"}) {
+		if operation.Kind != ir.PhysicalFilterOp || !matchesPhysicalEquality(operation.Filter.Predicate, ir.PhysicalValue{Variable: variable, Path: []string{"project"}}, ir.PhysicalValue{BindKey: "project"}) {
 			return "", fmt.Errorf("project scope must be %s.project == @project", variable)
 		}
 	}
 	for index, variable := range expectedGenerationVariables {
 		operation := operations[len(expectedProjectVariables)+index]
-		if operation.Kind != PhysicalFilterOp || !matchesPhysicalEquality(operation.Filter.Predicate, PhysicalValue{Variable: variable, Path: []string{datasetGenerationField}}, PhysicalValue{BindKey: datasetGenerationBindKey}) {
+		if operation.Kind != ir.PhysicalFilterOp || !matchesPhysicalEquality(operation.Filter.Predicate, ir.PhysicalValue{Variable: variable, Path: []string{datasetGenerationField}}, ir.PhysicalValue{BindKey: datasetGenerationBindKey}) {
 			return "", fmt.Errorf("dataset generation scope must be %s.%s == @%s", variable, datasetGenerationField, datasetGenerationBindKey)
 		}
 	}
 	authLetIndex := len(expectedProjectVariables) + len(expectedGenerationVariables)
 	authFilterIndex := authLetIndex + 1
 
-	if operations[authLetIndex].Kind != PhysicalDerivedLetOp || operations[authLetIndex].DerivedLet == nil {
+	if operations[authLetIndex].Kind != ir.PhysicalDerivedLetOp || operations[authLetIndex].DerivedLet == nil {
 		return "", fmt.Errorf("scope block requires AUTH_RESOURCE_PATH_ALLOWED LET after dataset generation scope")
 	}
 	derived := operations[authLetIndex].DerivedLet
 	if strings.ToUpper(strings.TrimSpace(derived.Operator)) != "AUTH_RESOURCE_PATH_ALLOWED" {
 		return "", fmt.Errorf("scope LET must use AUTH_RESOURCE_PATH_ALLOWED")
 	}
-	expectedInputs := []PhysicalValue{{Variable: resourceVariable, Path: []string{"auth_resource_path"}}}
+	expectedInputs := []ir.PhysicalValue{{Variable: resourceVariable, Path: []string{"auth_resource_path"}}}
 	if edgeVariable != "" {
-		expectedInputs = []PhysicalValue{
+		expectedInputs = []ir.PhysicalValue{
 			{Variable: edgeVariable, Path: []string{"auth_resource_path"}},
 			{Variable: targetVariable, Path: []string{"auth_resource_path"}},
 		}
 	}
-	expectedInputs = append(expectedInputs, PhysicalValue{BindKey: "auth_resource_paths"}, PhysicalValue{BindKey: "auth_resource_paths_unrestricted"})
+	expectedInputs = append(expectedInputs, ir.PhysicalValue{BindKey: "auth_resource_paths"}, ir.PhysicalValue{BindKey: "auth_resource_paths_unrestricted"})
 	if len(derived.Inputs) != len(expectedInputs) {
 		return "", fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED requires the exact generic auth scope inputs")
 	}
@@ -220,20 +228,20 @@ func validateGenericNavigationScopeBlock(operations []PhysicalOperation, resourc
 			return "", fmt.Errorf("AUTH_RESOURCE_PATH_ALLOWED input %d is not the required generic scope value", index)
 		}
 	}
-	if operations[authFilterIndex].Kind != PhysicalFilterOp || !matchesPhysicalEquality(operations[authFilterIndex].Filter.Predicate, PhysicalValue{Variable: derived.Variable}, PhysicalValue{BindKey: "scope_allowed"}) {
+	if operations[authFilterIndex].Kind != ir.PhysicalFilterOp || !matchesPhysicalEquality(operations[authFilterIndex].Filter.Predicate, ir.PhysicalValue{Variable: derived.Variable}, ir.PhysicalValue{BindKey: "scope_allowed"}) {
 		return "", fmt.Errorf("auth scope must be %s == @scope_allowed", derived.Variable)
 	}
 	return derived.Variable, nil
 }
 
-func matchesPhysicalEquality(predicate PhysicalPredicate, left, right PhysicalValue) bool {
+func matchesPhysicalEquality(predicate ir.PhysicalPredicate, left, right ir.PhysicalValue) bool {
 	return strings.ToUpper(strings.TrimSpace(predicate.Operator)) == "EQUALS" &&
 		predicate.Right != nil &&
 		sameRenderPhysicalValue(predicate.Left, left) &&
 		sameRenderPhysicalValue(*predicate.Right, right)
 }
 
-func sameRenderPhysicalValue(left, right PhysicalValue) bool {
+func sameRenderPhysicalValue(left, right ir.PhysicalValue) bool {
 	if left.Variable != right.Variable || left.BindKey != right.BindKey || len(left.Path) != len(right.Path) {
 		return false
 	}
@@ -245,7 +253,7 @@ func sameRenderPhysicalValue(left, right PhysicalValue) bool {
 	return true
 }
 
-func validateNavigationReturnScope(returnOp PhysicalReturn, rootVariable, rootScopeVariable string, unnestVariables map[string]struct{}) error {
+func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, rootScopeVariable string, unnestVariables map[string]struct{}) error {
 	for _, projection := range returnOp.Projections {
 		if projection.Expression != nil {
 			continue

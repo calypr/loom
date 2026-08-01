@@ -174,10 +174,11 @@ func resolveOutput(ctx context.Context, output *recipe.Output, scope Scope, disc
 		return fmt.Errorf("catalog projections: %w", err)
 	}
 	output.Fields = appendUniqueFields(output.Fields, fields)
-	if err := resolvePivots(ctx, scope, discovery, output.RootResourceType, "root", output.Pivots); err != nil {
+	output.Pivots, err = resolvePivots(ctx, scope, discovery, output.RootResourceType, "root", output.Pivots)
+	if err != nil {
 		return fmt.Errorf("pivots: %w", err)
 	}
-	if err := resolveDynamicColumns(ctx, scope, discovery, output.RootResourceType, output.DynamicColumns); err != nil {
+	if err := resolveDynamicColumns(ctx, scope, discovery, output.RootResourceType, "root", output.DynamicColumns); err != nil {
 		return fmt.Errorf("dynamic columns: %w", err)
 	}
 	for index := range output.Traversals {
@@ -198,10 +199,11 @@ func resolveTraversal(ctx context.Context, traversal *recipe.Traversal, scope Sc
 		return fmt.Errorf("traversal %q catalog projections: %w", traversal.Name, err)
 	}
 	traversal.Fields = appendUniqueFields(traversal.Fields, fields)
-	if err := resolvePivots(ctx, scope, discovery, traversal.ToResourceType, alias, traversal.Pivots); err != nil {
+	traversal.Pivots, err = resolvePivots(ctx, scope, discovery, traversal.ToResourceType, alias, traversal.Pivots)
+	if err != nil {
 		return fmt.Errorf("traversal %q pivots: %w", traversal.Name, err)
 	}
-	if err := resolveDynamicColumns(ctx, scope, discovery, traversal.ToResourceType, traversal.DynamicColumns); err != nil {
+	if err := resolveDynamicColumns(ctx, scope, discovery, traversal.ToResourceType, alias, traversal.DynamicColumns); err != nil {
 		return fmt.Errorf("traversal %q dynamic columns: %w", traversal.Name, err)
 	}
 	for index := range traversal.Traversals {

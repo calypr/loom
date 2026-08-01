@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -182,6 +182,16 @@ func recipeExpressionContexts(output semantic.OutputPlan) map[string]string {
 // its binding's generated schema type and item selectors are rooted at the
 // item value rather than at a FHIR document payload.
 func lowerRecipeExpressionScoped(input expression.Expression, bindVars map[string]any, rootResourceType string, contexts map[string]string) (ir.PhysicalExpression, error) {
+	if input.Document != nil {
+		context := strings.TrimSpace(input.Document.Context)
+		if context == "" {
+			context = "root"
+		}
+		if _, ok := contexts[context]; !ok {
+			return ir.PhysicalExpression{}, fmt.Errorf("document context %q is not in scope", context)
+		}
+		return lowerDocumentRef(*input.Document, physicalNullBehavior(input.NullBehavior)), nil
+	}
 	if input.Selector != nil {
 		variable := strings.TrimSpace(input.Selector.Context)
 		if variable == "" {
@@ -230,6 +240,13 @@ func lowerRecipeExpressionScoped(input expression.Expression, bindVars map[strin
 		call.Args = append(call.Args, lowered)
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalCallExpression, Cardinality: cardinality, NullBehavior: behavior, Call: call}, nil
+}
+
+func physicalNullBehavior(behavior expression.NullBehavior) ir.PhysicalNullBehavior {
+	if behavior == expression.NullEmpty {
+		return ir.PhysicalEmptyOnNull
+	}
+	return ir.PhysicalPreserveNull
 }
 
 func appendRecipeIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) error {

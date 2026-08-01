@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
-	rows := make([]map[string]any, 0, compiled.Limit)
+	var rows []map[string]any
 	streamed, err := s.streamQuery(ctx, compiled, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil

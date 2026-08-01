@@ -5,11 +5,28 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
+
+func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {
+	stat := fieldCatalogStats{distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{})}
+	for i := range 257 {
+		stat.addDistinct(strconv.Itoa(i))
+	}
+	if stat.distinctTruncated || len(stat.distinctValues) != 257 {
+		t.Fatalf("distinct values = %d, truncated = %v", len(stat.distinctValues), stat.distinctTruncated)
+	}
+	for i := range 257 {
+		stat.addPivotColumn(strconv.Itoa(i))
+	}
+	if stat.distinctTruncated || len(stat.pivotColumns) != 257 {
+		t.Fatalf("pivot columns = %d, truncated = %v", len(stat.pivotColumns), stat.distinctTruncated)
+	}
+}
 
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 	cache := NewShapePlanCache()

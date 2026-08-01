@@ -1,25 +1,30 @@
 package compiler
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func TestResolveSemanticFieldScalarAuto(t *testing.T) {
-	selector, _ := ParseSelector("gender")
-	got, err := ResolveSemanticField("Patient", "root", 0, SemanticField{Name: "gender", Selector: selector})
+	selector, _ := spec.ParseSelector("gender")
+	got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "gender", Selector: selector})
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
-	if got.Cardinality != CardinalityOptionalOne || got.Projection != ProjectionScalar || !got.LegacyAuto {
+	if got.Cardinality != spec.CardinalityOptionalOne || got.Projection != spec.ProjectionScalar || !got.LegacyAuto {
 		t.Fatalf("unexpected scalar semantics: %#v", got)
 	}
 }
 
 func TestResolveSemanticFieldDetectsRepeatedAncestor(t *testing.T) {
-	selector, _ := ParseSelector("name[].family")
-	got, err := ResolveSemanticField("Patient", "root", 0, SemanticField{Name: "family", Selector: selector})
+	selector, _ := spec.ParseSelector("name[].family")
+	got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "family", Selector: selector})
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
-	if got.Cardinality != CardinalityMany || got.Projection != ProjectionFirst || !got.LegacyAuto {
+	if got.Cardinality != spec.CardinalityMany || got.Projection != spec.ProjectionFirst || !got.LegacyAuto {
 		t.Fatalf("unexpected repeated AUTO semantics: %#v", got)
 	}
 	if len(got.RepeatedPaths) != 1 || got.RepeatedPaths[0] != "name[]" {
@@ -28,17 +33,17 @@ func TestResolveSemanticFieldDetectsRepeatedAncestor(t *testing.T) {
 }
 
 func TestResolveSemanticFieldValueModes(t *testing.T) {
-	selector, _ := ParseSelector("identifier[].value")
+	selector, _ := spec.ParseSelector("identifier[].value")
 	tests := []struct {
 		mode string
-		want ProjectionMode
+		want spec.ProjectionMode
 	}{
-		{"FIRST", ProjectionFirst},
-		{"ALL", ProjectionArray},
-		{"DISTINCT", ProjectionDistinctArray},
+		{"FIRST", spec.ProjectionFirst},
+		{"ALL", spec.ProjectionArray},
+		{"DISTINCT", spec.ProjectionDistinctArray},
 	}
 	for _, test := range tests {
-		got, err := ResolveSemanticField("Patient", "root", 0, SemanticField{Name: "id", Selector: selector, ValueMode: test.mode})
+		got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "id", Selector: selector, ValueMode: test.mode})
 		if err != nil {
 			t.Errorf("mode %s: %v", test.mode, err)
 			continue
@@ -50,23 +55,23 @@ func TestResolveSemanticFieldValueModes(t *testing.T) {
 }
 
 func TestResolveSemanticFieldRejectsInvalidSemantics(t *testing.T) {
-	valid, _ := ParseSelector("gender")
-	missing, _ := ParseSelector("notAField")
-	implicitArray, _ := ParseSelector("name.family")
+	valid, _ := spec.ParseSelector("gender")
+	missing, _ := spec.ParseSelector("notAField")
+	implicitArray, _ := spec.ParseSelector("name.family")
 	tests := []struct {
 		name         string
 		resourceType string
-		field        SemanticField
+		field        semantic.SemanticField
 	}{
-		{"unknown resource", "Imaginary", SemanticField{Name: "x", Selector: valid}},
-		{"unknown path", "Patient", SemanticField{Name: "x", Selector: missing}},
-		{"invalid value mode", "Patient", SemanticField{Name: "x", Selector: valid, ValueMode: "SCALAR"}},
-		{"implicit array traversal", "Patient", SemanticField{Name: "x", Selector: implicitArray}},
-		{"empty selector", "Patient", SemanticField{Name: "x"}},
+		{"unknown resource", "Imaginary", semantic.SemanticField{Name: "x", Selector: valid}},
+		{"unknown path", "Patient", semantic.SemanticField{Name: "x", Selector: missing}},
+		{"invalid value mode", "Patient", semantic.SemanticField{Name: "x", Selector: valid, ValueMode: "SCALAR"}},
+		{"implicit array traversal", "Patient", semantic.SemanticField{Name: "x", Selector: implicitArray}},
+		{"empty selector", "Patient", semantic.SemanticField{Name: "x"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := ResolveSemanticField(test.resourceType, "root", 0, test.field); err == nil {
+			if _, err := semantic.ResolveSemanticField(test.resourceType, "root", 0, test.field); err == nil {
 				t.Fatal("invalid selection unexpectedly succeeded")
 			}
 		})
@@ -74,13 +79,13 @@ func TestResolveSemanticFieldRejectsInvalidSemantics(t *testing.T) {
 }
 
 func TestNormalizeSelectionPlanStableAliases(t *testing.T) {
-	gender, _ := ParseSelector("gender")
-	id, _ := ParseSelector("identifier[].value")
-	plan := SemanticPlan{Root: SemanticNode{
+	gender, _ := spec.ParseSelector("gender")
+	id, _ := spec.ParseSelector("identifier[].value")
+	plan := semantic.SemanticPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []SemanticField{{Name: "z", Selector: gender}, {Selector: id}},
+		Fields: []semantic.SemanticField{{Name: "z", Selector: gender}, {Selector: id}},
 	}}
-	got, err := NormalizeSelectionPlan(plan)
+	got, err := semantic.NormalizeSelectionPlan(plan)
 	if err != nil {
 		t.Fatalf("NormalizeSelectionPlan: %v", err)
 	}

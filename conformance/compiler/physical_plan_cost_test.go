@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 // TestPhysicalPlanOptimizationCorpus is a structural regression gate. It does
@@ -22,7 +22,7 @@ func TestPhysicalPlanOptimizationCorpus(t *testing.T) {
 		}
 		fixture := fixture
 		t.Run(fixture.ID, func(t *testing.T) {
-			compiled, err := compileRecipe(fixture.Recipe, fixture.Project, fixture.Limit, dataframe.DefaultPhysicalOptimizationPolicy())
+			compiled, err := compileRecipe(fixture.Recipe, fixture.Project, fixture.Limit, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile recipe error = %v", err)
 			}

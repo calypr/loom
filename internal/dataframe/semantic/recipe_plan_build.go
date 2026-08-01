@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -87,6 +87,14 @@ func (s scopeFrame) expression(input recipe.Expression, path string) (SemanticEx
 	context := ""
 	if expr.Selector != nil {
 		context = expr.Selector.Context
+	} else if expr.Document != nil {
+		context = strings.TrimSpace(expr.Document.Context)
+		if context == "" {
+			context = "root"
+		}
+		if _, ok := s.aliases[context]; !ok {
+			return SemanticExpression{}, fmt.Errorf("%s: document context %q is not in scope", path, context)
+		}
 	}
 	return SemanticExpression{Expression: checked.Expression, Type: checked.Type, SourcePath: path, Context: context}, nil
 }

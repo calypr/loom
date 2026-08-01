@@ -20,19 +20,19 @@ type BasicAuthenticator struct {
 func (a BasicAuthenticator) Authenticate(_ context.Context, headers map[string][]string) (*Principal, error) {
 	raw := strings.TrimSpace(firstHeaderValue(headers, "Authorization"))
 	if raw == "" {
-		return nil, fmt.Errorf("authorization is required")
+		return nil, fmt.Errorf("%w", ErrUnauthenticated)
 	}
 	prefix, encoded, ok := strings.Cut(raw, " ")
 	if !ok || !strings.EqualFold(prefix, "basic") || strings.TrimSpace(encoded) == "" {
-		return nil, fmt.Errorf("authorization must use basic authentication")
+		return nil, fmt.Errorf("%w: basic authentication required", ErrUnauthenticated)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
 	if err != nil {
-		return nil, fmt.Errorf("invalid basic credentials")
+		return nil, fmt.Errorf("%w: invalid credentials", ErrUnauthenticated)
 	}
 	username, password, ok := strings.Cut(string(decoded), ":")
 	if !ok || !constantTimeEqual(username, a.Username) || !constantTimeEqual(password, a.Password) {
-		return nil, fmt.Errorf("invalid basic credentials")
+		return nil, fmt.Errorf("%w: invalid credentials", ErrUnauthenticated)
 	}
 	return &Principal{Subject: username}, nil
 }
@@ -56,7 +56,7 @@ type CalyprAuthenticator struct{}
 func (CalyprAuthenticator) Authenticate(_ context.Context, headers map[string][]string) (*Principal, error) {
 	auth := strings.TrimSpace(firstHeaderValue(headers, http.CanonicalHeaderKey("Authorization")))
 	if auth == "" {
-		return nil, fmt.Errorf("authorization is required")
+		return nil, fmt.Errorf("%w", ErrUnauthenticated)
 	}
 	if _, err := validateAuthorizationHeader(auth); err != nil {
 		return nil, err

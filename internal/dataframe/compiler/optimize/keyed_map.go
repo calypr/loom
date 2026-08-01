@@ -25,7 +25,7 @@ type keyedMapBinding struct {
 // lookups. The pass is deliberately lexical: candidates are collected per
 // RETURN operation, so an optional child scope or an unnest can never leak a
 // binding into a different row grain.
-func sharePhysicalLookupFamilies(plan *PhysicalPlan, policy PhysicalOptimizationPolicy) {
+func sharePhysicalLookupFamilies(plan *ir.PhysicalPlan, policy ir.PhysicalOptimizationPolicy) {
 	for returnIndex := range plan.Operations {
 		operation := &plan.Operations[returnIndex]
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
@@ -51,8 +51,8 @@ func sharePhysicalLookupFamilies(plan *PhysicalPlan, policy PhysicalOptimization
 			candidate := candidates[key]
 			baseline := len(candidate.Uses) * 3
 			optimized := len(candidate.Uses) + 1
-			decision := ir.PhysicalOptimizationDecision{Rule: string(PhysicalOptimizationRuleKeyedMapSharing), CandidateSets: len(candidate.Uses), EstimatedBaselineWork: baseline, EstimatedOptimizedWork: optimized, EstimatedSavings: baseline - optimized}
-			if !policy.RuleEnabled(PhysicalOptimizationRuleKeyedMapSharing) {
+			decision := ir.PhysicalOptimizationDecision{Rule: string(ir.PhysicalOptimizationRuleKeyedMapSharing), CandidateSets: len(candidate.Uses), EstimatedBaselineWork: baseline, EstimatedOptimizedWork: optimized, EstimatedSavings: baseline - optimized}
+			if !policy.RuleEnabled(ir.PhysicalOptimizationRuleKeyedMapSharing) {
 				decision.Reason = "keyed map sharing disabled by policy"
 				plan.OptimizationPolicy.AddDecision(decision)
 				continue

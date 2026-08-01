@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench compiler-arango-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -7,9 +7,7 @@ GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=
 SCHEMA_PATH ?= schemas/graph-fhir.json
 IMAGE ?= arango-fhir-proto:local
-BENCH_TIME ?= 10x
-BENCH_COUNT ?= 5
-GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/graph
+GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/dataframe
 DATAFRAME_REPEAT ?= 1
 DATAFRAME_LIMIT ?= 0
 DATAFRAME_TIMEOUT ?= 5m
@@ -32,10 +30,10 @@ build-server:
 generate-graphql:
 	mkdir -p $(GOCACHE_DIR)
 	@status=0; fix_status=0; \
-	for config in gqlgen.yml graphqlapi/clickhouse/gqlgen.yml; do \
+	for config in gqlgen.yml gqlgen.clickhouse.yml; do \
 		GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config $$config || status=$$?; \
 	done; \
-	for generated in graphqlapi/generated.go graphqlapi/clickhouse/generated.go; do \
+	for generated in generated/graphql/graph/executor/schema.generated.go generated/graphql/flat/executor/generated.go; do \
 		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix $$generated || fix_status=$$?; \
 	done; \
 	test $$fix_status -eq 0; \
@@ -43,12 +41,12 @@ generate-graphql:
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out fhirstructs -metadata-out fhirschema/generated.go
-	gofmt -w fhirstructs/model.go fhirstructs/validate.go fhirstructs/extract.go fhirstructs/helpers.go fhirschema/generated.go
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out generated/fhir -metadata-out generated/fhirschema/generated.go
+	gofmt -w generated/fhir/*.go generated/fhirschema/generated.go
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./graphqlapi ./internal/dataframe -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/api/graphql/... ./generated/graphql/... -count=1
 
 gqlgen-check: graphql-check
 
@@ -59,12 +57,6 @@ test:
 compiler-bench:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./conformance/compiler -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
-
-# Requires a locally loaded META fixture. Override BENCH_TIME/BENCH_COUNT for
-# a longer run, for example: make compiler-arango-bench BENCH_TIME=3s BENCH_COUNT=10.
-compiler-arango-bench:
-	mkdir -p $(GOCACHE_DIR)
-	LOOM_COMPILER_ARANGO_INTEGRATION=1 GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/dataframe -run '^$$' -bench '^BenchmarkGenericCompilerAgainstArango$$' -benchmem -benchtime=$(BENCH_TIME) -count=$(BENCH_COUNT)
 
 # Requires `arango-fhir-server --no-auth` and a loaded META project. Prints the
 # actual GraphQL dataframe response and per-request wall-clock timings.
@@ -83,7 +75,7 @@ dataframe-boundaries:
 
 dataframe-test: dataframe-boundaries
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/dataframe/spec ./internal/dataframe/semantic ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/optimize ./internal/dataframe/compiler/render/aql ./internal/dataframe/compiler ./internal/dataframe/runtime ./internal/dataframe -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/dataframe/spec ./internal/dataframe/semantic ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/optimize ./internal/dataframe/compiler/render/aql ./internal/dataframe/compiler ./internal/dataframe/runtime -count=1
 
 conformance:
 	mkdir -p $(GOCACHE_DIR)

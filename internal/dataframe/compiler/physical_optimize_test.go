@@ -5,11 +5,18 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlan(plan)
 	if err != nil {
 		t.Fatalf("OptimizePhysicalPlan() error = %v", err)
 	}
@@ -27,7 +34,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	}
 	var broad, subsets int
 	for _, op := range optimized.Operations {
-		if op.Kind != PhysicalSetOp {
+		if op.Kind != ir.PhysicalSetOp {
 			continue
 		}
 		if op.Set.SourceSetVariable == "" {
@@ -42,34 +49,34 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 }
 
 func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{Version: 1, Project: "p", Root: SemanticNode{Alias: "root", ResourceType: "Patient"}})
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan.BindVars["lookup_a"] = "a"
 	plan.BindVars["lookup_b"] = "b"
-	source := PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "root", Path: []string{"payload", "identifier"}}}
-	key := PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "lookup_item", Path: []string{"value"}}}
+	source := ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "root", Path: []string{"payload", "identifier"}}}
+	key := ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "lookup_item", Path: []string{"value"}}}
 	value := key
 	returnOp := &plan.Operations[len(plan.Operations)-1]
 	for _, item := range []struct{ name, bind string }{{"a", "lookup_a"}, {"b", "lookup_b"}} {
-		expression := PhysicalExpression{Kind: PhysicalLookupExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull, Lookup: &PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
-		returnOp.Return.Projections = append(returnOp.Return.Projections, PhysicalProjection{Name: item.name, Expression: &expression})
+		expression := ir.PhysicalExpression{Kind: ir.PhysicalLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Lookup: &ir.PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
+		returnOp.Return.Projections = append(returnOp.Return.Projections, ir.PhysicalProjection{Name: item.name, Expression: &expression})
 	}
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var lets, lookups int
 	for _, operation := range optimized.Operations {
-		if operation.Kind == PhysicalExpressionLetOp {
+		if operation.Kind == ir.PhysicalExpressionLetOp {
 			lets++
 		}
-		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
 		for _, projection := range operation.Return.Projections {
-			if projection.Expression != nil && projection.Expression.Kind == PhysicalObjectLookupExpression {
+			if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectLookupExpression {
 				lookups++
 			}
 		}
@@ -83,10 +90,10 @@ func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing
 	plan := physicalScopedSiblingPlan(t)
 	for _, set := range physicalSets(plan) {
 		resourceType := fmt.Sprint(plan.BindVars[set.Subplan.Operations[0].Traversal.TargetTypeBindKey])
-		set.Projection = &PhysicalSetProjection{Fields: []PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
+		set.Projection = &ir.PhysicalSetProjection{Fields: []ir.PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
 		set.Output = nil
 	}
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +117,7 @@ func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing
 }
 
 func TestOptimizePhysicalPlanReportsStructuralCostDecision(t *testing.T) {
-	optimized, err := OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 1})
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), ir.PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +139,7 @@ func TestOptimizePhysicalPlanReportsStructuralCostDecision(t *testing.T) {
 
 func TestOptimizePhysicalPlanCostPolicyCanDisableRewrite(t *testing.T) {
 	original := physicalScopedSiblingPlan(t)
-	optimized, err := OptimizePhysicalPlanWithPolicy(original, PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1})
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(original, ir.PhysicalOptimizationPolicy{Enabled: false, MinimumSavings: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +158,7 @@ func TestOptimizePhysicalPlanCostPolicyCanDisableRewrite(t *testing.T) {
 }
 
 func TestOptimizePhysicalPlanCostPolicyMinimumSavingsRejectsCandidate(t *testing.T) {
-	optimized, err := OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 999})
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), ir.PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 999})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +175,7 @@ func TestOptimizePhysicalPlanCostPolicyMinimumSavingsRejectsCandidate(t *testing
 
 func TestDefaultPhysicalOptimizationPolicyDeveloperSwitch(t *testing.T) {
 	t.Setenv("LOOM_PHYSICAL_COST_POLICY", "off")
-	policy := DefaultPhysicalOptimizationPolicy()
+	policy := ir.DefaultPhysicalOptimizationPolicy()
 	if policy.Enabled {
 		t.Fatalf("disabled environment policy = %#v", policy)
 	}
@@ -176,37 +183,37 @@ func TestDefaultPhysicalOptimizationPolicyDeveloperSwitch(t *testing.T) {
 	t.Setenv("LOOM_PHYSICAL_COST_MIN_SAVINGS", "17")
 	t.Setenv("LOOM_PHYSICAL_RULE_TRAVERSAL_SHARING", "off")
 	t.Setenv("LOOM_PHYSICAL_RULE_PREPARED_SELECTORS", "on")
-	policy = DefaultPhysicalOptimizationPolicy()
+	policy = ir.DefaultPhysicalOptimizationPolicy()
 	if !policy.Enabled || policy.MinimumSavings != 17 {
 		t.Fatalf("configured environment policy = %#v", policy)
 	}
-	if policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
 		t.Fatalf("configured independent rule policy = %#v", policy.RuleOverrides)
 	}
 }
 
 func TestPhysicalOptimizationPolicyResolvesIndependentRules(t *testing.T) {
-	policy := DefaultPhysicalOptimizationPolicy()
-	if !policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(PhysicalOptimizationRuleCompactProjection) || policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+	policy := ir.DefaultPhysicalOptimizationPolicy()
+	if !policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) || policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
 		t.Fatalf("default active rules = %#v", policy)
 	}
-	for _, rule := range []PhysicalOptimizationRule{
-		PhysicalOptimizationRuleNestedSharing,
-		PhysicalOptimizationRuleRichConsumerFusion,
+	for _, rule := range []ir.PhysicalOptimizationRule{
+		ir.PhysicalOptimizationRuleNestedSharing,
+		ir.PhysicalOptimizationRuleRichConsumerFusion,
 	} {
 		if policy.RuleEnabled(rule) {
 			t.Fatalf("unimplemented rule %q was enabled by default", rule)
 		}
 	}
-	policy = policy.WithRule(PhysicalOptimizationRuleTraversalSharing, false).WithRule(PhysicalOptimizationRulePreparedSelectors, false)
-	if policy.RuleEnabled(PhysicalOptimizationRuleTraversalSharing) || policy.RuleEnabled(PhysicalOptimizationRulePreparedSelectors) {
+	policy = policy.WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
+	if policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) || policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
 		t.Fatalf("explicit rule overrides were ignored: %#v", policy.RuleOverrides)
 	}
 }
 
 func TestOptimizePhysicalPlanReportsExplicitRuleDisable(t *testing.T) {
-	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleTraversalSharing, false)
-	optimized, err := OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), policy)
+	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(physicalScopedSiblingPlan(t), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,35 +224,35 @@ func TestOptimizePhysicalPlanReportsExplicitRuleDisable(t *testing.T) {
 		t.Fatalf("explicit sharing decision = %#v", optimized.OptimizationPolicy.Decisions)
 	}
 	for _, state := range optimized.OptimizationPolicy.RuleStates {
-		if state.Rule == PhysicalOptimizationRuleTraversalSharing && state.Enabled {
+		if state.Rule == ir.PhysicalOptimizationRuleTraversalSharing && state.Enabled {
 			t.Fatalf("sharing rule state remained enabled: %#v", state)
 		}
 	}
 }
 
 func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
-	status := Selector{Steps: []SelectorStep{{Field: "id"}}}
-	semantic := SemanticPlan{
-		Version: 1, Project: "p", Root: SemanticNode{
+	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
+	semantic := semantic.SemanticPlan{
+		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []SemanticNode{{
+			Children: []semantic.SemanticNode{{
 				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-				Aggregates: []SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
-				Slices:     []SemanticSlice{{Name: "representative", Limit: 1, Fields: []SemanticField{{Name: "status", Selector: status}}}},
+				Aggregates: []semantic.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
+				Slices:     []semantic.SemanticSlice{{Name: "representative", Limit: 1, Fields: []semantic.SemanticField{{Name: "status", Selector: status}}}},
 			}},
 		},
 	}
-	policy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleCompactProjection, false).WithRule(PhysicalOptimizationRulePreparedSelectors, false)
-	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic, policy)
+	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, operation := range plan.Operations {
-		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Prepared != nil {
+		if operation.Kind == ir.PhysicalSetOp && operation.Set != nil && operation.Set.Prepared != nil {
 			t.Fatalf("prepared selector set survived explicit disable: %#v", operation.Set.Prepared)
 		}
 	}
-	rendered, err := RenderPhysicalPlan(plan)
+	rendered, err := aql.RenderPhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,30 +262,30 @@ func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
 }
 
 func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
-	semantic := SemanticPlan{
-		Version: 1, Project: "p", Root: SemanticNode{
+	semantic := semantic.SemanticPlan{
+		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Aggregates: []SemanticAggregate{{Name: "count", Operation: "COUNT"}}}},
+			Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "count", Operation: "COUNT"}}}},
 		},
 	}
-	fullPolicy := DefaultPhysicalOptimizationPolicy().WithRule(PhysicalOptimizationRuleCompactProjection, false)
-	full, err := BuildGenericPhysicalPlanWithPolicy(semantic, fullPolicy)
+	fullPolicy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false)
+	full, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, fullPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	compactPolicy := DefaultPhysicalOptimizationPolicy()
-	compact, err := BuildGenericPhysicalPlanWithPolicy(semantic, compactPolicy)
+	compactPolicy := ir.DefaultPhysicalOptimizationPolicy()
+	compact, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, compactPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fullSet, compactSet *PhysicalSet
+	var fullSet, compactSet *ir.PhysicalSet
 	for _, operation := range full.Operations {
-		if operation.Kind == PhysicalSetOp {
+		if operation.Kind == ir.PhysicalSetOp {
 			fullSet = operation.Set
 		}
 	}
 	for _, operation := range compact.Operations {
-		if operation.Kind == PhysicalSetOp {
+		if operation.Kind == ir.PhysicalSetOp {
 			compactSet = operation.Set
 		}
 	}
@@ -291,18 +298,18 @@ func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
 	if err := compact.Validate(); err != nil {
 		t.Fatalf("compact plan validation failed: %v", err)
 	}
-	if len(compactSet.Output.Fields) != 4 || compactSet.Output.Fields[0] != PhysicalSetGraphIDField || compactSet.Output.Fields[1] != PhysicalSetKeyField {
+	if len(compactSet.Output.Fields) != 4 || compactSet.Output.Fields[0] != ir.PhysicalSetGraphIDField || compactSet.Output.Fields[1] != ir.PhysicalSetKeyField {
 		t.Fatalf("compact output fields = %#v, want graph identity plus metadata", compactSet.Output.Fields)
 	}
 }
 
 func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := RenderPhysicalPlan(optimized)
+	rendered, err := aql.RenderPhysicalPlan(optimized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,11 +332,11 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 	if len(sets) != 2 {
 		t.Fatalf("physical sets = %d, want 2", len(sets))
 	}
-	first, err := DecomposePhysicalTraversalPrefix(plan, *sets[0])
+	first, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := DecomposePhysicalTraversalPrefix(plan, *sets[1])
+	second, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +350,7 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 
 func TestOptimizePhysicalPlanRebindsTypedConsumerFiltersToSharedSubsetItems(t *testing.T) {
 	plan := physicalScopedSiblingPlanWithFilters(t)
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlan(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,33 +378,33 @@ func TestDecomposePhysicalTraversalPrefixRejectsUnscopedOrSharedSets(t *testing.
 	plan := physicalScopedSiblingPlan(t)
 	set := *physicalSets(plan)[0]
 	set.Subplan.Operations = set.Subplan.Operations[:6]
-	_, err := DecomposePhysicalTraversalPrefix(plan, set)
-	assertPrefixRejection(t, err, PhysicalPrefixMissingTraversal)
+	_, err := ir.DecomposePhysicalTraversalPrefix(plan, set)
+	assertPrefixRejection(t, err, ir.PhysicalPrefixMissingTraversal)
 
 	set = *physicalSets(plan)[0]
 	set.SourceSetVariable = "another_set"
-	_, err = DecomposePhysicalTraversalPrefix(plan, set)
-	assertPrefixRejection(t, err, PhysicalPrefixSharedSubset)
+	_, err = ir.DecomposePhysicalTraversalPrefix(plan, set)
+	assertPrefixRejection(t, err, ir.PhysicalPrefixSharedSubset)
 }
 
-func assertPrefixRejection(t *testing.T, err error, want PhysicalTraversalPrefixRejectionReason) {
+func assertPrefixRejection(t *testing.T, err error, want ir.PhysicalTraversalPrefixRejectionReason) {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("DecomposePhysicalTraversalPrefix() error = nil, want %s", want)
 	}
-	got, ok := err.(*PhysicalTraversalPrefixError)
+	got, ok := err.(*ir.PhysicalTraversalPrefixError)
 	if !ok || got.Reason != want {
 		t.Fatalf("prefix error = %#v, want %s", err, want)
 	}
 }
 
-func physicalScopedSiblingPlan(t *testing.T) PhysicalPlan {
+func physicalScopedSiblingPlan(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := BuildGenericPhysicalPlan(SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: SemanticNode{Alias: "root", ResourceType: "Patient", Children: []SemanticNode{
-			{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []SemanticField{{Name: "id", FieldRef: "Condition.id", Selector: mustPhysicalSelector(t, "id")}}},
-			{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Fields: []SemanticField{{Name: "id", FieldRef: "Specimen.id", Selector: mustPhysicalSelector(t, "id")}}},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{
+			{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Condition.id", Selector: mustPhysicalSelector(t, "id")}}},
+			{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Specimen.id", Selector: mustPhysicalSelector(t, "id")}}},
 		}},
 	})
 	if err != nil {
@@ -406,15 +413,15 @@ func physicalScopedSiblingPlan(t *testing.T) PhysicalPlan {
 	return plan
 }
 
-func physicalScopedSiblingPlanWithFilters(t *testing.T) PhysicalPlan {
+func physicalScopedSiblingPlanWithFilters(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
 	plan := physicalScopedSiblingPlan(t)
 	for _, set := range physicalSets(plan) {
 		traversal := set.Subplan.Operations[0].Traversal
-		predicate := PhysicalPredicate{Operator: string(FilterExists), ValueKind: FilterString,
-			LeftExpression: &PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull,
-				Extract: &PhysicalExtract{Source: PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"payload"}}, ResourceType: fmt.Sprint(plan.BindVars[traversal.TargetTypeBindKey]), Selector: mustPhysicalSelector(t, "id")}}}
-		set.Subplan.Operations = append(set.Subplan.Operations, PhysicalOperation{Kind: PhysicalFilterOp, Filter: &PhysicalFilter{Expression: &PhysicalPredicateExpression{Kind: PhysicalComparisonPredicate, Comparison: &predicate}}})
+		predicate := ir.PhysicalPredicate{Operator: string(spec.FilterExists), ValueKind: spec.FilterString,
+			LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+				Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: traversal.TargetVariable, Path: []string{"payload"}}, ResourceType: fmt.Sprint(plan.BindVars[traversal.TargetTypeBindKey]), Selector: mustPhysicalSelector(t, "id")}}}
+		set.Subplan.Operations = append(set.Subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
 	}
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("filtered fixture validation: %v", err)
@@ -422,10 +429,10 @@ func physicalScopedSiblingPlanWithFilters(t *testing.T) PhysicalPlan {
 	return plan
 }
 
-func physicalSets(plan PhysicalPlan) []*PhysicalSet {
-	sets := make([]*PhysicalSet, 0)
+func physicalSets(plan ir.PhysicalPlan) []*ir.PhysicalSet {
+	sets := make([]*ir.PhysicalSet, 0)
 	for _, operation := range plan.Operations {
-		if operation.Kind == PhysicalSetOp && operation.Set != nil {
+		if operation.Kind == ir.PhysicalSetOp && operation.Set != nil {
 			sets = append(sets, operation.Set)
 		}
 	}

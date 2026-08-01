@@ -99,7 +99,18 @@ const (
 	SelectorNode NodeKind = "selector"
 	LiteralNode  NodeKind = "literal"
 	CallNode     NodeKind = "call"
+	// DocumentRefNode denotes the complete document in a lexical resource
+	// context.  It intentionally carries no selector or backend query text;
+	// physical lowerers decide how to materialize the document envelope.
+	DocumentRefNode NodeKind = "document_ref"
 )
+
+// DocumentRef identifies the complete document in a named lexical context.
+// Context defaults to root and is validated against the surrounding semantic
+// scope by the recipe planner.
+type DocumentRef struct {
+	Context string `json:"context,omitempty"`
+}
 
 // SelectorRef identifies a value in a named row context. The path is a
 // logical selector, not a query-language fragment.
@@ -155,6 +166,7 @@ type Expression struct {
 	Selector     *SelectorRef `json:"selector,omitempty"`
 	Literal      *Literal     `json:"literal,omitempty"`
 	Call         *Call        `json:"call,omitempty"`
+	Document     *DocumentRef `json:"document,omitempty"`
 }
 
 // SelectorResolver supplies schema-aware types without coupling this package
@@ -179,6 +191,12 @@ type CheckedExpression struct {
 // Check validates an expression tree and returns its inferred type.
 func Select(ref SelectorRef) Expression {
 	return Expression{Kind: SelectorNode, Selector: &ref, NullBehavior: NullPropagate}
+}
+
+// Document returns an expression referring to the complete document in
+// context. An empty context is normalized to root by semantic planning.
+func Document(context string) Expression {
+	return Expression{Kind: DocumentRefNode, Document: &DocumentRef{Context: strings.TrimSpace(context)}, NullBehavior: NullPropagate}
 }
 
 func Constant(t Type, value any) Expression {

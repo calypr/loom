@@ -1,11 +1,18 @@
 package ingest
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
+
+func TestEdgeWithAuthResourcePathFailsClosed(t *testing.T) {
+	if _, err := edgeWithAuthResourcePath(json.RawMessage(`{`), "projects/p"); err == nil {
+		t.Fatal("malformed edge was returned without its authorization path")
+	}
+}
 
 func TestGenericRowBuilderIsSafeForParallelWorkers(t *testing.T) {
 	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))

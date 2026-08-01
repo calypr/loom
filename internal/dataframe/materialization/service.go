@@ -3,6 +3,7 @@ package materialization
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -63,9 +64,11 @@ func (s *Service) Preflight(req Request) ([]Column, error) {
 	if len(req.Schema) == 0 {
 		return nil, nil
 	}
+	resourceType := req.Run.Recipe.Outputs[0].RootResourceType
 	seen := make(map[string]struct{}, len(req.Schema))
 	result := make([]Column, 0, len(req.Schema))
 	for _, column := range req.Schema {
+		column.Name = FlatColumnName(resourceType, column.Name)
 		if err := validateSchemaColumn(column); err != nil {
 			return nil, err
 		}
@@ -94,14 +97,10 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	m := Materialization{
 		ID: id, Name: req.Name, Project: req.Run.Bindings.Project,
 		DatasetGeneration: req.Run.Bindings.DatasetGeneration,
-		State:             StatePending, AuthScopeMode: req.Run.Bindings.AuthScopeMode,
+		State:             StateLoading, AuthScopeMode: req.Run.Bindings.AuthScopeMode,
 		AuthResourcePaths: append([]string(nil), req.Run.Bindings.AuthResourcePaths...),
 		PhysicalTable:     "loom_df_" + strings.ReplaceAll(id, "-", ""), CreatedAt: time.Now().UTC(),
 	}
-	if err := s.Registry.Save(ctx, m); err != nil {
-		return Materialization{}, err
-	}
-	m.State = StateLoading
 	if err := s.Registry.Save(ctx, m); err != nil {
 		return Materialization{}, err
 	}
@@ -128,11 +127,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	fail := func(err error) (Materialization, error) {
 		if created {
 			if cleanupErr := s.ClickHouse.DropTable(context.Background(), m.PhysicalTable); cleanupErr != nil {
-				err = fmt.Errorf("%w (drop failed materialization table: %v)", err, cleanupErr)
+				err = errors.Join(err, fmt.Errorf("drop failed materialization table: %w", cleanupErr))
 			}
 		}
 		m.State, m.Error = StateFailed, err.Error()
-		_ = s.Registry.Save(context.Background(), m)
+		if persistenceErr := s.Registry.Save(context.Background(), m); persistenceErr != nil {
+			err = errors.Join(err, persistenceErr)
+		}
 		return Materialization{}, err
 	}
 	if len(explicitSchema) > 0 {
@@ -146,9 +147,13 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 		}
 		created = true
 	}
-	streamResult, err := s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
+	_, err = s.Dataframes.Stream(ctx, req.Run, func(row map[string]any) error {
 		rowCount++
-		row = cloneMap(row)
+		qualified, qualifyErr := QualifyFlatRow(req.Run.Recipe.Outputs[0].RootResourceType, row)
+		if qualifyErr != nil {
+			return qualifyErr
+		}
+		row = qualified
 		if _, ok := row[authResourcePathColumn]; !ok {
 			if len(req.Run.Bindings.AuthResourcePaths) == 1 {
 				row[authResourcePathColumn] = req.Run.Bindings.AuthResourcePaths[0]
@@ -215,11 +220,6 @@ func (s *Service) Materialize(ctx context.Context, req Request) (Materialization
 	}
 	if err := flush(); err != nil {
 		return fail(err)
-	}
-	if len(streamResult.Columns) > 0 {
-		// The runtime's finalized order is useful metadata, but the physical
-		// schema remains the deterministic order discovered above.
-		_ = streamResult
 	}
 	m.Columns = append([]Column{{Name: "__loom_row_id", ClickHouse: "UInt64"}}, columns...)
 	sort.Slice(m.Columns[1:], func(i, j int) bool { return m.Columns[i+1].Name < m.Columns[j+1].Name })

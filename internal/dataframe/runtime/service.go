@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	"github.com/calypr/loom/internal/dataset"
+	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -20,21 +20,17 @@ const defaultRowLimit = 25
 var ErrActiveGenerationConflict = errors.New("requested dataset generation conflicts with active generation")
 
 type ServiceConfig struct {
-	ConnectionOptions arangostore.ConnectionOptions
-	// Catalog callbacks are retained for callers that share a deployment config
-	// with GraphQL discovery. Recipe execution itself does not invoke them.
-	DiscoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	ConnectionOptions      arangostore.ConnectionOptions
 	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	ScopeResolver          *authscope.ScopeResolver
-	ActiveManifestResolver dataset.ActiveManifestResolver
+	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Service struct {
 	connOpts               arangostore.ConnectionOptions
 	executeRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver          *authscope.ScopeResolver
-	activeManifestResolver dataset.ActiveManifestResolver
+	activeManifestResolver publication.ActiveResolver
 }
 
 func NewService(cfg ServiceConfig) *Service {
@@ -97,7 +93,7 @@ func (s *Service) prepareAndCompile(ctx context.Context, req RunRequest) (Compil
 	if err != nil {
 		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, compiler.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return CompiledQuery{}, QueryDiagnostics{}, err
 	}
@@ -118,7 +114,7 @@ func (s *Service) prepareBindings(ctx context.Context, bindings recipe.RuntimeBi
 		return recipe.RuntimeBindings{}, err
 	}
 	if s.activeManifestResolver != nil {
-		manifest, err := dataset.ResolveReadyActiveManifest(ctx, s.activeManifestResolver, bindings.Project)
+		manifest, err := publication.ResolveActive(ctx, s.activeManifestResolver, bindings.Project)
 		if err != nil {
 			return recipe.RuntimeBindings{}, fmt.Errorf("resolve active dataset generation: %w", err)
 		}

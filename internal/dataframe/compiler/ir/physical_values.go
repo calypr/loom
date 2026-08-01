@@ -1,5 +1,7 @@
 package ir
 
+import "github.com/calypr/loom/internal/dataframe/spec"
+
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
 // semantic planning. Operations are ordered because AQL variables have lexical
 // scope: an operation may reference only variables introduced before it.
@@ -112,8 +114,8 @@ type PhysicalCall struct {
 type PhysicalExtract struct {
 	Source       PhysicalValue
 	ResourceType string
-	Selector     Selector
-	Fallbacks    []Selector
+	Selector     spec.Selector
+	Fallbacks    []spec.Selector
 	// Distinct preserves the explicit DISTINCT projection mode after semantic
 	// lowering. It is meaningful only for an array-valued expression.
 	Distinct      bool
@@ -141,7 +143,7 @@ type PhysicalPreparedSet struct {
 type PhysicalPreparedField struct {
 	Name         string
 	ResourceType string
-	Selector     Selector
+	Selector     spec.Selector
 }
 
 type PhysicalAggregateOperation string
@@ -171,11 +173,11 @@ type PhysicalPivotMap struct {
 	// what prevents key and value selectors from being flattened independently
 	// (for example Observation.component[].code paired with the same
 	// component's value[x]).
-	ItemSource          Selector
+	ItemSource          spec.Selector
 	ItemResourceType    string
-	KeySelector         Selector
-	ValueSelector       Selector
-	ValueFallbacks      []Selector
+	KeySelector         spec.Selector
+	ValueSelector       spec.Selector
+	ValueFallbacks      []spec.Selector
 	StringifyValue      bool
 	ColumnsBindKey      string
 	FlattenSingleColumn bool

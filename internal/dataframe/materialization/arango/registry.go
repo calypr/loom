@@ -38,6 +38,9 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	}, {
 		Name:    BundlePointersCollection,
 		Indexes: [][]string{{"executionId"}},
+	}, {
+		Name:    BundleLeasesCollection,
+		Indexes: [][]string{{"expiresAt"}},
 	}}}
 }
 

@@ -3,6 +3,8 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 // RenderedPhysicalPlan is an executable AQL representation of a validated
@@ -20,7 +22,7 @@ type RenderedPhysicalPlan struct {
 
 // RenderPhysicalPlan renders a validated physical plan to deterministic AQL.
 // It keeps data and metadata values out of the generated AQL source.
-func RenderPhysicalPlan(plan PhysicalPlan) (RenderedPhysicalPlan, error) {
+func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
@@ -32,11 +34,16 @@ func RenderPhysicalPlan(plan PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if err := validateRenderablePhysicalPlan(plan, collectionKeys); err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalGraphReturnOp {
+			return renderGraphPhysicalPlan(plan, collectionKeys)
+		}
+	}
 	// This renderer deliberately supports only BuildGenericPhysicalPlan's
 	// navigation contract. Validate its required project/auth windows again at
 	// the executable boundary so a manually assembled plan cannot render an
 	// unscoped resource scan.
-	if err := ValidateGenericPhysicalPlanScope(plan); err != nil {
+	if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("verify renderable generic physical plan scope: %w", err)
 	}
 	layout, err := buildNavigationRenderLayout(plan)
@@ -128,15 +135,15 @@ func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[strin
 	return pruned
 }
 
-func (r *physicalPlanRenderer) renderRootWindowOperation(operation PhysicalOperation, indent string) ([]string, error) {
+func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {
 	switch operation.Kind {
-	case PhysicalSortOp:
+	case ir.PhysicalSortOp:
 		value, err := r.renderValue(operation.Sort.Value)
 		if err != nil {
 			return nil, err
 		}
 		return []string{indent + "SORT " + value}, nil
-	case PhysicalLimitOp:
+	case ir.PhysicalLimitOp:
 		if _, collectionBinding := r.collectionKeys[operation.Limit.BindKey]; collectionBinding {
 			return nil, fmt.Errorf("limit bind key %q cannot be a collection bind", operation.Limit.BindKey)
 		}
@@ -154,7 +161,7 @@ type physicalPlanRenderer struct {
 	preparedItem   string
 }
 
-func (r *physicalPlanRenderer) renderExpressionLet(operation PhysicalOperation, indent string) ([]string, error) {
+func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {
 	if operation.ExpressionLet == nil {
 		return nil, fmt.Errorf("expression LET is missing payload")
 	}
@@ -165,9 +172,9 @@ func (r *physicalPlanRenderer) renderExpressionLet(operation PhysicalOperation, 
 	return []string{fmt.Sprintf("%sLET %s = %s", indent, operation.ExpressionLet.Variable, expression)}, nil
 }
 
-func (r *physicalPlanRenderer) renderScopeOperation(operation PhysicalOperation, indent string) ([]string, error) {
+func (r *physicalPlanRenderer) renderScopeOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {
 	switch operation.Kind {
-	case PhysicalFilterOp:
+	case ir.PhysicalFilterOp:
 		var expression string
 		var err error
 		if operation.Filter.Expression != nil {
@@ -179,13 +186,13 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation PhysicalOperation,
 			return nil, err
 		}
 		return []string{indent + "FILTER " + expression}, nil
-	case PhysicalDerivedLetOp:
+	case ir.PhysicalDerivedLetOp:
 		expression, err := r.renderDerivedLet(*operation.DerivedLet)
 		if err != nil {
 			return nil, err
 		}
 		return []string{fmt.Sprintf("%sLET %s = %s", indent, operation.DerivedLet.Variable, expression)}, nil
-	case PhysicalExpressionLetOp:
+	case ir.PhysicalExpressionLetOp:
 		return r.renderExpressionLet(operation, indent)
 	default:
 		return nil, fmt.Errorf("navigation scope cannot contain physical operation %q", operation.Kind)
@@ -196,18 +203,18 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation PhysicalOperation,
 // produced by BuildGenericPhysicalPlan. Traversals are retained as sets rather
 // than emitted as top-level loops so the root scan remains the row grain.
 type physicalNavigationRenderLayout struct {
-	root           PhysicalRootScan
-	rootScope      []PhysicalOperation
-	rootPredicates []PhysicalOperation
-	rootWindow     []PhysicalOperation
+	root           ir.PhysicalRootScan
+	rootScope      []ir.PhysicalOperation
+	rootPredicates []ir.PhysicalOperation
+	rootWindow     []ir.PhysicalOperation
 	traversals     []physicalNavigationTraversal
-	unnests        []PhysicalUnnest
-	sets           []PhysicalSet
-	expressionLets []PhysicalOperation
-	returnOp       PhysicalReturn
+	unnests        []ir.PhysicalUnnest
+	sets           []ir.PhysicalSet
+	expressionLets []ir.PhysicalOperation
+	returnOp       ir.PhysicalReturn
 }
 
 type physicalNavigationTraversal struct {
-	traversal PhysicalTraversal
-	scope     []PhysicalOperation
+	traversal ir.PhysicalTraversal
+	scope     []ir.PhysicalOperation
 }

@@ -3,20 +3,25 @@ package lower
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // appendRequiredTraversalMatchFilters lowers every REQUIRED semantic route to
 // a correlated typed EXISTS subplan. The subplan is deliberately separate
 // from optional traversal materialization: it is a root semi-join and must run
 // before the root sort/window, while optional traversal sets remain post-limit.
-func appendRequiredTraversalMatchFilters(physical *PhysicalPlan, root SemanticNode) error {
+func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root semantic.SemanticNode) error {
 	nextMatch := 0
 	seen := map[string]struct{}{}
-	var walk func(SemanticNode, []SemanticNode) error
-	walk = func(parent SemanticNode, route []SemanticNode) error {
+	var walk func(semantic.SemanticNode, []semantic.SemanticNode, bool) error
+	walk = func(parent semantic.SemanticNode, route []semantic.SemanticNode, requiredPrefix bool) error {
 		for _, child := range parent.Children {
-			next := append(append([]SemanticNode(nil), route...), child)
-			if child.MatchMode.Required() {
+			next := append(append([]semantic.SemanticNode(nil), route...), child)
+			childRequired := child.MatchMode.Required()
+			if childRequired && requiredPrefix {
 				// Two required children with the same physical route and typed
 				// predicates are the same root semi-join even when their aliases
 				// differ. Deduplicating this exact proof is safe: it does not
@@ -35,31 +40,31 @@ func appendRequiredTraversalMatchFilters(physical *PhysicalPlan, root SemanticNo
 				if err != nil {
 					return err
 				}
-				physical.Operations = append(physical.Operations, PhysicalOperation{
-					Kind:   PhysicalFilterOp,
-					Source: PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel},
-					Filter: &PhysicalFilter{Expression: &predicate},
+				physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+					Kind:   ir.PhysicalFilterOp,
+					Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel},
+					Filter: &ir.PhysicalFilter{Expression: &predicate},
 				})
 				nextMatch++
 			}
-			if err := walk(child, next); err != nil {
+			if err := walk(child, next, requiredPrefix && childRequired); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return walk(root, nil)
+	return walk(root, nil, true)
 }
 
 // requiredSemanticRouteKey intentionally excludes aliases and selection
 // shape. A required route only contributes root membership, so aliases cannot
 // distinguish two predicates. JSON gives us a deterministic key for typed
 // filters without using AQL text or resource-specific knowledge.
-func requiredSemanticRouteKey(rootResourceType string, route []SemanticNode) (string, error) {
+func requiredSemanticRouteKey(rootResourceType string, route []semantic.SemanticNode) (string, error) {
 	type step struct {
 		ResourceType string
 		EdgeLabel    string
-		Filters      []TypedFilter
+		Filters      []spec.TypedFilter
 	}
 	steps := make([]step, 0, len(route))
 	for _, node := range route {
@@ -75,18 +80,18 @@ func requiredSemanticRouteKey(rootResourceType string, route []SemanticNode) (st
 	return string(encoded), nil
 }
 
-func buildRequiredTraversalExists(physical *PhysicalPlan, matchIndex int, root SemanticNode, routeNodes []SemanticNode) (PhysicalPredicateExpression, error) {
+func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, root semantic.SemanticNode, routeNodes []semantic.SemanticNode) (ir.PhysicalPredicateExpression, error) {
 	if len(routeNodes) == 0 {
-		return PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d has no route steps", matchIndex)
+		return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d has no route steps", matchIndex)
 	}
 
-	subplan := PhysicalSubplan{Captures: []string{"root"}}
+	subplan := ir.PhysicalSubplan{Captures: []string{"root"}}
 	parentVariable := "root"
 	parentType := root.ResourceType
 	for stepIndex, node := range routeNodes {
 		route, err := resolveStorageRoute(parentType, node.EdgeLabel, node.ResourceType)
 		if err != nil {
-			return PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d: %w", matchIndex, stepIndex, err)
+			return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d: %w", matchIndex, stepIndex, err)
 		}
 		nodeVariable := fmt.Sprintf("required_%d_node_%d", matchIndex, stepIndex)
 		edgeVariable := fmt.Sprintf("required_%d_edge_%d", matchIndex, stepIndex)
@@ -98,10 +103,10 @@ func buildRequiredTraversalExists(physical *PhysicalPlan, matchIndex int, root S
 		physical.BindVars[typeBind] = node.ResourceType
 		physical.BindVars[edgeCollectionBind] = "fhir_edge"
 
-		subplan.Operations = append(subplan.Operations, PhysicalOperation{
-			Kind:   PhysicalTraversalOp,
-			Source: PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel},
-			Traversal: &PhysicalTraversal{
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalTraversalOp,
+			Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel},
+			Traversal: &ir.PhysicalTraversal{
 				SourceVariable: parentVariable, TargetVariable: nodeVariable, EdgeVariable: edgeVariable,
 				Direction: route.Direction, EdgeCollectionBindKey: edgeCollectionBind,
 				EdgeLabelBindKey: labelBind, TargetTypeBindKey: typeBind,
@@ -110,32 +115,32 @@ func buildRequiredTraversalExists(physical *PhysicalPlan, matchIndex int, root S
 		})
 		subplan.Operations = appendProjectScope(subplan.Operations, []string{edgeVariable, nodeVariable}, node.EdgeLabel, node)
 		subplan.Operations = appendDatasetGenerationScope(subplan.Operations, []string{edgeVariable, nodeVariable}, node.EdgeLabel, node)
-		subplan.Operations = appendAuthScope(subplan.Operations, []PhysicalValue{
+		subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{
 			{Variable: edgeVariable, Path: []string{"auth_resource_path"}},
 			{Variable: nodeVariable, Path: []string{"auth_resource_path"}},
 		}, fmt.Sprintf("required_%d_%d_scope_allowed", matchIndex, stepIndex), node)
 		for filterIndex, filter := range node.Filters {
-			if err := ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
-				return PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d filter %d: %w", matchIndex, stepIndex, filterIndex, err)
+			if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
+				return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d step %d filter %d: %w", matchIndex, stepIndex, filterIndex, err)
 			}
-			selector, err := ParseSelector(filter.Selector)
+			selector, err := spec.ParseSelector(filter.Selector)
 			if err != nil {
-				return PhysicalPredicateExpression{}, err
+				return ir.PhysicalPredicateExpression{}, err
 			}
-			predicate := PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind,
-				LeftExpression: &PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull,
-					Extract: &PhysicalExtract{Source: PhysicalValue{Variable: nodeVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector}}}
-			if filter.Operator != FilterExists && filter.Operator != FilterMissing {
+			predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind,
+				LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+					Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: nodeVariable, Path: []string{"payload"}}, ResourceType: node.ResourceType, Selector: selector}}}
+			if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
 				if len(filter.Values) == 0 {
-					return PhysicalPredicateExpression{}, fmt.Errorf("required traversal filter %q has no value", filter.FieldRef)
+					return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal filter %q has no value", filter.FieldRef)
 				}
 				key := fmt.Sprintf("required_%d_%d_filter_%d_value", matchIndex, stepIndex, filterIndex)
-				if filter.Operator == FilterIn {
+				if filter.Operator == spec.FilterIn {
 					values := make([]any, 0, len(filter.Values))
 					for _, value := range filter.Values {
 						literal, err := filterLiteral(value)
 						if err != nil {
-							return PhysicalPredicateExpression{}, err
+							return ir.PhysicalPredicateExpression{}, err
 						}
 						values = append(values, literal)
 					}
@@ -143,22 +148,22 @@ func buildRequiredTraversalExists(physical *PhysicalPlan, matchIndex int, root S
 				} else {
 					literal, err := filterLiteral(filter.Values[0])
 					if err != nil {
-						return PhysicalPredicateExpression{}, err
+						return ir.PhysicalPredicateExpression{}, err
 					}
 					physical.BindVars[key] = literal
 				}
-				predicate.Right = &PhysicalValue{BindKey: key}
+				predicate.Right = &ir.PhysicalValue{BindKey: key}
 			}
-			subplan.Operations = append(subplan.Operations, PhysicalOperation{Kind: PhysicalFilterOp, Filter: &PhysicalFilter{Expression: &PhysicalPredicateExpression{Kind: PhysicalComparisonPredicate, Comparison: &predicate}}})
+			subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
 		}
 		parentVariable = nodeVariable
 		parentType = node.ResourceType
 	}
 	resultBind := fmt.Sprintf("required_%d_result", matchIndex)
 	physical.BindVars[resultBind] = 1
-	subplan.Return = PhysicalExpression{
-		Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
-		Value: &PhysicalValue{BindKey: resultBind},
+	subplan.Return = ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Value: &ir.PhysicalValue{BindKey: resultBind},
 	}
-	return PhysicalPredicateExpression{Kind: PhysicalExistsPredicate, Exists: &subplan}, nil
+	return ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &subplan}, nil
 }

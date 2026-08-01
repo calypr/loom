@@ -17,30 +17,31 @@ import (
 	"time"
 
 	compilerfixture "github.com/calypr/loom/conformance/compiler"
-	"github.com/calypr/loom/graphqlapi/model"
-	queryapi "github.com/calypr/loom/graphqlapi/query"
-	"github.com/calypr/loom/internal/dataframe"
+	"github.com/calypr/loom/generated/graphql/graph/model"
+	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type profileReport struct {
-	ArtifactVersion        string                            `json:"artifact_version"`
-	Status                 string                            `json:"status"`
-	Fixture                string                            `json:"fixture"`
-	AQLSHA256              string                            `json:"aql_sha256"`
-	ResultSHA256           string                            `json:"result_sha256,omitempty"`
-	BindVars               map[string]any                    `json:"bind_vars"`
-	Rows                   int                               `json:"rows"`
-	Explain                explainReport                     `json:"explain"`
-	Profile                profileReportDetails              `json:"profile"`
-	PlanDiagnostics        dataframe.CompilerPlanDiagnostics `json:"plan_diagnostics"`
-	AQLPath                string                            `json:"aql_path"`
-	ProfilePath            string                            `json:"profile_path,omitempty"`
-	ProfileWallSeconds     float64                           `json:"profile_wall_seconds"`
-	ProfileColdWallSeconds float64                           `json:"profile_cold_wall_seconds"`
-	Expected               expectedReport                    `json:"expected,omitempty"`
+	ArtifactVersion        string                     `json:"artifact_version"`
+	Status                 string                     `json:"status"`
+	Fixture                string                     `json:"fixture"`
+	AQLSHA256              string                     `json:"aql_sha256"`
+	ResultSHA256           string                     `json:"result_sha256,omitempty"`
+	BindVars               map[string]any             `json:"bind_vars"`
+	Rows                   int                        `json:"rows"`
+	Explain                explainReport              `json:"explain"`
+	Profile                profileReportDetails       `json:"profile"`
+	PlanDiagnostics        ir.CompilerPlanDiagnostics `json:"plan_diagnostics"`
+	AQLPath                string                     `json:"aql_path"`
+	ProfilePath            string                     `json:"profile_path,omitempty"`
+	ProfileWallSeconds     float64                    `json:"profile_wall_seconds"`
+	ProfileColdWallSeconds float64                    `json:"profile_cold_wall_seconds"`
+	Expected               expectedReport             `json:"expected,omitempty"`
 }
 
 type expectedReport struct {
@@ -145,7 +146,7 @@ func main() {
 	if err != nil {
 		fatalf("resolve recipe plan %q: %v", label, err)
 	}
-	compiledQueries, err := dataframe.CompileResolvedRecipePlanWithPolicy(resolved, *limit, dataframe.DefaultPhysicalOptimizationPolicy())
+	compiledQueries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, *limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		fatalf("compile GDC request %q: %v", label, err)
 	}

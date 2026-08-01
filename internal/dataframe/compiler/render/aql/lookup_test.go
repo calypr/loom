@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestRenderPhysicalLookupExpression(t *testing.T) {
@@ -25,11 +26,11 @@ func TestRenderPhysicalLookupExpression(t *testing.T) {
 			MatchBindKey: "dynamic_key",
 		},
 	}
-	plan, err := compiler.BuildGenericPhysicalPlan(compiler.SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
-		Root:              compiler.SemanticNode{Alias: "root", ResourceType: "Patient"},
+		Root:              semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
 	if err != nil {
 		t.Fatal(err)

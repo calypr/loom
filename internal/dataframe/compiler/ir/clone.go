@@ -1,6 +1,10 @@
 package ir
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -153,6 +157,24 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		}
 		copy.Return = &returnCopy
 	}
+	if operation.PathSeed != nil {
+		seedCopy := *operation.PathSeed
+		seedCopy.Node.Value = clonePhysicalValue(seedCopy.Node.Value)
+		copy.PathSeed = &seedCopy
+	}
+	if operation.PathExtend != nil {
+		extendCopy := *operation.PathExtend
+		extendCopy.SourcePath = cloneStrings(operation.PathExtend.SourcePath)
+		extendCopy.Traversal.EndpointIndexFields = cloneStrings(operation.PathExtend.Traversal.EndpointIndexFields)
+		extendCopy.Node.Value = clonePhysicalValue(operation.PathExtend.Node.Value)
+		extendCopy.Scope = clonePhysicalOperations(operation.PathExtend.Scope)
+		copy.PathExtend = &extendCopy
+	}
+	if operation.GraphReturn != nil {
+		graphCopy := *operation.GraphReturn
+		graphCopy.PathSets = cloneStrings(operation.GraphReturn.PathSets)
+		copy.GraphReturn = &graphCopy
+	}
 	return copy
 }
 
@@ -196,7 +218,7 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Extract != nil {
 		extract := *expression.Extract
 		extract.Source = clonePhysicalValue(extract.Source)
-		extract.Fallbacks = append([]Selector(nil), extract.Fallbacks...)
+		extract.Fallbacks = append([]spec.Selector(nil), extract.Fallbacks...)
 		if extract.Prepared != nil {
 			prepared := *extract.Prepared
 			extract.Prepared = &prepared
@@ -206,8 +228,8 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Pivot != nil {
 		pivot := *expression.Pivot
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
-		pivot.ItemSource.Steps = append([]SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
-		pivot.ValueFallbacks = append([]Selector(nil), expression.Pivot.ValueFallbacks...)
+		pivot.ItemSource.Steps = append([]spec.SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
+		pivot.ValueFallbacks = append([]spec.Selector(nil), expression.Pivot.ValueFallbacks...)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
 		if pivot.PreparedKey != nil {
 			prepared := *pivot.PreparedKey

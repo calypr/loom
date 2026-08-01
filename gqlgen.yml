@@ -1,24 +1,31 @@
 schema:
-  - graphqlapi/schema.graphqls
+  - internal/api/graphql/graph/schema/schema.graphqls
+  - generated/graphql/graph/schema/fhir_schema.graphqls
 
 exec:
-  filename: graphqlapi/generated.go
-  package: graphqlapi
+  layout: follow-schema
+  dir: generated/graphql/graph/executor
+  filename_template: "{name}.generated.go"
+  package: executor
 
 model:
-  filename: graphqlapi/model/models.go
+  filename: generated/graphql/graph/model/models.go
   package: model
 
 resolver:
   layout: follow-schema
-  dir: graphqlapi
-  package: graphqlapi
+  dir: generated/graphql/graph/resolver
+  package: resolver
 
 skip_mod_tidy: true
 # The generated JSON scalar unmarshaller needs the post-generation correction
 # in cmd/gqlgenfix. Skip gqlgen's pre-generation package validation so that
 # correction can be applied before the package is compiled.
 skip_validation: true
+struct_tag: gqlgen
+
+autobind:
+  - github.com/calypr/loom/generated/fhir
 
 models:
   JSON:

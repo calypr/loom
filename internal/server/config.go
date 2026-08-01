@@ -23,6 +23,7 @@ type ServerConfig struct {
 	Arango               ArangoConfig     `yaml:"arango"`
 	DatasetGenerations   bool             `yaml:"dataset_generations"`
 	ClickHouse           ClickHouseConfig `yaml:"clickhouse"`
+	Dataframer           DataframerConfig `yaml:"dataframer"`
 	RecipeBatchRows      int              `yaml:"recipe_batch_rows"`
 	RecipeBatchBytes     int              `yaml:"recipe_batch_bytes"`
 	AllowUnauthenticated bool             `yaml:"allow_unauthenticated"`
@@ -39,6 +40,10 @@ type ClickHouseConfig struct {
 	Database string `yaml:"database"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
+}
+
+type DataframerConfig struct {
+	Recipe string `yaml:"recipe"`
 }
 
 type AuthConfig struct {
@@ -104,6 +109,9 @@ func applyEnvironment(cfg Config) Config {
 
 func (c Config) Validate() error {
 	cfg := c
+	if cfg.Server.ClickHouse.Enabled && strings.TrimSpace(cfg.Server.Dataframer.Recipe) == "" {
+		return fmt.Errorf("server.dataframer.recipe is required when server.clickhouse.enabled is true")
+	}
 	cfg.Auth.Mode = strings.ToLower(strings.TrimSpace(cfg.Auth.Mode))
 	if cfg.Auth.Mode == "" {
 		cfg.Auth.Mode = "basic"

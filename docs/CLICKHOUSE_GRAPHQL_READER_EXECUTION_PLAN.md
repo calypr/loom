@@ -336,8 +336,8 @@ The implementation should preserve the current dataframe package boundaries:
 | Logical dataset alias resolution | new cohesive package under `internal/dataframe/materialization` |
 | Safe ClickHouse row and aggregate query construction | `internal/dataframe/materialization` |
 | ClickHouse execution and JSON decoding | `internal/store/clickhouse` |
-| GraphQL authorization and transport mapping | `graphqlapi/materialization` |
-| GraphQL schema and resolvers | `graphqlapi` |
+| GraphQL authorization and transport mapping | `internal/api/graphql/graph/materialization` |
+| GraphQL schema and resolvers | `internal/api/graphql/graph` |
 | Guppy response compatibility | frontend data adapter, not canonical Loom reader |
 
 Do not add Explorer configuration parsing to the compiler. The compiler owns
@@ -424,9 +424,9 @@ Exit criteria:
 ### Phase 5: GraphQL transport
 
 1. Add the stable dataset, rows, and aggregate inputs and result envelopes to
-   `graphqlapi/schema.graphqls`.
+   `internal/api/graphql/graph/schema/schema.graphqls`.
 2. Regenerate gqlgen output; do not edit generated files manually.
-3. Add transport adapters in `graphqlapi/materialization`.
+3. Add transport adapters in `internal/api/graphql/graph/materialization`.
 4. Normalize authorization failures and validation errors into stable GraphQL
    error codes.
 5. Keep legacy materialization-ID operations only while an internal caller

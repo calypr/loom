@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // qualifyTraversalLocals makes the traversal node's local selectors explicit
@@ -111,15 +112,15 @@ func qualifyRecipeSelector(input, alias string, visible map[string]scopeBinding)
 // the canonical semantic relationship mode. Empty and case-insensitive values
 // remain OPTIONAL for version-1 recipe compatibility; unknown values fail
 // before traversal lowering.
-func NormalizeRecipeMatchMode(mode recipe.TraversalMatchMode) (TraversalMatchMode, error) {
+func NormalizeRecipeMatchMode(mode recipe.TraversalMatchMode) (spec.TraversalMatchMode, error) {
 	if !mode.Valid() {
 		return "", fmt.Errorf("unsupported traversal match mode %q", mode)
 	}
 	switch mode.Normalized() {
 	case recipe.MatchRequired:
-		return TraversalMatchRequired, nil
+		return spec.TraversalMatchRequired, nil
 	case recipe.MatchOptional:
-		return TraversalMatchOptional, nil
+		return spec.TraversalMatchOptional, nil
 	default:
 		return "", fmt.Errorf("unsupported traversal match mode %q", mode)
 	}

@@ -60,6 +60,19 @@ func (r *Reader) AggregateFederatedBatch(ctx context.Context, projects []string,
 	if err != nil {
 		return AggregationsResult{}, err
 	}
+	return r.AggregateFederatedBatchDataset(ctx, dataset, req)
+}
+
+func (r *Reader) AggregateFederatedBatchDataset(ctx context.Context, dataset FederatedDataset, req AggregationsRequest) (AggregationsResult, error) {
+	if r == nil || r.ClickHouse == nil {
+		return AggregationsResult{}, fmt.Errorf("ClickHouse dependency is required")
+	}
+	if len(req.Specs) == 0 {
+		return AggregationsResult{}, fmt.Errorf("at least one aggregation specification is required")
+	}
+	if len(req.Specs) > maxAggregationSpecs {
+		return AggregationsResult{}, fmt.Errorf("too many aggregation specifications")
+	}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
 		allowed[column.Name] = struct{}{}
@@ -135,7 +148,7 @@ func (r *Reader) aggregateTerms(ctx context.Context, dataset FederatedDataset, a
 	query := fmt.Sprintf("SELECT `__loom_agg_key`, count() AS `__loom_doc_count` FROM (%s) AS __loom_values GROUP BY `__loom_agg_key` ORDER BY `__loom_doc_count` DESC, `__loom_agg_key` ASC LIMIT %d", strings.Join(branches, " UNION ALL "), size+1)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_agg_key", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	missing, err := r.missingCount(ctx, dataset, allowed, req, filters, spec.Column)
 	if err != nil {
@@ -162,7 +175,7 @@ func (r *Reader) aggregateHistogram(ctx context.Context, dataset FederatedDatase
 	query := fmt.Sprintf("SELECT %s AS `__loom_bucket`, count() AS `__loom_doc_count` FROM (%s) AS __loom_values WHERE `__loom_agg_key` IS NOT NULL GROUP BY `__loom_bucket` ORDER BY `__loom_bucket` ASC LIMIT %d", key, strings.Join(branches, " UNION ALL "), size)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_bucket", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	resultRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -180,7 +193,7 @@ func (r *Reader) aggregateDateHistogram(ctx context.Context, dataset FederatedDa
 	args = append([]any{spec.DateInterval}, args...)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_bucket", "__loom_doc_count"}, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	resultRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -198,7 +211,7 @@ func (r *Reader) aggregateStats(ctx context.Context, dataset FederatedDataset, a
 	columns := []string{"count", "value_count", "distinct_count", "min", "max", "sum", "avg"}
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
-		return AggregationResult{}, err
+		return AggregationResult{}, backendCallError(err)
 	}
 	return AggregationResult{Name: spec.Name, Kind: "STATS", Columns: columns, Rows: rows}, nil
 }
@@ -219,7 +232,7 @@ func (r *Reader) missingCount(ctx context.Context, dataset FederatedDataset, all
 	query := fmt.Sprintf("SELECT count() AS `__loom_missing` FROM (%s) AS __loom_values WHERE `__loom_agg_key` IS NULL", strings.Join(branches, " UNION ALL "))
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_missing"}, args...)
 	if err != nil {
-		return 0, err
+		return 0, backendCallError(err)
 	}
 	if len(rows) == 0 {
 		return 0, nil
@@ -231,33 +244,26 @@ func (r *Reader) aggregateValueBranches(dataset FederatedDataset, allowed map[st
 	if _, ok := allowed[column]; !ok {
 		return nil, nil, fmt.Errorf("aggregate column %q is not in federated dataset schema", column)
 	}
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		sourceFilters := append([]Filter(nil), filters...)
-		unrestricted := req.AuthUnrestricted
-		paths := req.AuthResourcePaths
-		if req.UnrestrictedByProject != nil {
-			unrestricted = req.UnrestrictedByProject[source.Project]
+	unionColumns := []string{column}
+	for _, filter := range filters {
+		if !contains(unionColumns, filter.Column) {
+			unionColumns = append(unionColumns, filter.Column)
 		}
-		if req.AuthPathsByProject != nil {
-			paths = req.AuthPathsByProject[source.Project]
-		}
-		if !unrestricted {
-			sourceFilters = append(sourceFilters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-		}
-		where, branchArgs, err := buildWhere(sourceFilters, allowed)
-		if err != nil {
-			return nil, nil, err
-		}
-		branch := fmt.Sprintf("SELECT `%s` AS `__loom_agg_key` FROM `%s`", column, source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		branches = append(branches, branch)
-		args = append(args, branchArgs...)
 	}
-	return branches, args, nil
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	if err != nil {
+		return nil, nil, err
+	}
+	where, whereArgs, err := buildWhere(filters, allowed)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, whereArgs...)
+	branch := fmt.Sprintf("SELECT `%s` AS `__loom_agg_key` FROM (%s) AS __loom_values", column, union)
+	if len(where) > 0 {
+		branch += " WHERE " + strings.Join(where, " AND ")
+	}
+	return []string{branch}, args, nil
 }
 
 // NormalizeAggregationResults provides deterministic result ordering for

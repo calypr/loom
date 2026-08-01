@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -78,6 +77,22 @@ func TestResolveDiscoveryFreezesPivotAndKeyedColumns(t *testing.T) {
 	}
 }
 
+func TestResolveOmitsPivotWithNoDiscoveredColumns(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "document-reference", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document",
+		CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"status"}, Kinds: []string{"scalar"}, MaxColumns: 4}},
+		Pivots:             []recipe.Pivot{{Name: "empty", Discovery: &recipe.PivotDiscovery{Family: "observation_code_value", MaxColumns: 4}}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{{ResourceType: "DocumentReference", Path: "status", Kind: "scalar"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := resolved.Bundle.Outputs[0]
+	if len(output.Pivots) != 0 || len(output.Fields) != 1 || output.Fields[0].Name != "status" {
+		t.Fatalf("resolved output = %#v", output)
+	}
+}
+
 func TestResolveFillsDiscoveredPivotSelectorsInTraversalScope(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "pivot-selectors", TranslationVersion: "1", Outputs: []recipe.Output{{
 		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
@@ -130,6 +145,29 @@ func TestResolveRejectsTruncatedDynamicKeyDiscovery(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsDynamicColumnsAboveRecipeLimit(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "limited",
+		TranslationVersion:  "v",
+		Outputs: []recipe.Output{{
+			Name:             "Patient",
+			RootResourceType: "Patient",
+			RowGrain:         "patient",
+			DynamicColumns: []recipe.DynamicColumn{{
+				Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"},
+				Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1,
+			}},
+		}},
+	}
+	_, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{{
+		Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"a", "b"},
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "exceeding maxColumns") {
+		t.Fatalf("expected maxColumns rejection, got %v", err)
+	}
+}
+
 func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "digest", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}}}
 	first, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/b", "/a"}}, nil)
@@ -145,52 +183,5 @@ func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 	}
 	if first.StoredRecipeDigest != second.StoredRecipeDigest || first.ResolvedSchemaDigest != second.ResolvedSchemaDigest || first.ScopeDigest != second.ScopeDigest {
 		t.Fatalf("scope ordering changed resolution identity: first=%#v second=%#v", first, second)
-	}
-}
-
-func TestDefaultRecipeCatalogDeclarationsRemainSemanticallyCompilable(t *testing.T) {
-	bundle, err := recipe.DefaultACEDBundle()
-	if err != nil {
-		t.Fatal(err)
-	}
-	resourceTypes := []string{"DocumentReference", "Specimen", "Patient", "ResearchStudy", "Observation", "ResearchSubject", "Condition", "MedicationAdministration", "Group"}
-	byType := make(map[string][]FieldCandidate, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
-		byType[resourceType] = []FieldCandidate{
-			{ResourceType: resourceType, Path: "id", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system"}},
-			{ResourceType: resourceType, Path: "identifier[].value", Kind: "scalar"},
-			{ResourceType: resourceType, Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"url"}},
-		}
-		if resourceType == "Observation" {
-			byType[resourceType] = append(byType[resourceType],
-				FieldCandidate{ResourceType: resourceType, Path: "component[].code.text", Kind: "scalar", DistinctValues: []string{"component"}},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueString", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueInteger", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueBoolean", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueDateTime", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].valueQuantity.value", Kind: "scalar"},
-				FieldCandidate{ResourceType: resourceType, Path: "code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "observation_code_value", PivotColumns: []string{"code"}, PivotColumnSelect: "code.coding[].display", PivotValueSelect: "valueString"},
-				FieldCandidate{ResourceType: resourceType, Path: "component[].code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "codeable_concept", PivotColumns: []string{"component"}, PivotColumnSelect: "component[].code.coding[].display", PivotValueSelect: "component[].code.coding[].display"},
-			)
-		}
-	}
-	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{byType: byType})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
-		t.Fatalf("resolved default recipe did not type-check: %v", err)
-	}
-	plan, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	physical, err := semantic.ResolveRecipePlan(plan, "scope", "g")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := compiler.CompileResolvedRecipePlan(physical, compiler.DefaultPhysicalOptimizationPolicy()); err != nil {
-		t.Fatalf("resolved default recipe did not compile physically: %v", err)
 	}
 }

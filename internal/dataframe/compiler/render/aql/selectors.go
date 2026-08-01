@@ -3,9 +3,12 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (string, error) {
+func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (string, error) {
 	extract := expression.Extract
 	if extract == nil {
 		return "", fmt.Errorf("EXTRACT expression is missing payload")
@@ -17,7 +20,7 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 		} else {
 			value = "(FOR __loom_prepared_value IN " + extract.Prepared.SetVariable + " RETURN __loom_prepared_value." + extract.Prepared.Field + ")"
 		}
-		if expression.Cardinality == PhysicalArrayCardinality {
+		if expression.Cardinality == ir.PhysicalArrayCardinality {
 			if extract.Distinct {
 				return "SORTED_UNIQUE(FLATTEN(" + value + "))", nil
 			}
@@ -40,11 +43,11 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 	}
 	if len(extract.Fallbacks) == 0 && extract.Selector.Filter == nil {
 		switch extract.ExecutionMode {
-		case PhysicalSelectorDirectScalar:
-			if !setSource && expression.Cardinality != PhysicalArrayCardinality {
+		case ir.PhysicalSelectorDirectScalar:
+			if !setSource && expression.Cardinality != ir.PhysicalArrayCardinality {
 				return compileDirectExpr(source, extract.Selector.Steps), nil
 			}
-		case PhysicalSelectorConditionalArray:
+		case ir.PhysicalSelectorConditionalArray:
 			if setSource {
 				break
 			}
@@ -52,7 +55,7 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 			if err != nil {
 				return "", err
 			}
-			if expression.Cardinality == PhysicalArrayCardinality {
+			if expression.Cardinality == ir.PhysicalArrayCardinality {
 				if extract.Distinct {
 					return "SORTED_UNIQUE(" + values + ")", nil
 				}
@@ -62,7 +65,7 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 		}
 	}
 	arrays := make([]string, 0, 1+len(extract.Fallbacks))
-	for _, selector := range append([]Selector{extract.Selector}, extract.Fallbacks...) {
+	for _, selector := range append([]spec.Selector{extract.Selector}, extract.Fallbacks...) {
 		array, err := r.renderSelectorArrayFromSource(source, selector, setSource)
 		if err != nil {
 			return "", err
@@ -73,7 +76,7 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 	if len(arrays) > 1 {
 		values = "FLATTEN([" + strings.Join(arrays, ", ") + "])"
 	}
-	if expression.Cardinality == PhysicalArrayCardinality {
+	if expression.Cardinality == ir.PhysicalArrayCardinality {
 		if extract.Distinct {
 			return "SORTED_UNIQUE(" + values + ")", nil
 		}
@@ -85,17 +88,17 @@ func (r *physicalPlanRenderer) renderExtract(expression PhysicalExpression) (str
 	return "FIRST(" + values + ")", nil
 }
 
-func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector Selector, mode PhysicalSelectorExecutionMode) (string, error) {
-	if mode == PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
+func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode) (string, error) {
+	if mode == ir.PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
 		return "(FOR __loom_value IN [" + compileDirectExpr(source, selector.Steps) + "] FILTER __loom_value != null RETURN __loom_value)", nil
 	}
-	if mode == PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
+	if mode == ir.PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
 		return r.renderConditionalSelectorArray(source, selector)
 	}
 	return r.renderSelectorArrayFromSource(source, selector, false)
 }
 
-func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector Selector) (string, error) {
+func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector spec.Selector) (string, error) {
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
@@ -118,7 +121,7 @@ func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, sel
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector Selector, setSource bool) (string, error) {
+func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector spec.Selector, setSource bool) (string, error) {
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
@@ -148,7 +151,7 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-func (r *physicalPlanRenderer) renderDerivedLet(derived PhysicalDerivedLet) (string, error) {
+func (r *physicalPlanRenderer) renderDerivedLet(derived ir.PhysicalDerivedLet) (string, error) {
 	if strings.ToUpper(strings.TrimSpace(derived.Operator)) != "AUTH_RESOURCE_PATH_ALLOWED" {
 		return "", fmt.Errorf("unsupported physical derived LET operator %q", derived.Operator)
 	}
@@ -189,7 +192,7 @@ func (r *physicalPlanRenderer) renderDerivedLet(derived PhysicalDerivedLet) (str
 	return unrestrictedExpression + " == true OR " + scopeExpression, nil
 }
 
-func (r *physicalPlanRenderer) renderReturn(returnOp PhysicalReturn) (string, error) {
+func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string, error) {
 	if len(returnOp.Projections) == 0 {
 		return "{}", nil
 	}
@@ -212,7 +215,7 @@ func (r *physicalPlanRenderer) renderReturn(returnOp PhysicalReturn) (string, er
 	return "{ " + strings.Join(projections, ", ") + " }", nil
 }
 
-func (r *physicalPlanRenderer) renderValue(value PhysicalValue) (string, error) {
+func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, error) {
 	if value.BindKey != "" {
 		if _, collectionBinding := r.collectionKeys[value.BindKey]; collectionBinding {
 			return "", fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", value.BindKey)

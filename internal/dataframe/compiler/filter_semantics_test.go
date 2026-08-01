@@ -3,6 +3,8 @@ package compiler
 import (
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestValidateTypedFilterForResourceUsesGeneratedPrimitiveMetadata(t *testing.T) {
@@ -12,49 +14,49 @@ func TestValidateTypedFilterForResourceUsesGeneratedPrimitiveMetadata(t *testing
 	tests := []struct {
 		name         string
 		resourceType string
-		filter       TypedFilter
+		filter       spec.TypedFilter
 		wantErr      string
 	}{
 		{
 			name: "string", resourceType: "Patient",
-			filter: TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: FilterString, Operator: FilterEquals, Values: []FilterValue{{Kind: FilterString, String: &female}}},
+			filter: spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: &female}}},
 		},
 		{
 			name: "integer", resourceType: "Observation",
-			filter: TypedFilter{FieldRef: "Observation.valueInteger", Selector: "valueInteger", FieldKind: FilterInteger, Operator: FilterGreaterThan, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}},
+			filter: spec.TypedFilter{FieldRef: "Observation.valueInteger", Selector: "valueInteger", FieldKind: spec.FilterInteger, Operator: spec.FilterGreaterThan, Values: []spec.FilterValue{{Kind: spec.FilterInteger, Integer: &integer}}},
 		},
 		{
 			name: "repeated scalar below repeated object", resourceType: "Observation",
-			filter: TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component[].valueInteger", FieldKind: FilterInteger, Repeated: true, Quantifier: QuantifierAny, Operator: FilterEquals, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}},
+			filter: spec.TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component[].valueInteger", FieldKind: spec.FilterInteger, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterInteger, Integer: &integer}}},
 		},
 		{
 			name: "mismatched value kind", resourceType: "Patient",
-			filter:  TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: FilterInteger, Operator: FilterEquals, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}},
+			filter:  spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterInteger, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterInteger, Integer: &integer}}},
 			wantErr: "incompatible",
 		},
 		{
 			name: "mismatched repeated cardinality", resourceType: "Observation",
-			filter:  TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component[].valueInteger", FieldKind: FilterInteger, Operator: FilterEquals, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}},
+			filter:  spec.TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component[].valueInteger", FieldKind: spec.FilterInteger, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterInteger, Integer: &integer}}},
 			wantErr: "repeated",
 		},
 		{
 			name: "implicit repeated navigation", resourceType: "Observation",
-			filter:  TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component.valueInteger", FieldKind: FilterInteger, Operator: FilterEquals, Values: []FilterValue{{Kind: FilterInteger, Integer: &integer}}},
+			filter:  spec.TypedFilter{FieldRef: "Observation.component_value_integer", Selector: "component.valueInteger", FieldKind: spec.FilterInteger, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterInteger, Integer: &integer}}},
 			wantErr: "without []",
 		},
 		{
 			name: "generated date time format", resourceType: "Observation",
-			filter: TypedFilter{FieldRef: "Observation.value_date_time", Selector: "valueDateTime", FieldKind: FilterDateTime, Operator: FilterGreaterThan, Values: []FilterValue{{Kind: FilterDateTime, DateTime: stringPtr("2025-01-01T00:00:00Z")}}},
+			filter: spec.TypedFilter{FieldRef: "Observation.value_date_time", Selector: "valueDateTime", FieldKind: spec.FilterDateTime, Operator: spec.FilterGreaterThan, Values: []spec.FilterValue{{Kind: spec.FilterDateTime, DateTime: stringPtr("2025-01-01T00:00:00Z")}}},
 		},
 		{
 			name: "generated date format", resourceType: "Patient",
-			filter: TypedFilter{FieldRef: "Patient.birth_date", Selector: "birthDate", FieldKind: FilterDate, Operator: FilterGreaterEq, Values: []FilterValue{{Kind: FilterDate, Date: stringPtr("2000-01-01")}}},
+			filter: spec.TypedFilter{FieldRef: "Patient.birth_date", Selector: "birthDate", FieldKind: spec.FilterDate, Operator: spec.FilterGreaterEq, Values: []spec.FilterValue{{Kind: spec.FilterDate, Date: stringPtr("2000-01-01")}}},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := ValidateTypedFilterForResource(test.resourceType, test.filter)
+			err := spec.ValidateTypedFilterForResource(test.resourceType, test.filter)
 			if test.wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -70,10 +72,10 @@ func TestValidateTypedFilterForResourceUsesGeneratedPrimitiveMetadata(t *testing
 
 func TestValidateTypedFilterForResourceRejectsUnpairedCodingSystem(t *testing.T) {
 	code := "1234-5"
-	err := ValidateTypedFilterForResource("Observation", TypedFilter{
-		FieldRef: "Observation.code_coding_code", Selector: "code.coding[].code", FieldKind: FilterCode,
-		Repeated: true, Quantifier: QuantifierAny, Operator: FilterEquals,
-		Values: []FilterValue{{Kind: FilterCode, Code: &CodeValue{Code: code, System: "http://loinc.org"}}},
+	err := spec.ValidateTypedFilterForResource("Observation", spec.TypedFilter{
+		FieldRef: "Observation.code_coding_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode,
+		Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
+		Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{Code: code, System: "http://loinc.org"}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "paired Coding") {
 		t.Fatalf("error = %v, want paired Coding rejection", err)

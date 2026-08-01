@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 // ErrUnsupportedStorageRoute identifies a FHIR relationship that is known to
@@ -22,15 +23,7 @@ var ErrUnsupportedStorageRoute = errors.New("unsupported storage route")
 // resolveStorageRoute.
 type storageRoute struct {
 	Relationship fhirschema.CompilerTraversal
-	Direction    PhysicalTraversalDirection
-}
-
-// StorageRoute exposes the proven physical route contract to diagnostics and
-// benchmark tooling without exposing the route resolver's mutable internals.
-type StorageRoute = storageRoute
-
-func ResolveStorageRoute(fromType, label, toType string) (StorageRoute, error) {
-	return resolveStorageRoute(fromType, label, toType)
+	Direction    ir.PhysicalTraversalDirection
 }
 
 // targetEdgeTypeField returns the fhir_edge type discriminator for the node
@@ -41,9 +34,9 @@ func ResolveStorageRoute(fromType, label, toType string) (StorageRoute, error) {
 // used as an index-selectivity hint.
 func (route storageRoute) targetEdgeTypeField() string {
 	switch route.Direction {
-	case PhysicalInbound:
+	case ir.PhysicalInbound:
 		return "from_type"
-	case PhysicalOutbound:
+	case ir.PhysicalOutbound:
 		return "to_type"
 	default:
 		return ""
@@ -56,9 +49,9 @@ func (route storageRoute) targetEdgeTypeField() string {
 // the metadata is incomplete.
 func (route storageRoute) endpointLookupFields() (parentField, joinField string, indexFields []string, ok bool) {
 	switch route.Direction {
-	case PhysicalInbound:
+	case ir.PhysicalInbound:
 		return "_to", "_from", []string{"_to", "project", "dataset_generation", "label", "from_type"}, true
-	case PhysicalOutbound:
+	case ir.PhysicalOutbound:
 		return "_from", "_to", []string{"_from", "project", "dataset_generation", "label", "to_type"}, true
 	default:
 		return "", "", nil, false
@@ -104,11 +97,11 @@ func resolveStorageRoute(fromType, edgeLabel, toType string) (storageRoute, erro
 	// this tuple is the synthetic parent -> child route. In particular,
 	// Resource/* is deliberately not evidence for a concrete parent type.
 	if hasExactStorageParentHint(spec.RegexMatch, fromType) {
-		return storageRoute{Relationship: relationship, Direction: PhysicalInbound}, nil
+		return storageRoute{Relationship: relationship, Direction: ir.PhysicalInbound}, nil
 	}
 
 	if isProvenExactOutboundRoute(spec, relationship) {
-		return storageRoute{Relationship: relationship, Direction: PhysicalOutbound}, nil
+		return storageRoute{Relationship: relationship, Direction: ir.PhysicalOutbound}, nil
 	}
 
 	return storageRoute{}, unsupportedStorageRouteError(fromType, edgeLabel, toType, fmt.Sprintf("is not a proven stored route: reverse routes require RegexMatch %q; outbound references require an exact target hint (got %s)", fromType+"/*", formatRegexMatchHints(spec.RegexMatch)))

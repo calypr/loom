@@ -78,14 +78,17 @@ For local work, run with `--no-auth`:
   --no-auth \
   --backend arango \
   --url http://127.0.0.1:8529 \
-  --database fhir_proto
+  --database fhir_proto \
+  --dataframer-recipe /path/to/dataframer.json
 ```
 
 Useful endpoints:
 
 - Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
 - GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
-- Health check: [http://127.0.0.1:8080/healthz](http://127.0.0.1:8080/healthz)
+- FHIR dataframe endpoint: [http://127.0.0.1:8080/graphql/dataframe](http://127.0.0.1:8080/graphql/dataframe)
+- Flat dataframe endpoint: [http://127.0.0.1:8080/graphql/flat](http://127.0.0.1:8080/graphql/flat)
+- Health check: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
 
 On macOS you can jump straight to Apollo with:
 
@@ -97,6 +100,9 @@ open http://127.0.0.1:8080/apollo
 
 Use this first. It tells you what traversals and fields are actually populated
 for the chosen root resource type.
+
+To promote a proven interactive query into the server's persistent default,
+follow the [dataframer recipe authoring guide](DATAFRAMER_RECIPES.md).
 
 ### Query
 

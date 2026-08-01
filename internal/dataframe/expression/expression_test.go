@@ -17,6 +17,19 @@ func TestCheckSelectorUsesBoundSchemaType(t *testing.T) {
 	}
 }
 
+func TestCheckDocumentRefIsRequiredObject(t *testing.T) {
+	checked, err := Document("root").Check(TypeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.Type != (Type{Kind: KindObject, Cardinality: RequiredOne}) {
+		t.Fatalf("type = %s, want object/required_one", checked.Type)
+	}
+	if err := Document("bad context!").Validate(TypeContext{}); err == nil {
+		t.Fatal("invalid document context unexpectedly passed")
+	}
+}
+
 func TestCheckOperationTypes(t *testing.T) {
 	stringOne := Constant(Type{Kind: KindString, Cardinality: RequiredOne}, "x")
 	ctx := TypeContext{Selectors: map[string]Type{"root.alt": {Kind: KindString, Cardinality: OptionalOne}}}

@@ -14,7 +14,7 @@ import (
 )
 
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +23,7 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,14 +37,22 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 		if err := output.Plan.Validate(); err != nil {
 			t.Fatalf("output %q canonical plan invalid: %v", output.Name, err)
 		}
-		if output.Plan.Operations[0].Kind != PhysicalRootScanOp {
+		if output.Plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 			t.Fatalf("output %q first operation = %s, want ROOT_SCAN", output.Name, output.Plan.Operations[0].Kind)
 		}
 	}
 }
 
-func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "document-ref",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}}},
+		}},
+	}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +61,50 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
+	}
+	var found *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "resource" {
+				found = projection.Expression
+			}
+		}
+	}
+	if found == nil || found.Kind != ir.PhysicalObjectExpression || found.Object == nil {
+		t.Fatalf("resource projection = %#v", found)
+	}
+	if err := compiled.Outputs[0].Plan.Validate(); err != nil {
+		t.Fatalf("document plan validation: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "payload") || !strings.Contains(rendered.Query, "resourceType") || !strings.Contains(rendered.Query, "_key") {
+		t.Fatalf("rendered document envelope missing fields: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +136,7 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 }
 
 func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
-	bundle := resolvedDefaultBundleForLowerTest(t)
+	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +147,7 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,37 +171,19 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	}
 }
 
-func resolvedDefaultBundleForLowerTest(t *testing.T) recipe.Bundle {
+func compilerFixtureBundle(t *testing.T) recipe.Bundle {
 	t.Helper()
-	bundle, err := recipe.DefaultACEDBundle()
+	bundle, err := recipe.Parse([]byte(`{
+		"recipeSchemaVersion":1,
+		"name":"compiler-fixture",
+		"translationVersion":"test",
+		"outputs":[
+			{"name":"Patient","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"id","expr":{"select":"root.id"}}]},
+			{"name":"GroupMember","rootResourceType":"Group","rowGrain":"expanded","expand":{"from":{"select":"root.member[]"},"as":"member"},"identity":{"name":"id","expr":{"select":"root.id"}},"fields":[{"name":"group_id","expr":{"select":"root.id"}},{"name":"member_id","expr":{"select":"root.id"}}]}
+		]
+	}`))
 	if err != nil {
 		t.Fatal(err)
-	}
-	var walk func([]recipe.DynamicColumn, []recipe.Pivot, []recipe.Traversal)
-	walk = func(dynamicColumns []recipe.DynamicColumn, pivots []recipe.Pivot, traversals []recipe.Traversal) {
-		for i := range dynamicColumns {
-			if len(dynamicColumns[i].Columns) == 0 {
-				dynamicColumns[i].Columns = []string{"test"}
-			}
-		}
-		for i := range pivots {
-			pivots[i].Discovery = nil
-			if len(pivots[i].Columns) == 0 {
-				pivots[i].Columns = []string{"test"}
-			}
-			if pivots[i].ColumnExpr.Select == "" {
-				pivots[i].ColumnExpr.Select = "code.coding[].display"
-			}
-			if pivots[i].ValueExpr.Select == "" {
-				pivots[i].ValueExpr.Select = "valueString"
-			}
-		}
-		for i := range traversals {
-			walk(traversals[i].DynamicColumns, traversals[i].Pivots, traversals[i].Traversals)
-		}
-	}
-	for i := range bundle.Outputs {
-		walk(bundle.Outputs[i].DynamicColumns, bundle.Outputs[i].Pivots, bundle.Outputs[i].Traversals)
 	}
 	return bundle
 }
@@ -166,7 +199,7 @@ func TestCompileResolvedRecipePlanLowersBoundedDynamicMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +236,7 @@ func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +274,7 @@ func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +305,7 @@ func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +332,7 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +377,7 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +409,7 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +452,7 @@ func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +499,7 @@ func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +553,7 @@ func TestCompileResolvedRecipePlanPreservesRestrictedEmptyAuthScope(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -549,7 +582,7 @@ func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileResolvedRecipePlan(resolved, DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

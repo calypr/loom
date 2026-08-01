@@ -3,6 +3,8 @@ package aql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraversal, rootVariable string, traversalIndex int) ([]string, error) {
@@ -22,9 +24,9 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 	}
 	strategy := traversal.Strategy
 	if strategy == "" {
-		strategy = PhysicalTraversalNative
+		strategy = ir.PhysicalTraversalNative
 	}
-	if strategy == PhysicalTraversalEndpointLookup {
+	if strategy == ir.PhysicalTraversalEndpointLookup {
 		lines = append(lines,
 			fmt.Sprintf("%sFOR %s IN @@%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
 			fmt.Sprintf("%s  FILTER %s.%s == %s._id", traversalIndent, traversal.EdgeVariable, traversal.EndpointField, parentVariable),
@@ -64,7 +66,7 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 // sentinel so it emits exactly one parent row with a null item. Indexed loops
 // are used whenever ordinality or OUTER semantics are requested, preserving
 // duplicate values and a stable zero-based position.
-func (r *physicalPlanRenderer) renderUnnest(unnest PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
+func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
 	source, err := r.renderExpression(unnest.Expression)
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
@@ -82,14 +84,14 @@ func (r *physicalPlanRenderer) renderUnnest(unnest PhysicalUnnest, indent string
 	// otherwise a source such as root.member[] becomes [member[]] and emits one
 	// row per parent rather than one row per member.
 	lines := []string{fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source)}
-	indexed := unnest.JoinMode == PhysicalUnnestOuter || unnest.Ordinality != ""
+	indexed := unnest.JoinMode == ir.PhysicalUnnestOuter || unnest.Ordinality != ""
 	if !indexed {
 		lines = append(lines, fmt.Sprintf("%sFOR %s IN %s", baseIndent, unnest.OutputVariable, sourceVariable))
 		return lines, nil
 	}
 	indexVariable := r.newInternalVariable(fmt.Sprintf("unnest_index_%d", ordinal))
 	indices := fmt.Sprintf("LENGTH(%s) == 0 ? %s : RANGE(0, LENGTH(%s) - 1)", sourceVariable, "[]", sourceVariable)
-	if unnest.JoinMode == PhysicalUnnestOuter {
+	if unnest.JoinMode == ir.PhysicalUnnestOuter {
 		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	}
 	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", baseIndent, indexVariable, indices))
@@ -101,7 +103,7 @@ func (r *physicalPlanRenderer) renderUnnest(unnest PhysicalUnnest, indent string
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, error) {
+func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]string, error) {
 	if set.SourceSetVariable != "" {
 		return r.renderSharedSubset(set)
 	}
@@ -109,7 +111,7 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 		return nil, fmt.Errorf("set %q has no subplan operations", set.Variable)
 	}
 	first := set.Subplan.Operations[0]
-	if first.Kind != PhysicalTraversalOp || first.Traversal == nil {
+	if first.Kind != ir.PhysicalTraversalOp || first.Traversal == nil {
 		return nil, fmt.Errorf("set %q must begin with TRAVERSAL", set.Variable)
 	}
 	t := first.Traversal
@@ -123,9 +125,9 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 	}
 	strategy := t.Strategy
 	if strategy == "" {
-		strategy = PhysicalTraversalNative
+		strategy = ir.PhysicalTraversalNative
 	}
-	if strategy == PhysicalTraversalEndpointLookup {
+	if strategy == ir.PhysicalTraversalEndpointLookup {
 		// The endpoint equality is the first edge predicate so Arango can use
 		// the route's compound endpoint index. The node is materialized only
 		// after edge scope/type predicates have narrowed the candidate set.
@@ -159,7 +161,7 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 		}
 	}
 	for opIndex, operation := range set.Subplan.Operations[1:] {
-		if operation.Kind == PhysicalUnnestOp {
+		if operation.Kind == ir.PhysicalUnnestOp {
 			if operation.Unnest == nil {
 				return nil, fmt.Errorf("set operation %d: unnest payload is missing", opIndex+1)
 			}
@@ -205,11 +207,10 @@ func (r *physicalPlanRenderer) renderSet(set PhysicalSet, index int) ([]string, 
 		lines = append(lines, prepared...)
 		r.setVariables[set.Prepared.Variable] = set.Prepared.Variable
 	}
-	_ = index
 	return lines, nil
 }
 
-func renderPhysicalSetOutput(value string, output *PhysicalSetOutput) (string, error) {
+func renderPhysicalSetOutput(value string, output *ir.PhysicalSetOutput) (string, error) {
 	if output == nil {
 		return value, nil
 	}
@@ -217,7 +218,7 @@ func renderPhysicalSetOutput(value string, output *PhysicalSetOutput) (string, e
 	for _, field := range output.Fields {
 		name := string(field)
 		switch field {
-		case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
+		case ir.PhysicalSetGraphIDField, ir.PhysicalSetKeyField, ir.PhysicalSetIDField, ir.PhysicalSetResourceTypeField, ir.PhysicalSetPayloadField:
 			fields = append(fields, fmt.Sprintf("%s: %s.%s", name, value, name))
 		default:
 			return "", fmt.Errorf("unsupported compact set output field %q", field)
@@ -226,7 +227,7 @@ func renderPhysicalSetOutput(value string, output *PhysicalSetOutput) (string, e
 	return "{ " + strings.Join(fields, ", ") + " }", nil
 }
 
-func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projection PhysicalSetProjection) (string, error) {
+func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projection ir.PhysicalSetProjection) (string, error) {
 	if len(projection.Fields) == 0 {
 		return "", fmt.Errorf("set projection requires at least one field")
 	}
@@ -246,7 +247,7 @@ func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projecti
 	return "{ " + strings.Join(fields, ", ") + " }", nil
 }
 
-func (r *physicalPlanRenderer) renderPreparedSet(prepared PhysicalPreparedSet) ([]string, error) {
+func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) ([]string, error) {
 	if r.setVariables[prepared.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("prepared source set %q has not been rendered", prepared.SourceSetVariable)
 	}
@@ -275,7 +276,7 @@ func (r *physicalPlanRenderer) renderPreparedSet(prepared PhysicalPreparedSet) (
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *PhysicalTraversal, indent string) []string {
+func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversal, indent string) []string {
 	if t.TargetTypeBindKey == "" || t.EdgeTargetTypeField == "" {
 		return nil
 	}
@@ -288,13 +289,13 @@ func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *PhysicalTraversal, 
 	return []string{fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey), fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey)}
 }
 
-func (r *physicalPlanRenderer) renderSharedSubset(set PhysicalSet) ([]string, error) {
+func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string, error) {
 	if r.setVariables[set.SourceSetVariable] == "" {
 		return nil, fmt.Errorf("shared subset source %q has not been rendered", set.SourceSetVariable)
 	}
 	lines := []string{fmt.Sprintf("  LET %s = (", set.Variable), fmt.Sprintf("    FOR %s IN %s", set.ItemVariable, set.SourceSetVariable)}
 	for index, operation := range set.Subplan.Operations {
-		if operation.Kind == PhysicalUnnestOp {
+		if operation.Kind == ir.PhysicalUnnestOp {
 			if operation.Unnest == nil {
 				return nil, fmt.Errorf("shared subset operation %d: unnest payload is missing", index)
 			}
@@ -343,30 +344,36 @@ func (r *physicalPlanRenderer) renderSharedSubset(set PhysicalSet) ([]string, er
 	return lines, nil
 }
 
-func physicalPlanVariableNames(plan PhysicalPlan) map[string]struct{} {
+func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 	variables := map[string]struct{}{}
 	for _, operation := range plan.Operations {
 		switch operation.Kind {
-		case PhysicalRootScanOp:
+		case ir.PhysicalRootScanOp:
 			variables[operation.RootScan.Variable] = struct{}{}
-		case PhysicalTraversalOp:
+		case ir.PhysicalTraversalOp:
 			variables[operation.Traversal.SourceVariable] = struct{}{}
 			variables[operation.Traversal.TargetVariable] = struct{}{}
 			if operation.Traversal.EdgeVariable != "" {
 				variables[operation.Traversal.EdgeVariable] = struct{}{}
 			}
-		case PhysicalDerivedLetOp:
+		case ir.PhysicalDerivedLetOp:
 			variables[operation.DerivedLet.Variable] = struct{}{}
-		case PhysicalExpressionLetOp:
+		case ir.PhysicalExpressionLetOp:
 			variables[operation.ExpressionLet.Variable] = struct{}{}
-		case PhysicalSetOp:
+		case ir.PhysicalSetOp:
 			variables[operation.Set.Variable] = struct{}{}
-		case PhysicalUnnestOp:
+		case ir.PhysicalUnnestOp:
 			variables[operation.Unnest.InputVariable] = struct{}{}
 			variables[operation.Unnest.OutputVariable] = struct{}{}
 			if operation.Unnest.Ordinality != "" {
 				variables[operation.Unnest.Ordinality] = struct{}{}
 			}
+		case ir.PhysicalPathSeedOp:
+			variables[operation.PathSeed.Variable] = struct{}{}
+		case ir.PhysicalPathExtendOp:
+			variables[operation.PathExtend.Variable] = struct{}{}
+			variables[operation.PathExtend.Traversal.TargetVariable] = struct{}{}
+			variables[operation.PathExtend.Traversal.EdgeVariable] = struct{}{}
 		}
 	}
 	return variables

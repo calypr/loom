@@ -3,9 +3,10 @@ package lower
 import (
 	"testing"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestLowerRecipeExpressionUsesTypedPhysicalCallsAndBinds(t *testing.T) {
@@ -35,6 +36,28 @@ func TestLowerRecipeExpressionUsesTypedPhysicalCallsAndBinds(t *testing.T) {
 	}
 }
 
+func TestLowerDocumentRefPreservesPayloadAndStorageEnvelope(t *testing.T) {
+	physical, err := LowerRecipeExpression(expression.Document("root"), map[string]any{}, "Patient")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if physical.Kind != ir.PhysicalObjectExpression || physical.Object == nil {
+		t.Fatalf("document is not an object expression: %#v", physical)
+	}
+	if len(physical.Object.Fields) != 4 {
+		t.Fatalf("document fields = %d, want 4", len(physical.Object.Fields))
+	}
+	want := map[string]string{"payload": "payload", "id": "id", "resourceType": "resourceType", "key": "_key"}
+	for _, field := range physical.Object.Fields {
+		if field.Expression.Value == nil || field.Expression.Value.Variable != "root" {
+			t.Fatalf("field %q source = %#v", field.Name, field.Expression)
+		}
+		if want[field.Name] != field.Expression.Value.Path[0] {
+			t.Fatalf("field %q path = %#v", field.Name, field.Expression.Value.Path)
+		}
+	}
+}
+
 func TestLowerRecipeExpressionSpecializesRepeatedSelector(t *testing.T) {
 	selector := expression.Select(expression.SelectorRef{Context: "root", Path: "component[].valueInteger"})
 	physical, err := LowerRecipeExpression(selector, map[string]any{}, "Observation")
@@ -53,19 +76,19 @@ func TestLowerRecipeExpressionSpecializesRepeatedSelector(t *testing.T) {
 }
 
 func TestSelectorModeClassifierKeepsPredicateAndFallbackGeneric(t *testing.T) {
-	selector, err := ParseSelector("identifier[].value")
+	selector, err := spec.ParseSelector("identifier[].value")
 	if err != nil {
 		t.Fatal(err)
 	}
 	selector.Filter = &fhirschema.ContainsFilter{Field: "system", Needle: "case_id"}
-	if got := selectorExecutionModeForExpression("Patient", selector, nil, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull); got != ir.PhysicalSelectorGeneric {
+	if got := selectorExecutionModeForExpression("Patient", selector, nil); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("predicate selector unexpectedly specialized: %q", got)
 	}
-	plain, err := ParseSelector("gender")
+	plain, err := spec.ParseSelector("gender")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := selectorExecutionModeForExpression("Patient", plain, []Selector{selector}, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull); got != ir.PhysicalSelectorGeneric {
+	if got := selectorExecutionModeForExpression("Patient", plain, []spec.Selector{selector}); got != ir.PhysicalSelectorGeneric {
 		t.Fatalf("fallback selector unexpectedly specialized: %q", got)
 	}
 }

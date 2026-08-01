@@ -147,7 +147,7 @@ ClickHouse without accumulating in GraphQL or browser memory.
 The expected public service prefix is `${GEN3_API}/loom`, producing:
 
 - GraphQL: `${GEN3_LOOM_API}/graphql/flat`
-- health: `${GEN3_LOOM_API}/healthz`
+- health: `${GEN3_LOOM_API}/health`
 - export: `${GEN3_LOOM_API}/api/v1/dataframe/export`
 
 Recent routing work is assumed to provide this prefix. If the deployed
@@ -504,12 +504,12 @@ internal/dataframe/materialization/
   aggregate.go              # terms, stats, histograms, nested aggregations
   export.go                 # reusable streaming query plan
 
-graphqlapi/materialization/
+internal/api/graphql/graph/materialization/
   service.go                # principal-scoped transport authorization
   input.go                  # GraphQL input to canonical reader models
   output.go                 # public metadata and normalized result mapping
 
-internal/httpapi/
+internal/api/http/
   dataframe_export.go       # authenticated streaming export route
 ```
 

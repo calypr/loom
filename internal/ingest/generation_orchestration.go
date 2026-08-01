@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
-	"github.com/calypr/loom/internal/graphschema"
+	publication "github.com/calypr/loom/internal/publication"
+	publicationarango "github.com/calypr/loom/internal/publication/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
@@ -47,7 +46,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	schemaIdentity, err := graphschema.Load(opts.Schema)
+	schemaIdentity, err := loadSchemaSnapshot(opts.Schema)
 	if err != nil {
 		return summary, err
 	}
@@ -59,8 +58,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	emitEvent(opts.EventSink, "go_preflight_start", map[string]any{
 		"files":              len(files),
 		"sampleRows":         preflightSampleRows,
-		"schemaSha256":       schemaIdentity.SchemaSHA256(),
-		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes()),
+		"schemaSha256":       schemaIdentity.SchemaSHA256,
+		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes),
 	})
 	preflightStart := time.Now()
 	preflight, err := PreflightFiles(files, schema, preflightSampleRows)
@@ -136,7 +135,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
 
-	lifecycleStore, err := datasetarango.New(client)
+	lifecycleStore, err := publicationarango.New(client)
 	if err != nil {
 		return summary, err
 	}
@@ -149,25 +148,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if err == nil || manifestReady {
 			return
 		}
-		// A canceled request must not strand a PRE-FLIGHT/LOADING/ANALYZING
-		// manifest. Once READY is persisted we deliberately leave it alone,
+		// Once READY is persisted we deliberately leave it alone,
 		// because an activation error is an unknown outcome rather than proof
 		// that the generation failed.
 		_, cleanupErr := lifecycleStore.TransitionManifest(
 			context.WithoutCancel(ctx),
 			manifest,
-			dataset.ManifestStateFailed,
+			publication.StateFailed,
 		)
 		if cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("mark dataset generation %s/%s failed: %w", plan.Dataset.Project, plan.Dataset.Generation, cleanupErr))
 		}
 	}()
-	loadingManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, dataset.ManifestStateLoading)
-	if transitionErr != nil {
-		return summary, transitionErr
-	}
-	manifest = loadingManifest
-
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	for _, file := range files {
@@ -178,16 +170,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		resourceType := ResourceTypeFromPath(file)
 		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 
-		result, fileErr := loadGenerationFile(
+		result, fileErr := loadFile(
 			ctx,
 			opts,
 			client,
 			schema,
 			file,
 			plan.Dataset.Generation,
+			false,
 			start,
 			summary.VerticesInserted,
 			summary.EdgesInserted,
+			insertRawDocuments,
 		)
 		if fileErr != nil {
 			return summary, fileErr
@@ -249,14 +243,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 
-	// ANALYZING is intentionally limited to catalog finalization in this
-	// packet. No synthetic analysis version is attached; a later analysis owner
-	// can add one without changing the load/activation contract.
-	analyzingManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, dataset.ManifestStateAnalyzing)
-	if transitionErr != nil {
-		return summary, transitionErr
-	}
-	manifest = analyzingManifest
 	for _, key := range sortedGenerationCatalogKeys(catalogs) {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -288,13 +274,13 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
-	readyManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, dataset.ManifestStateReady)
+	readyManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateReady)
 	if transitionErr != nil {
 		return summary, transitionErr
 	}
 	manifest = readyManifest
 	manifestReady = true
-	if _, activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
+	if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
 		return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 	}
 

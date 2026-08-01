@@ -1,6 +1,5 @@
-// Package compiler is the stable dataframe compiler facade.
+// Package compiler orchestrates dataframe compilation.
 //
 // Compilation proceeds through spec, semantic, ir, lower, optimize, and
-// render/aql. The facade keeps the historical public symbols available while
-// each implementation layer remains independently navigable and testable.
+// render/aql, with each layer owning its canonical types and transformations.
 package compiler

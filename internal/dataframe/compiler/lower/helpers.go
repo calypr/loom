@@ -4,8 +4,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/calypr/loom/fhirschema"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 const (
@@ -29,7 +30,7 @@ func sanitizeColumnName(in string) string {
 	return b.String()
 }
 
-func selectorHasNoArrays(sel Selector) bool {
+func selectorHasNoArrays(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate || step.Index != nil {
 			return false
@@ -38,7 +39,7 @@ func selectorHasNoArrays(sel Selector) bool {
 	return true
 }
 
-func selectorHasIteratedArray(sel Selector) bool {
+func selectorHasIteratedArray(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate {
 			return true
@@ -47,30 +48,19 @@ func selectorHasIteratedArray(sel Selector) bool {
 	return false
 }
 
-// selectorModeContext is the complete physical context needed to classify a
-// selector. Source/cardinality/null behavior are intentionally carried here
-// even though the current schema proof only needs resource type and selector:
-// keeping them at this boundary prevents individual frontends from making a
-// mode decision with incomplete physical context and leaves one place for
-// future cardinality-sensitive proofs.
 type selectorModeContext struct {
 	ResourceType string
-	Selector     Selector
-	Fallbacks    []Selector
-	Source       PhysicalValue
-	Cardinality  PhysicalCardinality
-	NullBehavior PhysicalNullBehavior
+	Selector     spec.Selector
+	Fallbacks    []spec.Selector
 	Metadata     fhirschema.TerminalScalarMetadata
 	MetadataOK   bool
 }
 
-func selectorExecutionMode(resourceType string, selector Selector, fallbacks ...Selector) PhysicalSelectorExecutionMode {
+func selectorExecutionMode(resourceType string, selector spec.Selector, fallbacks ...spec.Selector) ir.PhysicalSelectorExecutionMode {
 	return selectorExecutionModeWithContext(selectorModeContext{
 		ResourceType: resourceType,
 		Selector:     selector,
 		Fallbacks:    fallbacks,
-		Cardinality:  PhysicalScalarCardinality,
-		NullBehavior: PhysicalPreserveNull,
 	})
 }
 
@@ -78,37 +68,34 @@ func selectorExecutionMode(resourceType string, selector Selector, fallbacks ...
 // by expression frontends. It resolves schema metadata once and passes the
 // complete physical expression context through the same proof used by
 // generic field lowering.
-func selectorExecutionModeForExpression(resourceType string, selector Selector, fallbacks []Selector, source PhysicalValue, cardinality PhysicalCardinality, nullBehavior PhysicalNullBehavior) PhysicalSelectorExecutionMode {
+func selectorExecutionModeForExpression(resourceType string, selector spec.Selector, fallbacks []spec.Selector) ir.PhysicalSelectorExecutionMode {
 	return selectorExecutionModeWithContext(selectorModeContext{
 		ResourceType: resourceType,
 		Selector:     selector,
 		Fallbacks:    fallbacks,
-		Source:       source,
-		Cardinality:  cardinality,
-		NullBehavior: nullBehavior,
 	})
 }
 
-func selectorExecutionModeWithContext(input selectorModeContext) PhysicalSelectorExecutionMode {
+func selectorExecutionModeWithContext(input selectorModeContext) ir.PhysicalSelectorExecutionMode {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOOM_PHYSICAL_RULE_TYPED_SELECTORS"))) {
 	case "off", "0", "false", "disabled":
-		return PhysicalSelectorGeneric
+		return ir.PhysicalSelectorGeneric
 	}
 	if len(input.Fallbacks) != 0 || input.Selector.Filter != nil {
-		return PhysicalSelectorGeneric
+		return ir.PhysicalSelectorGeneric
 	}
 	metadata, ok := input.Metadata, input.MetadataOK
 	if !ok {
 		metadata, ok = fhirschema.ResolveTerminalScalarMetadata(input.ResourceType, input.Selector.CanonicalPath())
 	}
 	if !ok {
-		return PhysicalSelectorGeneric
+		return ir.PhysicalSelectorGeneric
 	}
 	if selectorHasNoArrays(input.Selector) && !metadata.Repeated {
-		return PhysicalSelectorDirectScalar
+		return ir.PhysicalSelectorDirectScalar
 	}
 	if selectorHasIteratedArray(input.Selector) && metadata.Repeated {
-		return PhysicalSelectorConditionalArray
+		return ir.PhysicalSelectorConditionalArray
 	}
-	return PhysicalSelectorGeneric
+	return ir.PhysicalSelectorGeneric
 }

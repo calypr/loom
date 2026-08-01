@@ -1,6 +1,9 @@
 package lower
 
-import "github.com/calypr/loom/internal/authscope"
+import (
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+)
 
 // effectiveAuthScopeUnrestricted makes resolved request scopes authoritative.
 func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode) bool {
@@ -17,6 +20,6 @@ func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode
 	}
 }
 
-func semanticAuthScopeUnrestricted(plan SemanticPlan) bool {
+func semanticAuthScopeUnrestricted(plan semantic.SemanticPlan) bool {
 	return effectiveAuthScopeUnrestricted(plan.AuthResourcePaths, plan.AuthScopeMode)
 }

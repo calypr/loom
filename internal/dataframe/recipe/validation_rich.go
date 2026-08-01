@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/calypr/loom/fhirstructs"
+	fhir "github.com/calypr/loom/generated/fhir"
 )
 
 const (
@@ -64,14 +64,14 @@ func (v FilterValue) Validate() error {
 		if v.Date == nil {
 			return fmt.Errorf("DATE requires date")
 		}
-		if err := fhirstructs.ValidateFhirDate(*v.Date); err != nil {
+		if err := fhir.ValidateFhirDate(*v.Date); err != nil {
 			return fmt.Errorf("DATE must use a valid FHIR date: %w", err)
 		}
 	case FilterDateTime:
 		if v.DateTime == nil {
 			return fmt.Errorf("DATE_TIME requires dateTime")
 		}
-		if err := fhirstructs.ValidateFhirDateTime(*v.DateTime); err != nil {
+		if err := fhir.ValidateFhirDateTime(*v.DateTime); err != nil {
 			return fmt.Errorf("DATE_TIME must use a valid FHIR date-time: %w", err)
 		}
 	}
