@@ -161,10 +161,6 @@ func (s *Store) WriteFieldCatalog(ctx context.Context, collection string, docs [
 func (s *Store) WriteRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	return catalog.WriteRelationshipCatalog(ctx, s.client, docs, batchSize, overwrite, writeAPI, timings)
 }
-func (s *Store) AccumulateRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, timings map[string]float64) error {
-	return catalog.AccumulateRelationshipCatalog(ctx, s.client, docs, timings)
-}
-
 func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.RelationshipRebuildOptions) (catalog.RelationshipRebuildSummary, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000

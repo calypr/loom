@@ -2367,7 +2367,6 @@ type ComplexityRoot struct {
 		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
 		DataframeDataset              func(childComplexity int, input model.DataframeDatasetInput) int
 		DataframeDatasets             func(childComplexity int) int
-		DataframeMaterialization      func(childComplexity int, id string) int
 		DataframeRecipeExecution      func(childComplexity int, id string) int
 		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
 		DiagnosticReport              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
@@ -14275,17 +14274,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeDatasets(childComplexity), true
-	case "Query.dataframeMaterialization":
-		if e.ComplexityRoot.Query.DataframeMaterialization == nil {
-			break
-		}
-
-		args, err := ec.field_Query_dataframeMaterialization_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.DataframeMaterialization(childComplexity, args["id"].(string)), true
 	case "Query.dataframeRecipeExecution":
 		if e.ComplexityRoot.Query.DataframeRecipeExecution == nil {
 			break
@@ -19846,7 +19834,6 @@ var sources = []*ast.Source{
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
 
-  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
@@ -20168,7 +20155,6 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
-  materializationId: ID
   dataType: String!
   columns: [String!]
   filters: [DataframeFilterInput!]
@@ -20191,7 +20177,6 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
-  materializationId: ID
   dataType: String!
   groupBy: [String!]
   filters: [DataframeFilterInput!]

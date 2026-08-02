@@ -103,39 +103,9 @@ func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput
 	return &value, nil
 }
 
-// Get preserves the publication-ID GraphQL compatibility path. New callers
-// should use the projectless dataset APIs.
-func (s *Service) Get(ctx context.Context, id string) (*dfmaterialization.Materialization, error) {
-	if s.reader == nil {
-		return nil, readerUnavailable()
-	}
-	value, err := s.reader.DatasetByPublishedID(ctx, id)
-	if err != nil {
-		return nil, mapReaderError(err)
-	}
-	if err := s.authorizePublished(ctx, value); err != nil {
-		return nil, err
-	}
-	return &value, nil
-}
-
 func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfmaterialization.Page, error) {
 	if s.reader == nil {
 		return dfmaterialization.Page{}, readerUnavailable()
-	}
-	if input.MaterializationID != nil && *input.MaterializationID != "" {
-		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
-		if err != nil {
-			return dfmaterialization.Page{}, mapReaderError(err)
-		}
-		if err := s.authorizePublished(ctx, value); err != nil {
-			return dfmaterialization.Page{}, err
-		}
-		page, err := s.reader.PagePublishedID(ctx, value.ID, pageRequest(input))
-		if err != nil {
-			return dfmaterialization.Page{}, mapReaderError(err)
-		}
-		return page, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -158,20 +128,6 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
 	if s.reader == nil {
 		return dfmaterialization.AggregateResult{}, readerUnavailable()
-	}
-	if input.MaterializationID != nil && *input.MaterializationID != "" {
-		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
-		if err != nil {
-			return dfmaterialization.AggregateResult{}, mapReaderError(err)
-		}
-		if err := s.authorizePublished(ctx, value); err != nil {
-			return dfmaterialization.AggregateResult{}, err
-		}
-		result, err := s.reader.AggregatePublishedID(ctx, value.ID, dfmaterialization.AggregateRequest{MaterializationID: value.ID, GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column)})
-		if err != nil {
-			return dfmaterialization.AggregateResult{}, mapReaderError(err)
-		}
-		return result, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -310,30 +266,6 @@ func readerUnavailable() error {
 
 func federatedMaterialization(dataset dfmaterialization.FederatedDataset) dfmaterialization.Materialization {
 	return dfmaterialization.Materialization{ID: "federated:" + dataset.Name, Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete}
-}
-
-func (s *Service) authorizePublished(ctx context.Context, value dfmaterialization.Materialization) error {
-	principal, err := s.principal(ctx)
-	if err != nil {
-		return err
-	}
-	if err := authscope.AuthorizeProject(principal, value.Project, false); err != nil {
-		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	if s.scopeResolver != nil {
-		scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, value.Project, value.DatasetGeneration, value.AuthResourcePaths)
-		if err != nil {
-			return err
-		}
-		if !value.ScopeUnrestricted && scope.Unrestricted() {
-			return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-		}
-	}
-	return nil
-}
-
-func pageRequest(input model.DataframeRowsInput) dfmaterialization.PageRequest {
-	return dfmaterialization.PageRequest{Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: stringValue(input.After)}
 }
 
 func convertFilters(filters []*model.DataframeFilterInput) []dfmaterialization.Filter {

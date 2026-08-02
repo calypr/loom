@@ -7,8 +7,20 @@ import (
 
 	"github.com/bmeg/jsonschema/v6"
 	"github.com/bmeg/jsonschemagraph/graph"
+	"github.com/bmeg/jsonschemagraph/util"
 	"github.com/bytedance/sonic"
 )
+
+func graphObjectID(payload map[string]any, class *jsonschema.Schema) (string, error) {
+	return util.GetObjectID(payload, class)
+}
+
+func graphExtraArgs(authResourcePath string) map[string]any {
+	if authResourcePath == "" {
+		return nil
+	}
+	return map[string]any{"auth_resource_path": authResourcePath}
+}
 
 type rowErrorType string
 

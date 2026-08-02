@@ -76,7 +76,6 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
 	}
 	dataframes := runtime.NewService(runtime.ServiceConfig{
-		ActiveManifestResolver: active,
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got := bindVars["dataset_generation"]; got != generation {
 				t.Fatalf("dataframe execution generation = %#v, want %q", got, generation)

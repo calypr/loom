@@ -32,12 +32,12 @@ func (f *fakeRawExporter) ExportRawFiltered(_ context.Context, req RawDumpReques
 	return err
 }
 
-type capturingBundleRunner struct {
+type capturingGenerationRunner struct {
 	request GenerationLoadRequest
 	files   map[string]string
 }
 
-func (r *capturingBundleRunner) RunBundle(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+func (r *capturingGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
 	r.request = req
 	r.files = map[string]string{}
 	entries, err := os.ReadDir(req.StagedDir)
@@ -55,12 +55,12 @@ func (r *capturingBundleRunner) RunBundle(_ context.Context, req GenerationLoadR
 }
 
 func TestDumpRawAcceptsResourceTypeAndLimit(t *testing.T) {
-	service, err := NewService(ServiceConfig{Runner: fakeRunner{}})
+	service, err := NewService(ServiceConfig{GenerationRunner: &fakeGenerationRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	exporter := &fakeRawExporter{}
-	server, err := NewHTTPServer(HTTPConfig{Service: service, Authorizer: authscope.AllowAllAuthorizer{}, RawExporter: exporter, DisableSingleResourceImports: true})
+	server, err := NewHTTPServer(HTTPConfig{Service: service, Authorizer: authscope.AllowAllAuthorizer{}, RawExporter: exporter})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +78,8 @@ func TestDumpRawAcceptsResourceTypeAndLimit(t *testing.T) {
 }
 
 func TestLoadRawPartitionsMixedFHIRNDJSON(t *testing.T) {
-	runner := &capturingBundleRunner{}
-	service, err := NewService(ServiceConfig{Runner: fakeRunner{}, BundleRunner: runner})
+	runner := &capturingGenerationRunner{}
+	service, err := NewService(ServiceConfig{GenerationRunner: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestLoadRawPartitionsMixedFHIRNDJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `{"resourceType":"Patient","id":"p1"}` + "\n" + `{"resourceType":"Specimen","id":"s1"}` + "\n"
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/raw?project=P1", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/raw?project=P1&generation=generation-1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	resp, err := server.App().Test(req)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestLoadRawPartitionsMixedFHIRNDJSON(t *testing.T) {
 }
 
 func TestLoadRawUsesWriteAuthorization(t *testing.T) {
-	service, err := NewService(ServiceConfig{Runner: fakeRunner{}, BundleRunner: &capturingBundleRunner{}})
+	service, err := NewService(ServiceConfig{GenerationRunner: &capturingGenerationRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestLoadRawUsesWriteAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/raw?project=P1", strings.NewReader(`{"resourceType":"Patient","id":"p1"}`+"\n"))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/raw?project=P1&generation=generation-1", strings.NewReader(`{"resourceType":"Patient","id":"p1"}`+"\n"))
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	resp, err := server.App().Test(req)
 	if err != nil {

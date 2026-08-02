@@ -15,13 +15,9 @@ import (
 	"github.com/bmeg/jsonschemagraph/graph"
 )
 
-// Load selects the legacy loader only when no immutable Dataset reference was
-// supplied. Dataset mode is a separate write contract: every physical graph
-// document, catalog row, and lifecycle operation is bound to one generation.
+// Load writes one complete immutable dataset generation. Every physical graph
+// document, catalog row, and lifecycle operation is bound to that generation.
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
-	if opts.Dataset == nil {
-		return loadLegacy(ctx, opts)
-	}
 	return loadGeneration(ctx, opts)
 }
 
@@ -182,7 +178,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			schema,
 			file,
 			plan.Dataset.Generation,
-			false,
 			start,
 			summary.VerticesInserted,
 			summary.EdgesInserted,

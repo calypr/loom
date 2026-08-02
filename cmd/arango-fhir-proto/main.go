@@ -33,8 +33,6 @@ func main() {
 	ctx := context.Background()
 	var err error
 	switch os.Args[1] {
-	case "load":
-		err = runLoad(ctx, os.Args[2:])
 	case "load-generation":
 		err = runLoadGeneration(ctx, os.Args[2:])
 	case "discover-populated-references":
@@ -55,7 +53,6 @@ func main() {
 
 type loadCommandConfig struct {
 	Options ingest.LoadOptions
-	Backend string
 
 	CPUProfile   string
 	MemProfile   string
@@ -65,38 +62,20 @@ type loadCommandConfig struct {
 	Generation string
 }
 
-func runLoad(ctx context.Context, args []string) error {
-	return runLoadCommand(ctx, args, false)
-}
-
 func runLoadGeneration(ctx context.Context, args []string) error {
-	return runLoadCommand(ctx, args, true)
-}
-
-func runLoadCommand(ctx context.Context, args []string, generationMode bool) error {
-	config, err := parseLoadCommand(args, generationMode, flag.ExitOnError)
+	config, err := parseLoadCommand(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
 	return runConfiguredLoad(ctx, config)
 }
 
-func parseLoadCommand(args []string, generationMode bool, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
-	name := "load"
-	if generationMode {
-		name = "load-generation"
-	}
-	fs := flag.NewFlagSet(name, errorHandling)
+func parseLoadCommand(args []string, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
+	fs := flag.NewFlagSet("load-generation", errorHandling)
 	config := loadCommandConfig{}
-	configureLoadFlags(fs, &config, generationMode)
+	configureLoadFlags(fs, &config)
 	if err := fs.Parse(args); err != nil {
 		return loadCommandConfig{}, err
-	}
-	if config.Backend != "arango" {
-		return loadCommandConfig{}, fmt.Errorf("unsupported backend %q: only arango is supported", config.Backend)
-	}
-	if !generationMode {
-		return config, nil
 	}
 	if config.Generation == "" {
 		return loadCommandConfig{}, fmt.Errorf("--generation is required for load-generation")
@@ -112,8 +91,7 @@ func parseLoadCommand(args []string, generationMode bool, errorHandling flag.Err
 	return config, nil
 }
 
-func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig, generationMode bool) {
-	fs.StringVar(&config.Backend, "backend", "arango", "Storage backend; only arango is supported")
+func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.StringVar(&config.CPUProfile, "cpu-profile", "", "Write CPU profile to file")
 	fs.StringVar(&config.MemProfile, "mem-profile", "", "Write heap profile to file at end of run")
 	fs.StringVar(&config.TraceProfile, "trace-profile", "", "Write runtime trace to file")
@@ -127,15 +105,10 @@ func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig, generationM
 	fs.IntVar(&config.Options.BatchSize, "batch-size", 5000, "Bulk insert batch size")
 	fs.IntVar(&config.Options.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
 	fs.IntVar(&config.Options.WriterCount, "writers", 8, "Concurrent writer goroutines")
-	if !generationMode {
-		fs.BoolVar(&config.Options.Truncate, "truncate", true, "Truncate prototype collections before loading")
-	}
 	fs.BoolVar(&config.Options.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
 	fs.BoolVar(&config.Options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
 	fs.StringVar(&config.Options.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-	if generationMode {
-		fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
-	}
+	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
 }
 
 func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
@@ -277,8 +250,7 @@ func printJSON(value any) error {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
-  arango-fhir-proto load [flags]  # legacy mutable import; default --truncate=true
-  arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory; no --truncate flag
+  arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
   arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill

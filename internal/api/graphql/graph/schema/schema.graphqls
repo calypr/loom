@@ -3,7 +3,6 @@ type Query {
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
 
-  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
@@ -325,7 +324,6 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
-  materializationId: ID
   dataType: String!
   columns: [String!]
   filters: [DataframeFilterInput!]
@@ -348,7 +346,6 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
-  materializationId: ID
   dataType: String!
   groupBy: [String!]
   filters: [DataframeFilterInput!]

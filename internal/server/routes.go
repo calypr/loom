@@ -20,13 +20,13 @@ type manifestReader interface {
 	ResolveActiveManifest(context.Context, string) (publication.Manifest, error)
 }
 
-func registerRoutes(server *api.HTTPServer, importService *loadapi.Service, authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, disableSingleResourceImports bool, rawQuery dumpapi.QueryRowsClient, manifests manifestReader, dataframeExporter *materializationapi.Service, graphResolver *resolver.Resolver) error {
-	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: importService, Authorizer: authorizer, ScopeResolver: scopeResolver, DisableSingleResourceImports: disableSingleResourceImports})
+func registerRoutes(server *api.HTTPServer, importService *loadapi.Service, authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, rawQuery dumpapi.QueryRowsClient, manifests manifestReader, dataframeExporter *materializationapi.Service, graphResolver *resolver.Resolver) error {
+	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: importService, Authorizer: authorizer})
 	if err != nil {
 		return fmt.Errorf("create load handler: %w", err)
 	}
 	loadHandler.RegisterRoutes(server.App())
-	dumpapi.NewHandler(dumpapi.Config{RawExporter: dumpapi.ArangoRawExporter{Query: rawQuery, Manifests: manifests}, DataframeExporter: dataframeExporter, ScopeResolver: scopeResolver, DisableSingleResourceImports: disableSingleResourceImports}).RegisterRoutes(server.App())
+	dumpapi.NewHandler(dumpapi.Config{RawExporter: dumpapi.ArangoRawExporter{Query: rawQuery, Manifests: manifests}, DataframeExporter: dataframeExporter, ScopeResolver: scopeResolver}).RegisterRoutes(server.App())
 	graphapi.RegisterRoutes(server.App(), graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")})
 	clickhousegraphql.RegisterRoutes(server.App(), clickhousegraphql.NewHandler(dataframeExporter))
 	return nil

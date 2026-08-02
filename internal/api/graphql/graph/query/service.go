@@ -63,10 +63,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
 	} else {
-		service.dataframes = runtime.NewService(runtime.ServiceConfig{
-			ScopeResolver:          cfg.ScopeResolver,
-			ActiveManifestResolver: cfg.ActiveManifestResolver,
-		})
+		service.dataframes = runtime.NewService(runtime.ServiceConfig{})
 	}
 	return service
 }
@@ -94,6 +91,29 @@ func (s *Service) discoverDatasets(ctx context.Context, opts catalog.DatasetSumm
 		return nil, catalogUnavailable()
 	}
 	return s.discoverDatasetsFn(ctx, opts)
+}
+
+func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+	resolvedBundle, err := s.resolveRecipeBundle(ctx, bundle, bindings)
+	if err != nil {
+		return semantic.ResolvedRecipePlan{}, err
+	}
+	plan, err := semantic.BuildRecipePlan(resolvedBundle, bindings)
+	if err != nil {
+		return semantic.ResolvedRecipePlan{}, err
+	}
+	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
+}
+
+func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (runtime.CompiledQuery, error) {
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		return runtime.CompiledQuery{}, err
+	}
+	if len(queries) != 1 {
+		return runtime.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	return queries[0], nil
 }
 
 func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*runtime.Result, error) {
@@ -124,28 +144,17 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 		AuthScopeMode:     scope.Mode,
 		PreviewLimit:      rowLimit,
 	}
-	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, queryInvalidErrorOrBackend(err)
-	}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		return nil, queryInvalidErrorOrBackend(err)
-	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "", generation)
+	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
 	requestPreparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compileSingleQuery(resolved, rowLimit)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
-	if len(queries) != 1 {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	result, err := s.dataframes.RunCompiled(ctx, queries[0])
+	result, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
 		return nil, queryBackend(err)
 	}

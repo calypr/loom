@@ -15,11 +15,8 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -134,22 +131,15 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 		AuthResourcePaths: cloneStrings(read.Scope.AuthResourcePaths),
 		AuthScopeMode:     read.Scope.Mode, PreviewLimit: request.Limit,
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "", read.DatasetGeneration)
+	compiled, err := compileSingleQuery(resolved, request.Limit)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
-	}
-	if len(queries) != 1 {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	result, err := s.dataframes.RunCompiled(ctx, queries[0])
+	result, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
 		return nil, queryBackend(err)
 	}

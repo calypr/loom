@@ -16,7 +16,7 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func TestLoadFileSupportsLegacyGenerationAndCancellation(t *testing.T) {
+func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,33 +27,22 @@ func TestLoadFileSupportsLegacyGenerationAndCancellation(t *testing.T) {
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
 
-	for _, generation := range []string{"", "generation-1"} {
-		result, err := loadFile(
-			context.Background(),
-			opts,
-			nil,
-			schema,
-			file,
-			generation,
-			generation == "",
-			time.Now(),
-			0,
-			0,
-			func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
-				return nil
-			},
-		)
-		if err != nil {
-			t.Fatalf("loadFile(generation=%q): %v", generation, err)
-		}
-		if result.ResourceType != "Patient" || result.Rows != 0 || result.Catalog == nil {
-			t.Fatalf("loadFile(generation=%q) = %+v", generation, result)
-		}
+	result, err := loadFile(
+		context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0,
+		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loadFile(): %v", err)
+	}
+	if result.ResourceType != "Patient" || result.Rows != 0 || result.Catalog == nil {
+		t.Fatalf("loadFile() = %+v", result)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "", true, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -61,7 +50,7 @@ func TestLoadFileSupportsLegacyGenerationAndCancellation(t *testing.T) {
 	}
 }
 
-func TestLoadFilePreservesLegacyAndGenerationWrites(t *testing.T) {
+func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -74,9 +63,7 @@ func TestLoadFilePreservesLegacyAndGenerationWrites(t *testing.T) {
 
 	for _, test := range []struct {
 		name, generation string
-		overwrite        bool
 	}{
-		{name: "legacy", overwrite: true},
 		{name: "generation", generation: "generation-1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -92,14 +79,14 @@ func TestLoadFilePreservesLegacyAndGenerationWrites(t *testing.T) {
 				documents = append(documents, docs...)
 				return nil
 			}
-			result, err := loadFile(context.Background(), opts, nil, schema, file, test.generation, test.overwrite, time.Now(), 0, 0, insert)
+			result, err := loadFile(context.Background(), opts, nil, schema, file, test.generation, time.Now(), 0, 0, insert)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if result.Rows != 1 || result.VerticesInserted != 1 || result.ValidationErrors != 0 || len(result.Catalog.Documents()) == 0 {
 				t.Fatalf("result = %+v", result)
 			}
-			if len(collections) != 1 || collections[0] != "Patient" || len(overwrites) != 1 || overwrites[0] != test.overwrite || len(documents) != 1 {
+			if len(collections) != 1 || collections[0] != "Patient" || len(overwrites) != 1 || overwrites[0] || len(documents) != 1 {
 				t.Fatalf("writes collections=%v overwrite=%v documents=%d", collections, overwrites, len(documents))
 			}
 			var vertex map[string]any
@@ -109,11 +96,7 @@ func TestLoadFilePreservesLegacyAndGenerationWrites(t *testing.T) {
 			if vertex["id"] != "patient-1" {
 				t.Fatalf("logical id = %#v", vertex["id"])
 			}
-			if test.generation == "" {
-				if _, exists := vertex["dataset_generation"]; exists {
-					t.Fatalf("legacy vertex has dataset_generation: %#v", vertex)
-				}
-			} else if vertex["dataset_generation"] != test.generation {
+			if vertex["dataset_generation"] != test.generation {
 				t.Fatalf("dataset_generation = %#v, want %q", vertex["dataset_generation"], test.generation)
 			}
 		})
@@ -135,7 +118,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 		}
 		failFastOpts := opts
 		failFastOpts.FailFast = true
-		_, err := loadFile(context.Background(), failFastOpts, nil, schema, file, "", true, time.Now(), 0, 0, insert)
+		_, err := loadFile(context.Background(), failFastOpts, nil, schema, file, "generation-1", time.Now(), 0, 0, insert)
 		if err == nil || !strings.Contains(err.Error(), "Patient.ndjson Patient row 4:") {
 			t.Fatalf("error = %v, want physical row 4", err)
 		}
@@ -154,7 +137,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 		if err := os.WriteFile(file, []byte(input.String()), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		result, err := loadFile(context.Background(), opts, nil, schema, file, "", true, time.Now(), 0, 0, insert)
+		result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0, insert)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,7 +165,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project", BatchSize: 1, WriterCount: 2})
 	var inserted int64
-	result, err := loadFile(context.Background(), opts, nil, schema, file, "", true, time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
 		atomic.AddInt64(&inserted, int64(len(docs)))
 		return nil
 	})
@@ -196,7 +179,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	writeErr := errors.New("writer failed")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "", true, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return writeErr
 	})
 	if !errors.Is(err, writeErr) {

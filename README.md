@@ -56,9 +56,8 @@ browser-supplied physical table name.
 | `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, builder introspection, recipe validation, preview, execution, and publication. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /graphql/flat` | ClickHouse reader: discover published datasets, fetch rows with filters/keyset cursors, and aggregate registered outputs. |
-| `POST /api/v1/imports` | Legacy one-resource import compatibility path; disabled in dataset-generation mode. |
 | `GET /api/v1/raw` | Stream project-scoped FHIR resources as raw NDJSON, optionally filtered by `resourceType` and `limit`. |
-| `PUT /api/v1/raw` | Load mixed-resource FHIR NDJSON; Loom infers each row's `resourceType`. |
+| `PUT /api/v1/raw` | Load a complete immutable dataset generation from mixed-resource FHIR NDJSON; Loom infers each row's `resourceType`. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
@@ -263,10 +262,8 @@ The server can be configured with YAML:
 ```yaml
 server:
   listen: ":8080"
-  backend: arango
   url: http://arangodb:8529
   database: fhir_proto
-  dataset_generations: true
   clickhouse:
     enabled: true
     url: clickhouse://clickhouse:9000

@@ -18,23 +18,10 @@ import (
 type RecipeControl interface {
 	Validate(context.Context, string, recipe.RuntimeBindings) (engine.Validation, error)
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
+	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error)
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
 	Preview(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
-}
-
-// RecipeRunControl is an optional extension for the explicit full-data
-// GraphQL operation. Preview and materialization remain separate contracts;
-// this extension is only implemented by the canonical recipe engine.
-type RecipeRunControl interface {
 	Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
-}
-
-// RecipeExplainEvidenceControl is an optional extension implemented by the
-// canonical recipe engine. Keeping it separate preserves compatibility with
-// existing semantic-only controls and test doubles while allowing Explain to
-// expose sanitized compiler/Arango evidence when configured.
-type RecipeExplainEvidenceControl interface {
-	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error)
 }
 
 // RecipeExecution is the stable logical execution record exposed by GraphQL.

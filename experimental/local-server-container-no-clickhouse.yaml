@@ -2,7 +2,6 @@
 # reach the ArangoDB container published on the developer machine.
 server:
   listen: ":8080"
-  backend: arango
   url: http://host.docker.internal:8529
   database: fhir_proto
   schema: schemas/graph-fhir.json

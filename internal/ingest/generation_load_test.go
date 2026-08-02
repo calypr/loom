@@ -166,20 +166,6 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 	}
 }
 
-func TestSingleResourceImportsRejectDatasetGenerationBeforeFileOrTempIO(t *testing.T) {
-	ref, err := publication.NewRef("project-a", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	opts := LoadOptions{Dataset: &ref}
-	if _, err := LoadSingleResourceReader(context.Background(), opts, "Patient", strings.NewReader(`{"resourceType":"Patient"}`), false); !errors.Is(err, ErrGenerationSingleResourceUnsupported) {
-		t.Fatalf("LoadSingleResourceReader() error = %v, want %v", err, ErrGenerationSingleResourceUnsupported)
-	}
-	if _, err := LoadSingleResourceFile(context.Background(), opts, "Patient", filepath.Join(t.TempDir(), "missing.ndjson")); !errors.Is(err, ErrGenerationSingleResourceUnsupported) {
-		t.Fatalf("LoadSingleResourceFile() error = %v, want %v", err, ErrGenerationSingleResourceUnsupported)
-	}
-}
-
 func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 	cache := catalog.NewShapePlanCache()
 	keys := map[generationCatalogKey]*catalog.Profiler{

@@ -41,31 +41,6 @@ func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Res
 	return result, nil
 }
 
-// Stream compiles the same catalog- and authorization-validated request used
-// by Run, but delivers flattened rows as Arango yields them instead of
-// retaining the complete dataframe in Loom memory. Each invocation receives a
-// distinct top-level row map.
-func (s *Service) Stream(ctx context.Context, req RunRequest, visit func(map[string]any) error) (StreamResult, error) {
-	if visit == nil {
-		return StreamResult{}, fmt.Errorf("row visitor is required")
-	}
-	started := time.Now()
-	compiled, diagnostics, err := s.compileRunRequestWithDiagnostics(ctx, req)
-	if err != nil {
-		return StreamResult{}, err
-	}
-	result, err := s.streamQuery(ctx, compiled, visit)
-	if err != nil {
-		return result, err
-	}
-	diagnostics.ArangoQuery = result.Diagnostics.ArangoQuery
-	diagnostics.RowMaterialization = result.Diagnostics.RowMaterialization
-	diagnostics.ResultAssembly = result.Diagnostics.ResultAssembly
-	diagnostics.Total = time.Since(started)
-	result.Diagnostics = diagnostics
-	return result, nil
-}
-
 func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (StreamResult, error) {
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")

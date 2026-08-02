@@ -5,29 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/calypr/loom/internal/ingest"
 	publication "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/ingest"
 )
-
-type ImportRequest struct {
-	Project          string `json:"project"`
-	ResourceType     string `json:"resource_type"`
-	AuthResourcePath string `json:"auth_resource_path,omitempty"`
-	Truncate         bool   `json:"truncate"`
-	UseGeneric       bool   `json:"use_generic"`
-	StagedFilePath   string `json:"-"`
-	OriginalFilename string `json:"original_filename"`
-	SubmittedBy      string `json:"submitted_by,omitempty"`
-}
-
-type ImportResult struct {
-	Project          string              `json:"project"`
-	ResourceType     string              `json:"resource_type"`
-	AuthResourcePath string              `json:"auth_resource_path,omitempty"`
-	OriginalFilename string              `json:"original_filename"`
-	SubmittedBy      string              `json:"submitted_by,omitempty"`
-	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
-}
 
 type GenerationLoadRequest struct {
 	Project          string
@@ -45,30 +25,12 @@ type GenerationLoadResult struct {
 	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
 }
 
-type Runner interface {
-	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
-
 type GenerationRunner interface {
 	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
 }
 
-type BundleRunner interface {
-	RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
-
 type IngestRunner struct {
 	BaseOptions ingest.LoadOptions
-}
-
-func (r IngestRunner) Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	opts := r.BaseOptions
-	opts.Project = req.Project
-	opts.AuthResourcePath = req.AuthResourcePath
-	opts.Truncate = req.Truncate
-	opts.UseGeneric = req.UseGeneric
-	opts.EventSink = sink
-	return ingest.LoadSingleResourceFile(ctx, opts, req.ResourceType, req.StagedFilePath)
 }
 
 func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
@@ -86,62 +48,30 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	return ingest.Load(ctx, opts)
 }
 
-func (r IngestRunner) RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	opts := r.BaseOptions
-	opts.Project = req.Project
-	opts.AuthResourcePath = req.AuthResourcePath
-	opts.MetaDir = req.StagedDir
-	opts.EventSink = sink
-	return ingest.Load(ctx, opts)
-}
-
 type ServiceConfig struct {
-	Runner           Runner
-	BundleRunner     BundleRunner
 	GenerationRunner GenerationRunner
 	Logger           *slog.Logger
 	OnSuccess        func(project string)
 }
 
 type Service struct {
-	runner           Runner
-	bundleRunner     BundleRunner
 	generationRunner GenerationRunner
 	logger           *slog.Logger
 	onSuccess        func(project string)
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
-	if cfg.Runner == nil {
-		return nil, errors.New("runner is required")
+	if cfg.GenerationRunner == nil {
+		return nil, errors.New("generation runner is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		runner:           cfg.Runner,
-		bundleRunner:     cfg.BundleRunner,
 		generationRunner: cfg.GenerationRunner,
 		logger:           cfg.Logger,
 		onSuccess:        cfg.OnSuccess,
 	}, nil
-}
-
-func (s *Service) RunBundle(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
-	if s.bundleRunner == nil {
-		return nil, errors.New("bundle runner is not configured")
-	}
-	if req.Project == "" || req.StagedDir == "" {
-		return nil, errors.New("project and staged directory are required")
-	}
-	summary, err := s.bundleRunner.RunBundle(ctx, req, nil)
-	if err != nil {
-		return nil, err
-	}
-	if s.onSuccess != nil {
-		s.onSuccess(req.Project)
-	}
-	return &GenerationLoadResult{Project: req.Project, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary}, nil
 }
 
 func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
@@ -161,35 +91,4 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 	}
 	s.logger.Info("generation load succeeded", "project", req.Project, "generation", req.Generation, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
 	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary}, nil
-}
-
-func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
-	if req.Project == "" {
-		return nil, errors.New("project is required")
-	}
-	if req.ResourceType == "" {
-		return nil, errors.New("resource_type is required")
-	}
-	if req.StagedFilePath == "" {
-		return nil, errors.New("staged file path is required")
-	}
-
-	summary, err := s.runner.Run(ctx, req, nil)
-	if err != nil {
-		s.logger.Error("import failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
-		return nil, err
-	}
-	if s.onSuccess != nil {
-		s.onSuccess(req.Project)
-	}
-	s.logger.Info("import succeeded", "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	summaryCopy := summary
-	return &ImportResult{
-		Project:          req.Project,
-		ResourceType:     req.ResourceType,
-		AuthResourcePath: req.AuthResourcePath,
-		OriginalFilename: req.OriginalFilename,
-		SubmittedBy:      req.SubmittedBy,
-		Summary:          &summaryCopy,
-	}, nil
 }

@@ -49,7 +49,6 @@ Load it into the default local database:
 
 ```bash
 ./bin/arango-fhir-proto load \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --meta-dir META \
@@ -76,7 +75,6 @@ For local work, run with `--no-auth`:
 ./bin/arango-fhir-server \
   --listen :8080 \
   --no-auth \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --dataframer-recipe /path/to/dataframer.json

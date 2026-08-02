@@ -45,15 +45,10 @@ func (s *Handler) loadRaw(c fiber.Ctx) error {
 	if principal != nil {
 		req.SubmittedBy = principal.Subject
 	}
-	var result *GenerationLoadResult
-	if s.disableSingleResourceImports {
-		if req.Generation == "" {
-			return &apiError{Status: fiber.StatusBadRequest, Code: "missing_generation", Message: "generation is required while dataset-generation mode is enabled"}
-		}
-		result, err = s.service.RunGeneration(c.Context(), req)
-	} else {
-		result, err = s.service.RunBundle(c.Context(), req)
+	if req.Generation == "" {
+		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_generation", Message: "generation is required"}
 	}
+	result, err := s.service.RunGeneration(c.Context(), req)
 	if err != nil {
 		return &apiError{Status: fiber.StatusBadRequest, Code: "RAW_LOAD_FAILED", Message: "raw load failed", Cause: err}
 	}

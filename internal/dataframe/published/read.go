@@ -33,7 +33,6 @@ type Sort struct {
 }
 
 type PageRequest struct {
-	MaterializationID string
 	Columns           []string
 	Filters           []Filter
 	Sort              *Sort
@@ -51,7 +50,6 @@ type Page struct {
 }
 
 type AggregateRequest struct {
-	MaterializationID string
 	GroupBy           []string
 	Filters           []Filter
 	Operation         string
@@ -72,19 +70,6 @@ func (r *Reader) AggregateDataset(ctx context.Context, project, generation, alia
 	if err != nil {
 		return AggregateResult{}, err
 	}
-	req.MaterializationID = m.ID
-	return r.aggregateResolved(ctx, req, m)
-}
-
-func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req AggregateRequest) (AggregateResult, error) {
-	if r.ClickHouse == nil || r.Catalog == nil {
-		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	m, err := r.publishedByID(ctx, id)
-	if err != nil {
-		return AggregateResult{}, err
-	}
-	req.MaterializationID = m.ID
 	return r.aggregateResolved(ctx, req, m)
 }
 
@@ -165,19 +150,6 @@ func (r *Reader) PageDataset(ctx context.Context, project, generation, alias str
 	if err != nil {
 		return Page{}, err
 	}
-	req.MaterializationID = m.ID
-	return r.pageResolved(ctx, req, m)
-}
-
-func (r *Reader) PagePublishedID(ctx context.Context, id string, req PageRequest) (Page, error) {
-	if r.ClickHouse == nil || r.Catalog == nil {
-		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	m, err := r.publishedByID(ctx, id)
-	if err != nil {
-		return Page{}, err
-	}
-	req.MaterializationID = m.ID
 	return r.pageResolved(ctx, req, m)
 }
 
@@ -193,44 +165,6 @@ func (r *Reader) Datasets(ctx context.Context, project, generation string) ([]Ma
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
 	return ListPublishedOutputs(ctx, r.Catalog, project, generation)
-}
-
-func (r *Reader) DatasetByPublishedID(ctx context.Context, id string) (Materialization, error) {
-	if r.Catalog == nil {
-		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
-	}
-	return r.publishedByID(ctx, id)
-}
-
-func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization, error) {
-	parts := strings.SplitN(id, ":", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return Materialization{}, fmt.Errorf("invalid published dataset id %q", id)
-	}
-	execution, err := r.Catalog.GetExecution(ctx, parts[0])
-	if err != nil {
-		return Materialization{}, err
-	}
-	if execution.State != bundlepublication.BundleReady {
-		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
-	if err != nil || pointer.ExecutionID != execution.ID {
-		if err != nil {
-			return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", err)
-		}
-		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	for _, output := range execution.Outputs {
-		if output.Name == parts[1] {
-			alias := output.Alias
-			if alias == "" {
-				alias = output.Name
-			}
-			return publishedMaterialization(execution, output, alias), nil
-		}
-	}
-	return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 }
 
 func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {

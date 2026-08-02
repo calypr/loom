@@ -48,11 +48,10 @@ func (r *mutationResolver) RunDataframeRecipe(ctx context.Context, input model.R
 		return nil, recipeGraphQLError(err)
 	}
 	bindings.OutputNames = append([]string(nil), input.Outputs...)
-	runner, ok := r.recipeControl.(RecipeRunControl)
-	if !ok {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	if err := requireRecipeControl(r.recipeControl); err != nil {
+		return nil, recipeGraphQLError(err)
 	}
-	result, err := runner.Run(ctx, input.Name, bindings)
+	result, err := r.recipeControl.Run(ctx, input.Name, bindings)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -160,15 +159,6 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 	}, nil
 }
 
-// DataframeMaterialization is the resolver for the dataframeMaterialization field.
-func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
-	value, err := r.materializations.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return materializationapi.Model(*value), nil
-}
-
 // DataframeDatasets is the resolver for the dataframeDatasets field.
 func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error) {
 	values, err := r.materializations.Datasets(ctx)
@@ -259,15 +249,11 @@ func (r *queryResolver) ExplainDataframeRecipe(ctx context.Context, input model.
 		return nil, recipeGraphQLError(err)
 	}
 	result := planExplanation(explanation, input.Name)
-	if physicalControl, ok := r.recipeControl.(RecipeExplainEvidenceControl); ok {
-		physical, err := physicalControl.ExplainPhysical(ctx, input.Name, bindings, input.Live != nil && *input.Live)
-		if err != nil {
-			return nil, recipeGraphQLError(err)
-		}
-		result.Physical = physicalExplanation(physical)
-	} else if input.Live != nil && *input.Live {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	physical, err := r.recipeControl.ExplainPhysical(ctx, input.Name, bindings, input.Live != nil && *input.Live)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
 	}
+	result.Physical = physicalExplanation(physical)
 	return result, nil
 }
 

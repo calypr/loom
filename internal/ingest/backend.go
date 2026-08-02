@@ -33,7 +33,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			{"project", "auth_resource_path", "_key"},
 			// Dataset generations use immutable, hashed physical keys. These
 			// indexes support the compiler's mandatory project/generation scope
-			// before stable key or FHIR-id lookup without changing legacy plans.
+			// before stable key or FHIR-id lookup.
 			{"project", "dataset_generation", "_key"},
 			{"project", "dataset_generation", "auth_resource_path", "_key"},
 			{"project", "dataset_generation", "id"},
@@ -107,8 +107,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 }
 
 // lifecycleBootstrapSpecWithReporter keeps generation manifests outside the
-// truncation-oriented FHIR bootstrap. Load invokes this spec first when a
-// caller explicitly selects immutable dataset-generation mode.
+// truncation-oriented FHIR bootstrap.
 func lifecycleBootstrapSpecWithReporter(reporter EventSink) arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{
 		Collections: publicationarango.CollectionSpecs(),

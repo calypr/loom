@@ -21,14 +21,9 @@ func (s *Handler) dumpRaw(c fiber.Ctx) error {
 		limit = parsed
 	}
 	requestedGeneration := strings.TrimSpace(c.Query("generation"))
-	legacy := !s.disableSingleResourceImports && requestedGeneration == ""
-	generation := requestedGeneration
-	var err error
-	if !legacy {
-		generation, err = s.rawExporter.ResolveGeneration(c.Context(), project, requestedGeneration)
-		if err != nil {
-			return &apiError{Status: fiber.StatusBadRequest, Code: "generation_not_found", Message: err.Error()}
-		}
+	generation, err := s.rawExporter.ResolveGeneration(c.Context(), project, requestedGeneration)
+	if err != nil {
+		return &apiError{Status: fiber.StatusBadRequest, Code: "generation_not_found", Message: err.Error()}
 	}
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -42,7 +37,7 @@ func (s *Handler) dumpRaw(c fiber.Ctx) error {
 		}
 	}
 	c.Set(fiber.HeaderContentType, "application/x-ndjson")
-	if err := s.rawExporter.ExportRawFiltered(c.Context(), RawDumpRequest{Project: project, Generation: generation, ResourceType: strings.TrimSpace(c.Query("resourceType")), Limit: limit, Legacy: legacy}, scope, c); err != nil {
+	if err := s.rawExporter.ExportRawFiltered(c.Context(), RawDumpRequest{Project: project, Generation: generation, ResourceType: strings.TrimSpace(c.Query("resourceType")), Limit: limit}, scope, c); err != nil {
 		resetExportResponse(c)
 		return &apiError{Status: fiber.StatusBadRequest, Code: "EXPORT_FAILED", Message: "export failed", Cause: err}
 	}

@@ -162,14 +162,10 @@ For the complete ownership map and move history, see
 and the current compiler split plan
 [`DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md`](DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md).
 
-## Compatibility tracks and removal order
+## Compatibility tracks
 
-The following compatibility tracks remain deliberately, but should not grow:
-
-- mutable CLI `load` and `POST /api/v1/imports`, until a complete
-  generation-aware upload/job flow replaces them;
-- raw-structure GraphQL dataframe input, until a deliberately designed guided
-  transport exists.
+The raw-structure GraphQL dataframe input remains for the existing compiler
+transport. Ingestion and publication now use immutable dataset generations.
 
 The former hard-coded GDC AQL files, GDC export command, browser `/builder`
 demo, and unowned bootstrap materializations were removed. They bypassed the

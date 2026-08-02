@@ -5,15 +5,8 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
-
-type RunRequest struct {
-	Recipe   recipe.Bundle
-	Bindings recipe.RuntimeBindings
-	Limit    int
-}
 
 type CompiledQuery = compiler.CompiledQuery
 type RowIdentity = spec.RowIdentity

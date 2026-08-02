@@ -6,15 +6,6 @@ import (
 	"testing"
 )
 
-func TestCatalogGenerationBindsUseExactOrLegacyNullNamespace(t *testing.T) {
-	if got := DatasetGenerationBindValue(" generation-a "); got != "generation-a" {
-		t.Fatalf("generation bind = %#v, want normalized generation", got)
-	}
-	if got := DatasetGenerationBindValue(" "); got != nil {
-		t.Fatalf("legacy generation bind = %#v, want nil", got)
-	}
-}
-
 func TestCatalogGenerationResultContractsExposeGeneration(t *testing.T) {
 	fields, err := json.Marshal(PopulatedField{DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id"})
 	if err != nil {

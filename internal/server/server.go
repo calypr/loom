@@ -67,10 +67,6 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 }
 
 func run(ctx context.Context, serverConfig Config) error {
-	if serverConfig.Server.Backend != "arango" {
-		return fmt.Errorf("unsupported backend %q: only arango is wired in this server", serverConfig.Server.Backend)
-	}
-
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
 	connOpts := arangostore.ConnectionOptions{
 		URL:      serverConfig.Server.URL,
@@ -114,13 +110,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create dataset lifecycle store: %w", err)
 	}
-	// Keep this as an interface, not a typed *publicationarango.Store nil. Passing a
-	// typed nil into queryapi.Config makes the interface non-nil and
-	// incorrectly activates immutable-generation lookup for legacy META loads.
-	var activeManifestResolver publicationcontract.ActiveResolver
-	if serverConfig.Server.DatasetGenerations {
-		activeManifestResolver = lifecycleStore
-	}
+	activeManifestResolver := publicationcontract.ActiveResolver(lifecycleStore)
 
 	discoveryCache := catalog.NewCache()
 	catalogStore, err := catalogarango.New(lifecycleClient)
@@ -138,7 +128,7 @@ func run(ctx context.Context, serverConfig Config) error {
 
 	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
 		return lifecycleClient.QueryRows(ctx, query, batch, binds, visit)
-	}, ScopeResolver: scopeResolver, ActiveManifestResolver: activeManifestResolver})
+	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
 	publishedRegistry, err := bundlearango.New(lifecycleClient)
@@ -233,14 +223,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	})
 
 	importService, err := loadapi.NewService(loadapi.ServiceConfig{
-		Runner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
-			ConnectionOptions: connOpts,
-			Schema:            serverConfig.Server.Schema,
-		}},
-		BundleRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
-			ConnectionOptions: connOpts,
-			Schema:            serverConfig.Server.Schema,
-		}},
 		GenerationRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            serverConfig.Server.Schema,
@@ -274,13 +256,13 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, importService, authorizer, scopeResolver, serverConfig.Server.DatasetGenerations, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
+	if err := registerRoutes(server, importService, authorizer, scopeResolver, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, "dataset_generations", serverConfig.Server.DatasetGenerations)
+		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 		errCh <- server.App().Listen(serverConfig.Server.Listen)
 	}()
 

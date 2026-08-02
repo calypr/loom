@@ -18,9 +18,11 @@ type fakeRecipeControl struct {
 	resolveCalls *int
 }
 
-type fakeRecipeRunControl struct{ fakeRecipeControl }
+func (f fakeRecipeControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error) {
+	return engine.PhysicalExplanation{}, nil
+}
 
-func (f fakeRecipeRunControl) Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
+func (f fakeRecipeControl) Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}, {"id": "p2"}}
 	return engine.Preview{Plan: f.plan, Outputs: []engine.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
@@ -73,7 +75,7 @@ func TestRecipeControlResolverReturnsLogicalValidation(t *testing.T) {
 func TestRecipeControlResolverRunsCompleteRecipe(t *testing.T) {
 	validation := testRecipeValidation()
 	plan := semantic.ResolvedRecipePlan{SemanticPlan: validation.Plan, ResolvedSchemaDigest: "schema", SourceGeneration: "g", ScopeDigest: "scope"}
-	resolver := NewResolver(ResolverConfig{RecipeControl: fakeRecipeRunControl{fakeRecipeControl{validation: validation, plan: plan}}})
+	resolver := NewResolver(ResolverConfig{RecipeControl: fakeRecipeControl{validation: validation, plan: plan}})
 	result, err := resolver.Mutation().RunDataframeRecipe(context.Background(), model.RunDataframeRecipeInput{
 		Name: "default", Bindings: &model.DataframeRecipeBindingsInput{Project: "p"},
 	})

@@ -17,12 +17,11 @@ type FHIRResource interface {
 }
 
 type DataframeAggregateInput struct {
-	MaterializationID *string                 `json:"materializationId,omitempty"`
-	DataType          string                  `json:"dataType"`
-	GroupBy           []string                `json:"groupBy,omitempty"`
-	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
-	Operation         string                  `json:"operation"`
-	Column            *string                 `json:"column,omitempty"`
+	DataType  string                  `json:"dataType"`
+	GroupBy   []string                `json:"groupBy,omitempty"`
+	Filters   []*DataframeFilterInput `json:"filters,omitempty"`
+	Operation string                  `json:"operation"`
+	Column    *string                 `json:"column,omitempty"`
 }
 
 type DataframeAggregateResult struct {
@@ -397,13 +396,12 @@ type DataframeRowConnection struct {
 }
 
 type DataframeRowsInput struct {
-	MaterializationID *string                 `json:"materializationId,omitempty"`
-	DataType          string                  `json:"dataType"`
-	Columns           []string                `json:"columns,omitempty"`
-	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
-	Sort              *DataframeSortInput     `json:"sort,omitempty"`
-	First             *int                    `json:"first,omitempty"`
-	After             *string                 `json:"after,omitempty"`
+	DataType string                  `json:"dataType"`
+	Columns  []string                `json:"columns,omitempty"`
+	Filters  []*DataframeFilterInput `json:"filters,omitempty"`
+	Sort     *DataframeSortInput     `json:"sort,omitempty"`
+	First    *int                    `json:"first,omitempty"`
+	After    *string                 `json:"after,omitempty"`
 }
 
 type DataframeSortInput struct {
