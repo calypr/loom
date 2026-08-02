@@ -123,7 +123,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 
 	discoveryCache := catalog.NewCache()
-	catalogStore, err := catalogarango.New(lifecycleClient, connOpts.Database)
+	catalogStore, err := catalogarango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create catalog store: %w", err)
 	}
@@ -210,6 +210,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
 			DiscoverFields:         discoverFields,
+			DiscoverDatasets:       catalogStore.DiscoverDatasets,
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
 			ActiveManifestResolver: activeManifestResolver,

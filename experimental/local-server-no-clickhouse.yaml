@@ -1,0 +1,15 @@
+# Minimal local graph-only server configuration. Use this when ClickHouse is
+# unavailable and you want to exercise the Arango/GraphQL graph surface.
+server:
+  listen: ":8080"
+  backend: arango
+  url: http://127.0.0.1:8529
+  database: fhir_proto
+  schema: schemas/graph-fhir.json
+  clickhouse:
+    enabled: false
+  allow_unauthenticated: true
+
+auth:
+  mode: basic
+  allow_unauthenticated: true

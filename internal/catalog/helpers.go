@@ -45,63 +45,6 @@ func stringValue(value any) string {
 	return ""
 }
 
-func int64Value(value any) (int64, error) {
-	switch v := value.(type) {
-	case int64:
-		return v, nil
-	case int32:
-		return int64(v), nil
-	case int:
-		return int64(v), nil
-	case float64:
-		return int64(v), nil
-	case float32:
-		return int64(v), nil
-	default:
-		return 0, fmt.Errorf("unsupported numeric type %T", value)
-	}
-}
-
-func strictInt64Value(value any) (int64, error) {
-	if value == nil {
-		return 0, nil
-	}
-	return int64Value(value)
-}
-
-func strictBoolValue(value any) (bool, error) {
-	if value == nil {
-		return false, nil
-	}
-	v, ok := value.(bool)
-	if !ok {
-		return false, fmt.Errorf("unsupported boolean type %T", value)
-	}
-	return v, nil
-}
-
-func strictStringSliceValue(value any) ([]string, error) {
-	if value == nil {
-		return nil, nil
-	}
-	switch items := value.(type) {
-	case []string:
-		return cloneStrings(items), nil
-	case []any:
-		out := make([]string, len(items))
-		for i, item := range items {
-			text, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("unsupported slice item type %T at index %d", item, i)
-			}
-			out[i] = text
-		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("unsupported string slice type %T", value)
-	}
-}
-
 func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {
 	return sanitizeCollectionKey(project + "::" + authResourcePath + "::" + resourceType + "::" + path)
 }

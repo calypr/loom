@@ -107,7 +107,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
-	catalogStore, err := catalogarango.New(client, opts.Database)
+	catalogStore, err := catalogarango.New(client)
 	if err != nil {
 		return summary, err
 	}

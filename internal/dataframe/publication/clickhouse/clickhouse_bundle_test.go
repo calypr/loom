@@ -162,7 +162,7 @@ func (c *bundleClickHouseFixture) QueryRows(_ context.Context, query string, _ [
 func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
-	store, _ := NewClickHouseBundleStore(client, catalog)
+	store, _ := NewBundleStore(client, catalog)
 	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "stale"})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 	ctx, cancel := context.WithCancel(context.Background())
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, onAcquire: cancel, requireSaveContext: true}
 	client := newBundleClickHouseFixture()
-	store, _ := NewClickHouseBundleStore(client, catalog)
+	store, _ := NewBundleStore(client, catalog)
 	execution := BundleExecution{ID: "stale", Key: "stale-key", BundleIdentity: BundleIdentity{Name: "stale"}, State: BundleLoading, UpdatedAt: time.Now().Add(-time.Hour), Outputs: []BundleOutputRecord{{Name: "one", PhysicalTable: "loom_stale_one"}}}
 	catalog.executions[execution.ID] = execution
 	client.tables[execution.Outputs[0].PhysicalTable] = nil
@@ -238,7 +238,7 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
-	store, _ := NewClickHouseBundleStore(client, catalog)
+	store, _ := NewBundleStore(client, catalog)
 	identity := BundleIdentity{Name: "in-flight"}
 	if _, err := store.BeginBundleFor(context.Background(), identity); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 
 func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, pointerErr: errors.New("pointer lookup failed")}
-	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "pointer-failure"})
 	if err == nil || !errors.Is(err, catalog.pointerErr) {
 		t.Fatalf("BeginBundleFor() error = %v", err)
@@ -262,7 +262,7 @@ func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 
 func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, saveErr: errors.New("save failed")}
-	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "save-failure"})
 	if err == nil || !errors.Is(err, catalog.saveErr) {
 		t.Fatalf("BeginBundleFor() error = %v", err)
@@ -275,7 +275,7 @@ func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {
 func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true}
 	client := newBundleClickHouseFixture()
-	store, _ := NewClickHouseBundleStore(client, catalog)
+	store, _ := NewBundleStore(client, catalog)
 	store.leaseRenewInterval = time.Millisecond
 	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-loss"})
 	if err != nil {
@@ -293,7 +293,7 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 
 func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewBlock: true, renewStarted: make(chan struct{})}
-	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	store.leaseRenewInterval = time.Millisecond
 	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-cancel"})
 	if err != nil {

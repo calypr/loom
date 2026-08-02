@@ -43,12 +43,3 @@ func TestRelationshipCatalogDocumentsHaveStableGenerationSafeKeys(t *testing.T) 
 		t.Fatal("distinct generations collided in relationship key")
 	}
 }
-
-func TestRuntimeReferenceDiscoveryUsesCatalogAndKeepsRepairExplicit(t *testing.T) {
-	if !strings.Contains(relationshipCatalogBuilderAQL, "FOR d IN fhir_relationship_catalog") || !strings.Contains(relationshipCatalogStorageAQL, "FOR d IN fhir_relationship_catalog") {
-		t.Fatal("runtime relationship queries do not use the catalog")
-	}
-	if !strings.Contains(relationshipRebuildAQL, "FOR e IN fhir_edge") || strings.Contains(relationshipCatalogBuilderAQL, "fhir_edge") || strings.Contains(relationshipCatalogStorageAQL, "fhir_edge") {
-		t.Fatal("direct edge aggregation leaked into runtime discovery")
-	}
-}

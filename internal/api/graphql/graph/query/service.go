@@ -17,12 +17,12 @@ import (
 )
 
 type Service struct {
-	discoverReferences      func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFields          func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	discoverReferencesFn    func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	discoverFieldsFn        func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	dataframes              *runtime.Service
 	scopeResolver           *authscope.ScopeResolver
 	activeManifestResolver  publication.ActiveResolver
-	discoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
+	discoverDatasetsFn      func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
 	datasetProjectAllowlist []string
 	explain                 func(context.Context, runtime.CompiledQuery) error
 }
@@ -51,20 +51,14 @@ func NewService(cfg Config) *Service {
 		datasetProjectAllowlist: cloneStrings(cfg.DatasetProjectAllowlist),
 		explain:                 cfg.Explain,
 	}
-	if cfg.DiscoverDatasets != nil {
-		service.discoverDatasets = cfg.DiscoverDatasets
-	} else {
-		service.discoverDatasets = catalog.DiscoverDatasetSummaries
-	}
 	if cfg.DiscoverReferences != nil {
-		service.discoverReferences = cfg.DiscoverReferences
-	} else {
-		service.discoverReferences = catalog.DiscoverPopulatedReferences
+		service.discoverReferencesFn = cfg.DiscoverReferences
 	}
 	if cfg.DiscoverFields != nil {
-		service.discoverFields = cfg.DiscoverFields
-	} else {
-		service.discoverFields = catalog.DiscoverPopulatedFields
+		service.discoverFieldsFn = cfg.DiscoverFields
+	}
+	if cfg.DiscoverDatasets != nil {
+		service.discoverDatasetsFn = cfg.DiscoverDatasets
 	}
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
@@ -75,6 +69,31 @@ func NewService(cfg Config) *Service {
 		})
 	}
 	return service
+}
+
+func catalogUnavailable() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+func (s *Service) discoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	if s == nil || s.discoverFieldsFn == nil {
+		return nil, catalogUnavailable()
+	}
+	return s.discoverFieldsFn(ctx, opts)
+}
+
+func (s *Service) discoverReferences(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+	if s == nil || s.discoverReferencesFn == nil {
+		return nil, catalogUnavailable()
+	}
+	return s.discoverReferencesFn(ctx, opts)
+}
+
+func (s *Service) discoverDatasets(ctx context.Context, opts catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error) {
+	if s == nil || s.discoverDatasetsFn == nil {
+		return nil, catalogUnavailable()
+	}
+	return s.discoverDatasetsFn(ctx, opts)
 }
 
 func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*runtime.Result, error) {

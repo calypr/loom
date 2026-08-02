@@ -169,7 +169,7 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client, opts.Database)
+	adapter, err := catalogarango.New(client)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client, opts.Database)
+	adapter, err := catalogarango.New(client)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client, opts.Database)
+	adapter, err := catalogarango.New(client)
 	if err != nil {
 		return err
 	}

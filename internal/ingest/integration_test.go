@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -88,7 +89,16 @@ func TestLoadAndQueryFixture(t *testing.T) {
 				}
 			}
 
-			fields, err := catalog.DiscoverPopulatedFields(ctx, catalog.PopulatedFieldOptions{
+			client, err := arangostore.Open(ctx, "http://127.0.0.1:8529", database)
+			if err != nil {
+				t.Fatalf("open catalog client: %v", err)
+			}
+			defer client.Close(ctx)
+			catalogStore, err := catalogarango.New(client)
+			if err != nil {
+				t.Fatalf("create catalog store: %v", err)
+			}
+			fields, err := catalogStore.DiscoverFields(ctx, catalog.PopulatedFieldOptions{
 				Project:      "ARANGO_PROTO_TEST",
 				ResourceType: "Condition",
 				CursorBatch:  100,

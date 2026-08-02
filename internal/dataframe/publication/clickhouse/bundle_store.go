@@ -29,9 +29,9 @@ type IdentityBundleStore interface {
 // pointer in publication.BundleCatalog. ClickHouse itself has no cross-table transaction;
 // the pointer is therefore the visibility boundary.
 type ClickHouseBundleStore struct {
-	ClickHouse         BundleClickHouseStore
-	Catalog            publication.BundleCatalog
-	Prefix             string
+	clickHouse         BundleClickHouseStore
+	catalog            publication.BundleCatalog
+	prefix             string
 	mu                 sync.Mutex
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
@@ -43,15 +43,11 @@ type BundleClickHouseStore interface {
 	DropTable(context.Context, string) error
 }
 
-func NewClickHouseBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
+func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
 	if client == nil || catalog == nil {
 		return nil, fmt.Errorf("ClickHouse client and bundle catalog are required")
 	}
-	return &ClickHouseBundleStore{ClickHouse: client, Catalog: catalog, Prefix: "loom_bundle", leaseTTL: 2 * time.Minute, leaseRenewInterval: 30 * time.Second}, nil
-}
-
-func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
-	return NewClickHouseBundleStore(client, catalog)
+	return &ClickHouseBundleStore{clickHouse: client, catalog: catalog, prefix: "loom_bundle", leaseTTL: 2 * time.Minute, leaseRenewInterval: 30 * time.Second}, nil
 }
 
 func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
@@ -65,7 +61,7 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 		identity.EngineVersion = "loom"
 	}
 	key := identity.Key()
-	if existing, err := s.Catalog.FindExecutionByKey(ctx, key); err == nil {
+	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
 		switch existing.State {
 		case publication.BundleReady:
 			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true}, nil
@@ -82,7 +78,7 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	if err != nil {
 		return nil, err
 	}
-	if leaseCatalog, ok := s.Catalog.(publication.BundleLeaseCatalog); ok {
+	if leaseCatalog, ok := s.catalog.(publication.BundleLeaseCatalog); ok {
 		acquired, err := leaseCatalog.AcquireBundleLease(ctx, key, id, leaseUntil)
 		if err != nil {
 			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -92,21 +88,21 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 		}
 	}
 	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleLoading, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil}
-	if err := s.Catalog.SaveExecution(ctx, execution); err != nil {
+	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
 		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
 			return nil, errors.Join(err, releaseErr)
 		}
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
-	if _, ok := s.Catalog.(publication.BundleLeaseCatalog); ok {
+	if _, ok := s.catalog.(publication.BundleLeaseCatalog); ok {
 		tx.startLeaseRenewal(ctx)
 	}
 	return tx, nil
 }
 
 func (s *ClickHouseBundleStore) pointer(ctx context.Context, name string) (string, error) {
-	p, err := s.Catalog.GetPointer(ctx, name)
+	p, err := s.catalog.GetPointer(ctx, name)
 	if err != nil {
 		if errors.Is(err, publication.ErrBundleNotFound) {
 			return "", nil
@@ -117,7 +113,7 @@ func (s *ClickHouseBundleStore) pointer(ctx context.Context, name string) (strin
 }
 
 func (s *ClickHouseBundleStore) releaseLease(ctx context.Context, key, owner string) error {
-	lease, ok := s.Catalog.(publication.BundleLeaseCatalog)
+	lease, ok := s.catalog.(publication.BundleLeaseCatalog)
 	if !ok {
 		return nil
 	}
@@ -163,7 +159,7 @@ func (t *clickHouseBundleTx) startLeaseRenewal(parent context.Context) {
 			select {
 			case <-ticker.C:
 				until := time.Now().UTC().Add(t.store.leaseTTL)
-				lease, ok := t.store.Catalog.(publication.BundleLeaseCatalog)
+				lease, ok := t.store.catalog.(publication.BundleLeaseCatalog)
 				if !ok {
 					return
 				}
@@ -266,7 +262,7 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 		}
 	}
 	table := t.tableName(name)
-	if err := t.store.ClickHouse.CreateTable(ctx, table, columns); err != nil {
+	if err := t.store.clickHouse.CreateTable(ctx, table, columns); err != nil {
 		return err
 	}
 	converted := make([]publication.PhysicalColumn, len(columns))
@@ -307,7 +303,7 @@ func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, column
 			return fmt.Errorf("output %q schema changed after preflight", name)
 		}
 	}
-	if err := t.store.ClickHouse.InsertRows(ctx, record.PhysicalTable, effectiveColumns, rows); err != nil {
+	if err := t.store.clickHouse.InsertRows(ctx, record.PhysicalTable, effectiveColumns, rows); err != nil {
 		return err
 	}
 	record.RowCount += int64(len(rows))
@@ -381,7 +377,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
 	if err := t.save(ctx); err != nil {
 		return err
 	}
-	if err := t.store.Catalog.CompareAndSwapPointer(ctx, t.execution.PointerName(), t.expectedPointer, t.execution.ID); err != nil {
+	if err := t.store.catalog.CompareAndSwapPointer(ctx, t.execution.PointerName(), t.expectedPointer, t.execution.ID); err != nil {
 		if errors.Is(err, publication.ErrBundlePointerConflict) {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithRetryable(true))
 		} else {
@@ -409,7 +405,7 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 	defer cancel()
 	var cleanup error
 	for _, output := range t.execution.Outputs {
-		if err := t.store.ClickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+		if err := t.store.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
@@ -430,7 +426,7 @@ func (t *clickHouseBundleTx) outputIndex(name string) int {
 }
 
 func (t *clickHouseBundleTx) tableName(output string) string {
-	return t.store.Prefix + "_" + strings.ReplaceAll(t.execution.ID, "-", "") + "_" + output
+	return t.store.prefix + "_" + strings.ReplaceAll(t.execution.ID, "-", "") + "_" + output
 }
 
 func (t *clickHouseBundleTx) save(ctx context.Context) error {
@@ -445,7 +441,7 @@ func (t *clickHouseBundleTx) save(ctx context.Context) error {
 		snapshot.LeaseExpiresAt = &expires
 	}
 	t.leaseMu.Unlock()
-	if err := t.store.Catalog.SaveExecution(ctx, snapshot); err != nil {
+	if err := t.store.catalog.SaveExecution(ctx, snapshot); err != nil {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	return nil
@@ -491,7 +487,7 @@ func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(va
 // tables. It is safe to call repeatedly during server startup; READY pointers
 // are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
-	catalog, ok := s.Catalog.(publication.StaleBundleCatalog)
+	catalog, ok := s.catalog.(publication.StaleBundleCatalog)
 	if !ok {
 		return fmt.Errorf("bundle catalog does not support stale execution listing")
 	}
@@ -502,7 +498,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			return err
 		}
 		for _, execution := range executions {
-			if leases, ok := s.Catalog.(publication.BundleLeaseCatalog); ok {
+			if leases, ok := s.catalog.(publication.BundleLeaseCatalog); ok {
 				expires := time.Now().UTC().Add(s.leaseTTL)
 				claimed, err := leases.AcquireBundleLease(ctx, execution.Key, reconcilerID, expires)
 				if err != nil {
@@ -516,7 +512,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
 			var first error
 			for _, output := range execution.Outputs {
-				if err := s.ClickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+				if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
 					first = errors.Join(first, err)
 				}
 			}
@@ -527,10 +523,10 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.UpdatedAt = time.Now().UTC()
 			execution.OwnerID = ""
 			execution.LeaseExpiresAt = nil
-			if err := s.Catalog.SaveExecution(cleanupCtx, execution); err != nil {
+			if err := s.catalog.SaveExecution(cleanupCtx, execution); err != nil {
 				first = errors.Join(first, err)
 			}
-			if leases, ok := s.Catalog.(publication.BundleLeaseCatalog); ok {
+			if leases, ok := s.catalog.(publication.BundleLeaseCatalog); ok {
 				first = errors.Join(first, leases.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
 			}
 			cancel()

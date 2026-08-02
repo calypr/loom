@@ -17,7 +17,7 @@ import (
 // allowlist-based: the service never scans the catalog to invent project
 // names for a caller that has not supplied an explicit project source.
 func (s *Service) DiscoverDatasets(ctx context.Context) ([]DatasetSummary, error) {
-	if s == nil || s.discoverDatasets == nil {
+	if s == nil || s.discoverDatasetsFn == nil {
 		return []DatasetSummary{}, nil
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)

@@ -25,22 +25,7 @@ func (t *Target) Reconcile(ctx context.Context, olderThan time.Time) error {
 	return fmt.Errorf("ClickHouse publication store does not support reconciliation")
 }
 
-func New(args ...any) (*Target, error) {
-	var bundleStore IdentityBundleStore
-	switch len(args) {
-	case 1:
-		bundleStore, _ = args[0].(IdentityBundleStore)
-	case 2:
-		client, clientOK := args[0].(BundleClickHouseStore)
-		catalog, catalogOK := args[1].(publication.BundleCatalog)
-		if clientOK && catalogOK {
-			var err error
-			bundleStore, err = NewBundleStore(client, catalog)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
+func New(bundleStore IdentityBundleStore) (*Target, error) {
 	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
 	}

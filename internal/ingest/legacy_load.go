@@ -70,7 +70,7 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		return summary, err
 	}
 	defer client.Close(ctx)
-	catalogStore, err := catalogarango.New(client, opts.Database)
+	catalogStore, err := catalogarango.New(client)
 	if err != nil {
 		return summary, err
 	}
