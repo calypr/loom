@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type Reader struct {
 	ClickHouse             *clickhouse.Client
-	Catalog                BundleCatalog
+	Catalog                bundlepublication.BundleCatalog
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver
 }
@@ -210,7 +211,7 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 	if err != nil {
 		return Materialization{}, err
 	}
-	if execution.State != BundleReady {
+	if execution.State != bundlepublication.BundleReady {
 		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())

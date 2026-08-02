@@ -18,7 +18,7 @@ func TestValidateUsesProductionCompilerWithoutExecutingRows(t *testing.T) {
 		return []catalog.PopulatedReference{}, nil
 	}
 	inner := runtime.NewService(runtime.ServiceConfig{
-		ExecuteRows: func(context.Context, runtime.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			executed = true
 			return nil
 		},

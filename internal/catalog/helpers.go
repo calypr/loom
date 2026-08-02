@@ -4,39 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-	"time"
 )
-
-func emit(event string, fields map[string]any) {
-	payload := map[string]any{"event": event}
-	for key, value := range fields {
-		payload[key] = value
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-	fmt.Fprintln(os.Stdout, string(data))
-}
-
-func secondsSince(start time.Time) float64 {
-	return time.Since(start).Seconds()
-}
-
-func cloneStrings(in []string) []string {
-	if in == nil {
-		return nil
-	}
-	out := make([]string, len(in))
-	copy(out, in)
-	return out
-}
 
 func stringValue(value any) string {
 	if s, ok := value.(string); ok {

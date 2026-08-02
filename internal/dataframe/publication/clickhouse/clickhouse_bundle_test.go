@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/publication"
+	dfpublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type bundleCatalogFixture struct {
-	executions map[string]BundleExecution
-	pointers   map[string]BundlePointer
+	executions map[string]publication.BundleExecution
+	pointers   map[string]publication.BundlePointer
 }
 
 type leaseBundleCatalog struct {
@@ -32,36 +34,36 @@ type leaseBundleCatalog struct {
 }
 
 func newBundleCatalogFixture() *bundleCatalogFixture {
-	return &bundleCatalogFixture{executions: map[string]BundleExecution{}, pointers: map[string]BundlePointer{}}
+	return &bundleCatalogFixture{executions: map[string]publication.BundleExecution{}, pointers: map[string]publication.BundlePointer{}}
 }
-func (c *bundleCatalogFixture) SaveExecution(_ context.Context, e BundleExecution) error {
+func (c *bundleCatalogFixture) SaveExecution(_ context.Context, e publication.BundleExecution) error {
 	c.executions[e.ID] = e
 	return nil
 }
-func (c *bundleCatalogFixture) GetExecution(_ context.Context, id string) (BundleExecution, error) {
+func (c *bundleCatalogFixture) GetExecution(_ context.Context, id string) (publication.BundleExecution, error) {
 	e, ok := c.executions[id]
 	if !ok {
-		return BundleExecution{}, ErrBundleNotFound
+		return publication.BundleExecution{}, publication.ErrBundleNotFound
 	}
 	return e, nil
 }
-func (c *bundleCatalogFixture) FindExecutionByKey(_ context.Context, key string) (BundleExecution, error) {
+func (c *bundleCatalogFixture) FindExecutionByKey(_ context.Context, key string) (publication.BundleExecution, error) {
 	for _, e := range c.executions {
 		if e.Key == key {
 			return e, nil
 		}
 	}
-	return BundleExecution{}, ErrBundleNotFound
+	return publication.BundleExecution{}, publication.ErrBundleNotFound
 }
-func (c *bundleCatalogFixture) GetPointer(_ context.Context, name string) (BundlePointer, error) {
+func (c *bundleCatalogFixture) GetPointer(_ context.Context, name string) (publication.BundlePointer, error) {
 	p, ok := c.pointers[name]
 	if !ok {
-		return BundlePointer{}, ErrBundleNotFound
+		return publication.BundlePointer{}, publication.ErrBundleNotFound
 	}
 	return p, nil
 }
 
-func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e BundleExecution) error {
+func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e publication.BundleExecution) error {
 	if c.requireSaveContext && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -70,9 +72,9 @@ func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e BundleExecutio
 	}
 	return c.bundleCatalogFixture.SaveExecution(ctx, e)
 }
-func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (BundlePointer, error) {
+func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (publication.BundlePointer, error) {
 	if c.pointerErr != nil {
-		return BundlePointer{}, c.pointerErr
+		return publication.BundlePointer{}, c.pointerErr
 	}
 	return c.bundleCatalogFixture.GetPointer(ctx, name)
 }
@@ -105,13 +107,13 @@ func (c *leaseBundleCatalog) ReleaseBundleLease(context.Context, string, string)
 func (c *bundleCatalogFixture) CompareAndSwapPointer(_ context.Context, name, expected, next string) error {
 	p, ok := c.pointers[name]
 	if ok && p.ExecutionID != expected {
-		return ErrBundlePointerConflict
+		return publication.ErrBundlePointerConflict
 	}
-	c.pointers[name] = BundlePointer{Name: name, ExecutionID: next}
+	c.pointers[name] = publication.BundlePointer{Name: name, ExecutionID: next}
 	return nil
 }
-func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state BundleState, before time.Time) ([]BundleExecution, error) {
-	out := []BundleExecution{}
+func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
+	out := []publication.BundleExecution{}
 	for _, e := range c.executions {
 		if e.State == state && e.UpdatedAt.Before(before) {
 			out = append(out, e)
@@ -163,7 +165,7 @@ func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
-	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "stale"})
+	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "stale"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +181,7 @@ func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	if err := store.Reconcile(context.Background(), time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.executions[id].State != BundleFailed {
+	if catalog.executions[id].State != publication.BundleFailed {
 		t.Fatalf("stale execution not failed: %#v", catalog.executions[id])
 	}
 	if len(client.tables) != 0 {
@@ -192,15 +194,15 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, onAcquire: cancel, requireSaveContext: true}
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
-	execution := BundleExecution{ID: "stale", Key: "stale-key", BundleIdentity: BundleIdentity{Name: "stale"}, State: BundleLoading, UpdatedAt: time.Now().Add(-time.Hour), Outputs: []BundleOutputRecord{{Name: "one", PhysicalTable: "loom_stale_one"}}}
+	execution := publication.BundleExecution{ID: "stale", Key: "stale-key", BundleIdentity: publication.BundleIdentity{Name: "stale"}, State: publication.BundleLoading, UpdatedAt: time.Now().Add(-time.Hour), Outputs: []publication.BundleOutputRecord{{Name: "one", PhysicalTable: "loom_stale_one"}}}
 	catalog.executions[execution.ID] = execution
 	client.tables[execution.Outputs[0].PhysicalTable] = nil
 
 	if err := store.Reconcile(ctx, time.Now().Add(-time.Minute)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if got := catalog.executions[execution.ID].State; got != BundleFailed {
-		t.Fatalf("execution state = %q, want %q", got, BundleFailed)
+	if got := catalog.executions[execution.ID].State; got != publication.BundleFailed {
+		t.Fatalf("execution state = %q, want %q", got, publication.BundleFailed)
 	}
 	if _, ok := client.tables[execution.Outputs[0].PhysicalTable]; ok {
 		t.Fatal("staging table survived reconciliation")
@@ -209,24 +211,24 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 
 func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 	catalog := newBundleCatalogFixture()
-	identities := []BundleIdentity{
+	identities := []publication.BundleIdentity{
 		{Name: "observation", Project: "project-a", DatasetGeneration: "generation-1"},
 		{Name: "observation", Project: "project-b", DatasetGeneration: "generation-1"},
 	}
 	for index, identity := range identities {
-		execution := BundleExecution{
+		execution := publication.BundleExecution{
 			ID: "execution-" + string(rune('a'+index)), BundleIdentity: identity,
-			State: BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
-			Outputs: []BundleOutputRecord{{Name: "observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []Column{{Name: "id", ClickHouse: "String"}}, State: BundleReady}},
+			State: publication.BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+			Outputs: []publication.BundleOutputRecord{{Name: "observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []publication.PhysicalColumn{{Name: "id", ClickHouse: "String"}}, State: publication.BundleReady}},
 		}
 		catalog.executions[execution.ID] = execution
-		catalog.pointers[identity.PointerName()] = BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
+		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
-	first, err := ResolvePublishedOutput(context.Background(), catalog, "project-a", "generation-1", "observation")
+	first, err := dfpublished.ResolvePublishedOutput(context.Background(), catalog, "project-a", "generation-1", "observation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ResolvePublishedOutput(context.Background(), catalog, "project-b", "generation-1", "observation")
+	second, err := dfpublished.ResolvePublishedOutput(context.Background(), catalog, "project-b", "generation-1", "observation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +241,7 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
-	identity := BundleIdentity{Name: "in-flight"}
+	identity := publication.BundleIdentity{Name: "in-flight"}
 	if _, err := store.BeginBundleFor(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +253,7 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, pointerErr: errors.New("pointer lookup failed")}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
-	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "pointer-failure"})
+	_, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "pointer-failure"})
 	if err == nil || !errors.Is(err, catalog.pointerErr) {
 		t.Fatalf("BeginBundleFor() error = %v", err)
 	}
@@ -263,7 +265,7 @@ func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, saveErr: errors.New("save failed")}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
-	_, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "save-failure"})
+	_, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "save-failure"})
 	if err == nil || !errors.Is(err, catalog.saveErr) {
 		t.Fatalf("BeginBundleFor() error = %v", err)
 	}
@@ -277,7 +279,7 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
 	store.leaseRenewInterval = time.Millisecond
-	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-loss"})
+	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-loss"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +297,7 @@ func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewBlock: true, renewStarted: make(chan struct{})}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	store.leaseRenewInterval = time.Millisecond
-	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-cancel"})
+	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-cancel"})
 	if err != nil {
 		t.Fatal(err)
 	}

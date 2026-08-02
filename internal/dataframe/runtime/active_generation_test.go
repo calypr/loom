@@ -57,7 +57,7 @@ func TestServiceActiveManifestPinsCompilerGeneration(t *testing.T) {
 	// recipe test; active-generation selection is the behavior under test.
 	svc := NewService(ServiceConfig{
 		ActiveManifestResolver: active,
-		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, query string, binds map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
 			if got := binds[datasetGenerationBindKey]; got != generation {
 				t.Fatalf("compiled dataset generation bind = %#v, want %q", got, generation)
 			}

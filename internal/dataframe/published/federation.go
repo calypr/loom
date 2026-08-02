@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
@@ -81,11 +82,11 @@ type FederatedAggregateResult struct {
 	Rows    []map[string]any
 }
 
-func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active publication.ActiveResolver, projects []string, alias string) (FederatedDataset, error) {
+func resolveFederatedDataset(ctx context.Context, catalog bundlepublication.BundleCatalog, active publication.ActiveResolver, projects []string, alias string) (FederatedDataset, error) {
 	if catalog == nil {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog is required")
 	}
-	listed, ok := catalog.(StaleBundleCatalog)
+	listed, ok := catalog.(bundlepublication.StaleBundleCatalog)
 	if !ok {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog does not support dataset resolution")
 	}
@@ -97,7 +98,7 @@ func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active 
 	if len(uniqueProjects) == 0 {
 		return FederatedDataset{}, fmt.Errorf("principal has no authorized projects")
 	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return FederatedDataset{}, err
 	}
@@ -118,9 +119,9 @@ func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active 
 	for _, project := range uniqueProjects {
 		allowed[project] = struct{}{}
 	}
-	latest := make(map[string]BundleExecution, len(uniqueProjects))
+	latest := make(map[string]bundlepublication.BundleExecution, len(uniqueProjects))
 	for _, execution := range executions {
-		if execution.State != BundleReady {
+		if execution.State != bundlepublication.BundleReady {
 			continue
 		}
 		if _, ok := allowed[execution.Project]; !ok {
@@ -215,7 +216,7 @@ func normalizedProjects(projects []string) []string {
 	return result
 }
 
-func hasOutputAlias(execution BundleExecution, alias string) bool {
+func hasOutputAlias(execution bundlepublication.BundleExecution, alias string) bool {
 	for _, output := range execution.Outputs {
 		outputAlias := output.Alias
 		if outputAlias == "" {
@@ -326,7 +327,7 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	listed, ok := r.Catalog.(StaleBundleCatalog)
+	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
 	if !ok {
 		return nil, fmt.Errorf("bundle catalog does not support dataset resolution")
 	}
@@ -335,7 +336,7 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	if len(projects) == 0 || alias == "" {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
@@ -356,9 +357,9 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	for _, project := range projects {
 		allowed[project] = struct{}{}
 	}
-	latest := map[string]BundleExecution{}
+	latest := map[string]bundlepublication.BundleExecution{}
 	for _, execution := range executions {
-		if execution.State != BundleReady {
+		if execution.State != bundlepublication.BundleReady {
 			continue
 		}
 		if _, ok := allowed[execution.Project]; !ok {
@@ -418,7 +419,7 @@ func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string)
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	listed, ok := r.Catalog.(StaleBundleCatalog)
+	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
 	if !ok {
 		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
 	}
@@ -440,7 +441,7 @@ func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string)
 			activeGenerations[project] = manifest.Dataset.Generation
 		}
 	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
@@ -513,17 +514,17 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	listed, ok := r.Catalog.(StaleBundleCatalog)
+	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
 	if !ok {
 		return nil, fmt.Errorf("bundle catalog does not support project discovery")
 	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, nowPlusSecond())
+	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
 	projects := make(map[string]struct{})
 	for _, execution := range executions {
-		if execution.State != BundleReady || execution.Project == "" {
+		if execution.State != bundlepublication.BundleReady || execution.Project == "" {
 			continue
 		}
 		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())

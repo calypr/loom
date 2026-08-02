@@ -160,11 +160,11 @@ func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
 }
 
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
-	opts, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
+	opts, connection, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -181,11 +181,11 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 }
 
 func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
-	opts, err := parseDiscoverPopulatedFieldOptions(args, flag.ExitOnError)
+	opts, connection, err := parseDiscoverPopulatedFieldOptions(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -204,8 +204,9 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("rebuild-relationship-catalog", flag.ExitOnError)
 	opts := catalog.RelationshipRebuildOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Arango database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation; empty selects the legacy namespace")
 	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
@@ -214,7 +215,7 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -230,11 +231,12 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	return printJSON(summary)
 }
 
-func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {
+func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
 	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
@@ -242,25 +244,26 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	fs.StringVar(&opts.Mode, "mode", catalog.TraversalModeStorage, "Traversal discovery mode: storage or builder")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedReferenceOptions{}, err
+		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, err
 	}
-	return opts, nil
+	return opts, connection, nil
 }
 
-func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, error) {
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
 	opts := catalog.PopulatedFieldOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
 	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter, for example Patient")
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedFieldOptions{}, err
+		return catalog.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
 	}
-	return opts, nil
+	return opts, connection, nil
 }
 
 func printJSON(value any) error {

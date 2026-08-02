@@ -84,7 +84,7 @@ func TestParseGenerationLoadRejectsUnsafeOrInvalidInput(t *testing.T) {
 }
 
 func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
-	fields, err := parseDiscoverPopulatedFieldOptions([]string{
+	fields, _, err := parseDiscoverPopulatedFieldOptions([]string{
 		"--project", "project-a",
 		"--dataset-generation", "generation-a",
 		"--resource-type", "Patient",
@@ -99,7 +99,7 @@ func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 		t.Fatalf("field discovery resource type = %q, want %q", got, want)
 	}
 
-	references, err := parseDiscoverPopulatedReferenceOptions([]string{
+	references, _, err := parseDiscoverPopulatedReferenceOptions([]string{
 		"--project", "project-a",
 		"--dataset-generation", "generation-a",
 		"--from-type", "Specimen",

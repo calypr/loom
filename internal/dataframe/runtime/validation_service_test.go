@@ -33,7 +33,7 @@ func TestValidationRecipeDigestIsDeterministicAndSensitive(t *testing.T) {
 
 func TestValidateCompilesWithoutExecutingRows(t *testing.T) {
 	executed := false
-	service := NewService(ServiceConfig{ExecuteRows: func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+	service := NewService(ServiceConfig{QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 		executed = true
 		return nil
 	}})

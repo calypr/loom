@@ -77,7 +77,7 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 	}
 	dataframes := runtime.NewService(runtime.ServiceConfig{
 		ActiveManifestResolver: active,
-		ExecuteRows: func(_ context.Context, _ runtime.ExecuteQueryOptions, _ string, bindVars map[string]any, _ func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got := bindVars["dataset_generation"]; got != generation {
 				t.Fatalf("dataframe execution generation = %#v, want %q", got, generation)
 			}

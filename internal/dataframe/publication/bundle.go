@@ -63,6 +63,11 @@ type BundleOutputRecord struct {
 	FailureRetryable           bool   `json:"failureRetryable,omitempty"`
 }
 
+type PhysicalColumn struct {
+	Name       string `json:"name"`
+	ClickHouse string `json:"clickhouseType"`
+}
+
 type BundleExecution struct {
 	ID  string `json:"id"`
 	Key string `json:"key"`
@@ -105,99 +110,6 @@ type BundleLeaseCatalog interface {
 	AcquireBundleLease(context.Context, string, string, time.Time) (bool, error)
 	RenewBundleLease(context.Context, string, string, time.Time) (bool, error)
 	ReleaseBundleLease(context.Context, string, string) error
-}
-
-// ResolvePublishedOutput resolves the current READY output for one logical
-// dataset. The alias currently defaults to the output name; publication code
-// may set BundleOutputRecord.Alias when an Explorer-facing alias differs.
-func ResolvePublishedOutput(ctx context.Context, catalog BundleCatalog, project, generation, alias string) (Materialization, error) {
-	if catalog == nil {
-		return Materialization{}, fmt.Errorf("bundle catalog is required")
-	}
-	listed, ok := catalog.(StaleBundleCatalog)
-	if !ok {
-		return Materialization{}, fmt.Errorf("bundle catalog does not support dataset resolution")
-	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, time.Now().UTC().Add(time.Second))
-	if err != nil {
-		return Materialization{}, err
-	}
-	var newest *BundleExecution
-	for index := range executions {
-		execution := executions[index]
-		if execution.Project != project || execution.DatasetGeneration != generation || execution.State != BundleReady {
-			continue
-		}
-		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias && (newest == nil || execution.UpdatedAt.After(newest.UpdatedAt)) {
-				copy := execution
-				newest = &copy
-				break
-			}
-		}
-	}
-	if newest != nil {
-		for _, output := range newest.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias {
-				return publishedMaterialization(*newest, output, outputAlias), nil
-			}
-		}
-	}
-	return Materialization{}, fmt.Errorf("published dataset %q was not found for project %q and generation %q", alias, project, generation)
-}
-
-// ListPublishedOutputs lists READY outputs for one project and generation when
-// the catalog supports execution listing. Production catalogs do; lightweight
-// test catalogs may only support direct resolution.
-func ListPublishedOutputs(ctx context.Context, catalog BundleCatalog, project, generation string) ([]Materialization, error) {
-	listed, ok := catalog.(StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
-	}
-	executions, err := listed.ListExecutions(ctx, BundleReady, time.Now().UTC().Add(time.Second))
-	if err != nil {
-		return nil, err
-	}
-	result := make([]Materialization, 0)
-	for _, execution := range executions {
-		if execution.Project != project || execution.DatasetGeneration != generation || execution.State != BundleReady {
-			continue
-		}
-		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			alias := output.Alias
-			if alias == "" {
-				alias = output.Name
-			}
-			result = append(result, publishedMaterialization(execution, output, alias))
-		}
-	}
-	return result, nil
-}
-
-func publishedMaterialization(execution BundleExecution, output BundleOutputRecord, alias string) Materialization {
-	return Materialization{ID: execution.ID + ":" + output.Name, Name: alias, Revision: execution.ID, Project: execution.Project, DatasetGeneration: execution.DatasetGeneration, State: StateReady, ScopeUnrestricted: len(execution.AuthResourcePaths) == 0, AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...), Columns: output.Columns, PhysicalTable: output.PhysicalTable, RowCount: output.RowCount, CreatedAt: execution.CreatedAt, ReadyAt: execution.ReadyAt}
 }
 
 var ErrBundleNotFound = fmt.Errorf("bundle execution not found")

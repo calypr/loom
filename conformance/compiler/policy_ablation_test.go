@@ -75,6 +75,11 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	var expectedHash string
 	var expectedRows []map[string]any
 	for _, candidate := range policies {
@@ -85,7 +90,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+			err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -152,6 +157,11 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -177,7 +187,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -253,6 +263,11 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-observation-pivot", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -279,7 +294,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -353,6 +368,11 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -371,7 +391,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+				err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -435,6 +455,11 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-specimen-file", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -466,7 +491,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})

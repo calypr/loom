@@ -4,8 +4,6 @@ package catalog
 // discovery never uses this scan; operators call it after an old dataset was
 // loaded before the relationship catalog existed or after a repair.
 type RelationshipRebuildOptions struct {
-	URL                           string
-	Database                      string
 	Project                       string
 	DatasetGeneration             string
 	AuthResourcePaths             []string

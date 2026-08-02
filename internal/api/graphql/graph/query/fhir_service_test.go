@@ -51,7 +51,7 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 					return nil, nil
 				},
 				Dataframes: runtime.NewService(runtime.ServiceConfig{
-					ExecuteRows: func(context.Context, runtime.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+					QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 						return nil
 					},
 				}),

@@ -49,10 +49,7 @@ type FieldCatalogDocument struct {
 
 // Read-side field discovery request and response types.
 type PopulatedFieldOptions struct {
-	// Deprecated compatibility fields; new callers bind an open adapter.
-	URL      string
-	Database string
-	Project  string
+	Project string
 	// DatasetGeneration is optional. An empty value means the legacy dataset
 	// namespace and therefore reads only catalog documents whose
 	// dataset_generation is null or absent.
@@ -73,8 +70,6 @@ type PopulatedFieldOptions struct {
 // projects are queried. Callers may select a different immutable generation
 // and authorization scope for every project in the allowlist.
 type DatasetSummaryOptions struct {
-	URL                        string
-	Database                   string
 	ProjectAllowlist           []string
 	DatasetGenerationByProject map[string]string
 	AuthScopesByProject        map[string]DatasetAuthScope
@@ -135,8 +130,6 @@ type PopulatedField struct {
 
 // Read-side auth path discovery request type.
 type AuthResourcePathOptions struct {
-	URL               string
-	Database          string
 	Project           string
 	DatasetGeneration string
 	CursorBatch       int
@@ -144,9 +137,7 @@ type AuthResourcePathOptions struct {
 
 // Read-side reference discovery request and response types.
 type PopulatedReferenceOptions struct {
-	URL      string
-	Database string
-	Project  string
+	Project string
 	// DatasetGeneration follows the same legacy-null contract as
 	// PopulatedFieldOptions.
 	DatasetGeneration string

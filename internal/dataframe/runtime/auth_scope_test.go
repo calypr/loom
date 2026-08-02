@@ -32,7 +32,7 @@ func restrictedEmptyScopeResolver() *authscope.ScopeResolver {
 func TestServiceRestrictedEmptyScopeStaysRestrictedInCatalogAndAQL(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		ScopeResolver: restrictedEmptyScopeResolver(),
-		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, query string, bindVars map[string]any, _ func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, query string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 				t.Fatalf("dataframe unrestricted bind = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
 			}

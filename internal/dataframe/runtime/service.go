@@ -19,29 +19,20 @@ const defaultRowLimit = 25
 var ErrActiveGenerationConflict = errors.New("requested dataset generation conflicts with active generation")
 
 type ServiceConfig struct {
-	QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
-	// ExecuteRows is retained for validation-only callers during the migration.
-	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
+	QueryRows              func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Service struct {
 	queryRows              func(context.Context, string, int, map[string]any, func(map[string]any) error) error
-	executeRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
 }
 
 func NewService(cfg ServiceConfig) *Service {
-	queryRows := cfg.QueryRows
-	if queryRows == nil && cfg.ExecuteRows != nil {
-		queryRows = func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
-			return cfg.ExecuteRows(ctx, ExecuteQueryOptions{BatchSize: batch}, query, binds, visit)
-		}
-	}
 	return &Service{
-		queryRows:              queryRows,
+		queryRows:              cfg.QueryRows,
 		scopeResolver:          cfg.ScopeResolver,
 		activeManifestResolver: cfg.ActiveManifestResolver,
 	}

@@ -161,7 +161,7 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -249,7 +249,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
