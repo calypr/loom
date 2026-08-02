@@ -17,6 +17,15 @@ import (
 	"github.com/calypr/loom/internal/store/arango"
 )
 
+func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled runtime.CompiledQuery) (arango.ExplainResult, error) {
+	client, err := arango.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return arango.ExplainResult{}, err
+	}
+	defer client.Close(ctx)
+	return client.Explain(ctx, arango.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+}
+
 // TestGDCOptimizationPolicyAblationAgainstArango is opt-in because it reads
 // the local development database and profiles four complete GDC executions.
 // It proves that independent policy switches preserve the same dataframe
@@ -66,7 +75,6 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	opts := arango.ConnectionOptions{URL: url, Database: database}
 	var expectedHash string
 	var expectedRows []map[string]any
 	for _, candidate := range policies {
@@ -77,7 +85,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+			err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -142,7 +150,6 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	if project == "" {
 		project = "ARANGODB_PROTO"
 	}
-	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
@@ -170,7 +177,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -272,7 +279,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -301,7 +308,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -364,7 +371,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+				err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -388,7 +395,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			}
 			warm := append([]float64(nil), executeSeconds[1:]...)
 			sort.Float64s(warm)
-			explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+			explain, err := explainCompiledQuery(ctx, opts, compiled)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -459,7 +466,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -488,7 +495,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}

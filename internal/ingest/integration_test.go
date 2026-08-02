@@ -89,10 +89,6 @@ func TestLoadAndQueryFixture(t *testing.T) {
 			}
 
 			fields, err := catalog.DiscoverPopulatedFields(ctx, catalog.PopulatedFieldOptions{
-				ConnectionOptions: arangostore.ConnectionOptions{
-					URL:      "http://127.0.0.1:8529",
-					Database: database,
-				},
 				Project:      "ARANGO_PROTO_TEST",
 				ResourceType: "Condition",
 				CursorBatch:  100,

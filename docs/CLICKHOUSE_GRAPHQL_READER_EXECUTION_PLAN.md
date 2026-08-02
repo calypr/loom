@@ -331,10 +331,10 @@ The implementation should preserve the current dataframe package boundaries:
 
 | Responsibility | Owner |
 | --- | --- |
-| Publication identity, output records, and pointer semantics | `internal/dataframe/materialization` |
-| Arango-backed publication catalog | `internal/dataframe/materialization/arango` |
-| Logical dataset alias resolution | new cohesive package under `internal/dataframe/materialization` |
-| Safe ClickHouse row and aggregate query construction | `internal/dataframe/materialization` |
+| Publication identity, output records, and pointer semantics | `internal/dataframe/publication` |
+| Arango-backed publication catalog | `internal/dataframe/publication/arango` |
+| Logical dataset alias resolution | `internal/dataframe/published` |
+| Safe ClickHouse row and aggregate query construction | `internal/dataframe/published` |
 | ClickHouse execution and JSON decoding | `internal/store/clickhouse` |
 | GraphQL authorization and transport mapping | `internal/api/graphql/graph/materialization` |
 | GraphQL schema and resolvers | `internal/api/graphql/graph` |

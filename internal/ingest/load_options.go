@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 

@@ -13,12 +13,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	publication "github.com/calypr/loom/internal/publication"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type Service struct {
-	connOpts                arangostore.ConnectionOptions
 	discoverReferences      func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	discoverFields          func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	dataframes              *runtime.Service
@@ -26,10 +24,10 @@ type Service struct {
 	activeManifestResolver  publication.ActiveResolver
 	discoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
 	datasetProjectAllowlist []string
+	explain                 func(context.Context, runtime.CompiledQuery) error
 }
 
 type Config struct {
-	ConnectionOptions  arangostore.ConnectionOptions
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	Dataframes         *runtime.Service
@@ -43,14 +41,15 @@ type Config struct {
 	// unrestricted catalog scan.
 	DatasetProjectAllowlist []string
 	DiscoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
+	Explain                 func(context.Context, runtime.CompiledQuery) error
 }
 
 func NewService(cfg Config) *Service {
 	service := &Service{
-		connOpts:                cfg.ConnectionOptions,
 		scopeResolver:           cfg.ScopeResolver,
 		activeManifestResolver:  cfg.ActiveManifestResolver,
 		datasetProjectAllowlist: cloneStrings(cfg.DatasetProjectAllowlist),
+		explain:                 cfg.Explain,
 	}
 	if cfg.DiscoverDatasets != nil {
 		service.discoverDatasets = cfg.DiscoverDatasets
@@ -71,7 +70,6 @@ func NewService(cfg Config) *Service {
 		service.dataframes = cfg.Dataframes
 	} else {
 		service.dataframes = runtime.NewService(runtime.ServiceConfig{
-			ConnectionOptions:      cfg.ConnectionOptions,
 			ScopeResolver:          cfg.ScopeResolver,
 			ActiveManifestResolver: cfg.ActiveManifestResolver,
 		})

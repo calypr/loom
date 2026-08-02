@@ -11,8 +11,10 @@ import (
 	"runtime/trace"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
-	publication "github.com/calypr/loom/internal/publication"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -162,7 +164,16 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	results, err := catalog.DiscoverPopulatedReferences(ctx, opts)
+	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client, opts.Database)
+	if err != nil {
+		return err
+	}
+	results, err := adapter.DiscoverReferences(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -174,7 +185,16 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	results, err := catalog.DiscoverPopulatedFields(ctx, opts)
+	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client, opts.Database)
+	if err != nil {
+		return err
+	}
+	results, err := adapter.DiscoverFields(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -194,7 +214,16 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	summary, err := catalog.RebuildRelationshipCatalog(ctx, opts)
+	client, err := arangostore.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client, opts.Database)
+	if err != nil {
+		return err
+	}
+	summary, err := adapter.RebuildRelationshipCatalog(ctx, opts)
 	if err != nil {
 		return err
 	}

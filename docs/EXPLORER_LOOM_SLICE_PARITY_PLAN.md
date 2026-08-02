@@ -490,11 +490,11 @@ loom/
 
 ## Loom package changes
 
-Keep physical publication ownership in `internal/dataframe/materialization`,
-but split the federated reader by responsibility:
+Keep physical publication ownership in `internal/dataframe/publication`,
+but split the federated reader under `internal/dataframe/published`:
 
 ```text
-internal/dataframe/materialization/
+internal/dataframe/published/
   bundle.go                 # physical project publication and pointer records
   federation.go             # authorized dataType -> project source resolution
   federation_schema.go      # public schema union and type reconciliation

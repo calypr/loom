@@ -30,7 +30,6 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 	}
 
 	traversals, err := s.discoverReferences(ctx, catalog.PopulatedReferenceOptions{
-		ConnectionOptions:             s.connOpts,
 		Project:                       req.Project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -65,7 +64,6 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 
 func (s *Service) buildResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
 	fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions:             s.connOpts,
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -80,7 +78,6 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 	pivotFields := []catalog.PopulatedField{}
 	if includePivotOnlyFields {
 		pivotFields, err = s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-			ConnectionOptions:             s.connOpts,
 			Project:                       project,
 			DatasetGeneration:             datasetGeneration,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),

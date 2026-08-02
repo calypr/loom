@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	publication "github.com/calypr/loom/internal/publication"
-	publicationarango "github.com/calypr/loom/internal/publication/arango"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
+	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
@@ -106,6 +107,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
+	catalogStore, err := catalogarango.New(client, opts.Database)
+	if err != nil {
+		return summary, err
+	}
 	emitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
@@ -253,9 +258,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if err = ctx.Err(); err != nil {
 			return summary, err
 		}
-		if err = catalog.WriteFieldCatalog(
+		if err = catalogStore.WriteFieldCatalog(
 			ctx,
-			client,
 			catalog.FieldCatalogCollection,
 			catalogs[key].Documents(),
 			opts.BatchSize,
@@ -266,9 +270,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return summary, err
 		}
 	}
-	if err = catalog.WriteRelationshipCatalog(
+	if err = catalogStore.WriteRelationshipCatalog(
 		ctx,
-		client,
 		catalog.RelationshipCatalogDocuments(relationshipCounts),
 		opts.BatchSize,
 		false,

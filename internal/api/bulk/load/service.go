@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/calypr/loom/internal/ingest"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type ImportRequest struct {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	publication "github.com/calypr/loom/internal/dataset"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 

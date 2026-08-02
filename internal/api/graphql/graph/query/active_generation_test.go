@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/runtime"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type builderActiveManifestResolver struct {

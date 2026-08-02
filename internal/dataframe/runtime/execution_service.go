@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"sort"
 	"time"
 )
@@ -79,10 +80,10 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	rowCount := 0
 	var rowMaterialization time.Duration
 	queryStarted := time.Now()
-	err := s.executeRows(ctx, ExecuteQueryOptions{
-		ConnectionOptions: s.connOpts,
-		BatchSize:         1000,
-	}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+	if s.queryRows == nil {
+		return StreamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	err := s.queryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 		rowStarted := time.Now()
 		defer func() { rowMaterialization += time.Since(rowStarted) }()
 		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)

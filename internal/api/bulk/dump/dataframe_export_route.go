@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/gofiber/fiber/v3"
 )
 

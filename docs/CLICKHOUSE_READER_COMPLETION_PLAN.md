@@ -32,7 +32,7 @@ consume.
 
 ### Aggregations
 
-`internal/dataframe/materialization` currently executes one aggregate per
+`internal/dataframe/publication` currently executes one aggregate per
 request and supports `COUNT`, `COUNT_DISTINCT`, `SUM`, `AVG`, `MIN`, and `MAX`.
 It does not provide a batched facet operation, missing buckets, numeric/date
 histograms, combined statistics, nested terms, deterministic bucket limits, or
@@ -75,7 +75,7 @@ This is the prerequisite for facets and downloads.
 1. Extract source-union construction, authorization predicates, selected
    column validation, filter compilation, and sort compilation from the
    current row and aggregate execution methods into an internal query-plan
-   layer under `internal/dataframe/materialization`.
+   layer under `internal/dataframe/publication`.
 2. Represent the resolved dataset revision and ordered physical sources in the
    plan. Requests continue to refer only to public `dataType` and column names.
 3. Extend the ClickHouse boundary with an iterator/callback streaming method
@@ -126,7 +126,7 @@ client gets identical semantics; Gecko may reshape only the returned result.
 ### Implementation
 
 1. Add aggregation request/result models and limits to
-   `internal/dataframe/materialization`.
+   `internal/dataframe/publication`.
 2. Compile all named aggregation specifications from one resolved federated
    dataset. Coalesce compatible specifications into as few ClickHouse queries
    as practical, without making query generation opaque or untestable.

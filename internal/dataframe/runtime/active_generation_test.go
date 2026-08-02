@@ -8,7 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type dataframeActiveManifestResolver struct {

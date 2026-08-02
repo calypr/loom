@@ -30,6 +30,12 @@ they do not live in `generated/`.
 
 ## Runtime surfaces
 
+Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
+owns persistence-neutral observed facts; `catalog/arango` owns catalog
+persistence; `dataframe/publication` owns dataframe publishing contracts and
+the runner; `dataframe/publication/{arango,clickhouse}` own storage adapters;
+and `dataframe/published` owns safe published-data reading and federation.
+
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
 
 - `load` for the temporary mutable compatibility load;
@@ -77,7 +83,7 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/publication` and `internal/publication/arango`. Dataset
+Immutable loads use `internal/dataset` and `internal/dataset/arango`. Dataset
 owns schema identity and generation manifests; ingest owns the Arango vertex
 and edge document shapes it writes. Their manifest records project, generation,
 and schema identity; the active pointer selects one READY generation per
@@ -92,7 +98,7 @@ The current runtime call path is:
 ```text
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
-  -> generated gqlgen executor and resolver binding
+  -> generated gqlgen executor and internal resolver binding
   -> internal/api/graphql/graph/query.Service
   -> dataframe/runtime.Service
   -> dataframe/spec request contracts
@@ -118,9 +124,9 @@ The ClickHouse read path is parallel but separate:
 ```text
 GraphQL request
   -> internal/api/graphql/flat HTTP handler
-  -> generated ClickHouse executor and resolver binding
+  -> generated ClickHouse executor and internal resolver binding
   -> internal/api/graphql/graph/materialization.Service
-  -> dataframe/materialization.Reader
+  -> dataframe/published.Reader
   -> ClickHouse
 ```
 

@@ -295,15 +295,16 @@ without rebuilding the server image.
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
 | [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
 | [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
-| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and resolver bindings. |
+| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and schemas. |
+| [`internal/api/graphql/graph/resolver`](internal/api/graphql/graph/resolver) | GraphQL resolver bindings and transport adapters. |
 | [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
-| [`internal/publication`](internal/publication) | Immutable generation and active-manifest contracts. |
+| [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
-| [`internal/dataframe/materialization`](internal/dataframe/materialization) | ClickHouse table lifecycle, durable publication pointers, and federated reads. |
+| [`internal/dataframe/published`](internal/dataframe/published) | Safe published-data reads and federation. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |

@@ -10,7 +10,7 @@ import (
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 type fakeDataframeExporter struct{}

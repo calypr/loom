@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 func TestExportWriterFormats(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	publication "github.com/calypr/loom/internal/dataset"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	publication "github.com/calypr/loom/internal/publication"
 )
 
 var (

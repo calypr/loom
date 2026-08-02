@@ -144,7 +144,7 @@ func (s *Service) templateCapabilities(ctx context.Context, definitions []datafr
 	seenRelationships := map[string]struct{}{}
 	for _, resourceType := range orderedTypes {
 		fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-			ConnectionOptions: s.connOpts, Project: project, DatasetGeneration: generation,
+			Project: project, DatasetGeneration: generation,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
 			AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths), ResourceType: resourceType,
 		})
@@ -164,7 +164,7 @@ func (s *Service) templateCapabilities(ctx context.Context, definitions []datafr
 		// visible. Schema presence alone is intentionally insufficient.
 		resource := dataframetemplate.ResourceCapability{ResourceType: resourceType, Present: len(fields) > 0, Fields: fieldCapabilities}
 		refs, err := s.discoverReferences(ctx, catalog.PopulatedReferenceOptions{
-			ConnectionOptions: s.connOpts, Project: project, DatasetGeneration: generation,
+			Project: project, DatasetGeneration: generation,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
 			AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths), NodeType: resourceType,
 			Mode: catalog.TraversalModeBuilder,

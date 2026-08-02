@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 func TestAuthorizePublishedAllowsUnrestrictedPrincipal(t *testing.T) {

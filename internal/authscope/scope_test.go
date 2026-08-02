@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type fakeResourceAccessClient struct {
@@ -30,7 +29,6 @@ func (f *recordingResourceAccessClient) GetAllowedResources(ctx context.Context,
 
 func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{
 				"/programs/EllrottLab/projects/GDC_Data",
@@ -55,7 +53,6 @@ func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 
 func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
@@ -74,7 +71,6 @@ func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 
 func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
@@ -184,7 +180,6 @@ func TestScopeResolverKeepsRestrictedEmptyScopeWithinGeneration(t *testing.T) {
 func TestScopeAuthorizerRequiresScopedWritePath(t *testing.T) {
 	authz := ScopeAuthorizer{
 		Resolver: NewScopeResolver(ScopeResolverConfig{
-			ConnectionOptions: arangostore.ConnectionOptions{},
 			ResourceAccess: fakeResourceAccessClient{
 				resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 			},

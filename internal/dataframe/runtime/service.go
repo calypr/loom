@@ -11,8 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	publication "github.com/calypr/loom/internal/publication"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 const defaultRowLimit = 25
@@ -20,27 +19,29 @@ const defaultRowLimit = 25
 var ErrActiveGenerationConflict = errors.New("requested dataset generation conflicts with active generation")
 
 type ServiceConfig struct {
-	ConnectionOptions      arangostore.ConnectionOptions
+	QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+	// ExecuteRows is retained for validation-only callers during the migration.
 	ExecuteRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Service struct {
-	connOpts               arangostore.ConnectionOptions
+	queryRows              func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 	executeRows            func(context.Context, ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
 }
 
 func NewService(cfg ServiceConfig) *Service {
-	executeRows := cfg.ExecuteRows
-	if executeRows == nil {
-		executeRows = ExecuteQueryRows
+	queryRows := cfg.QueryRows
+	if queryRows == nil && cfg.ExecuteRows != nil {
+		queryRows = func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+			return cfg.ExecuteRows(ctx, ExecuteQueryOptions{BatchSize: batch}, query, binds, visit)
+		}
 	}
 	return &Service{
-		connOpts:               cfg.ConnectionOptions,
-		executeRows:            executeRows,
+		queryRows:              queryRows,
 		scopeResolver:          cfg.ScopeResolver,
 		activeManifestResolver: cfg.ActiveManifestResolver,
 	}

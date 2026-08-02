@@ -9,11 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
+	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataframe/materialization"
-	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
+	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 )
@@ -57,7 +56,7 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 			if kind == "" {
 				kind = "string"
 			}
-			columns = append(columns, publication.LogicalColumn{Name: materialization.FlatColumnName(output.RootResourceType, column.Name), Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
+			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
 		}
 		return columns
 	}
@@ -83,13 +82,13 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			return graphresolver.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
 		bindings.IncludeAuthResourcePath = true
-		var identity materialization.BundleIdentity
+		var identity publication.BundleIdentity
 		_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
 			streams, err := recipeEngine.Streams(ctx, full)
 			if err != nil {
 				return err
 			}
-			identity = materialization.BundleIdentity{Name: name, Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest, ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1", AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
+			identity = publication.BundleIdentity{Name: name, Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest, ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1", AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
 			streamInputs := make([]publication.OutputStream, 0, len(streams))
 			for _, stream := range streams {
 				stream := stream
@@ -99,7 +98,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 					Name: stream.Name, Columns: columns,
 					Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 						_, err := stream.Stream(streamCtx, func(row map[string]any) error {
-							qualified, err := materialization.QualifyFlatRow(rootResourceType, row)
+							qualified, err := publication.QualifyFlatRow(rootResourceType, row)
 							if err != nil {
 								return err
 							}
@@ -122,6 +121,6 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
 			return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
 		}
-		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
+		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(publication.BundleReady)}, nil
 	}
 }

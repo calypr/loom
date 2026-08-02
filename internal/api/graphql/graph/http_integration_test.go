@@ -8,20 +8,18 @@ import (
 	"strings"
 	"testing"
 
-	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
 	graph "github.com/calypr/loom/internal/api/graphql/graph"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/runtime"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
 			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
@@ -163,7 +161,6 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
@@ -173,7 +170,6 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":
@@ -253,7 +249,6 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
@@ -268,7 +263,6 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":

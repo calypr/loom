@@ -13,24 +13,25 @@ import (
 	"syscall"
 	"time"
 
-	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/materialization"
-	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
+	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
+	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
 	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
+	publicationcontract "github.com/calypr/loom/internal/dataset"
+	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/ingest"
-	publicationcontract "github.com/calypr/loom/internal/publication"
-	publicationarango "github.com/calypr/loom/internal/publication/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -122,29 +123,35 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 
 	discoveryCache := catalog.NewCache()
-	discoverFields := discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields)
-	discoverReferences := discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences)
+	catalogStore, err := catalogarango.New(lifecycleClient, connOpts.Database)
+	if err != nil {
+		return fmt.Errorf("create catalog store: %w", err)
+	}
+	discoverFields := discoveryCache.DiscoverFields(catalogStore.DiscoverFields)
+	discoverReferences := discoveryCache.DiscoverReferences(catalogStore.DiscoverReferences)
 
-	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, connOpts)
+	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, catalogStore.DiscoverExistingAuthResourcePaths)
 	if err != nil {
 		return fmt.Errorf("configure authentication: %w", err)
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{ConnectionOptions: connOpts, ScopeResolver: scopeResolver, ActiveManifestResolver: activeManifestResolver})
+	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+		return lifecycleClient.QueryRows(ctx, query, batch, binds, visit)
+	}, ScopeResolver: scopeResolver, ActiveManifestResolver: activeManifestResolver})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
-	registry, err := materializationarango.New(lifecycleClient)
+	publishedRegistry, err := bundlearango.New(lifecycleClient)
 	if err != nil {
-		return fmt.Errorf("create dataframe registry: %w", err)
+		return fmt.Errorf("create published dataframe registry: %w", err)
 	}
 	publicationReady := true
-	if err := lifecycleClient.Bootstrap(ctx, materializationarango.BootstrapSpec()); err != nil {
+	if err := lifecycleClient.Bootstrap(ctx, bundlearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap dataframe registry", err)
 		publicationReady = false
 	}
 	var clickhouse *clickhousestore.Client
-	var materializationReader *materialization.Reader
+	var materializationReader *published.Reader
 	if serverConfig.Server.ClickHouse.Enabled {
 		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
 		if err != nil {
@@ -158,11 +165,11 @@ func run(ctx context.Context, serverConfig Config) error {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
 		}
-		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
+		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
-		ResolveBundle: recipeSchemaResolver(connOpts, discoveryCache),
+		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
 			digest := sha256.Sum256([]byte(query))
@@ -184,7 +191,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	var bundleTarget publication.Target
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
-		bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
+		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, publishedRegistry)
 		if err != nil {
 			return fmt.Errorf("create dataframe bundle store: %w", err)
 		}
@@ -201,18 +208,23 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions:      connOpts,
 			DiscoverReferences:     discoverReferences,
 			DiscoverFields:         discoverFields,
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
 			ActiveManifestResolver: activeManifestResolver,
+			Explain: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) error {
+				_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
+				return err
+			},
 		},
 		MaterializationReader: materializationReader,
-		RecipeControl:         engine.Control{Engine: recipeEngine, ExplainConnection: &connOpts},
-		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
-		RecipeExecutions:      graphresolver.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
-		RecipeMaterialize:     recipeMaterializer(recipeEngine, bundleTarget, registry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		RecipeControl: engine.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) (engine.ExplainAssessment, error) {
+			return explainCompiledQuery(ctx, lifecycleClient, compiled)
+		}},
+		RecipeAuthorizer:  recipeAuthorization{resolver: scopeResolver},
+		RecipeExecutions:  graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
+		RecipeMaterialize: recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 	})
 	clickhouseService := materializationapi.NewService(materializationapi.Config{
 		Reader:        materializationReader,

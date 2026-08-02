@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/calypr/loom/generated/graphql/graph/resolver"
 	dumpapi "github.com/calypr/loom/internal/api/bulk/dump"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	clickhousegraphql "github.com/calypr/loom/internal/api/graphql/flat"
 	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type manifestReader interface {

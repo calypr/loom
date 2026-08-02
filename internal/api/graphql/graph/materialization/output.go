@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataframe/materialization"
+	materialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 func Model(value materialization.Materialization) *model.DataframeMaterialization {

@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 // DiscoverDatasets returns the projects and populated FHIR resource types
@@ -67,7 +67,6 @@ func (s *Service) DiscoverDatasets(ctx context.Context) ([]DatasetSummary, error
 	}
 
 	catalogSummaries, err := s.discoverDatasets(ctx, catalog.DatasetSummaryOptions{
-		ConnectionOptions:          s.connOpts,
 		ProjectAllowlist:           selectedProjects,
 		DatasetGenerationByProject: generations,
 		AuthScopesByProject:        scopes,

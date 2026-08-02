@@ -73,7 +73,6 @@ func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datase
 
 func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, filters []*model.FhirFilterInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
 	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions:             s.connOpts,
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),

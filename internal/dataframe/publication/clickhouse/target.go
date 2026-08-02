@@ -8,24 +8,47 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	store "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type Target struct {
-	Store materialization.IdentityBundleStore
+	Store IdentityBundleStore
 }
 
-func New(store materialization.IdentityBundleStore) (*Target, error) {
-	if store == nil {
+func (t *Target) Reconcile(ctx context.Context, olderThan time.Time) error {
+	if store, ok := t.Store.(interface {
+		Reconcile(context.Context, time.Time) error
+	}); ok {
+		return store.Reconcile(ctx, olderThan)
+	}
+	return fmt.Errorf("ClickHouse publication store does not support reconciliation")
+}
+
+func New(args ...any) (*Target, error) {
+	var bundleStore IdentityBundleStore
+	switch len(args) {
+	case 1:
+		bundleStore, _ = args[0].(IdentityBundleStore)
+	case 2:
+		client, clientOK := args[0].(BundleClickHouseStore)
+		catalog, catalogOK := args[1].(publication.BundleCatalog)
+		if clientOK && catalogOK {
+			var err error
+			bundleStore, err = NewBundleStore(client, catalog)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
 	}
-	return &Target{Store: store}, nil
+	return &Target{Store: bundleStore}, nil
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := materialization.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
 	tx, err := t.Store.BeginBundleFor(ctx, bundleIdentity)
 	if err != nil {
 		return nil, err
@@ -51,7 +74,7 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 }
 
 type transaction struct {
-	tx      materialization.AtomicBundleTx
+	tx      publication.AtomicBundleTx
 	columns map[string][]store.Column
 	closed  bool
 }

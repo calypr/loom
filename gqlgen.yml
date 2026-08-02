@@ -14,7 +14,7 @@ model:
 
 resolver:
   layout: follow-schema
-  dir: generated/graphql/graph/resolver
+  dir: internal/api/graphql/graph/resolver
   package: resolver
 
 skip_mod_tidy: true

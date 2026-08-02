@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 // resolveActiveGeneration pins builder-side catalog discovery to the exact

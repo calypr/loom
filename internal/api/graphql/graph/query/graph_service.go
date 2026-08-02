@@ -16,7 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	dfruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -265,7 +264,10 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	if live {
 		// Explain only: this invokes Arango's EXPLAIN endpoint and never opens a
 		// result cursor. The assessment is intentionally not returned here.
-		if _, err := dfruntime.ExplainCompiledQueryAssessment(ctx, s.connOpts, compiled); err != nil {
+		if s.explain == nil {
+			return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		}
+		if err := s.explain(ctx, compiled); err != nil {
 			return nil, queryBackend(err)
 		}
 	}

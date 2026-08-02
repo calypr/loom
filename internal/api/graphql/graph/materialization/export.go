@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 // ExportDataframe streams a principal-scoped published dataframe through the

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"time"
 
-	arangostore "github.com/calypr/loom/internal/store/arango"
-
 	"github.com/bytedance/sonic"
 )
 
@@ -14,7 +12,9 @@ type aqlExecutor interface {
 	ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error
 }
 
-func WriteFieldCatalog(ctx context.Context, client *arangostore.Client, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func WriteFieldCatalog(ctx context.Context, client interface {
+	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
+}, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -46,7 +46,9 @@ func WriteFieldCatalog(ctx context.Context, client *arangostore.Client, collecti
 
 // WriteRelationshipCatalog persists the committed edge cardinalities for a
 // load. The caller must invoke it only after all graph batches have succeeded.
-func WriteRelationshipCatalog(ctx context.Context, client *arangostore.Client, docs []RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func WriteRelationshipCatalog(ctx context.Context, client interface {
+	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
+}, docs []RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}

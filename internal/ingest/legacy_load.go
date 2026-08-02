@@ -7,6 +7,7 @@ import (
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 )
 
 func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -69,6 +70,10 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		return summary, err
 	}
 	defer client.Close(ctx)
+	catalogStore, err := catalogarango.New(client, opts.Database)
+	if err != nil {
+		return summary, err
+	}
 	emitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
@@ -124,15 +129,15 @@ func loadLegacy(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		}
 
 		overwrite := !opts.Truncate
-		if err := catalog.WriteFieldCatalog(ctx, client, catalog.FieldCatalogCollection, result.Catalog.Documents(), opts.BatchSize, overwrite, opts.WriteAPI, summary.StageSeconds); err != nil {
+		if err := catalogStore.WriteFieldCatalog(ctx, catalog.FieldCatalogCollection, result.Catalog.Documents(), opts.BatchSize, overwrite, opts.WriteAPI, summary.StageSeconds); err != nil {
 			return summary, err
 		}
 		relationshipDocs := catalog.RelationshipCatalogDocuments(result.RelationshipCounts)
 		if opts.Truncate {
-			if err := catalog.WriteRelationshipCatalog(ctx, client, relationshipDocs, opts.BatchSize, false, opts.WriteAPI, summary.StageSeconds); err != nil {
+			if err := catalogStore.WriteRelationshipCatalog(ctx, relationshipDocs, opts.BatchSize, false, opts.WriteAPI, summary.StageSeconds); err != nil {
 				return summary, err
 			}
-		} else if err := catalog.AccumulateRelationshipCatalog(ctx, client, relationshipDocs, summary.StageSeconds); err != nil {
+		} else if err := catalogStore.AccumulateRelationshipCatalog(ctx, relationshipDocs, summary.StageSeconds); err != nil {
 			return summary, err
 		}
 

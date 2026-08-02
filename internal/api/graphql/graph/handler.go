@@ -10,7 +10,8 @@ import (
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/calypr/loom/generated/graphql/graph/executor"
-	"github.com/calypr/loom/generated/graphql/graph/resolver"
+	graphqlerrors "github.com/calypr/loom/internal/api/graphql"
+	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/gofiber/fiber/v3"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -38,7 +39,7 @@ func NewHandler(root *resolver.Resolver) http.Handler {
 		Resolvers: root,
 	}))
 	server.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
-		return PresentGraphQLError(err, httpapi.RequestIDFromContext(ctx))
+		return graphqlerrors.PresentGraphQLError(err, httpapi.RequestIDFromContext(ctx))
 	})
 	server.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
 		return next(root.WithOperationContext(ctx))

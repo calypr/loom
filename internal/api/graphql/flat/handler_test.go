@@ -11,7 +11,7 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/gofiber/fiber/v3"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 )

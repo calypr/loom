@@ -12,7 +12,7 @@ model:
 
 resolver:
   layout: follow-schema
-  dir: generated/graphql/flat/resolver
+  dir: internal/api/graphql/flat/resolver
   package: resolver
 
 skip_mod_tidy: true

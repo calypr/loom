@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"context"
 	"github.com/calypr/loom/internal/authscope"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/catalog"
 )
 
 type authComponents struct {
@@ -15,7 +16,7 @@ type authComponents struct {
 	scopeResolver *authscope.ScopeResolver
 }
 
-func wireAuth(cfg Config, noAuth bool, connOpts arangostore.ConnectionOptions) (authComponents, error) {
+func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)) (authComponents, error) {
 	if noAuth {
 		return authComponents{
 			authenticator: authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "anonymous"}},
@@ -31,9 +32,9 @@ func wireAuth(cfg Config, noAuth bool, connOpts arangostore.ConnectionOptions) (
 	case strings.EqualFold(cfg.Auth.Mode, "calypr"):
 		client := &http.Client{Timeout: cfg.Auth.Calypr.RequestTimeout}
 		resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ConnectionOptions: connOpts,
-			ResourceAccess:    authscope.NewFenceUserAccessClientWithTTL(client, cfg.Auth.Calypr.CacheTTL),
-			CacheTTL:          cfg.Auth.Calypr.CacheTTL,
+			ResourceAccess:                authscope.NewFenceUserAccessClientWithTTL(client, cfg.Auth.Calypr.CacheTTL),
+			ListExistingAuthResourcePaths: listExisting,
+			CacheTTL:                      cfg.Auth.Calypr.CacheTTL,
 		})
 		return authComponents{
 			authenticator: authscope.CalyprAuthenticator{},

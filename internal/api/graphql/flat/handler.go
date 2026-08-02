@@ -6,8 +6,8 @@ import (
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/calypr/loom/generated/graphql/flat/executor"
-	clickhouseresolver "github.com/calypr/loom/generated/graphql/flat/resolver"
-	graphqlapi "github.com/calypr/loom/internal/api/graphql/graph"
+	graphqlerrors "github.com/calypr/loom/internal/api/graphql"
+	clickhouseresolver "github.com/calypr/loom/internal/api/graphql/flat/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/gofiber/fiber/v3"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -25,7 +25,7 @@ func NewHandler(service clickhouseresolver.MaterializationService) http.Handler 
 		Resolvers: clickhouseresolver.NewResolver(service),
 	}))
 	server.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
-		return graphqlapi.PresentGraphQLError(err, httpapi.RequestIDFromContext(ctx))
+		return graphqlerrors.PresentGraphQLError(err, httpapi.RequestIDFromContext(ctx))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ctx, ok := fiberadaptor.LocalContextFromHTTPRequest(r); ok {

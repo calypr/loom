@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/calypr/loom/internal/catalog"
-	publicationarango "github.com/calypr/loom/internal/publication/arango"
+	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 

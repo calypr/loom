@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/calypr/loom/internal/dataframe/uuidcompat"
 )
 
 const (
@@ -133,7 +131,7 @@ func materializePostQueryValue(value any) (any, error) {
 				}
 				resolvedArgs[index] = resolved
 			}
-			return uuidcompat.Compute(operation, resolvedArgs)
+			return computeNamedUUID(operation, resolvedArgs)
 		}
 		if operation, ok := typed[postQueryCallKey].(string); ok {
 			args, ok := typed[postQueryArgsKey].([]any)
@@ -177,7 +175,7 @@ func materializePostQueryValue(value any) (any, error) {
 
 func evaluatePostQueryCall(operation, target string, args []any) (any, error) {
 	if operation == "uuid3" || operation == "uuid5" {
-		return uuidcompat.Compute(operation, args)
+		return computeNamedUUID(operation, args)
 	}
 	isNull := func(value any) bool { return value == nil }
 	switch operation {
