@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,5 +117,89 @@ func TestLoadFilePreservesLegacyAndGenerationWrites(t *testing.T) {
 				t.Fatalf("dataset_generation = %#v, want %q", vertex["dataset_generation"], test.generation)
 			}
 		})
+	}
+}
+
+func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
+	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+
+	t.Run("fail fast physical line", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "Patient.ndjson")
+		if err := os.WriteFile(file, []byte("\n \n\t\n{\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		failFastOpts := opts
+		failFastOpts.FailFast = true
+		_, err := loadFile(context.Background(), failFastOpts, nil, schema, file, "", true, time.Now(), 0, 0, insert)
+		if err == nil || !strings.Contains(err.Error(), "Patient.ndjson Patient row 4:") {
+			t.Fatalf("error = %v, want physical row 4", err)
+		}
+	})
+
+	t.Run("earliest ten errors", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "Patient.ndjson")
+		var input strings.Builder
+		input.WriteString("\n")
+		for i := 0; i < 12; i++ {
+			if i == 1 {
+				input.WriteString("\n")
+			}
+			input.WriteString("{\n")
+		}
+		if err := os.WriteFile(file, []byte(input.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		result, err := loadFile(context.Background(), opts, nil, schema, file, "", true, time.Now(), 0, 0, insert)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantLines := []int{2, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+		if result.ValidationErrors != 12 || len(result.RowErrors) != len(wantLines) {
+			t.Fatalf("validation errors=%d samples=%d", result.ValidationErrors, len(result.RowErrors))
+		}
+		for i, sample := range result.RowErrors {
+			if sample.File != "Patient.ndjson" || sample.ResourceType != "Patient" || sample.Category != "validation" || sample.Message == "" || sample.Line != wantLines[i] {
+				t.Fatalf("sample[%d] = %+v, want line %d validation error", i, sample, wantLines[i])
+			}
+		}
+	})
+}
+
+func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
+	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := []byte("{\"resourceType\":\"Patient\",\"id\":\"patient-1\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-2\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-3\"}\n")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", BatchSize: 1, WriterCount: 2})
+	var inserted int64
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "", true, time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
+		atomic.AddInt64(&inserted, int64(len(docs)))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.VerticesInserted != 3 || result.VertexBatches != 3 || atomic.LoadInt64(&inserted) != 3 {
+		t.Fatalf("result=%+v inserted=%d", result, inserted)
+	}
+
+	writeErr := errors.New("writer failed")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = loadFile(ctx, opts, nil, schema, file, "", true, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		return writeErr
+	})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("error = %v, want %v", err, writeErr)
 	}
 }

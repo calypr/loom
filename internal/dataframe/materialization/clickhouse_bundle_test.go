@@ -193,53 +193,6 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 	}
 }
 
-func TestResolveFederatedDatasetUsesAuthorizedProjectSet(t *testing.T) {
-	catalog := newBundleCatalogFixture()
-	for index, project := range []string{"project-a", "project-b", "project-c"} {
-		execution := BundleExecution{
-			ID:             "federated-execution-" + string(rune('a'+index)),
-			BundleIdentity: BundleIdentity{Name: "observation", Project: project, DatasetGeneration: "generation-1"},
-			State:          BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
-			Outputs: []BundleOutputRecord{{Name: "observation", Alias: "observation", PhysicalTable: "loom_" + project, Columns: []Column{{Name: "auth_resource_path", ClickHouse: "Nullable(String)"}, {Name: "id", ClickHouse: "String"}}, State: BundleReady}},
-		}
-		catalog.executions[execution.ID] = execution
-		catalog.pointers[execution.PointerName()] = BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
-	}
-	dataset, err := ResolveFederatedDataset(context.Background(), catalog, []string{"project-b", "project-a", "project-b"}, "observation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(dataset.Sources) != 2 || dataset.Sources[0].Project != "project-a" || dataset.Sources[1].Project != "project-b" {
-		t.Fatalf("federated sources = %#v", dataset.Sources)
-	}
-	if len(dataset.Columns) != 2 || dataset.Columns[0].Name != "auth_resource_path" {
-		t.Fatalf("federated columns = %#v", dataset.Columns)
-	}
-	if dataset.Revision == "" {
-		t.Fatal("federated revision is empty")
-	}
-}
-
-func TestResolveFederatedDatasetRejectsSchemaConflict(t *testing.T) {
-	catalog := newBundleCatalogFixture()
-	identities := []BundleIdentity{
-		{Name: "observation", Project: "project-a", DatasetGeneration: "generation-1"},
-		{Name: "observation", Project: "project-b", DatasetGeneration: "generation-1"},
-	}
-	for index, identity := range identities {
-		tableType := "String"
-		if index == 1 {
-			tableType = "Int64"
-		}
-		execution := BundleExecution{ID: "conflict-" + string(rune('a'+index)), BundleIdentity: identity, State: BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), Outputs: []BundleOutputRecord{{Name: "observation", PhysicalTable: "loom_conflict_" + identity.Project, Columns: []Column{{Name: "id", ClickHouse: tableType}}, State: BundleReady}}}
-		catalog.executions[execution.ID] = execution
-		catalog.pointers[execution.PointerName()] = BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
-	}
-	if _, err := ResolveFederatedDataset(context.Background(), catalog, []string{"project-a", "project-b"}, "observation"); err == nil {
-		t.Fatal("schema conflict unexpectedly resolved")
-	}
-}
-
 func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()

@@ -125,7 +125,7 @@ func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
 
 func (a ScopeAuthorizer) AuthorizeWrite(ctx context.Context, principal *Principal, project, authResourcePath string) error {
 	if a.Resolver == nil {
-		return nil
+		return fmt.Errorf("%w: scope resolver is required", ErrForbidden)
 	}
 	return a.Resolver.AuthorizeWrite(ctx, principal, project, authResourcePath)
 }

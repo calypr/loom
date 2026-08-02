@@ -343,7 +343,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 }
 
 func newGraphServer(root *graphresolver.Resolver, auth authscope.Authenticator) (*api.HTTPServer, error) {
-	server, err := api.NewHTTPServer(api.HTTPConfig{Authenticator: auth})
+	server, err := api.NewHTTPServer(api.HTTPConfig{Authenticator: auth, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,17 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// serverOptions is the normalized command-line surface. Config remains the
+// YAML compatibility boundary; Run owns the final merge and validation.
+type serverOptions struct {
+	ConfigPath, Listen, Backend, URL, Database, Schema string
+	NoAuth, DatasetGenerations                         bool
+	ClickHouseURL, ClickHouseDatabase                  string
+	ClickHouseUsername, ClickHousePassword             string
+	DataframerRecipe                                   string
+	RecipeBatchRows, RecipeBatchBytes                  int
+}
+
 type Config struct {
 	Server ServerConfig `yaml:"server"`
 	Auth   AuthConfig   `yaml:"auth"`

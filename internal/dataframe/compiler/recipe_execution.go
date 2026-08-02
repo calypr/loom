@@ -79,7 +79,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PlanMode:          "physical",
 		PlanProfile:       "generic_fhir_graph_recipe",
 		TraversalCount:    physicalTraversalCount(physical),
-		RowIdentity:       cloneRowIdentity(output.RowIdentity),
+		RowIdentity:       output.RowIdentity.Clone(),
 		OptimizationRules: recipeOptimizationRules(physical),
 		Query:             rendered.Query,
 		BindVars:          rendered.BindVars,

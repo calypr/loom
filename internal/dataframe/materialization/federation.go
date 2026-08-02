@@ -83,13 +83,6 @@ type FederatedAggregateResult struct {
 	Rows    []map[string]any
 }
 
-// ResolveFederatedDataset resolves the current READY output for alias from
-// each requested authorized project and reconciles one stable public schema.
-// The project list is an authorization result, never a browser input.
-func ResolveFederatedDataset(ctx context.Context, catalog BundleCatalog, projects []string, alias string) (FederatedDataset, error) {
-	return resolveFederatedDataset(ctx, catalog, nil, projects, alias)
-}
-
 func resolveFederatedDataset(ctx context.Context, catalog BundleCatalog, active publication.ActiveResolver, projects []string, alias string) (FederatedDataset, error) {
 	if catalog == nil {
 		return FederatedDataset{}, fmt.Errorf("bundle catalog is required")
@@ -957,47 +950,6 @@ func federatedNormalizedUnion(dataset FederatedDataset, columns []string, paths 
 			args = append(args, source.ID)
 		}
 		branches = append(branches, branch)
-	}
-	return strings.Join(branches, " UNION ALL "), args, nil
-}
-
-func federatedSourceWhere(source Materialization, filters []Filter, allowed map[string]struct{}, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) ([]string, []any, error) {
-	filters = append([]Filter(nil), filters...)
-	if unrestrictedByProject != nil {
-		unrestricted = unrestrictedByProject[source.Project]
-	}
-	if pathsByProject != nil {
-		paths = pathsByProject[source.Project]
-	}
-	if !unrestricted {
-		filters = append(filters, Filter{Column: "auth_resource_path", Op: "IN", Value: paths})
-	}
-	return buildWhere(filters, allowed)
-}
-
-func federatedRowUnion(dataset FederatedDataset, columns []string, filters []Filter, allowed map[string]struct{}, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) (string, []any, error) {
-	selects := make([]string, 0, len(columns)+2)
-	for _, column := range columns {
-		selects = append(selects, fmt.Sprintf("`%s`", column))
-	}
-	selects = append(selects,
-		"toString(`__loom_row_id`) AS `__loom_row_id`",
-		"concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`",
-	)
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		where, branchArgs, err := federatedSourceWhere(source, filters, allowed, paths, unrestricted, pathsByProject, unrestrictedByProject)
-		if err != nil {
-			return "", nil, err
-		}
-		branch := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), source.PhysicalTable)
-		if len(where) > 0 {
-			branch += " WHERE " + strings.Join(where, " AND ")
-		}
-		branches = append(branches, branch)
-		args = append(args, source.ID)
-		args = append(args, branchArgs...)
 	}
 	return strings.Join(branches, " UNION ALL "), args, nil
 }

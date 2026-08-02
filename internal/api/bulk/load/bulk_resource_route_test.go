@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -33,7 +34,7 @@ func TestBulkResourceUsesPathIdentityAndMultipartFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewHTTPServer(HTTPConfig{Service: svc})
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestBulkResourceRouteIsIndependentOfLegacyImportDisableFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewHTTPServer(HTTPConfig{Service: svc, DisableSingleResourceImports: true})
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, Authorizer: authscope.AllowAllAuthorizer{}, DisableSingleResourceImports: true})
 	if err != nil {
 		t.Fatal(err)
 	}

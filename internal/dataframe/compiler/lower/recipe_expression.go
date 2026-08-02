@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // LowerRecipeExpression lowers one checked recipe expression into the typed

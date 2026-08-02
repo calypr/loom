@@ -298,10 +298,3 @@ func messageForCode(code string) string {
 		return "internal server error"
 	}
 }
-
-// IsMappedError lets a coordinator preserve an already mapped error while
-// adding request logging.
-func IsMappedError(err error) bool {
-	var mapped *apiError
-	return errors.As(err, &mapped)
-}

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -64,27 +65,11 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 
 	results := make([]PopulatedField, 0, 64)
 	err = client.QueryRows(ctx, populatedFieldsAQL, opts.CursorBatch, bindVars, func(row map[string]any) error {
-		results = append(results, PopulatedField{
-			Project:               stringValue(row["project"]),
-			DatasetGeneration:     stringValue(row["dataset_generation"]),
-			AuthResourcePath:      stringValue(row["auth_resource_path"]),
-			ResourceType:          stringValue(row["resource_type"]),
-			Path:                  stringValue(row["path"]),
-			Kind:                  stringValue(row["kind"]),
-			DocCount:              int64Must(row["doc_count"]),
-			SampleCount:           int(int64Must(row["sample_count"])),
-			DistinctValues:        stringSliceValue(row["distinct_values"]),
-			DistinctTruncated:     boolValue(row["distinct_truncated"]),
-			PivotCandidate:        boolValue(row["pivot_candidate"]),
-			PivotKind:             stringValue(row["pivot_kind"]),
-			PivotColumns:          stringSliceValue(row["pivot_columns"]),
-			PivotFamily:           stringValue(row["pivot_family"]),
-			PivotColumnSelect:     stringValue(row["pivot_column_selector"]),
-			PivotValueSelect:      stringValue(row["pivot_value_selector"]),
-			PivotItemSource:       stringValue(row["pivot_item_source"]),
-			PivotItemResourceType: stringValue(row["pivot_item_resource_type"]),
-			PivotValueSelectors:   stringSliceValue(row["pivot_value_selectors"]),
-		})
+		field, err := populatedFieldFromRow(row)
+		if err != nil {
+			return err
+		}
+		results = append(results, field)
 		return nil
 	})
 	if err != nil {
@@ -102,6 +87,71 @@ func DiscoverPopulatedFields(ctx context.Context, opts PopulatedFieldOptions) ([
 		"seconds":             secondsSince(start),
 	})
 	return results, nil
+}
+
+func populatedFieldFromRow(row map[string]any) (PopulatedField, error) {
+	field := PopulatedField{
+		Project:               stringValue(row["project"]),
+		DatasetGeneration:     stringValue(row["dataset_generation"]),
+		AuthResourcePath:      stringValue(row["auth_resource_path"]),
+		ResourceType:          stringValue(row["resource_type"]),
+		Path:                  stringValue(row["path"]),
+		Kind:                  stringValue(row["kind"]),
+		PivotKind:             stringValue(row["pivot_kind"]),
+		PivotFamily:           stringValue(row["pivot_family"]),
+		PivotColumnSelect:     stringValue(row["pivot_column_selector"]),
+		PivotValueSelect:      stringValue(row["pivot_value_selector"]),
+		PivotItemSource:       stringValue(row["pivot_item_source"]),
+		PivotItemResourceType: stringValue(row["pivot_item_resource_type"]),
+	}
+	decode := func(name string, fn func() error) error {
+		if err := fn(); err != nil {
+			return fmt.Errorf("decode field row %s/%s %s: %w", field.ResourceType, field.Path, name, err)
+		}
+		return nil
+	}
+	if err := decode("doc_count", func() error {
+		var err error
+		field.DocCount, err = strictInt64Value(row["doc_count"])
+		return err
+	}); err != nil {
+		return PopulatedField{}, err
+	}
+	if err := decode("sample_count", func() error {
+		value, err := strictInt64Value(row["sample_count"])
+		field.SampleCount = int(value)
+		return err
+	}); err != nil {
+		return PopulatedField{}, err
+	}
+	for name, target := range map[string]*[]string{
+		"distinct_values":       &field.DistinctValues,
+		"pivot_columns":         &field.PivotColumns,
+		"pivot_value_selectors": &field.PivotValueSelectors,
+	} {
+		name, target := name, target
+		if err := decode(name, func() error {
+			var err error
+			*target, err = strictStringSliceValue(row[name])
+			return err
+		}); err != nil {
+			return PopulatedField{}, err
+		}
+	}
+	for name, target := range map[string]*bool{
+		"distinct_truncated": &field.DistinctTruncated,
+		"pivot_candidate":    &field.PivotCandidate,
+	} {
+		name, target := name, target
+		if err := decode(name, func() error {
+			var err error
+			*target, err = strictBoolValue(row[name])
+			return err
+		}); err != nil {
+			return PopulatedField{}, err
+		}
+	}
+	return field, nil
 }
 
 func populatedFieldsBindVars(opts PopulatedFieldOptions) map[string]any {

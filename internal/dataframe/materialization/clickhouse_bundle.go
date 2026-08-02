@@ -236,7 +236,7 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 		if c.Name == "__loom_row_id" {
 			continue
 		}
-		if err := validateSchemaColumn(Column{Name: c.Name, ClickHouse: c.Type}); err != nil {
+		if err := validateBundleColumn(Column{Name: c.Name, ClickHouse: c.Type}); err != nil {
 			return err
 		}
 	}

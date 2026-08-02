@@ -4,29 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
-	"sort"
-	"strings"
 	"syscall"
 	"time"
 
 	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
-	dumpapi "github.com/calypr/loom/internal/api/bulk/dump"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	clickhousegraphql "github.com/calypr/loom/internal/api/graphql/flat"
-	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
-	api "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -35,7 +24,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
-	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/ingest"
 	publicationcontract "github.com/calypr/loom/internal/publication"
 	publicationarango "github.com/calypr/loom/internal/publication/arango"
@@ -67,12 +55,13 @@ func Run() {
 		recipeBatchBytes   = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
 	)
 	flag.Parse()
+	options := serverOptions{ConfigPath: *configPath, Listen: *listen, Backend: *backend, URL: *url, Database: *database, Schema: *schema, NoAuth: *noAuth, DatasetGenerations: *datasetGenerations, ClickHouseURL: *clickhouseURL, ClickHouseDatabase: *clickhouseDatabase, ClickHouseUsername: *clickhouseUsername, ClickHousePassword: *clickhousePassword, DataframerRecipe: *dataframerRecipe, RecipeBatchRows: *recipeBatchRows, RecipeBatchBytes: *recipeBatchBytes}
 
-	serverConfig, err := LoadConfig(*configPath)
+	serverConfig, err := LoadConfig(options.ConfigPath)
 	if err != nil {
 		exitf("load server config: %v", err)
 	}
-	if *configPath != "" {
+	if options.ConfigPath != "" {
 		*listen = serverConfig.Server.Listen
 		*backend = serverConfig.Server.Backend
 		*url = serverConfig.Server.URL
@@ -122,16 +111,9 @@ func Run() {
 	if err := lifecycleClient.Bootstrap(context.Background(), publicationarango.BootstrapSpec()); err != nil {
 		exitf("bootstrap dataset lifecycle store: %v", err)
 	}
-	var dataframeDegradation error
-	recordDataframeDegradation := func(stage string, cause error) {
-		if cause == nil {
-			return
-		}
-		dataframeDegradation = errors.Join(dataframeDegradation, fmt.Errorf("%s: %w", stage, cause))
-		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
-	}
+	dataframe := &dataframeComponents{logger: logger}
 	if err := lifecycleClient.Bootstrap(context.Background(), recipearango.BootstrapSpec()); err != nil {
-		recordDataframeDegradation("bootstrap recipe registry", err)
+		dataframe.record("bootstrap recipe registry", err)
 	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
@@ -147,7 +129,7 @@ func Run() {
 			exitf("parse dataframer recipe %q: %v", *dataframerRecipe, err)
 		}
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
-			recordDataframeDegradation("register default dataframe recipe", err)
+			dataframe.record("register default dataframe recipe", err)
 		}
 	}
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
@@ -162,38 +144,17 @@ func Run() {
 		activeManifestResolver = lifecycleStore
 	}
 
-	discoveryCache := catalog.NewCache()
-	discoverFields := discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields)
-	discoverReferences := discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences)
+	discovery := newDiscoveryComponents()
+	discoveryCache := discovery.cache
+	discoverFields, discoverReferences := discovery.discoverFields, discovery.discoverReferences
 
-	var scopeResolver *authscope.ScopeResolver
-	var authorizer authscope.Authorizer
-	var authenticator authscope.Authenticator
-	switch {
-	case *noAuth:
-		authenticator = authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "anonymous"}}
-		authorizer = authscope.AllowAllAuthorizer{}
-	case strings.EqualFold(serverConfig.Auth.Mode, "basic"):
-		authenticator = authscope.BasicAuthenticator{Username: serverConfig.Auth.Basic.Username, Password: serverConfig.Auth.Basic.Password}
-		authorizer = authscope.AllowAllAuthorizer{}
-	case strings.EqualFold(serverConfig.Auth.Mode, "calypr"):
-		authenticator = authscope.CalyprAuthenticator{}
-		client := &http.Client{Timeout: serverConfig.Auth.Calypr.RequestTimeout}
-		scopeResolver = authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ConnectionOptions: connOpts,
-			ResourceAccess:    authscope.NewFenceUserAccessClientWithTTL(client, serverConfig.Auth.Calypr.CacheTTL),
-			CacheTTL:          serverConfig.Auth.Calypr.CacheTTL,
-		})
-		authorizer = authscope.ScopeAuthorizer{Resolver: scopeResolver}
-	default:
-		exitf("unsupported auth mode %q", serverConfig.Auth.Mode)
+	auth, err := wireAuth(serverConfig, *noAuth, connOpts)
+	if err != nil {
+		exitf("configure authentication: %v", err)
 	}
+	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := runtime.NewService(runtime.ServiceConfig{
-		ConnectionOptions:      connOpts,
-		ScopeResolver:          scopeResolver,
-		ActiveManifestResolver: activeManifestResolver,
-	})
+	dataframes := newDataframeService(connOpts, scopeResolver, activeManifestResolver)
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
 	registry, err := materializationarango.New(lifecycleClient)
@@ -202,7 +163,7 @@ func Run() {
 	}
 	publicationReady := true
 	if err := lifecycleClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
-		recordDataframeDegradation("bootstrap dataframe registry", err)
+		dataframe.record("bootstrap dataframe registry", err)
 		publicationReady = false
 	}
 	var clickhouse *clickhousestore.Client
@@ -217,7 +178,7 @@ func Run() {
 		// it during server startup so a fresh ClickHouse instance does not require
 		// an operator to run a separate DDL/API step before materialization.
 		if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
-			recordDataframeDegradation("ClickHouse database", err)
+			dataframe.record("ClickHouse database", err)
 			publicationReady = false
 		}
 		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
@@ -251,7 +212,7 @@ func Run() {
 			exitf("create dataframe bundle store: %v", err)
 		}
 		if err := bundleStore.Reconcile(context.Background(), time.Now().UTC().Add(-2*time.Minute)); err != nil {
-			recordDataframeDegradation("dataframe publication reconciliation", err)
+			dataframe.record("dataframe publication reconciliation", err)
 			publicationReady = false
 		}
 		if publicationReady {
@@ -274,56 +235,7 @@ func Run() {
 		RecipeControl:         engine.Control{Engine: recipeEngine, ExplainConnection: &connOpts},
 		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
 		RecipeExecutions:      graphresolver.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
-		RecipeMaterialize: func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
-			if bundleTarget == nil {
-				cause := dataframeDegradation
-				if cause == nil {
-					cause = dataframeerrors.ErrBackendUnavailable
-				}
-				return graphresolver.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-			}
-			bindings.IncludeAuthResourcePath = true
-			var identity materialization.BundleIdentity
-			_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
-				streams, err := recipeEngine.Streams(ctx, full)
-				if err != nil {
-					return err
-				}
-				identity = materialization.BundleIdentity{Name: name, Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest, ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1", AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
-				streamInputs := make([]publication.OutputStream, 0, len(streams))
-				for _, stream := range streams {
-					stream := stream
-					columns := recipeOutputLogicalColumns(full, stream.Name)
-					rootResourceType := recipeOutputRootResourceType(full, stream.Name)
-					streamInputs = append(streamInputs, publication.OutputStream{
-						Name: stream.Name, Columns: columns,
-						Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
-							_, err := stream.Stream(streamCtx, func(row map[string]any) error {
-								qualified, err := materialization.QualifyFlatRow(rootResourceType, row)
-								if err != nil {
-									return err
-								}
-								return visit(qualified)
-							})
-							return err
-						},
-					})
-				}
-				publicationIdentity := publication.PublicationIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
-				_, err = publication.Publish(ctx, bundleTarget, publicationIdentity, streamInputs, publication.Limits{BatchRows: *recipeBatchRows, BatchBytes: *recipeBatchBytes})
-				return err
-			})
-			if err != nil {
-				logger.Error("recipe materialization failed", "name", name, "project", bindings.Project, "error", err.Error())
-				return graphresolver.RecipeExecution{}, err
-			}
-			published, err := registry.FindExecutionByKey(ctx, identity.Key())
-			if err != nil {
-				logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
-				return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
-			}
-			return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(materialization.BundleReady)}, nil
-		},
+		RecipeMaterialize:     recipeMaterializer(recipeEngine, bundleTarget, registry, dataframe, logger, *recipeBatchRows, *recipeBatchBytes),
 	})
 	clickhouseService := materializationapi.NewService(materializationapi.Config{
 		Reader:                 materializationReader,
@@ -356,41 +268,32 @@ func Run() {
 		exitf("create import service: %v", err)
 	}
 
-	server, err := api.NewHTTPServer(api.HTTPConfig{
-		Authenticator: authenticator,
-		Authorizer:    authorizer,
-		Logger:        logger,
-		CoreReadyCheck: func(ctx context.Context) error {
+	server, err := buildHTTPServer(authenticator, authorizer, logger,
+		func(ctx context.Context) error {
 			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
 		},
-		ClickHouseReadyCheck: func(ctx context.Context) error {
-			if dataframeDegradation != nil {
-				return dataframeDegradation
+		func(ctx context.Context) error {
+			if dataframe.degradation != nil {
+				return dataframe.degradation
 			}
 			if clickhouse == nil {
 				return nil
 			}
 			_, err := clickhouse.QueryRowsArgs(ctx, "SELECT 1", []string{"ok"})
 			return err
-		},
-		ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled,
-	})
+		}, serverConfig.Server.ClickHouse.Enabled)
 	if err != nil {
 		exitf("create HTTP server: %v", err)
 	}
-	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: importService, Authorizer: authorizer, ScopeResolver: scopeResolver, DisableSingleResourceImports: *datasetGenerations})
-	if err != nil {
-		exitf("create load handler: %v", err)
+	app := application{server: server}
+	if err := registerRoutes(app.server, importService, authorizer, scopeResolver, *datasetGenerations, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
+		exitf("register HTTP routes: %v", err)
 	}
-	loadHandler.RegisterRoutes(server.App())
-	dumpapi.NewHandler(dumpapi.Config{RawExporter: dumpapi.ArangoRawExporter{Query: lifecycleClient, Manifests: lifecycleStore}, DataframeExporter: clickhouseService, ScopeResolver: scopeResolver, DisableSingleResourceImports: *datasetGenerations}).RegisterRoutes(server.App())
-	graphapi.RegisterRoutes(server.App(), graphapi.RouteConfig{Handler: graphapi.NewHandler(resolver), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")})
-	clickhousegraphql.RegisterRoutes(server.App(), clickhousegraphql.NewHandler(clickhouseService))
 
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("starting HTTP server", "listen", *listen, "database", *database, "no_auth", *noAuth, "dataset_generations", *datasetGenerations)
-		errCh <- server.App().Listen(*listen)
+		errCh <- app.server.App().Listen(*listen)
 	}()
 
 	stop := make(chan os.Signal, 1)
@@ -403,65 +306,10 @@ func Run() {
 		}
 	case sig := <-stop:
 		logger.Info("shutting down HTTP server", "signal", sig.String())
-		if err := server.App().ShutdownWithContext(context.Background()); err != nil {
+		if err := app.server.App().ShutdownWithContext(context.Background()); err != nil {
 			exitf("shutdown failed: %v", err)
 		}
 	}
-}
-
-func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
-	paths := append([]string(nil), bindings.AuthResourcePaths...)
-	sort.Strings(paths)
-	hash := sha256.Sum256([]byte(bindings.Project + "\x00" + bindings.DatasetGeneration + "\x00" + strings.Join(paths, "\x00")))
-	return hex.EncodeToString(hash[:])
-}
-
-// recipeOutputLogicalColumns is the one conversion point from the finalized
-// compiler schema to the backend-neutral publication schema. Publication must
-// not reconstruct nested names from semantic recipe nodes because those names
-// are finalized by physical lowering.
-func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publication.LogicalColumn {
-	for _, output := range plan.Compiled.Outputs {
-		if output.Name != outputName {
-			continue
-		}
-		columns := make([]publication.LogicalColumn, 0, len(output.OutputSchema)+1)
-		identityAdded := false
-		for _, column := range output.OutputSchema {
-			if column.Identity && column.Name == "__loom_row_id" {
-				columns = append(columns, publication.LogicalColumn{Name: column.Name, Kind: "string", IsIdentity: true})
-				identityAdded = true
-				break
-			}
-		}
-		if !identityAdded {
-			columns = append(columns, publication.LogicalColumn{Name: "__loom_row_id", Kind: "string", IsIdentity: true})
-		}
-		for _, column := range output.OutputSchema {
-			if column.Internal {
-				continue
-			}
-			kind := column.Kind
-			if kind == "date_time" {
-				kind = "date-time"
-			}
-			if kind == "" {
-				kind = "string"
-			}
-			columns = append(columns, publication.LogicalColumn{Name: materialization.FlatColumnName(output.RootResourceType, column.Name), Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
-		}
-		return columns
-	}
-	return []publication.LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}}
-}
-
-func recipeOutputRootResourceType(plan engine.Resolved, outputName string) string {
-	for _, output := range plan.Compiled.Outputs {
-		if output.Name == outputName {
-			return output.RootResourceType
-		}
-	}
-	return ""
 }
 
 func exitf(format string, args ...any) {

@@ -23,7 +23,7 @@ func BuildPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, policy ir.Ph
 	if err := semanticpkg.ValidateSemanticGraph(semantic); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate semantic plan: %w", err)
 	}
-	if reason := genericPhysicalPlanUnavailableReason(semantic.Root); reason != "" {
+	if reason := genericPhysicalNodeUnavailableReason(semantic.Root); reason != "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("physical lowering does not yet support %s", reason)
 	}
 	return BuildGenericPhysicalPlanWithPolicy(semantic, policy)

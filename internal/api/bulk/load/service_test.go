@@ -74,3 +74,13 @@ func TestServiceRunFailure(t *testing.T) {
 		t.Fatal("expected no invalidation on failure")
 	}
 }
+
+func TestNewHandlerRequiresAuthorizer(t *testing.T) {
+	service, err := NewService(ServiceConfig{Runner: fakeRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHandler(Config{Service: service}); err == nil {
+		t.Fatal("expected missing authorizer error")
+	}
+}

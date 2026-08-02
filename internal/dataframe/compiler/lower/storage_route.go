@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // ErrUnsupportedStorageRoute identifies a FHIR relationship that is known to

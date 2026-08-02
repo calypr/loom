@@ -110,7 +110,7 @@ func (s *Service) prepareBindings(ctx context.Context, bindings recipe.RuntimeBi
 		return recipe.RuntimeBindings{}, fmt.Errorf("project is required")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, bindings.Project, s.scopeResolver != nil); err != nil {
+	if err := authscope.AuthorizeProject(principal, bindings.Project, s.scopeResolver != nil); err != nil {
 		return recipe.RuntimeBindings{}, err
 	}
 	if s.activeManifestResolver != nil {

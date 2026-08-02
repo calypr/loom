@@ -1,7 +1,6 @@
 package materialization
 
 import (
-	"context"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -9,22 +8,16 @@ import (
 
 type State string
 
+const authResourcePathColumn = "auth_resource_path"
+
 const (
-	StatePending State = "PENDING"
-	StateLoading State = "LOADING"
-	StateReady   State = "READY"
-	StateFailed  State = "FAILED"
+	StateReady State = "READY"
 )
 
 type Column struct {
 	Name       string `json:"name"`
 	ClickHouse string `json:"clickhouseType"`
 }
-
-// SchemaColumn is the explicit output contract for a published dataframe.
-// ClickHouse types are intentionally kept as strings so the contract can use
-// native types such as Nullable(String), Array(Int64), and DateTime64.
-type SchemaColumn = Column
 
 type Materialization struct {
 	ID                string                  `json:"id"`
@@ -44,10 +37,4 @@ type Materialization struct {
 	Error             string                  `json:"error,omitempty"`
 	FailureCode       string                  `json:"failureCode,omitempty"`
 	FailureRetryable  bool                    `json:"failureRetryable,omitempty"`
-}
-
-type Registry interface {
-	Save(context.Context, Materialization) error
-	Get(context.Context, string) (Materialization, error)
-	ListReady(context.Context, string) ([]Materialization, error)
 }

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -27,7 +28,7 @@ func TestCreateGenerationStagesCompleteBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewHTTPServer(HTTPConfig{Service: svc})
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}

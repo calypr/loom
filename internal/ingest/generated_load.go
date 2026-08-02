@@ -10,13 +10,6 @@ import (
 	fhir "github.com/calypr/loom/generated/fhir"
 )
 
-var generatedLoadTypes = map[string]struct{}{
-	"BodyStructure": {}, "Condition": {}, "DocumentReference": {}, "Group": {},
-	"ImagingStudy": {}, "Medication": {}, "MedicationAdministration": {},
-	"Observation": {}, "Organization": {}, "Patient": {}, "Practitioner": {},
-	"ResearchStudy": {}, "ResearchSubject": {}, "Specimen": {},
-}
-
 type generatedLoadResource interface {
 	fhir.ConcreteResource
 	Validate() error
@@ -24,7 +17,11 @@ type generatedLoadResource interface {
 }
 
 func supportsGeneratedLoad(resourceType string) bool {
-	_, ok := generatedLoadTypes[resourceType]
+	resource, ok := fhir.NewConcreteResource(resourceType)
+	if !ok {
+		return false
+	}
+	_, ok = resource.(generatedLoadResource)
 	return ok
 }
 

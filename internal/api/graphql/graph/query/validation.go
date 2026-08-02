@@ -100,7 +100,7 @@ func (s *Service) Validate(ctx context.Context, input model.FhirDataframeInput) 
 		Limit:              compiled.Limit,
 		Columns:            cloneStrings(compiled.Columns),
 		PivotFields:        cloneStrings(compiled.PivotFields),
-		RowIdentity:        cloneRowIdentity(identity),
+		RowIdentity:        identity.Clone(),
 		RequestFingerprint: resolved.SemanticPlan.RecipeDigest,
 		Warnings:           cloneValidationWarnings(warnings),
 		Plan:               compiled.PlanDiagnostics,
@@ -126,13 +126,4 @@ func cloneValidationWarnings(in []runtime.ValidationWarning) []runtime.Validatio
 		}
 	}
 	return out
-}
-
-func cloneRowIdentity(in *spec.RowIdentity) *spec.RowIdentity {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Fields = cloneStrings(in.Fields)
-	return &out
 }

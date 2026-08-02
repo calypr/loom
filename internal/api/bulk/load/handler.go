@@ -26,7 +26,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 		return nil, fmt.Errorf("load service is required")
 	}
 	if cfg.Authorizer == nil {
-		cfg.Authorizer = authscope.AllowAllAuthorizer{}
+		return nil, fmt.Errorf("load authorizer is required")
 	}
 	return &Handler{service: cfg.Service, authz: cfg.Authorizer, scopeResolver: cfg.ScopeResolver, disableSingleResourceImports: cfg.DisableSingleResourceImports}, nil
 }

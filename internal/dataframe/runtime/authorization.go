@@ -50,18 +50,3 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 		Mode:              authscope.ReadScopeRestricted,
 	}, nil
 }
-
-func authorizeProject(principal *authscope.Principal, project string, ignorePrincipalProjects bool) error {
-	if ignorePrincipalProjects {
-		return nil
-	}
-	if principal == nil || len(principal.Projects) == 0 {
-		return nil
-	}
-	for _, candidate := range principal.Projects {
-		if candidate == project {
-			return nil
-		}
-	}
-	return fmt.Errorf("principal is not authorized for project %q", project)
-}

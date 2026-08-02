@@ -225,7 +225,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		streams = append(streams, OutputStream{
-			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: cloneRowIdentity(query.RowIdentity), Query: query.Query,
+			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(), Query: query.Query,
 			BindVars: query.BindVars, DynamicChecks: dynamicChecks(output.DynamicColumns), stream: e.queryRows, batchSize: e.batchSize,
 		})
 	}
@@ -350,15 +350,6 @@ func ensureStableRowIdentity(row map[string]any, identity *spec.RowIdentity, bin
 	digest := sha256.Sum256(encoded)
 	row["__loom_row_id"] = hex.EncodeToString(digest[:])
 	return nil
-}
-
-func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
-	if identity == nil {
-		return nil
-	}
-	copy := *identity
-	copy.Fields = append([]string(nil), identity.Fields...)
-	return &copy
 }
 
 func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string]DynamicColumnCheck {

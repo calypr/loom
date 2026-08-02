@@ -60,7 +60,7 @@ func TestDumpRawAcceptsResourceTypeAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	exporter := &fakeRawExporter{}
-	server, err := NewHTTPServer(HTTPConfig{Service: service, RawExporter: exporter, DisableSingleResourceImports: true})
+	server, err := NewHTTPServer(HTTPConfig{Service: service, Authorizer: authscope.AllowAllAuthorizer{}, RawExporter: exporter, DisableSingleResourceImports: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestLoadRawPartitionsMixedFHIRNDJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewHTTPServer(HTTPConfig{Service: service})
+	server, err := NewHTTPServer(HTTPConfig{Service: service, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}

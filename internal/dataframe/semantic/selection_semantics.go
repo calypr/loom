@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // SelectionSemanticSpec is the compiler-ready meaning of one field selection.
@@ -22,46 +22,6 @@ type SelectionSemanticSpec struct {
 	Projection    spec.ProjectionMode
 	LegacyAuto    bool
 	RepeatedPaths []string
-}
-
-// NormalizeSelectionPlan resolves every semantic field against the active
-// generated FHIR metadata and returns stable alias-sorted selections.
-func NormalizeSelectionPlan(plan SemanticPlan) ([]SelectionSemanticSpec, error) {
-	out := make([]SelectionSemanticSpec, 0)
-	nodeAliases := map[string]struct{}{}
-	selectionAliases := map[string]struct{}{}
-	var walk func(SemanticNode) error
-	walk = func(node SemanticNode) error {
-		if strings.TrimSpace(node.Alias) == "" {
-			return fmt.Errorf("semantic node for %s has no alias", node.ResourceType)
-		}
-		if _, exists := nodeAliases[node.Alias]; exists {
-			return fmt.Errorf("semantic node alias %q is duplicated", node.Alias)
-		}
-		nodeAliases[node.Alias] = struct{}{}
-		for index, field := range node.Fields {
-			spec, err := ResolveSemanticField(node.ResourceType, node.Alias, index, field)
-			if err != nil {
-				return err
-			}
-			if _, exists := selectionAliases[spec.Alias]; exists {
-				return fmt.Errorf("selection alias %q is duplicated", spec.Alias)
-			}
-			selectionAliases[spec.Alias] = struct{}{}
-			out = append(out, spec)
-		}
-		for _, child := range node.Children {
-			if err := walk(child); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := walk(plan.Root); err != nil {
-		return nil, err
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Alias < out[j].Alias })
-	return out, nil
 }
 
 // ResolveSemanticField resolves a single field and all fallback selectors.

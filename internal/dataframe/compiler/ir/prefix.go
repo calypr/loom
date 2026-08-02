@@ -98,7 +98,12 @@ func rejectPhysicalTraversalPrefix(reason PhysicalTraversalPrefixRejectionReason
 // rejects shared subsets, required EXISTS paths, non-proven directions, and
 // sets whose tenant scope is not the exact generic edge/node scope block.
 func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (PhysicalTraversalPrefixDecomposition, error) {
-	return DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetOperationIndex(plan, set.Variable))
+	for index, operation := range plan.Operations {
+		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Variable == set.Variable {
+			return DecomposePhysicalTraversalPrefixAt(plan, set, index)
+		}
+	}
+	return DecomposePhysicalTraversalPrefixAt(plan, set, -1)
 }
 
 // DecomposePhysicalTraversalPrefixAt is the position-aware form used by the
@@ -189,15 +194,6 @@ func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setInd
 		},
 		PrefixKey: key,
 	}, nil
-}
-
-func physicalSetOperationIndex(plan PhysicalPlan, variable string) int {
-	for index, operation := range plan.Operations {
-		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Variable == variable {
-			return index
-		}
-	}
-	return -1
 }
 
 // physicalUnnestScopeIdentityAt returns a deterministic identity for every

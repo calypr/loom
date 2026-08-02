@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 var recipeRichNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

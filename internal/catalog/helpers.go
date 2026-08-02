@@ -62,40 +62,44 @@ func int64Value(value any) (int64, error) {
 	}
 }
 
-func int64Must(value any) int64 {
-	switch typed := value.(type) {
-	case int64:
-		return typed
-	case int32:
-		return int64(typed)
-	case int:
-		return int64(typed)
-	case float64:
-		return int64(typed)
-	case float32:
-		return int64(typed)
-	default:
-		return 0
+func strictInt64Value(value any) (int64, error) {
+	if value == nil {
+		return 0, nil
 	}
+	return int64Value(value)
 }
 
-func boolValue(value any) bool {
-	v, _ := value.(bool)
-	return v
-}
-
-func stringSliceValue(value any) []string {
-	items, ok := value.([]any)
+func strictBoolValue(value any) (bool, error) {
+	if value == nil {
+		return false, nil
+	}
+	v, ok := value.(bool)
 	if !ok {
-		return nil
+		return false, fmt.Errorf("unsupported boolean type %T", value)
 	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if text, ok := item.(string); ok {
-			out = append(out, text)
+	return v, nil
+}
+
+func strictStringSliceValue(value any) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	switch items := value.(type) {
+	case []string:
+		return cloneStrings(items), nil
+	case []any:
+		out := make([]string, len(items))
+		for i, item := range items {
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("unsupported slice item type %T at index %d", item, i)
+			}
+			out[i] = text
 		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("unsupported string slice type %T", value)
 	}
-	return out
 }
 
 func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {

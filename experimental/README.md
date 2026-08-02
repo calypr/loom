@@ -12,16 +12,10 @@ and [`internal/ingest/`](../internal/ingest/). This is not a home for a second
 query engine or manually maintained AQL recipes.
 
 ClickHouse is available at native `clickhouse://127.0.0.1:9000` (and HTTP
-`http://127.0.0.1:8123`) for published dataframe materializations. The operator
-command uses the native driver by default:
-
-```bash
-./bin/arango-fhir-proto materialize-dataframe \
-  --request dataframe.json \
-  --name case-explorer \
-  --clickhouse-url clickhouse://127.0.0.1:9000 \
-  --clickhouse-database loom
-```
+`http://127.0.0.1:8123`) for bundle-published dataframe materializations.
+The retired `materialize-dataframe` command and its metadata collection are no
+longer read or created. Existing `loom_dataframe_materializations` documents
+and `loom_df_*` tables are left untouched for optional operator cleanup.
 
 The real reader, aggregation, and streaming-path fixture is opt-in locally
 and runs against the same service:

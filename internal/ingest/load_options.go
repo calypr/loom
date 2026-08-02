@@ -35,6 +35,14 @@ type LoadOptions struct {
 	PreflightSampleRows int
 }
 
+type RowErrorSample struct {
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	ResourceType string `json:"resource_type"`
+	Category     string `json:"category"`
+	Message      string `json:"message"`
+}
+
 type LoadSummary struct {
 	Files            int                `json:"files"`
 	VerticesInserted int                `json:"vertices_inserted"`
@@ -46,6 +54,7 @@ type LoadSummary struct {
 	Resources        map[string]int     `json:"resources"`
 	StageSeconds     map[string]float64 `json:"stage_seconds"`
 	Preflight        PreflightReport    `json:"preflight"`
+	RowErrors        []RowErrorSample   `json:"row_errors,omitempty"`
 	// SchemaIdentity is the exact configured graph-schema evidence used for
 	// this load. It remains nil when Loom cannot load the configured schema, so
 	// an early failure never looks like a successful schema observation.

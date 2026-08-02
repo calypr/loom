@@ -8,15 +8,15 @@ import (
 	fhir "github.com/calypr/loom/generated/fhir"
 )
 
-func TestGeneratedLoadCapabilityFallsBackForSchemaOnlyRoots(t *testing.T) {
-	for _, resourceType := range []string{"Patient", "Specimen", "Observation"} {
+func TestGeneratedLoadCapabilityMatchesGeneratedFHIRMethods(t *testing.T) {
+	for _, resourceType := range []string{"Patient", "Specimen", "Observation", "DiagnosticReport", "Task"} {
 		if !supportsGeneratedLoad(resourceType) {
 			t.Fatalf("generated fast path unexpectedly unavailable for %s", resourceType)
 		}
 	}
-	for _, resourceType := range []string{"DiagnosticReport", "MedicationRequest", "MedicationStatement", "Procedure", "Task"} {
+	for _, resourceType := range []string{"Unknown", "Resource"} {
 		if supportsGeneratedLoad(resourceType) {
-			t.Fatalf("schema-only root %s should use generic loader fallback", resourceType)
+			t.Fatalf("unknown root %s should use generic loader fallback", resourceType)
 		}
 	}
 }

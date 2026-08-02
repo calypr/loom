@@ -62,7 +62,7 @@ func (s *Service) Validate(ctx context.Context, req ValidateRequest) (Validation
 		Project: compiled.Project, DatasetGeneration: compiled.DatasetGeneration,
 		RootResourceType: compiled.RootResourceType, Limit: limit,
 		Columns: cloneStrings(compiled.Columns), PivotFields: cloneStrings(compiled.PivotFields),
-		RowIdentity:        cloneRowIdentity(compiled.RowIdentity),
+		RowIdentity:        compiled.RowIdentity.Clone(),
 		RequestFingerprint: compiled.PlanDiagnostics.Fingerprint,
 		Warnings:           warnings, Plan: compiled.PlanDiagnostics,
 		PreviewAllowed: true, ExportAllowed: true, Diagnostics: diagnostics,

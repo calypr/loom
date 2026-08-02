@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
 	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/calypr/loom/internal/authscope"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
 )
 
 type fakeDataframeExporter struct{}
@@ -23,7 +24,7 @@ func (fakeDataframeExporter) ExportDataframe(_ context.Context, request dfmateri
 }
 
 func TestDataframeExportRoute(t *testing.T) {
-	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{})
+	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}

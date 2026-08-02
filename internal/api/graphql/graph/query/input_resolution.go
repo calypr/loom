@@ -29,7 +29,7 @@ func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframe
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
+	if err := authscope.AuthorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
 		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, input.Project)
@@ -207,21 +207,6 @@ func resolvePivotFieldRef(resourceType string, discovered []catalog.PopulatedFie
 		}
 	}
 	return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
-}
-
-func authorizeProject(principal *authscope.Principal, project string, ignorePrincipalProjects bool) error {
-	if ignorePrincipalProjects {
-		return nil
-	}
-	if principal == nil || len(principal.Projects) == 0 {
-		return nil
-	}
-	for _, candidate := range principal.Projects {
-		if candidate == project {
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: project access denied", authscope.ErrForbidden)
 }
 
 func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {

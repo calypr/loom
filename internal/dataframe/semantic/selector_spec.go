@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func selectorSpecFromSelector(sel spec.Selector) fhirschema.FieldSelectorSpec {

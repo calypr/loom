@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"strings"
-
-	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func cloneStrings(in []string) []string {
@@ -27,19 +25,10 @@ func sanitizeColumnName(in string) string {
 			b.WriteByte('_')
 		}
 	}
-	return strings.Trim(b.String(), "_")
+	return b.String()
 }
 
 const (
 	datasetGenerationBindKey = "dataset_generation"
 	datasetGenerationField   = "dataset_generation"
 )
-
-func cloneRowIdentity(in *spec.RowIdentity) *spec.RowIdentity {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Fields = cloneStrings(in.Fields)
-	return &out
-}

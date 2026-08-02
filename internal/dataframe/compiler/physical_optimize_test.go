@@ -16,7 +16,7 @@ import (
 
 func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("OptimizePhysicalPlan() error = %v", err)
 	}
@@ -63,7 +63,7 @@ func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Lookup: &ir.PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
 		returnOp.Return.Projections = append(returnOp.Return.Projections, ir.PhysicalProjection{Name: item.name, Expression: &expression})
 	}
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing
 		set.Projection = &ir.PhysicalSetProjection{Fields: []ir.PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
 		set.Output = nil
 	}
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
 
 func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 
 func TestOptimizePhysicalPlanRebindsTypedConsumerFiltersToSharedSubsetItems(t *testing.T) {
 	plan := physicalScopedSiblingPlanWithFilters(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

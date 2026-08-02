@@ -69,7 +69,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		cfg.Authenticator = authscope.BearerTokenAuthenticator{}
 	}
 	if cfg.Authorizer == nil {
-		cfg.Authorizer = authscope.AllowAllAuthorizer{}
+		return nil, errors.New("http authorizer is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()

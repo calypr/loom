@@ -3,6 +3,7 @@ package authscope
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Transport-neutral authorization conditions. Callers classify these
@@ -47,6 +48,18 @@ func PrincipalFromContext(ctx context.Context) (*Principal, bool) {
 	}
 	principal, ok := ctx.Value(principalContextKey{}).(*Principal)
 	return principal, ok
+}
+
+func AuthorizeProject(principal *Principal, project string, ignorePrincipalProjects bool) error {
+	if ignorePrincipalProjects || principal == nil || len(principal.Projects) == 0 {
+		return nil
+	}
+	for _, candidate := range principal.Projects {
+		if candidate == project {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: project access denied", ErrForbidden)
 }
 
 type Authenticator interface {

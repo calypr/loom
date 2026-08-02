@@ -60,6 +60,14 @@ type fileLoadResult struct {
 	StageSeconds       map[string]float64
 	Catalog            *catalog.Profiler
 	RelationshipCounts map[catalog.RelationshipKey]int64
+	RowErrors          []RowErrorSample
+}
+
+const rowErrorSampleLimit = 10
+
+type fileLine struct {
+	number int
+	text   string
 }
 
 type fileWriteTask struct {
@@ -114,7 +122,7 @@ func loadFile(
 		}
 	}
 
-	linesChan := make(chan string, 10000)
+	linesChan := make(chan fileLine, 10000)
 	writeChan := make(chan fileWriteTask, 100)
 	fileCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -133,7 +141,9 @@ func loadFile(
 
 	go func() {
 		defer close(linesChan)
+		lineNumber := 0
 		for scanner.Scan() {
+			lineNumber++
 			select {
 			case <-fileCtx.Done():
 				return
@@ -144,7 +154,7 @@ func loadFile(
 				continue
 			}
 			select {
-			case linesChan <- line:
+			case linesChan <- fileLine{number: lineNumber, text: line}:
 			case <-fileCtx.Done():
 				return
 			}
@@ -168,6 +178,32 @@ func loadFile(
 	var validationErrors int64
 	var generationErrors int64
 	var edgeErrors int64
+	var rowErrorsMu sync.Mutex
+	rowErrors := make([]RowErrorSample, 0, rowErrorSampleLimit)
+	recordRowError := func(line int, category rowErrorType, buildErr error) {
+		sample := RowErrorSample{
+			File:         filepath.Base(file),
+			Line:         line,
+			ResourceType: resourceType,
+			Category:     string(category),
+			Message:      buildErr.Error(),
+		}
+		rowErrorsMu.Lock()
+		defer rowErrorsMu.Unlock()
+		if len(rowErrors) < rowErrorSampleLimit {
+			rowErrors = append(rowErrors, sample)
+			return
+		}
+		latest := 0
+		for i := 1; i < len(rowErrors); i++ {
+			if rowErrors[i].Line > rowErrors[latest].Line {
+				latest = i
+			}
+		}
+		if sample.Line < rowErrors[latest].Line {
+			rowErrors[latest] = sample
+		}
+	}
 
 	for worker := 0; worker < workerCount; worker++ {
 		workersWG.Add(1)
@@ -175,7 +211,6 @@ func loadFile(
 			defer workersWG.Done()
 			localTimings := make(map[string]float64)
 			localCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)
-			lineCounter := 0
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 
@@ -236,13 +271,13 @@ func loadFile(
 						}
 						return
 					}
-					lineCounter++
-					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line), localTimings)
+					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
 					if buildErr != nil {
 						if opts.FailFast {
-							setPipelineErr(fmt.Errorf("%s %s row %d: %w", filepath.Base(file), resourceType, lineCounter, buildErr))
+							setPipelineErr(fmt.Errorf("%s %s row %d: %w", filepath.Base(file), resourceType, line.number, buildErr))
 							return
 						}
+						recordRowError(line.number, errorType, buildErr)
 						switch errorType {
 						case rowErrorValidation:
 							atomic.AddInt64(&validationErrors, 1)
@@ -359,6 +394,8 @@ func loadFile(
 	result.ValidationErrors = int(atomic.LoadInt64(&validationErrors))
 	result.GenerationErrors = int(atomic.LoadInt64(&generationErrors))
 	result.EdgeErrors = int(atomic.LoadInt64(&edgeErrors))
+	sort.Slice(rowErrors, func(i, j int) bool { return rowErrors[i].Line < rowErrors[j].Line })
+	result.RowErrors = rowErrors
 	result.StageSeconds = make(map[string]float64)
 	result.RelationshipCounts = make(map[catalog.RelationshipKey]int64)
 	mergedCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)

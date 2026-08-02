@@ -57,52 +57,19 @@ const (
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 )
 
-// AllErrorCodes is the compatibility registry. Keep its order stable when
-// adding a code: it is used by contract tests and generated documentation.
 var AllErrorCodes = []ErrorCode{
-	CodeProjectRequired,
-	CodeRootResourceTypeRequired,
-	CodeUnauthorizedProject,
-	CodeUnknownField,
-	CodeFieldNotPopulated,
-	CodeInvalidTraversal,
-	CodeUnsafeTraversalRoute,
-	CodeInvalidFilter,
-	CodeUnboundedPivot,
-	CodeInvalidPivotColumn,
-	CodeInvalidSlice,
-	CodePlanTooExpensive,
-	CodeInvalidCursor,
-	CodeStaleCursor,
-	CodeDatasetGenerationChanged,
-	CodeUnsupportedExportFormat,
-	CodeClientCanceled,
-	CodeBackendUnavailable,
-	CodeDatasetNotFound,
-	CodeSchemaConflict,
-	CodeInternalError,
-	CodeInvalidResourceType,
-	CodeInvalidLimit,
-	CodeNoActiveGeneration,
-	CodeResourceDecodeFailed,
-	CodeReferenceNotResolved,
-	CodeQueryDepthExceeded,
-	CodeInvalidRequest,
-	CodeInvalidData,
-	CodeUnauthenticated,
-	CodeForbidden,
-	CodeRecipeNotFound,
-	CodeRecipeExecutionNotFound,
-	CodeExportLimitExceeded,
-	CodeIngestPreflightFailed,
-	CodeGenerationLoadIncomplete,
-	CodeGenerationActivationUnknown,
-	CodeInvalidGenerationFile,
-	CodeDuplicateGenerationFile,
-	CodePublicationInProgress,
-	CodePublicationConflict,
-	CodePublicationLeaseLost,
-	CodeOutputEncodingFailed,
+	CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
+	CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
+	CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
+	CodePlanTooExpensive, CodeInvalidCursor, CodeStaleCursor, CodeDatasetGenerationChanged,
+	CodeUnsupportedExportFormat, CodeClientCanceled, CodeBackendUnavailable, CodeDatasetNotFound,
+	CodeSchemaConflict, CodeInternalError, CodeInvalidResourceType, CodeInvalidLimit,
+	CodeNoActiveGeneration, CodeResourceDecodeFailed, CodeReferenceNotResolved, CodeQueryDepthExceeded,
+	CodeInvalidRequest, CodeInvalidData, CodeUnauthenticated, CodeForbidden, CodeRecipeNotFound,
+	CodeRecipeExecutionNotFound, CodeExportLimitExceeded, CodeIngestPreflightFailed,
+	CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown, CodeInvalidGenerationFile,
+	CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
+	CodePublicationLeaseLost, CodeOutputEncodingFailed,
 }
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -287,32 +254,16 @@ func SanitizePersistedFailure(raw string) (message, code string, retryable bool)
 	return PublicMessage(normalized), normalized.Code(), normalized.Retryable()
 }
 
-// IsUserCorrectable identifies failures for which the frontend should guide
-// the user back to the request editor. Runtime Retryable on an Error remains
-// the authoritative value for a specific occurrence.
 func IsUserCorrectable(code ErrorCode) bool {
 	switch code {
-	case CodeProjectRequired,
-		CodeRootResourceTypeRequired,
-		CodeUnauthorizedProject,
-		CodeUnknownField,
-		CodeFieldNotPopulated,
-		CodeInvalidTraversal,
-		CodeUnsafeTraversalRoute,
-		CodeInvalidFilter,
-		CodeUnboundedPivot,
-		CodeInvalidPivotColumn,
-		CodeInvalidSlice,
-		CodePlanTooExpensive,
-		CodeInvalidCursor,
-		CodeStaleCursor,
-		CodeUnsupportedExportFormat:
-		return true
-	case CodeInvalidResourceType, CodeInvalidLimit,
-		CodeInvalidRequest, CodeInvalidData, CodeRecipeNotFound,
-		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
-		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete,
-		CodeInvalidGenerationFile, CodeDuplicateGenerationFile:
+	case CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
+		CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
+		CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
+		CodePlanTooExpensive, CodeInvalidCursor, CodeStaleCursor, CodeUnsupportedExportFormat,
+		CodeInvalidResourceType, CodeInvalidLimit, CodeInvalidRequest, CodeInvalidData,
+		CodeRecipeNotFound, CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
+		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete, CodeInvalidGenerationFile,
+		CodeDuplicateGenerationFile:
 		return true
 	default:
 		return false

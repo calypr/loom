@@ -84,7 +84,7 @@ func (s *Service) ListTemplates(ctx context.Context, req TemplateOptions) ([]Tem
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
+	if err := authscope.AuthorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
 		return nil, classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, req.Project)

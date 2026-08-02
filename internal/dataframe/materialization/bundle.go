@@ -13,21 +13,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// StreamOutput is the bounded-memory input to PublishStreamBundle. The
-// callback must call visit once for each logical row and stop when it returns
-// an error.
-type StreamOutput struct {
-	Name    string
-	Columns []clickhouse.Column
-	Stream  func(context.Context, func(map[string]any) error) error
-}
-
-// StreamPublishConfig controls row and byte buffering during publication.
-type StreamPublishConfig struct {
-	BatchRows  int
-	BatchBytes int
-}
-
 type AtomicBundleTx interface {
 	CreateOutput(context.Context, string, []clickhouse.Column) error
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error

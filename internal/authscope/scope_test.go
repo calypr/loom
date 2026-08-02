@@ -2,6 +2,7 @@ package authscope
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -194,6 +195,26 @@ func TestScopeAuthorizerRequiresScopedWritePath(t *testing.T) {
 	}, "P1", "")
 	if err == nil {
 		t.Fatal("expected missing auth_resource_path error")
+	}
+}
+
+func TestScopeAuthorizerWithoutResolverFailsClosed(t *testing.T) {
+	err := (ScopeAuthorizer{}).AuthorizeWrite(context.Background(), &Principal{}, "P1", "path")
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("error = %v, want ErrForbidden", err)
+	}
+}
+
+func TestAuthorizeProjectUsesPrincipalAllowlist(t *testing.T) {
+	principal := &Principal{Projects: []string{"allowed"}}
+	if err := AuthorizeProject(principal, "allowed", false); err != nil {
+		t.Fatalf("allowed project rejected: %v", err)
+	}
+	if err := AuthorizeProject(principal, "denied", false); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("denied project error = %v, want ErrForbidden", err)
+	}
+	if err := AuthorizeProject(principal, "denied", true); err != nil {
+		t.Fatalf("ignored project restriction rejected: %v", err)
 	}
 }
 

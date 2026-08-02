@@ -17,7 +17,7 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
+	if err := authscope.AuthorizeProject(principal, req.Project, s.scopeResolver != nil); err != nil {
 		return nil, classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, req.Project)

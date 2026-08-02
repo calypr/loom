@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, sets []recipe.CatalogProjection) ([]recipe.Field, error) {

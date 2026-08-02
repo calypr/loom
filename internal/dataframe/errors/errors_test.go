@@ -17,10 +17,10 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeSchemaConflict, CodeInternalError, CodeInvalidResourceType, CodeInvalidLimit,
 		CodeNoActiveGeneration, CodeResourceDecodeFailed, CodeReferenceNotResolved, CodeQueryDepthExceeded,
 		CodeInvalidRequest, CodeInvalidData, CodeUnauthenticated, CodeForbidden, CodeRecipeNotFound,
-		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
-		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown,
-		CodeInvalidGenerationFile, CodeDuplicateGenerationFile,
-		CodePublicationInProgress, CodePublicationConflict, CodePublicationLeaseLost, CodeOutputEncodingFailed,
+		CodeRecipeExecutionNotFound, CodeExportLimitExceeded, CodeIngestPreflightFailed,
+		CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown, CodeInvalidGenerationFile,
+		CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
+		CodePublicationLeaseLost, CodeOutputEncodingFailed,
 	}
 	if !reflect.DeepEqual(AllErrorCodes, want) {
 		t.Fatalf("error registry = %#v, want %#v", AllErrorCodes, want)
@@ -34,9 +34,6 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 			t.Fatalf("duplicate error code %q", code)
 		}
 		seen[code] = struct{}{}
-	}
-	if len(seen) != len(AllErrorCodes) {
-		t.Fatalf("error registry contains duplicate entries")
 	}
 }
 

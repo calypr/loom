@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // BuildGenericPhysicalPlan lowers generic navigation plus root and optional

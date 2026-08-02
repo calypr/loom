@@ -192,6 +192,12 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.ValidationErrors += result.ValidationErrors
 		summary.GenerationErrors += result.GenerationErrors
 		summary.EdgeErrors += result.EdgeErrors
+		if remaining := rowErrorSampleLimit - len(summary.RowErrors); remaining > 0 {
+			if remaining > len(result.RowErrors) {
+				remaining = len(result.RowErrors)
+			}
+			summary.RowErrors = append(summary.RowErrors, result.RowErrors[:remaining]...)
+		}
 		summary.Resources[result.ResourceType] += result.Rows
 		summary.BatchCounts["vertex_insert"] += result.VertexBatches
 		summary.BatchCounts["edge_insert"] += result.EdgeBatches
