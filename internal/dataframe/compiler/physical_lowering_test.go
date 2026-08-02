@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestBuildPhysicalPlanUsesSemanticPlanDirectly(t *testing.T) {
-	plan, err := lower.BuildPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
 		Root: semantic.SemanticNode{
@@ -36,7 +35,7 @@ func TestBuildPhysicalPlanLowersRootSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := lower.BuildPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
 		Root: semantic.SemanticNode{

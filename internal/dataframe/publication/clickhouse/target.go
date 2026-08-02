@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -33,11 +34,15 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 	for _, schema := range schemas {
 		columns, err := toColumns(schema.Columns)
 		if err != nil {
-			_ = tx.Abort(context.Background(), fmt.Errorf("output %q schema: %w", schema.Name, err))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q schema: %w", schema.Name, err))
+			cancel()
 			return nil, fmt.Errorf("output %q schema: %w", schema.Name, err)
 		}
 		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
-			_ = tx.Abort(context.Background(), fmt.Errorf("output %q create: %w", schema.Name, err))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q create: %w", schema.Name, err))
+			cancel()
 			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
 		}
 		result.columns[schema.Name] = columns

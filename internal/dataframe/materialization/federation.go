@@ -26,19 +26,23 @@ type FederatedDataset struct {
 	RowCountComplete bool
 }
 
+// SourceAccess is the already-resolved visibility for one published project.
+// Missing entries are intentionally treated as restricted with no paths.
+type SourceAccess struct {
+	ResourcePaths []string
+	Unrestricted  bool
+}
+
 // FederatedPageRequest is the projectless reader request. The caller supplies
 // the already-resolved effective scope; this type never accepts a project
 // selector from the browser.
 type FederatedPageRequest struct {
-	Columns               []string
-	Filters               []Filter
-	Sort                  *Sort
-	First                 int
-	After                 string
-	AuthResourcePaths     []string
-	AuthUnrestricted      bool
-	AuthPathsByProject    map[string][]string
-	UnrestrictedByProject map[string]bool
+	Columns         []string
+	Filters         []Filter
+	Sort            *Sort
+	First           int
+	After           string
+	AccessByProject map[string]SourceAccess
 }
 
 // FederatedPage is the projectless row response. Source metadata is retained
@@ -55,26 +59,20 @@ type FederatedPage struct {
 // FederatedStreamRequest describes a bounded-memory scan over the same
 // authorized source union used by interactive row reads.
 type FederatedStreamRequest struct {
-	Columns               []string
-	Filters               []Filter
-	Sort                  *Sort
-	AuthResourcePaths     []string
-	AuthUnrestricted      bool
-	AuthPathsByProject    map[string][]string
-	UnrestrictedByProject map[string]bool
+	Columns         []string
+	Filters         []Filter
+	Sort            *Sort
+	AccessByProject map[string]SourceAccess
 }
 
 // FederatedAggregateRequest describes an aggregate over the same authorized
 // union used by row reads.
 type FederatedAggregateRequest struct {
-	GroupBy               []string
-	Filters               []Filter
-	Operation             string
-	Column                string
-	AuthResourcePaths     []string
-	AuthUnrestricted      bool
-	AuthPathsByProject    map[string][]string
-	UnrestrictedByProject map[string]bool
+	GroupBy         []string
+	Filters         []Filter
+	Operation       string
+	Column          string
+	AccessByProject map[string]SourceAccess
 }
 
 type FederatedAggregateResult struct {
@@ -583,7 +581,7 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 			unionColumns = append(unionColumns, filter.Column)
 		}
 	}
-	union, unionArgs, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	union, unionArgs, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
 	if err != nil {
 		return FederatedPage{}, err
 	}
@@ -695,7 +693,7 @@ func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDa
 			unionColumns = append(unionColumns, filter.Column)
 		}
 	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
 	if err != nil {
 		return FederatedDataset{}, err
 	}
@@ -736,7 +734,7 @@ func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDa
 }
 
 func (r *Reader) federatedCountDataset(ctx context.Context, dataset FederatedDataset, allowed map[string]struct{}, req FederatedPageRequest) (int64, error) {
-	union, args, err := federatedNormalizedUnion(dataset, datasetVisibleColumns(dataset), req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	union, args, err := federatedNormalizedUnion(dataset, datasetVisibleColumns(dataset), req.AccessByProject)
 	if err != nil {
 		return 0, err
 	}
@@ -825,7 +823,7 @@ func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset Federate
 			unionColumns = append(unionColumns, filter.Column)
 		}
 	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
 	if err != nil {
 		return FederatedAggregateResult{}, err
 	}
@@ -902,7 +900,7 @@ func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) 
 // federatedNormalizedUnion creates the single typed source union used by rows,
 // counts and aggregates. User predicates are deliberately applied by callers
 // around this union; only per-source authorization remains inside branches.
-func federatedNormalizedUnion(dataset FederatedDataset, columns []string, paths []string, unrestricted bool, pathsByProject map[string][]string, unrestrictedByProject map[string]bool) (string, []any, error) {
+func federatedNormalizedUnion(dataset FederatedDataset, columns []string, accessByProject map[string]SourceAccess) (string, []any, error) {
 	branches := make([]string, 0, len(dataset.Sources))
 	args := make([]any, 0)
 	for _, source := range dataset.Sources {
@@ -930,18 +928,11 @@ func federatedNormalizedUnion(dataset FederatedDataset, columns []string, paths 
 		}
 		selects = append(selects, "toString(`__loom_row_id`) AS `__loom_row_id`", "concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`")
 		branch := "SELECT " + strings.Join(selects, ", ") + " FROM `" + source.PhysicalTable + "`"
-		authUnrestricted := unrestricted
-		authPaths := paths
-		if unrestrictedByProject != nil {
-			authUnrestricted = unrestrictedByProject[source.Project]
-		}
-		if pathsByProject != nil {
-			authPaths = pathsByProject[source.Project]
-		}
-		if !authUnrestricted {
+		access := accessByProject[source.Project]
+		if !access.Unrestricted {
 			if _, ok := present[authResourcePathColumn]; ok {
 				branch += " WHERE `auth_resource_path` IN ?"
-				args = append(args, source.ID, authPaths)
+				args = append(args, source.ID, access.ResourcePaths)
 			} else {
 				branch += " WHERE 0"
 				args = append(args, source.ID)

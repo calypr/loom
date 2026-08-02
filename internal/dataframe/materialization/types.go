@@ -1,10 +1,6 @@
 package materialization
 
-import (
-	"time"
-
-	"github.com/calypr/loom/internal/authscope"
-)
+import "time"
 
 type State string
 
@@ -20,21 +16,21 @@ type Column struct {
 }
 
 type Materialization struct {
-	ID                string                  `json:"id"`
-	Name              string                  `json:"name"`
-	Revision          string                  `json:"revision,omitempty"`
-	Project           string                  `json:"project"`
-	DatasetGeneration string                  `json:"datasetGeneration"`
-	State             State                   `json:"state"`
-	AuthScopeMode     authscope.ReadScopeMode `json:"authScopeMode"`
-	AuthResourcePaths []string                `json:"authResourcePaths,omitempty"`
-	Columns           []Column                `json:"columns"`
-	PhysicalTable     string                  `json:"physicalTable"`
-	RowCount          int64                   `json:"rowCount"`
-	RowCountKnown     bool                    `json:"-"`
-	CreatedAt         time.Time               `json:"createdAt"`
-	ReadyAt           *time.Time              `json:"readyAt,omitempty"`
-	Error             string                  `json:"error,omitempty"`
-	FailureCode       string                  `json:"failureCode,omitempty"`
-	FailureRetryable  bool                    `json:"failureRetryable,omitempty"`
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Revision          string     `json:"revision,omitempty"`
+	Project           string     `json:"project"`
+	DatasetGeneration string     `json:"datasetGeneration"`
+	State             State      `json:"state"`
+	ScopeUnrestricted bool       `json:"scopeUnrestricted"`
+	AuthResourcePaths []string   `json:"authResourcePaths,omitempty"`
+	Columns           []Column   `json:"columns"`
+	PhysicalTable     string     `json:"physicalTable"`
+	RowCount          int64      `json:"rowCount"`
+	RowCountKnown     bool       `json:"-"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	ReadyAt           *time.Time `json:"readyAt,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	FailureCode       string     `json:"failureCode,omitempty"`
+	FailureRetryable  bool       `json:"failureRetryable,omitempty"`
 }

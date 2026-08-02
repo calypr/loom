@@ -32,24 +32,6 @@ func (s *memoryRecipeStore) ReplaceRecipe(_ context.Context, entry Entry) error 
 	return nil
 }
 
-func TestPersistentRegistryIsIdempotentAndDigestLocked(t *testing.T) {
-	store := &memoryRecipeStore{}
-	registry := PersistentRegistry{Store: store}
-	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "r", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
-	first, err := registry.Register(context.Background(), bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := registry.Register(context.Background(), bundle)
-	if err != nil || first.Digest != second.Digest {
-		t.Fatalf("not idempotent: %#v %#v %v", first, second, err)
-	}
-	bundle.TranslationVersion = "changed"
-	if _, err := registry.Register(context.Background(), bundle); err == nil {
-		t.Fatal("expected digest conflict")
-	}
-}
-
 func TestPersistentRegistryUpdatesOnlyTheDefaultRecipe(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}

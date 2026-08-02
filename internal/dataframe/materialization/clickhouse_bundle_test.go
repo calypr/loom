@@ -17,14 +17,18 @@ type bundleCatalogFixture struct {
 
 type leaseBundleCatalog struct {
 	*bundleCatalogFixture
-	acquire      bool
-	acquireCalls int
-	releaseCalls int
-	releaseErr   error
-	renewResult  bool
-	renewErr     error
-	saveErr      error
-	pointerErr   error
+	acquire            bool
+	acquireCalls       int
+	onAcquire          func()
+	releaseCalls       int
+	releaseErr         error
+	renewResult        bool
+	renewErr           error
+	renewBlock         bool
+	renewStarted       chan struct{}
+	saveErr            error
+	requireSaveContext bool
+	pointerErr         error
 }
 
 func newBundleCatalogFixture() *bundleCatalogFixture {
@@ -58,6 +62,9 @@ func (c *bundleCatalogFixture) GetPointer(_ context.Context, name string) (Bundl
 }
 
 func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e BundleExecution) error {
+	if c.requireSaveContext && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if c.saveErr != nil {
 		return c.saveErr
 	}
@@ -71,9 +78,24 @@ func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (Bundl
 }
 func (c *leaseBundleCatalog) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
 	c.acquireCalls++
+	if c.onAcquire != nil {
+		c.onAcquire()
+	}
 	return c.acquire, nil
 }
-func (c *leaseBundleCatalog) RenewBundleLease(context.Context, string, string, time.Time) (bool, error) {
+
+func (c *leaseBundleCatalog) RenewBundleLease(ctx context.Context, _ string, _ string, _ time.Time) (bool, error) {
+	if c.renewStarted != nil {
+		select {
+		case <-c.renewStarted:
+		default:
+			close(c.renewStarted)
+		}
+	}
+	if c.renewBlock {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
 	return c.renewResult, c.renewErr
 }
 func (c *leaseBundleCatalog) ReleaseBundleLease(context.Context, string, string) error {
@@ -165,6 +187,26 @@ func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	}
 }
 
+func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, onAcquire: cancel, requireSaveContext: true}
+	client := newBundleClickHouseFixture()
+	store, _ := NewClickHouseBundleStore(client, catalog)
+	execution := BundleExecution{ID: "stale", Key: "stale-key", BundleIdentity: BundleIdentity{Name: "stale"}, State: BundleLoading, UpdatedAt: time.Now().Add(-time.Hour), Outputs: []BundleOutputRecord{{Name: "one", PhysicalTable: "loom_stale_one"}}}
+	catalog.executions[execution.ID] = execution
+	client.tables[execution.Outputs[0].PhysicalTable] = nil
+
+	if err := store.Reconcile(ctx, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := catalog.executions[execution.ID].State; got != BundleFailed {
+		t.Fatalf("execution state = %q, want %q", got, BundleFailed)
+	}
+	if _, ok := client.tables[execution.Outputs[0].PhysicalTable]; ok {
+		t.Fatal("staging table survived reconciliation")
+	}
+}
+
 func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	identities := []BundleIdentity{
@@ -247,4 +289,26 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 		t.Fatalf("InsertRows() error = %v, want lease loss", err)
 	}
 	_ = tx.Rollback(context.Background())
+}
+
+func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewBlock: true, renewStarted: make(chan struct{})}
+	store, _ := NewClickHouseBundleStore(newBundleClickHouseFixture(), catalog)
+	store.leaseRenewInterval = time.Millisecond
+	tx, err := store.BeginBundleFor(context.Background(), BundleIdentity{Name: "lease-cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-catalog.renewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("lease renewal did not start")
+	}
+	done := make(chan error, 1)
+	go func() { done <- tx.Rollback(context.Background()) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("transaction cleanup did not cancel lease renewal")
+	}
 }

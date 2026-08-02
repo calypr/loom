@@ -9,12 +9,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// BuildGenericPhysicalPlan lowers generic navigation plus root and optional
-// child selections into the typed physical IR.
-func BuildGenericPhysicalPlan(semantic semanticpkg.SemanticPlan) (ir.PhysicalPlan, error) {
-	return BuildGenericPhysicalPlanWithPolicy(semantic, ir.DefaultPhysicalOptimizationPolicy())
-}
-
 // BuildGenericPhysicalPlanWithPolicy threads an explicit optimizer policy
 // through physical construction so prepared-selector ablations happen before
 // references to prepared variables are attached to projections.

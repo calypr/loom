@@ -35,31 +35,8 @@ type PersistentRegistry struct {
 	Store Store
 }
 
-func (r PersistentRegistry) Register(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
-	entry, err := canonicalEntry(bundle)
-	if err != nil {
-		return Entry{}, err
-	}
-	if r.Store == nil {
-		return Entry{}, fmt.Errorf("persistent recipe store is required")
-	}
-	if existing, err := r.Store.LoadRecipe(ctx, bundle.Name); err == nil {
-		if existing.Digest != entry.Digest {
-			return Entry{}, fmt.Errorf("recipe %q is already registered with a different digest", bundle.Name)
-		}
-		return existing, nil
-	} else if !errors.Is(err, ErrRecipeNotFound) {
-		return Entry{}, fmt.Errorf("load recipe %q: %w", bundle.Name, err)
-	}
-	if err := r.Store.SaveRecipe(ctx, entry); err != nil {
-		return Entry{}, err
-	}
-	return entry, nil
-}
-
 // RegisterDefault updates the server-owned default recipe when its embedded
-// definition changes. Caller-provided recipes continue to use Register and
-// remain digest-locked.
+// definition changes while keeping the stored digest canonical.
 func (r PersistentRegistry) RegisterDefault(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
 	entry, err := canonicalEntry(bundle)
 	if err != nil {

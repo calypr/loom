@@ -8,7 +8,7 @@ import (
 )
 
 func TestErrorCodesAreUniqueAndStable(t *testing.T) {
-	want := []ErrorCode{
+	codes := []ErrorCode{
 		CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
 		CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
 		CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
@@ -22,11 +22,8 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
 		CodePublicationLeaseLost, CodeOutputEncodingFailed,
 	}
-	if !reflect.DeepEqual(AllErrorCodes, want) {
-		t.Fatalf("error registry = %#v, want %#v", AllErrorCodes, want)
-	}
-	seen := make(map[ErrorCode]struct{}, len(AllErrorCodes))
-	for _, code := range AllErrorCodes {
+	seen := make(map[ErrorCode]struct{}, len(codes))
+	for _, code := range codes {
 		if code == "" {
 			t.Fatal("error registry contains an empty code")
 		}
@@ -136,13 +133,7 @@ func TestNormalizeRedactsAdapterOwnedUserErrors(t *testing.T) {
 }
 
 func TestErrorClassification(t *testing.T) {
-	if !IsUserCorrectable(CodeInvalidFilter) || IsUserCorrectable(CodeInternalError) {
-		t.Fatal("unexpected user-correctable classification")
-	}
 	if !IsRetryableCode(CodeBackendUnavailable) || IsRetryableCode(CodeClientCanceled) {
 		t.Fatal("unexpected retryable classification")
-	}
-	if !IsOperatorFailure(CodeInternalError) || IsOperatorFailure(CodeInvalidCursor) {
-		t.Fatal("unexpected operator classification")
 	}
 }

@@ -18,12 +18,9 @@ type AggregationSpec struct {
 }
 
 type AggregationsRequest struct {
-	Filters               []Filter
-	Specs                 []AggregationSpec
-	AuthResourcePaths     []string
-	AuthUnrestricted      bool
-	AuthPathsByProject    map[string][]string
-	UnrestrictedByProject map[string]bool
+	Filters         []Filter
+	Specs           []AggregationSpec
+	AccessByProject map[string]SourceAccess
 }
 
 type AggregationResult struct {
@@ -250,7 +247,7 @@ func (r *Reader) aggregateValueBranches(dataset FederatedDataset, allowed map[st
 			unionColumns = append(unionColumns, filter.Column)
 		}
 	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AuthResourcePaths, req.AuthUnrestricted, req.AuthPathsByProject, req.UnrestrictedByProject)
+	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
 	if err != nil {
 		return nil, nil, err
 	}

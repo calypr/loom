@@ -3,8 +3,8 @@ package resolver
 import (
 	"context"
 
-	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -99,9 +99,8 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 	return &Resolver{
 		query: queryapi.NewService(cfg.DataframeQuery),
 		materializations: materializationapi.NewService(materializationapi.Config{
-			Reader:                 cfg.MaterializationReader,
-			ScopeResolver:          cfg.DataframeQuery.ScopeResolver,
-			ActiveManifestResolver: cfg.DataframeQuery.ActiveManifestResolver,
+			Reader:        cfg.MaterializationReader,
+			ScopeResolver: cfg.DataframeQuery.ScopeResolver,
 		}),
 		recipeControl:     cfg.RecipeControl,
 		recipeMaterialize: cfg.RecipeMaterialize,

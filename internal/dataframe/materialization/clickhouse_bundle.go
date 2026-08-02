@@ -137,6 +137,12 @@ type clickHouseBundleTx struct {
 	leaseStopErr    error
 }
 
+const bundleCleanupTimeout = 10 * time.Second
+
+func boundedBundleCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), bundleCleanupTimeout)
+}
+
 func (t *clickHouseBundleTx) startLeaseRenewal(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	t.leaseCancel, t.leaseDone = cancel, make(chan struct{})
@@ -156,7 +162,7 @@ func (t *clickHouseBundleTx) startLeaseRenewal(parent context.Context) {
 				if !ok {
 					return
 				}
-				acquired, err := lease.RenewBundleLease(context.Background(), t.execution.Key, t.execution.OwnerID, until)
+				acquired, err := lease.RenewBundleLease(ctx, t.execution.Key, t.execution.OwnerID, until)
 				t.leaseMu.Lock()
 				if err != nil || !acquired {
 					t.leaseLost = true
@@ -201,10 +207,24 @@ func (t *clickHouseBundleTx) stopLease() error {
 	t.leaseStopOnce.Do(func() {
 		if t.leaseCancel != nil {
 			t.leaseCancel()
-			<-t.leaseDone
+			timer := time.NewTimer(bundleCleanupTimeout)
+			select {
+			case <-t.leaseDone:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+			case <-timer.C:
+				t.leaseStopErr = context.DeadlineExceeded
+				return
+			}
 		}
 		if t.execution.OwnerID != "" {
-			t.leaseStopErr = t.store.releaseLease(context.Background(), t.execution.Key, t.execution.OwnerID)
+			cleanupCtx, cancel := boundedBundleCleanupContext(context.Background())
+			defer cancel()
+			t.leaseStopErr = t.store.releaseLease(cleanupCtx, t.execution.Key, t.execution.OwnerID)
 		}
 	})
 	return t.leaseStopErr
@@ -380,13 +400,15 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 		t.closed = true
 		return errors.Join(err, t.stopLease())
 	}
+	cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+	defer cancel()
 	var cleanup error
 	for _, output := range t.execution.Outputs {
-		if err := t.store.ClickHouse.DropTable(context.Background(), output.PhysicalTable); err != nil {
+		if err := t.store.ClickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
-	if err := t.fail(ctx, cause); err != nil {
+	if err := t.fail(cleanupCtx, cause); err != nil {
 		cleanup = errors.Join(cleanup, err)
 	}
 	t.closed = true
@@ -469,9 +491,10 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 				}
 				execution.OwnerID = reconcilerID
 			}
+			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
 			var first error
 			for _, output := range execution.Outputs {
-				if err := s.ClickHouse.DropTable(context.Background(), output.PhysicalTable); err != nil {
+				if err := s.ClickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
 					first = errors.Join(first, err)
 				}
 			}
@@ -482,12 +505,13 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.UpdatedAt = time.Now().UTC()
 			execution.OwnerID = ""
 			execution.LeaseExpiresAt = nil
-			if err := s.Catalog.SaveExecution(ctx, execution); err != nil {
+			if err := s.Catalog.SaveExecution(cleanupCtx, execution); err != nil {
 				first = errors.Join(first, err)
 			}
 			if leases, ok := s.Catalog.(BundleLeaseCatalog); ok {
-				first = errors.Join(first, leases.ReleaseBundleLease(context.Background(), execution.Key, reconcilerID))
+				first = errors.Join(first, leases.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
 			}
+			cancel()
 			if first != nil {
 				return first
 			}

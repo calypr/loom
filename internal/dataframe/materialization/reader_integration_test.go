@@ -76,14 +76,14 @@ func TestReaderAgainstRealClickHouse(t *testing.T) {
 	if dataset.RowCount != 3 || len(dataset.Columns) != 4 {
 		t.Fatalf("dataset = %#v", dataset)
 	}
-	page, err := reader.PageFederated(ctx, []string{"project-a"}, "files", FederatedPageRequest{Columns: []string{"category", "amount"}, Sort: &Sort{Column: "category"}, First: 2, AuthUnrestricted: true})
+	page, err := reader.PageFederated(ctx, []string{"project-a"}, "files", FederatedPageRequest{Columns: []string{"category", "amount"}, Sort: &Sort{Column: "category"}, First: 2, AccessByProject: map[string]SourceAccess{"project-a": {Unrestricted: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(page.Rows) != 2 || !page.HasNext {
 		t.Fatalf("page = %#v", page)
 	}
-	aggregations, err := reader.AggregateFederatedBatch(ctx, []string{"project-a"}, "files", AggregationsRequest{AuthUnrestricted: true, Specs: []AggregationSpec{
+	aggregations, err := reader.AggregateFederatedBatch(ctx, []string{"project-a"}, "files", AggregationsRequest{AccessByProject: map[string]SourceAccess{"project-a": {Unrestricted: true}}, Specs: []AggregationSpec{
 		{Name: "categories", Kind: "TERMS", Column: "category", Size: 10},
 		{Name: "amounts", Kind: "STATS", Column: "amount"},
 		{Name: "missing-category", Kind: "MISSING", Column: "category"},
@@ -95,7 +95,7 @@ func TestReaderAgainstRealClickHouse(t *testing.T) {
 		t.Fatalf("aggregations = %#v", aggregations.Aggregations)
 	}
 	streamed := 0
-	_, err = reader.StreamFederated(ctx, []string{"project-a"}, "files", FederatedStreamRequest{Columns: []string{"category"}, AuthUnrestricted: true}, func(row map[string]any) error {
+	_, err = reader.StreamFederated(ctx, []string{"project-a"}, "files", FederatedStreamRequest{Columns: []string{"category"}, AccessByProject: map[string]SourceAccess{"project-a": {Unrestricted: true}}}, func(row map[string]any) error {
 		streamed++
 		if _, ok := row["category"]; !ok {
 			t.Errorf("stream row missing category: %#v", row)

@@ -49,7 +49,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 }
 
 func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,11 +332,11 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 	if len(sets) != 2 {
 		t.Fatalf("physical sets = %d, want 2", len(sets))
 	}
-	first, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[0])
+	first, err := ir.DecomposePhysicalTraversalPrefixAt(plan, *sets[0], physicalSetIndex(plan, *sets[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[1])
+	second, err := ir.DecomposePhysicalTraversalPrefixAt(plan, *sets[1], physicalSetIndex(plan, *sets[1]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,12 +378,12 @@ func TestDecomposePhysicalTraversalPrefixRejectsUnscopedOrSharedSets(t *testing.
 	plan := physicalScopedSiblingPlan(t)
 	set := *physicalSets(plan)[0]
 	set.Subplan.Operations = set.Subplan.Operations[:6]
-	_, err := ir.DecomposePhysicalTraversalPrefix(plan, set)
+	_, err := ir.DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetIndex(plan, set))
 	assertPrefixRejection(t, err, ir.PhysicalPrefixMissingTraversal)
 
 	set = *physicalSets(plan)[0]
 	set.SourceSetVariable = "another_set"
-	_, err = ir.DecomposePhysicalTraversalPrefix(plan, set)
+	_, err = ir.DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetIndex(plan, set))
 	assertPrefixRejection(t, err, ir.PhysicalPrefixSharedSubset)
 }
 
@@ -398,9 +398,18 @@ func assertPrefixRejection(t *testing.T, err error, want ir.PhysicalTraversalPre
 	}
 }
 
+func physicalSetIndex(plan ir.PhysicalPlan, set ir.PhysicalSet) int {
+	for index, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalSetOp && operation.Set != nil && operation.Set.Variable == set.Variable {
+			return index
+		}
+	}
+	return -1
+}
+
 func physicalScopedSiblingPlan(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{
 			{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Condition.id", Selector: mustPhysicalSelector(t, "id")}}},

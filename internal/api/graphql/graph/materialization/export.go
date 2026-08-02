@@ -24,7 +24,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err != nil {
 		return err
 	}
-	dataset, _, authPaths, unrestricted, err := s.authorizedFederation(ctx, principal, request.DataType)
+	dataset, access, err := s.authorizedFederation(ctx, principal, request.DataType)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	}
 	_, err = s.reader.StreamFederatedDataset(ctx, dataset, dfmaterialization.FederatedStreamRequest{
 		Columns: columns, Filters: request.Filters, Sort: request.Sort,
-		AuthPathsByProject: authPaths, UnrestrictedByProject: unrestricted,
+		AccessByProject: access,
 	}, state.visit)
 	if err != nil {
 		return err

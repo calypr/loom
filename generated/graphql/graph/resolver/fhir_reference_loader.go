@@ -11,9 +11,9 @@ import (
 
 	fhir "github.com/calypr/loom/generated/fhir"
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 )
 
 const fhirReferenceBatchSize = 256
@@ -319,11 +319,6 @@ func parseFHIRReference(ref string) (parsedFHIRReference, bool) {
 		return parsedFHIRReference{}, false
 	}
 	return parsedFHIRReference{target: target, id: id}, true
-}
-
-func normalizeFHIRReference(ref string) (string, string, bool) {
-	parsed, ok := parseFHIRReference(ref)
-	return parsed.target, parsed.id, ok && !parsed.contained
 }
 
 func indexContainedResources(resource map[string]any) map[string]map[string]any {

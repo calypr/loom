@@ -93,19 +93,6 @@ func rejectPhysicalTraversalPrefix(reason PhysicalTraversalPrefixRejectionReason
 	return &PhysicalTraversalPrefixError{Reason: reason, Detail: fmt.Sprintf(format, args...)}
 }
 
-// DecomposePhysicalTraversalPrefix validates and canonically decomposes a
-// generic optional traversal set. It does not alter the plan and deliberately
-// rejects shared subsets, required EXISTS paths, non-proven directions, and
-// sets whose tenant scope is not the exact generic edge/node scope block.
-func DecomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet) (PhysicalTraversalPrefixDecomposition, error) {
-	for index, operation := range plan.Operations {
-		if operation.Kind == PhysicalSetOp && operation.Set != nil && operation.Set.Variable == set.Variable {
-			return DecomposePhysicalTraversalPrefixAt(plan, set, index)
-		}
-	}
-	return DecomposePhysicalTraversalPrefixAt(plan, set, -1)
-}
-
 // DecomposePhysicalTraversalPrefixAt is the position-aware form used by the
 // optimizer and diagnostics. The operation index is required because an
 // unnest changes row cardinality for all operations that follow it while the

@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -18,7 +17,7 @@ func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 	}
 	c.Locals("request_id", requestID)
 	c.Set("X-Request-ID", requestID)
-	c.SetContext(context.WithValue(c.Context(), "loom.graphql.request_id", requestID))
+	c.SetContext(ContextWithRequestID(c.Context(), requestID))
 	return c.Next()
 }
 

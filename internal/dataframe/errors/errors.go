@@ -57,21 +57,6 @@ const (
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 )
 
-var AllErrorCodes = []ErrorCode{
-	CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
-	CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
-	CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
-	CodePlanTooExpensive, CodeInvalidCursor, CodeStaleCursor, CodeDatasetGenerationChanged,
-	CodeUnsupportedExportFormat, CodeClientCanceled, CodeBackendUnavailable, CodeDatasetNotFound,
-	CodeSchemaConflict, CodeInternalError, CodeInvalidResourceType, CodeInvalidLimit,
-	CodeNoActiveGeneration, CodeResourceDecodeFailed, CodeReferenceNotResolved, CodeQueryDepthExceeded,
-	CodeInvalidRequest, CodeInvalidData, CodeUnauthenticated, CodeForbidden, CodeRecipeNotFound,
-	CodeRecipeExecutionNotFound, CodeExportLimitExceeded, CodeIngestPreflightFailed,
-	CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown, CodeInvalidGenerationFile,
-	CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
-	CodePublicationLeaseLost, CodeOutputEncodingFailed,
-}
-
 // UserError is the semantic error contract shared by GraphQL, preview, and
 // export adapters. Details are intentionally a safe, copied view.
 type UserError interface {
@@ -254,28 +239,8 @@ func SanitizePersistedFailure(raw string) (message, code string, retryable bool)
 	return PublicMessage(normalized), normalized.Code(), normalized.Retryable()
 }
 
-func IsUserCorrectable(code ErrorCode) bool {
-	switch code {
-	case CodeProjectRequired, CodeRootResourceTypeRequired, CodeUnauthorizedProject,
-		CodeUnknownField, CodeFieldNotPopulated, CodeInvalidTraversal, CodeUnsafeTraversalRoute,
-		CodeInvalidFilter, CodeUnboundedPivot, CodeInvalidPivotColumn, CodeInvalidSlice,
-		CodePlanTooExpensive, CodeInvalidCursor, CodeStaleCursor, CodeUnsupportedExportFormat,
-		CodeInvalidResourceType, CodeInvalidLimit, CodeInvalidRequest, CodeInvalidData,
-		CodeRecipeNotFound, CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
-		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete, CodeInvalidGenerationFile,
-		CodeDuplicateGenerationFile:
-		return true
-	default:
-		return false
-	}
-}
-
 func IsRetryableCode(code ErrorCode) bool {
 	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost
-}
-
-func IsOperatorFailure(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodeInternalError || code == CodePublicationLeaseLost
 }
 
 func defaultMessage(code ErrorCode) string {

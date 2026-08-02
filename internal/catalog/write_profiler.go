@@ -15,13 +15,6 @@ func NewShapePlanCache() *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan)}
 }
 
-func NewProfiler(project, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
-	return NewProfilerForGeneration(project, "", authResourcePath, resourceType, cache)
-}
-
-// NewProfiler constructs a profiler in the legacy catalog namespace. Keep
-// this constructor for existing ingest callers: an empty generation produces
-// the exact same catalog documents and keys as before generation support.
 // NewProfilerForGeneration constructs a profiler whose catalog documents are
 // bound to one immutable dataset generation. A blank (or whitespace-only)
 // generation intentionally selects the legacy namespace for compatibility.

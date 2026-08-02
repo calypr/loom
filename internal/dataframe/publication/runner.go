@@ -8,6 +8,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
@@ -35,13 +36,15 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, err
 	}
 	fail := func(cause error) (Result, error) {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
 		var abortErr error
 		if aborter, ok := tx.(interface {
 			Abort(context.Context, error) error
 		}); ok {
-			abortErr = aborter.Abort(context.Background(), cause)
+			abortErr = aborter.Abort(cleanupCtx, cause)
 		} else {
-			abortErr = tx.Rollback(context.Background())
+			abortErr = tx.Rollback(cleanupCtx)
 		}
 		return Result{}, errors.Join(cause, abortErr)
 	}

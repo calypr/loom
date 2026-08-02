@@ -4,14 +4,13 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T) {
 	selector := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "p",
 		Root: semantic.SemanticNode{

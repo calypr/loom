@@ -73,10 +73,10 @@ func recipeOutputRootResourceType(plan engine.Resolved, outputName string) strin
 	return ""
 }
 
-func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, dataframe *dataframeComponents, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
 	return func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
 		if bundleTarget == nil {
-			cause := dataframe.degradation
+			cause := degradation
 			if cause == nil {
 				cause = dataframeerrors.ErrBackendUnavailable
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,8 @@ import (
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/materialization"
 	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -24,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/ingest"
 	publicationcontract "github.com/calypr/loom/internal/publication"
 	publicationarango "github.com/calypr/loom/internal/publication/arango"
@@ -33,152 +37,125 @@ import (
 
 // Run starts the Loom HTTP server using the process command-line flags.
 func Run() {
-	var (
-		configPath = flag.String("config", "", "YAML server configuration file")
-		listen     = flag.String("listen", ":8080", "HTTP listen address")
-		noAuth     = flag.Bool("no-auth", false, "disable scoped authorization for local development")
-		backend    = flag.String("backend", "arango", "storage backend")
-		url        = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
-		database   = flag.String("database", "fhir_proto", "ArangoDB database")
-		schema     = flag.String("schema", "schemas/graph-fhir.json", "FHIR graph schema path for imports")
-		// Dataset generations opt the server into resolving a project's READY
-		// active manifest before dataframe discovery or execution. This mode
-		// disables the legacy one-file import route because that route cannot
-		// safely construct a complete immutable snapshot.
-		datasetGenerations = flag.Bool("dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
-		clickhouseURL      = flag.String("clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
-		clickhouseDatabase = flag.String("clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
-		clickhouseUsername = flag.String("clickhouse-username", "default", "ClickHouse username for published dataframe reads")
-		clickhousePassword = flag.String("clickhouse-password", "", "ClickHouse password for published dataframe reads")
-		dataframerRecipe   = flag.String("dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
-		recipeBatchRows    = flag.Int("recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
-		recipeBatchBytes   = flag.Int("recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
-	)
-	flag.Parse()
-	options := serverOptions{ConfigPath: *configPath, Listen: *listen, Backend: *backend, URL: *url, Database: *database, Schema: *schema, NoAuth: *noAuth, DatasetGenerations: *datasetGenerations, ClickHouseURL: *clickhouseURL, ClickHouseDatabase: *clickhouseDatabase, ClickHouseUsername: *clickhouseUsername, ClickHousePassword: *clickhousePassword, DataframerRecipe: *dataframerRecipe, RecipeBatchRows: *recipeBatchRows, RecipeBatchBytes: *recipeBatchBytes}
-
-	serverConfig, err := LoadConfig(options.ConfigPath)
+	options, err := parseServerOptions(os.Args[1:], flag.ContinueOnError)
 	if err != nil {
-		exitf("load server config: %v", err)
-	}
-	if options.ConfigPath != "" {
-		*listen = serverConfig.Server.Listen
-		*backend = serverConfig.Server.Backend
-		*url = serverConfig.Server.URL
-		*database = serverConfig.Server.Database
-		*schema = serverConfig.Server.Schema
-		*datasetGenerations = serverConfig.Server.DatasetGenerations
-		*clickhouseURL = serverConfig.Server.ClickHouse.URL
-		*clickhouseDatabase = serverConfig.Server.ClickHouse.Database
-		*clickhouseUsername = serverConfig.Server.ClickHouse.Username
-		*clickhousePassword = serverConfig.Server.ClickHouse.Password
-		*dataframerRecipe = serverConfig.Server.Dataframer.Recipe
-		if !serverConfig.Server.ClickHouse.Enabled {
-			*clickhouseURL = ""
-			*clickhouseDatabase = ""
-			*clickhouseUsername = ""
-			*clickhousePassword = ""
+		if err == flag.ErrHelp {
+			return
 		}
-		*recipeBatchRows = serverConfig.Server.RecipeBatchRows
-		*recipeBatchBytes = serverConfig.Server.RecipeBatchBytes
-		*noAuth = serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
-	} else {
-		serverConfig.Server.Dataframer.Recipe = *dataframerRecipe
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
 	}
-	if *noAuth {
-		serverConfig.Server.AllowUnauthenticated = true
-		serverConfig.Auth.AllowUnauthenticated = true
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, options); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
 	}
-	if err := serverConfig.Validate(); err != nil {
-		exitf("invalid server config: %v", err)
-	}
+}
 
-	if *backend != "arango" {
-		exitf("unsupported backend %q: only arango is wired in this server", *backend)
+const cleanupTimeout = 10 * time.Second
+
+func recordDegradation(logger *slog.Logger, current error, stage string, cause error) error {
+	if cause == nil {
+		return current
+	}
+	if logger != nil {
+		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
+	}
+	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
+}
+
+func run(ctx context.Context, serverConfig Config) error {
+	if serverConfig.Server.Backend != "arango" {
+		return fmt.Errorf("unsupported backend %q: only arango is wired in this server", serverConfig.Server.Backend)
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
 	connOpts := arangostore.ConnectionOptions{
-		URL:      *url,
-		Database: *database,
+		URL:      serverConfig.Server.URL,
+		Database: serverConfig.Server.Database,
 	}
 
-	lifecycleClient, err := arangostore.Open(context.Background(), connOpts.URL, connOpts.Database)
+	lifecycleClient, err := arangostore.Open(ctx, connOpts.URL, connOpts.Database)
 	if err != nil {
-		exitf("open dataset lifecycle store: %v", err)
+		return fmt.Errorf("open dataset lifecycle store: %w", err)
 	}
-	defer lifecycleClient.Close(context.Background())
-	if err := lifecycleClient.Bootstrap(context.Background(), publicationarango.BootstrapSpec()); err != nil {
-		exitf("bootstrap dataset lifecycle store: %v", err)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+		_ = lifecycleClient.Close(closeCtx)
+	}()
+	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
+		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
 	}
-	dataframe := &dataframeComponents{logger: logger}
-	if err := lifecycleClient.Bootstrap(context.Background(), recipearango.BootstrapSpec()); err != nil {
-		dataframe.record("bootstrap recipe registry", err)
+	var degradation error
+	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
+		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
 	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
-		exitf("create recipe registry: %v", err)
+		return fmt.Errorf("create recipe registry: %w", err)
 	}
 	if serverConfig.Server.ClickHouse.Enabled {
-		data, err := os.ReadFile(*dataframerRecipe)
+		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
-			exitf("read dataframer recipe %q: %v", *dataframerRecipe, err)
+			return fmt.Errorf("read dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
 		defaultBundle, err := recipe.Parse(data)
 		if err != nil {
-			exitf("parse dataframer recipe %q: %v", *dataframerRecipe, err)
+			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(context.Background(), defaultBundle); err != nil {
-			dataframe.record("register default dataframe recipe", err)
+		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(ctx, defaultBundle); err != nil {
+			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
 	}
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
-		exitf("create dataset lifecycle store: %v", err)
+		return fmt.Errorf("create dataset lifecycle store: %w", err)
 	}
 	// Keep this as an interface, not a typed *publicationarango.Store nil. Passing a
 	// typed nil into queryapi.Config makes the interface non-nil and
 	// incorrectly activates immutable-generation lookup for legacy META loads.
 	var activeManifestResolver publicationcontract.ActiveResolver
-	if *datasetGenerations {
+	if serverConfig.Server.DatasetGenerations {
 		activeManifestResolver = lifecycleStore
 	}
 
-	discovery := newDiscoveryComponents()
-	discoveryCache := discovery.cache
-	discoverFields, discoverReferences := discovery.discoverFields, discovery.discoverReferences
+	discoveryCache := catalog.NewCache()
+	discoverFields := discoveryCache.DiscoverFields(catalog.DiscoverPopulatedFields)
+	discoverReferences := discoveryCache.DiscoverReferences(catalog.DiscoverPopulatedReferences)
 
-	auth, err := wireAuth(serverConfig, *noAuth, connOpts)
+	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, connOpts)
 	if err != nil {
-		exitf("configure authentication: %v", err)
+		return fmt.Errorf("configure authentication: %w", err)
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := newDataframeService(connOpts, scopeResolver, activeManifestResolver)
+	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{ConnectionOptions: connOpts, ScopeResolver: scopeResolver, ActiveManifestResolver: activeManifestResolver})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
 	registry, err := materializationarango.New(lifecycleClient)
 	if err != nil {
-		exitf("create dataframe registry: %v", err)
+		return fmt.Errorf("create dataframe registry: %w", err)
 	}
 	publicationReady := true
-	if err := lifecycleClient.Bootstrap(context.Background(), materializationarango.BootstrapSpec()); err != nil {
-		dataframe.record("bootstrap dataframe registry", err)
+	if err := lifecycleClient.Bootstrap(ctx, materializationarango.BootstrapSpec()); err != nil {
+		degradation = recordDegradation(logger, degradation, "bootstrap dataframe registry", err)
 		publicationReady = false
 	}
 	var clickhouse *clickhousestore.Client
 	var materializationReader *materialization.Reader
 	if serverConfig.Server.ClickHouse.Enabled {
-		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: *clickhouseURL, Database: *clickhouseDatabase, Username: *clickhouseUsername, Password: *clickhousePassword})
+		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
 		if err != nil {
-			exitf("create ClickHouse client: %v", err)
+			return fmt.Errorf("create ClickHouse client: %w", err)
 		}
 		defer clickhouse.Close()
 		// The Arango-backed dataframe loader publishes into this database. Create
 		// it during server startup so a fresh ClickHouse instance does not require
 		// an operator to run a separate DDL/API step before materialization.
-		if err := clickhouse.EnsureDatabase(context.Background()); err != nil {
-			dataframe.record("ClickHouse database", err)
+		if err := clickhouse.EnsureDatabase(ctx); err != nil {
+			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
 		}
 		materializationReader = &materialization.Reader{ClickHouse: clickhouse, Catalog: registry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
@@ -203,22 +180,22 @@ func Run() {
 		ScopeDigest: recipeScopeDigest,
 	})
 	if err != nil {
-		exitf("create dataframe recipe engine: %v", err)
+		return fmt.Errorf("create dataframe recipe engine: %w", err)
 	}
 	var bundleTarget publication.Target
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
 		bundleStore, err := materialization.NewClickHouseBundleStore(clickhouse, registry)
 		if err != nil {
-			exitf("create dataframe bundle store: %v", err)
+			return fmt.Errorf("create dataframe bundle store: %w", err)
 		}
-		if err := bundleStore.Reconcile(context.Background(), time.Now().UTC().Add(-2*time.Minute)); err != nil {
-			dataframe.record("dataframe publication reconciliation", err)
+		if err := bundleStore.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute)); err != nil {
+			degradation = recordDegradation(logger, degradation, "dataframe publication reconciliation", err)
 			publicationReady = false
 		}
 		if publicationReady {
 			bundleTarget, err = publicationclickhouse.New(bundleStore)
 			if err != nil {
-				exitf("create dataframe publication target: %v", err)
+				return fmt.Errorf("create dataframe publication target: %w", err)
 			}
 		}
 	}
@@ -235,26 +212,25 @@ func Run() {
 		RecipeControl:         engine.Control{Engine: recipeEngine, ExplainConnection: &connOpts},
 		RecipeAuthorizer:      recipeAuthorization{resolver: scopeResolver},
 		RecipeExecutions:      graphresolver.NewAuthorizedRecipeExecutionReader(registry, scopeResolver),
-		RecipeMaterialize:     recipeMaterializer(recipeEngine, bundleTarget, registry, dataframe, logger, *recipeBatchRows, *recipeBatchBytes),
+		RecipeMaterialize:     recipeMaterializer(recipeEngine, bundleTarget, registry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 	})
 	clickhouseService := materializationapi.NewService(materializationapi.Config{
-		Reader:                 materializationReader,
-		ScopeResolver:          scopeResolver,
-		ActiveManifestResolver: activeManifestResolver,
+		Reader:        materializationReader,
+		ScopeResolver: scopeResolver,
 	})
 
 	importService, err := loadapi.NewService(loadapi.ServiceConfig{
 		Runner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
-			Schema:            *schema,
+			Schema:            serverConfig.Server.Schema,
 		}},
 		BundleRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
-			Schema:            *schema,
+			Schema:            serverConfig.Server.Schema,
 		}},
 		GenerationRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
-			Schema:            *schema,
+			Schema:            serverConfig.Server.Schema,
 		}},
 		Logger: logger,
 		OnSuccess: func(project string) {
@@ -265,54 +241,48 @@ func Run() {
 		},
 	})
 	if err != nil {
-		exitf("create import service: %v", err)
+		return fmt.Errorf("create import service: %w", err)
 	}
 
-	server, err := buildHTTPServer(authenticator, authorizer, logger,
-		func(ctx context.Context) error {
+	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
+		CoreReadyCheck: func(ctx context.Context) error {
 			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
 		},
-		func(ctx context.Context) error {
-			if dataframe.degradation != nil {
-				return dataframe.degradation
+		ClickHouseReadyCheck: func(ctx context.Context) error {
+			if degradation != nil {
+				return degradation
 			}
 			if clickhouse == nil {
 				return nil
 			}
 			_, err := clickhouse.QueryRowsArgs(ctx, "SELECT 1", []string{"ok"})
 			return err
-		}, serverConfig.Server.ClickHouse.Enabled)
+		}, ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled})
 	if err != nil {
-		exitf("create HTTP server: %v", err)
+		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	app := application{server: server}
-	if err := registerRoutes(app.server, importService, authorizer, scopeResolver, *datasetGenerations, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
-		exitf("register HTTP routes: %v", err)
+	if err := registerRoutes(server, importService, authorizer, scopeResolver, serverConfig.Server.DatasetGenerations, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
+		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("starting HTTP server", "listen", *listen, "database", *database, "no_auth", *noAuth, "dataset_generations", *datasetGenerations)
-		errCh <- app.server.App().Listen(*listen)
+		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, "dataset_generations", serverConfig.Server.DatasetGenerations)
+		errCh <- server.App().Listen(serverConfig.Server.Listen)
 	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case err := <-errCh:
 		if err != nil {
-			exitf("server stopped: %v", err)
+			return fmt.Errorf("server stopped: %w", err)
 		}
-	case sig := <-stop:
-		logger.Info("shutting down HTTP server", "signal", sig.String())
-		if err := app.server.App().ShutdownWithContext(context.Background()); err != nil {
-			exitf("shutdown failed: %v", err)
+	case <-ctx.Done():
+		logger.Info("shutting down HTTP server", "reason", ctx.Err())
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if err := server.App().ShutdownWithContext(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown failed: %w", err)
 		}
 	}
-}
-
-func exitf(format string, args ...any) {
-	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
-	os.Exit(1)
+	return nil
 }

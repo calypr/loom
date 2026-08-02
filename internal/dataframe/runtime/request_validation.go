@@ -40,7 +40,7 @@ type ValidationResult struct {
 }
 
 func (s *Service) Validate(ctx context.Context, req ValidateRequest) (ValidationResult, error) {
-	started := now()
+	started := time.Now()
 	compiled, diagnostics, err := s.prepareAndCompile(ctx, RunRequest{Recipe: req.Recipe, Bindings: req.Bindings, Limit: req.Limit})
 	if err != nil {
 		return ValidationResult{}, err
@@ -56,7 +56,7 @@ func (s *Service) Validate(ctx context.Context, req ValidateRequest) (Validation
 	if limit > 1000 {
 		warnings = append(warnings, ValidationWarning{Code: "PREVIEW_LIMIT_CAPPED", Message: "Preview limits above 1000 rows may be capped by the frontend.", Details: map[string]any{"limit": limit, "recommended_max": 1000}})
 	}
-	diagnostics.Total = now().Sub(started)
+	diagnostics.Total = time.Since(started)
 	return ValidationResult{
 		Valid: true, Recipe: req.Recipe, Bindings: req.Bindings,
 		Project: compiled.Project, DatasetGeneration: compiled.DatasetGeneration,
@@ -68,5 +68,3 @@ func (s *Service) Validate(ctx context.Context, req ValidateRequest) (Validation
 		PreviewAllowed: true, ExportAllowed: true, Diagnostics: diagnostics,
 	}, nil
 }
-
-var now = time.Now

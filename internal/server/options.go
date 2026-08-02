@@ -1,6 +1,7 @@
 package server
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -8,17 +9,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
-
-// serverOptions is the normalized command-line surface. Config remains the
-// YAML compatibility boundary; Run owns the final merge and validation.
-type serverOptions struct {
-	ConfigPath, Listen, Backend, URL, Database, Schema string
-	NoAuth, DatasetGenerations                         bool
-	ClickHouseURL, ClickHouseDatabase                  string
-	ClickHouseUsername, ClickHousePassword             string
-	DataframerRecipe                                   string
-	RecipeBatchRows, RecipeBatchBytes                  int
-}
 
 type Config struct {
 	Server ServerConfig `yaml:"server"`
@@ -83,6 +73,82 @@ func DefaultConfig() Config {
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
+}
+
+func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, error) {
+	var (
+		configPath         string
+		listen             string
+		noAuth             bool
+		backend            string
+		url                string
+		database           string
+		schema             string
+		datasetGenerations bool
+		clickhouseURL      string
+		clickhouseDatabase string
+		clickhouseUsername string
+		clickhousePassword string
+		dataframerRecipe   string
+		recipeBatchRows    int
+		recipeBatchBytes   int
+	)
+	fs := flag.NewFlagSet("arango-fhir-server", handling)
+	fs.StringVar(&configPath, "config", "", "YAML server configuration file")
+	fs.StringVar(&listen, "listen", ":8080", "HTTP listen address")
+	fs.BoolVar(&noAuth, "no-auth", false, "disable scoped authorization for local development")
+	fs.StringVar(&backend, "backend", "arango", "storage backend")
+	fs.StringVar(&url, "url", "http://127.0.0.1:8529", "ArangoDB URL")
+	fs.StringVar(&database, "database", "fhir_proto", "ArangoDB database")
+	fs.StringVar(&schema, "schema", "schemas/graph-fhir.json", "FHIR graph schema path for imports")
+	fs.BoolVar(&datasetGenerations, "dataset-generations", false, "resolve active immutable dataset generations for dataframe reads and disable legacy single-resource imports")
+	fs.StringVar(&clickhouseURL, "clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
+	fs.StringVar(&clickhouseDatabase, "clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
+	fs.StringVar(&clickhouseUsername, "clickhouse-username", "default", "ClickHouse username for published dataframe reads")
+	fs.StringVar(&clickhousePassword, "clickhouse-password", "", "ClickHouse password for published dataframe reads")
+	fs.StringVar(&dataframerRecipe, "dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
+	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
+	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
+	if err := fs.Parse(args); err != nil {
+		return Config{}, err
+	}
+
+	if strings.TrimSpace(configPath) != "" {
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			return Config{}, err
+		}
+		if err := cfg.Validate(); err != nil {
+			return Config{}, fmt.Errorf("invalid server config: %w", err)
+		}
+		return cfg, nil
+	}
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Server.Listen = listen
+	cfg.Server.Backend = backend
+	cfg.Server.URL = url
+	cfg.Server.Database = database
+	cfg.Server.Schema = schema
+	cfg.Server.DatasetGenerations = datasetGenerations
+	cfg.Server.ClickHouse.URL = clickhouseURL
+	cfg.Server.ClickHouse.Database = clickhouseDatabase
+	cfg.Server.ClickHouse.Username = clickhouseUsername
+	cfg.Server.ClickHouse.Password = clickhousePassword
+	cfg.Server.Dataframer.Recipe = dataframerRecipe
+	cfg.Server.RecipeBatchRows = recipeBatchRows
+	cfg.Server.RecipeBatchBytes = recipeBatchBytes
+	if noAuth {
+		cfg.Server.AllowUnauthenticated = true
+		cfg.Auth.AllowUnauthenticated = true
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, fmt.Errorf("invalid server config: %w", err)
+	}
+	return cfg, nil
 }
 
 func LoadConfig(path string) (Config, error) {

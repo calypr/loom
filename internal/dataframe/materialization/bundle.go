@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -198,14 +197,7 @@ func ListPublishedOutputs(ctx context.Context, catalog BundleCatalog, project, g
 }
 
 func publishedMaterialization(execution BundleExecution, output BundleOutputRecord, alias string) Materialization {
-	return Materialization{ID: execution.ID + ":" + output.Name, Name: alias, Revision: execution.ID, Project: execution.Project, DatasetGeneration: execution.DatasetGeneration, State: StateReady, AuthScopeMode: authScopeMode(execution.AuthResourcePaths), AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...), Columns: output.Columns, PhysicalTable: output.PhysicalTable, RowCount: output.RowCount, CreatedAt: execution.CreatedAt, ReadyAt: execution.ReadyAt}
-}
-
-func authScopeMode(paths []string) authscope.ReadScopeMode {
-	if len(paths) == 0 {
-		return authscope.ReadScopeUnrestricted
-	}
-	return authscope.ReadScopeRestricted
+	return Materialization{ID: execution.ID + ":" + output.Name, Name: alias, Revision: execution.ID, Project: execution.Project, DatasetGeneration: execution.DatasetGeneration, State: StateReady, ScopeUnrestricted: len(execution.AuthResourcePaths) == 0, AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...), Columns: output.Columns, PhysicalTable: output.PhysicalTable, RowCount: output.RowCount, CreatedAt: execution.CreatedAt, ReadyAt: execution.ReadyAt}
 }
 
 var ErrBundleNotFound = fmt.Errorf("bundle execution not found")

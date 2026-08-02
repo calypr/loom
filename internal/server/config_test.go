@@ -1,12 +1,38 @@
 package server
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.Listen != ":19091" || !options.Server.AllowUnauthenticated || !options.Auth.AllowUnauthenticated {
+		t.Fatalf("resolved options = %#v", options)
+	}
+}
+
+func TestParseServerOptionsConfigOverridesFlags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "server:\n  listen: :19092\n  allow_unauthenticated: false\n  clickhouse:\n    enabled: false\nauth:\n  mode: basic\n  basic:\n    username: loom\n    password: secret\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options, err := parseServerOptions([]string{"--config", path, "--listen", ":19093", "--no-auth"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.Listen != ":19092" || options.Server.AllowUnauthenticated || options.Auth.AllowUnauthenticated {
+		t.Fatalf("YAML did not retain precedence: %#v", options)
+	}
+}
 
 func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 	cfg := DefaultConfig()

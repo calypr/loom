@@ -6,13 +6,12 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
@@ -78,7 +77,7 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
@@ -123,7 +122,7 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
@@ -158,7 +157,7 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
@@ -237,7 +236,7 @@ func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
@@ -274,7 +273,7 @@ func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
 }
 
 func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
 	})
@@ -293,7 +292,7 @@ func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
 func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T) {
 	newPlan := func(t *testing.T) ir.PhysicalPlan {
 		t.Helper()
-		plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+		plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 			Version: 1,
 			Project: "project-1",
 			Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
@@ -366,7 +365,7 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 }
 
 func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
 		Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
@@ -383,7 +382,7 @@ func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
 		Root: semantic.SemanticNode{
@@ -409,7 +408,7 @@ func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testin
 }
 
 func TestRenderPhysicalPlanKeepsCollectionAndProjectionValuesOutOfAQL(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "project-1",
 		Root:    semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},

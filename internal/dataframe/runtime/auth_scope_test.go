@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -56,12 +57,12 @@ func TestServiceRestrictedEmptyScopeStaysRestrictedInCatalogAndAQL(t *testing.T)
 }
 
 func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.SemanticPlan{
 		Version:       1,
 		Project:       "P1",
 		AuthScopeMode: authscope.ReadScopeRestricted,
 		Root:          semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
-	})
+	}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,12 +6,12 @@ import (
 
 	fhir "github.com/calypr/loom/generated/fhir"
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 )
 
-func TestNormalizeFHIRReference(t *testing.T) {
+func TestParseFHIRReference(t *testing.T) {
 	for _, test := range []struct {
 		name, input, target, id string
 	}{
@@ -21,9 +21,9 @@ func TestNormalizeFHIRReference(t *testing.T) {
 		{name: "absolute-versioned", input: "https://example.test/fhir/Patient/123/_history/4", target: "Patient", id: "123"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			target, id, ok := normalizeFHIRReference(test.input)
-			if !ok || target != test.target || id != test.id {
-				t.Fatalf("normalizeFHIRReference(%q) = %q, %q, %v", test.input, target, id, ok)
+			parsed, ok := parseFHIRReference(test.input)
+			if !ok || parsed.contained || parsed.target != test.target || parsed.id != test.id {
+				t.Fatalf("parseFHIRReference(%q) = %#v, %v", test.input, parsed, ok)
 			}
 		})
 	}
@@ -34,7 +34,7 @@ func TestNormalizeFHIRReference(t *testing.T) {
 		"urn:uuid:123",
 		"https://example.test/fhir/Unsupported/123",
 	} {
-		if _, _, ok := normalizeFHIRReference(invalid); ok {
+		if _, ok := parseFHIRReference(invalid); ok {
 			t.Fatalf("malformed reference %q accepted", invalid)
 		}
 	}

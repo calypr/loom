@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/calypr/loom/generated/graphql/graph/resolver"
 	dumpapi "github.com/calypr/loom/internal/api/bulk/dump"
@@ -15,10 +14,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/publication"
 )
-
-type application struct {
-	server *api.HTTPServer
-}
 
 type manifestReader interface {
 	ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
@@ -35,8 +30,4 @@ func registerRoutes(server *api.HTTPServer, importService *loadapi.Service, auth
 	graphapi.RegisterRoutes(server.App(), graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")})
 	clickhousegraphql.RegisterRoutes(server.App(), clickhousegraphql.NewHandler(dataframeExporter))
 	return nil
-}
-
-func buildHTTPServer(authenticator authscope.Authenticator, authorizer authscope.Authorizer, logger *slog.Logger, coreReady, clickHouseReady func(context.Context) error, clickHouseEnabled bool) (*api.HTTPServer, error) {
-	return api.NewHTTPServer(api.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger, CoreReadyCheck: coreReady, ClickHouseReadyCheck: clickHouseReady, ClickHouseEnabled: clickHouseEnabled})
 }
