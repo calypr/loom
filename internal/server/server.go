@@ -14,7 +14,6 @@ import (
 	"time"
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -155,7 +154,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
 		}
-		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
+		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
@@ -200,7 +199,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
 			DiscoverFields:         discoverFields,
-			DiscoverDatasets:       catalogStore.DiscoverDatasets,
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
 			ActiveManifestResolver: activeManifestResolver,
@@ -210,6 +208,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			},
 		},
 		MaterializationReader: materializationReader,
+		Logger:                logger,
 		RecipeControl: engine.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) (engine.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
@@ -217,13 +216,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeExecutions:  graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize: recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 	})
-	clickhouseService := materializationapi.NewService(materializationapi.Config{
-		Reader:        materializationReader,
-		ScopeResolver: scopeResolver,
-	})
-
-	importService, err := loadapi.NewService(loadapi.ServiceConfig{
-		GenerationRunner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
+	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{
+		Runner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 			ConnectionOptions: connOpts,
 			Schema:            serverConfig.Server.Schema,
 		}},
@@ -236,12 +230,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create import service: %w", err)
+		return fmt.Errorf("create resource load service: %w", err)
 	}
-
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
-			return lifecycleClient.QueryRows(ctx, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
+			return lifecycleClient.QueryRows(ctx, "RETURN {ready: true}", 1, nil, func(map[string]any) error { return nil })
 		},
 		ClickHouseReadyCheck: func(ctx context.Context) error {
 			if degradation != nil {
@@ -256,7 +249,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, importService, authorizer, scopeResolver, lifecycleClient, lifecycleStore, clickhouseService, resolver); err != nil {
+	if err := registerRoutes(server, resourceService, authorizer, resolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 

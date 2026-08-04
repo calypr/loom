@@ -41,19 +41,6 @@ type healthResult struct {
 	httpStatus              int
 }
 
-type Error struct {
-	Status    int
-	Code      string
-	Message   string
-	Cause     error
-	FieldPath []string
-	Details   map[string]any
-}
-
-type apiError = Error
-
-func (e *Error) Error() string { return e.Message }
-
 type errorEnvelope struct {
 	Error errorBody `json:"error"`
 }
@@ -97,11 +84,8 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 			requestID := requestIDFromCtx(c)
 			mapped := MapDataframeError(err, requestID)
 			if mapped.Cause != nil {
-				var apiErr *apiError
 				if mapped.Body.Error.Code == "INTERNAL_ERROR" || mapped.Body.Error.Code == "BACKEND_UNAVAILABLE" {
 					server.logger.Error("request failed", "request_id", requestID, "path", c.Path(), "code", mapped.Body.Error.Code, "error", mapped.Cause)
-				} else if errors.As(err, &apiErr) && apiErr.Cause != nil {
-					server.logger.Debug("request rejected", "request_id", requestID, "path", c.Path(), "code", mapped.Body.Error.Code)
 				}
 			}
 			return c.Status(mapped.Status).JSON(mapped.Body)
@@ -114,4 +98,8 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 
 func (s *HTTPServer) App() *fiber.App {
 	return s.app
+}
+
+func (s *HTTPServer) Logger() *slog.Logger {
+	return s.logger
 }

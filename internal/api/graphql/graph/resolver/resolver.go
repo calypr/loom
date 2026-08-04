@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
@@ -76,6 +77,7 @@ type Resolver struct {
 type ResolverConfig struct {
 	DataframeQuery        queryapi.Config
 	MaterializationReader *materialization.Reader
+	Logger                *slog.Logger
 	RecipeControl         RecipeControl
 	RecipeMaterialize     RecipeMaterializeFunc
 	RecipeExecutions      RecipeExecutionReader
@@ -88,6 +90,7 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		materializations: materializationapi.NewService(materializationapi.Config{
 			Reader:        cfg.MaterializationReader,
 			ScopeResolver: cfg.DataframeQuery.ScopeResolver,
+			Logger:        cfg.Logger,
 		}),
 		recipeControl:     cfg.RecipeControl,
 		recipeMaterialize: cfg.RecipeMaterialize,

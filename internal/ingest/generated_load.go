@@ -70,7 +70,21 @@ func loadRowGenerated(resourceType string, line []byte, project string, stageSec
 		Key:          SanitizeKey(objectID),
 		ID:           objectID,
 		Project:      project,
+		ProjectID:    project,
 		ResourceType: resourceType,
-		Payload:      json.RawMessage(line),
+		Payload:      withProjectID(line, project),
 	}, edges, "", nil
+}
+
+func withProjectID(line []byte, project string) json.RawMessage {
+	var payload map[string]any
+	if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
+		return json.RawMessage(line)
+	}
+	payload["project_id"] = project
+	encoded, err := sonic.ConfigFastest.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(line)
+	}
+	return json.RawMessage(encoded)
 }

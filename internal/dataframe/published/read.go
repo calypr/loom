@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 type Reader struct {
 	ClickHouse             *clickhouse.Client
 	Catalog                bundlepublication.BundleCatalog
+	Logger                 *slog.Logger
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver
 }
@@ -33,11 +35,11 @@ type Sort struct {
 }
 
 type PageRequest struct {
-	Columns           []string
-	Filters           []Filter
-	Sort              *Sort
-	First             int
-	After             string
+	Columns []string
+	Filters []Filter
+	Sort    *Sort
+	First   int
+	After   string
 }
 
 type Page struct {
@@ -49,24 +51,26 @@ type Page struct {
 	NextCursor      string
 }
 
-type AggregateRequest struct {
-	GroupBy           []string
-	Filters           []Filter
-	Operation         string
-	Column            string
-}
-
 type AggregateResult struct {
 	Materialization Materialization
 	Columns         []string
 	Rows            []map[string]any
 }
 
-func (r *Reader) AggregateDataset(ctx context.Context, project, generation, alias string, req AggregateRequest) (AggregateResult, error) {
-	if r.ClickHouse == nil || r.Catalog == nil {
+type AggregateRequest struct {
+	GroupBy   []string
+	Filters   []Filter
+	Operation string
+	Column    string
+}
+
+// AggregatePublishedID preserves the legacy single-materialization query
+// path. Federated callers use AggregateFederatedDataset instead.
+func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req AggregateRequest) (AggregateResult, error) {
+	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
 		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
+	m, err := r.publishedByID(ctx, id)
 	if err != nil {
 		return AggregateResult{}, err
 	}
@@ -77,7 +81,7 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	if m.State != StateReady {
 		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	allowed := map[string]struct{}{}
+	allowed := make(map[string]struct{}, len(m.Columns))
 	for _, column := range m.Columns {
 		allowed[column.Name] = struct{}{}
 	}
@@ -106,25 +110,17 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	}
 	metric := "count()"
 	metricName := "count"
-	if operation == "COUNT_DISTINCT" {
-		metric = fmt.Sprintf("uniqExact(`%s`)", req.Column)
-		metricName = "count_distinct"
-	}
-	if operation == "SUM" {
-		metric = fmt.Sprintf("sum(`%s`)", req.Column)
-		metricName = "sum"
-	}
-	if operation == "AVG" {
-		metric = fmt.Sprintf("avg(`%s`)", req.Column)
-		metricName = "avg"
-	}
-	if operation == "MIN" {
-		metric = fmt.Sprintf("min(`%s`)", req.Column)
-		metricName = "min"
-	}
-	if operation == "MAX" {
-		metric = fmt.Sprintf("max(`%s`)", req.Column)
-		metricName = "max"
+	switch operation {
+	case "COUNT_DISTINCT":
+		metric, metricName = fmt.Sprintf("uniqExact(`%s`)", req.Column), "count_distinct"
+	case "SUM":
+		metric, metricName = fmt.Sprintf("sum(`%s`)", req.Column), "sum"
+	case "AVG":
+		metric, metricName = fmt.Sprintf("avg(`%s`)", req.Column), "avg"
+	case "MIN":
+		metric, metricName = fmt.Sprintf("min(`%s`)", req.Column), "min"
+	case "MAX":
+		metric, metricName = fmt.Sprintf("max(`%s`)", req.Column), "max"
 	}
 	selects = append(selects, metric+" AS `"+metricName+"`")
 	columns = append(columns, metricName)
@@ -142,47 +138,66 @@ func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m 
 	return AggregateResult{Materialization: m, Columns: columns, Rows: rows}, nil
 }
 
-func (r *Reader) PageDataset(ctx context.Context, project, generation, alias string, req PageRequest) (Page, error) {
-	if r.ClickHouse == nil || r.Catalog == nil {
+// PagePublishedID preserves the legacy single-materialization row query path.
+func (r *Reader) PagePublishedID(ctx context.Context, id string, req PageRequest) (Page, error) {
+	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
 		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	m, err := ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
+	m, err := r.publishedByID(ctx, id)
 	if err != nil {
 		return Page{}, err
 	}
 	return r.pageResolved(ctx, req, m)
 }
 
-func (r *Reader) Dataset(ctx context.Context, project, generation, alias string) (Materialization, error) {
-	if r.Catalog == nil {
+func (r *Reader) DatasetByPublishedID(ctx context.Context, id string) (Materialization, error) {
+	if r == nil || r.Catalog == nil {
 		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
 	}
-	return ResolvePublishedOutput(ctx, r.Catalog, project, generation, alias)
+	return r.publishedByID(ctx, id)
 }
 
-func (r *Reader) Datasets(ctx context.Context, project, generation string) ([]Materialization, error) {
-	if r.Catalog == nil {
-		return nil, fmt.Errorf("bundle catalog dependency is required")
+func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization, error) {
+	parts := strings.SplitN(id, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return Materialization{}, fmt.Errorf("invalid published dataset id %q", id)
 	}
-	return ListPublishedOutputs(ctx, r.Catalog, project, generation)
+	execution, err := r.Catalog.GetExecution(ctx, parts[0])
+	if err != nil {
+		return Materialization{}, err
+	}
+	if execution.State != bundlepublication.BundleReady {
+		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
+	if err != nil {
+		return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", err)
+	}
+	if pointer.ExecutionID != execution.ID {
+		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	for _, output := range execution.Outputs {
+		if output.Name == parts[1] {
+			return publishedMaterialization(execution, output, output.Name), nil
+		}
+	}
+	return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 }
 
 func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {
 	if m.State != StateReady {
 		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	allowed := map[string]struct{}{}
+	allowed := make(map[string]struct{}, len(m.Columns))
 	for _, column := range m.Columns {
 		allowed[column.Name] = struct{}{}
 	}
-	columns := req.Columns
+	columns := append([]string(nil), req.Columns...)
 	if len(columns) == 0 {
-		columns = make([]string, 0, len(m.Columns))
 		for _, column := range m.Columns {
-			if column.Name == "__loom_row_id" {
-				continue
+			if column.Name != "__loom_row_id" {
+				columns = append(columns, column.Name)
 			}
-			columns = append(columns, column.Name)
 		}
 	}
 	for _, column := range columns {
@@ -194,10 +209,7 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 		}
 	}
 	if req.Sort != nil {
-		if req.Sort.Column == "__loom_row_id" {
-			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-		if _, ok := allowed[req.Sort.Column]; !ok {
+		if _, ok := allowed[req.Sort.Column]; !ok || req.Sort.Column == "__loom_row_id" {
 			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
@@ -210,7 +222,7 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	}
 	cursor, err := decodeCursor(req.After)
 	if err != nil {
-		return Page{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidCursor, "")
+		return Page{}, err
 	}
 	where, whereArgs, err := buildWhere(req.Filters, allowed)
 	if err != nil {
@@ -238,11 +250,11 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 	if !contains(queryColumns, "__loom_row_id") {
 		queryColumns = append(queryColumns, "__loom_row_id")
 	}
-	querySelects := make([]string, len(queryColumns))
+	selects := make([]string, len(queryColumns))
 	for i, column := range queryColumns {
-		querySelects[i] = fmt.Sprintf("`%s`", column)
+		selects[i] = fmt.Sprintf("`%s`", column)
 	}
-	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(querySelects, ", "), m.PhysicalTable)
+	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), m.PhysicalTable)
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -277,20 +289,16 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 		rows = rows[:first]
 	}
 	next := ""
-	if hasNext {
+	if hasNext && len(rows) > 0 {
 		last := rows[len(rows)-1]
 		var sortValue any
 		if req.Sort != nil {
 			sortValue = last[req.Sort.Column]
 			if sortValue == nil {
-				return Page{}, fmt.Errorf("cannot create keyset cursor from NULL sort value in %q", req.Sort.Column)
+				return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 			}
 		}
-		rowID, ok := last["__loom_row_id"].(string)
-		if !ok {
-			rowID = fmt.Sprint(last["__loom_row_id"])
-		}
-		next = encodeCursor(rowID, sortValue)
+		next = encodeCursor(fmt.Sprint(last["__loom_row_id"]), sortValue)
 	}
 	for _, row := range rows {
 		delete(row, "__loom_row_id")

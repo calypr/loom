@@ -46,7 +46,8 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 				},
 			})
 			service := NewService(Config{
-				ScopeResolver: scopeResolver,
+				ScopeResolver:          scopeResolver,
+				ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 				DiscoverFields: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 					return nil, nil
 				},

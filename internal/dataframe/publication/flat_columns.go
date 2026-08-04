@@ -10,7 +10,7 @@ import (
 // indexes. Root fields carry the root resource/table prefix; traversal fields
 // already carry their alias path and remain unchanged.
 func FlatColumnName(resourceType, name string) string {
-	if name == "" || name == "auth_resource_path" || name == "_key" || strings.HasPrefix(name, "__loom_") || strings.Contains(name, "__") {
+	if name == "" || name == "auth_resource_path" || name == "project_id" || name == "_key" || strings.HasPrefix(name, "__loom_") || strings.Contains(name, "__") {
 		return name
 	}
 	prefix := flatResourcePrefix(resourceType)

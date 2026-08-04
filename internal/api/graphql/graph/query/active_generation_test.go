@@ -16,6 +16,12 @@ type builderActiveManifestResolver struct {
 	projects []string
 }
 
+type noActiveManifestResolver struct{}
+
+func (noActiveManifestResolver) ResolveActiveManifest(context.Context, string) (publication.Manifest, error) {
+	return publication.Manifest{}, publication.ErrNoActiveGeneration
+}
+
 func (r *builderActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (publication.Manifest, error) {
 	r.projects = append(r.projects, project)
 	return r.manifest, nil
@@ -95,7 +101,7 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 	}, nil); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if _, err := service.PrepareRunInput(context.Background(), model.FhirDataframeInput{
+	if _, _, _, err := service.prepareRunInput(context.Background(), model.FhirDataframeInput{
 		Project: project, RootResourceType: "Patient",
 	}); err != nil {
 		t.Fatalf("PrepareRunInput() error = %v", err)
@@ -120,5 +126,17 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		if options.Project != project || options.DatasetGeneration != generation {
 			t.Fatalf("reference catalog call %d = %+v, want %s/%s", index, options, project, generation)
 		}
+	}
+}
+
+func TestResolveActiveGenerationFallsBackToUnversionedCatalog(t *testing.T) {
+	service := NewService(Config{ActiveManifestResolver: noActiveManifestResolver{}})
+
+	generation, err := service.resolveActiveGeneration(context.Background(), "project-a")
+	if err != nil {
+		t.Fatalf("resolveActiveGeneration() error = %v", err)
+	}
+	if generation != "" {
+		t.Fatalf("generation = %q, want empty unversioned namespace", generation)
 	}
 }

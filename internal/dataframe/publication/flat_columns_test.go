@@ -16,6 +16,7 @@ func TestFlatColumnNamePrefixesRootOnly(t *testing.T) {
 		{resourceType: "DocumentReference", name: "specimen__id", want: "specimen__id"},
 		{resourceType: "DocumentReference", name: "document_reference_title", want: "document_reference_title"},
 		{resourceType: "DocumentReference", name: "auth_resource_path", want: "auth_resource_path"},
+		{resourceType: "DocumentReference", name: "project_id", want: "project_id"},
 	} {
 		if got := FlatColumnName(test.resourceType, test.name); got != test.want {
 			t.Fatalf("FlatColumnName(%q, %q) = %q, want %q", test.resourceType, test.name, got, test.want)

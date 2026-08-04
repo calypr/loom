@@ -178,4 +178,4 @@ func pointerDocumentKey(name string) string {
 }
 
 var _ publication.BundleCatalog = (*Registry)(nil)
-var _ publication.StaleBundleCatalog = (*Registry)(nil)
+var _ publication.BundleCatalog = (*Registry)(nil)

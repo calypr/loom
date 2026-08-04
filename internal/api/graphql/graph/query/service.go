@@ -17,14 +17,12 @@ import (
 )
 
 type Service struct {
-	discoverReferencesFn    func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFieldsFn        func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	dataframes              *runtime.Service
-	scopeResolver           *authscope.ScopeResolver
-	activeManifestResolver  publication.ActiveResolver
-	discoverDatasetsFn      func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
-	datasetProjectAllowlist []string
-	explain                 func(context.Context, runtime.CompiledQuery) error
+	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	dataframes             *runtime.Service
+	scopeResolver          *authscope.ScopeResolver
+	activeManifestResolver publication.ActiveResolver
+	explain                func(context.Context, runtime.CompiledQuery) error
 }
 
 type Config struct {
@@ -36,29 +34,20 @@ type Config struct {
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
 	ActiveManifestResolver publication.ActiveResolver
-	// DatasetProjectAllowlist is the explicit project source used when a
-	// principal does not carry a project list. An empty value never triggers an
-	// unrestricted catalog scan.
-	DatasetProjectAllowlist []string
-	DiscoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
-	Explain                 func(context.Context, runtime.CompiledQuery) error
+	Explain                func(context.Context, runtime.CompiledQuery) error
 }
 
 func NewService(cfg Config) *Service {
 	service := &Service{
-		scopeResolver:           cfg.ScopeResolver,
-		activeManifestResolver:  cfg.ActiveManifestResolver,
-		datasetProjectAllowlist: cloneStrings(cfg.DatasetProjectAllowlist),
-		explain:                 cfg.Explain,
+		scopeResolver:          cfg.ScopeResolver,
+		activeManifestResolver: cfg.ActiveManifestResolver,
+		explain:                cfg.Explain,
 	}
 	if cfg.DiscoverReferences != nil {
 		service.discoverReferencesFn = cfg.DiscoverReferences
 	}
 	if cfg.DiscoverFields != nil {
 		service.discoverFieldsFn = cfg.DiscoverFields
-	}
-	if cfg.DiscoverDatasets != nil {
-		service.discoverDatasetsFn = cfg.DiscoverDatasets
 	}
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
@@ -84,13 +73,6 @@ func (s *Service) discoverReferences(ctx context.Context, opts catalog.Populated
 		return nil, catalogUnavailable()
 	}
 	return s.discoverReferencesFn(ctx, opts)
-}
-
-func (s *Service) discoverDatasets(ctx context.Context, opts catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error) {
-	if s == nil || s.discoverDatasetsFn == nil {
-		return nil, catalogUnavailable()
-	}
-	return s.discoverDatasetsFn(ctx, opts)
 }
 
 func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {

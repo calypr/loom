@@ -1,8 +1,6 @@
 package published
 
 import (
-	"context"
-	"fmt"
 	"time"
 
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -11,6 +9,7 @@ import (
 type State string
 
 const authResourcePathColumn = "auth_resource_path"
+const projectIDColumn = "project_id"
 
 const StateReady State = "READY"
 
@@ -39,93 +38,10 @@ type Materialization struct {
 	FailureRetryable  bool       `json:"failureRetryable,omitempty"`
 }
 
-func ResolvePublishedOutput(ctx context.Context, catalog publication.BundleCatalog, project, generation, alias string) (Materialization, error) {
-	if catalog == nil {
-		return Materialization{}, fmt.Errorf("bundle catalog is required")
-	}
-	listed, ok := catalog.(publication.StaleBundleCatalog)
-	if !ok {
-		return Materialization{}, fmt.Errorf("bundle catalog does not support dataset resolution")
-	}
-	executions, err := listed.ListExecutions(ctx, publication.BundleReady, time.Now().UTC().Add(time.Second))
-	if err != nil {
-		return Materialization{}, err
-	}
-	var newest *publication.BundleExecution
-	for index := range executions {
-		execution := executions[index]
-		if execution.Project != project || execution.DatasetGeneration != generation || execution.State != publication.BundleReady {
-			continue
-		}
-		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias && (newest == nil || execution.UpdatedAt.After(newest.UpdatedAt)) {
-				copy := execution
-				newest = &copy
-				break
-			}
-		}
-	}
-	if newest != nil {
-		for _, output := range newest.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias {
-				return publishedMaterialization(*newest, output, outputAlias), nil
-			}
-		}
-	}
-	return Materialization{}, fmt.Errorf("published dataset %q was not found for project %q and generation %q", alias, project, generation)
-}
-
-func ListPublishedOutputs(ctx context.Context, catalog publication.BundleCatalog, project, generation string) ([]Materialization, error) {
-	listed, ok := catalog.(publication.StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
-	}
-	executions, err := listed.ListExecutions(ctx, publication.BundleReady, time.Now().UTC().Add(time.Second))
-	if err != nil {
-		return nil, err
-	}
-	result := make([]Materialization, 0)
-	for _, execution := range executions {
-		if execution.Project != project || execution.DatasetGeneration != generation || execution.State != publication.BundleReady {
-			continue
-		}
-		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			alias := output.Alias
-			if alias == "" {
-				alias = output.Name
-			}
-			result = append(result, publishedMaterialization(execution, output, alias))
-		}
-	}
-	return result, nil
-}
-
-func publishedMaterialization(execution publication.BundleExecution, output publication.BundleOutputRecord, alias string) Materialization {
+func publishedMaterialization(execution publication.BundleExecution, output publication.BundleOutputRecord, resourceType string) Materialization {
 	return Materialization{
 		ID:                execution.ID + ":" + output.Name,
-		Name:              alias,
+		Name:              resourceType,
 		Revision:          execution.ID,
 		Project:           execution.Project,
 		DatasetGeneration: execution.DatasetGeneration,

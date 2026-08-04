@@ -43,23 +43,6 @@ const (
 	maxAggregationSpecs    = 50
 )
 
-func (r *Reader) AggregateFederatedBatch(ctx context.Context, projects []string, alias string, req AggregationsRequest) (AggregationsResult, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return AggregationsResult{}, fmt.Errorf("ClickHouse and bundle catalog dependencies are required")
-	}
-	if len(req.Specs) == 0 {
-		return AggregationsResult{}, fmt.Errorf("at least one aggregation specification is required")
-	}
-	if len(req.Specs) > maxAggregationSpecs {
-		return AggregationsResult{}, fmt.Errorf("too many aggregation specifications")
-	}
-	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
-	if err != nil {
-		return AggregationsResult{}, err
-	}
-	return r.AggregateFederatedBatchDataset(ctx, dataset, req)
-}
-
 func (r *Reader) AggregateFederatedBatchDataset(ctx context.Context, dataset FederatedDataset, req AggregationsRequest) (AggregationsResult, error) {
 	if r == nil || r.ClickHouse == nil {
 		return AggregationsResult{}, fmt.Errorf("ClickHouse dependency is required")

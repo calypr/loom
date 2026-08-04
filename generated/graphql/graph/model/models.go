@@ -17,17 +17,39 @@ type FHIRResource interface {
 }
 
 type DataframeAggregateInput struct {
-	DataType  string                  `json:"dataType"`
-	GroupBy   []string                `json:"groupBy,omitempty"`
-	Filters   []*DataframeFilterInput `json:"filters,omitempty"`
-	Operation string                  `json:"operation"`
-	Column    *string                 `json:"column,omitempty"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
+	GroupBy           []string                `json:"groupBy,omitempty"`
+	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
+	Operation         string                  `json:"operation"`
+	Column            *string                 `json:"column,omitempty"`
 }
 
 type DataframeAggregateResult struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
+}
+
+type DataframeAggregationSpecInput struct {
+	Name              string   `json:"name"`
+	Kind              string   `json:"kind"`
+	Column            string   `json:"column"`
+	Size              *int     `json:"size,omitempty"`
+	Interval          *float64 `json:"interval,omitempty"`
+	DateInterval      *int     `json:"dateInterval,omitempty"`
+	ExcludeSelfFilter *bool    `json:"excludeSelfFilter,omitempty"`
+}
+
+type DataframeAggregationsInput struct {
+	DataType string                           `json:"dataType"`
+	Filters  []*DataframeFilterInput          `json:"filters,omitempty"`
+	Specs    []*DataframeAggregationSpecInput `json:"specs"`
+}
+
+type DataframeAggregationsResult struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Aggregations    json.RawMessage           `json:"aggregations"`
 }
 
 type DataframeBuilderIntrospection struct {
@@ -396,12 +418,13 @@ type DataframeRowConnection struct {
 }
 
 type DataframeRowsInput struct {
-	DataType string                  `json:"dataType"`
-	Columns  []string                `json:"columns,omitempty"`
-	Filters  []*DataframeFilterInput `json:"filters,omitempty"`
-	Sort     *DataframeSortInput     `json:"sort,omitempty"`
-	First    *int                    `json:"first,omitempty"`
-	After    *string                 `json:"after,omitempty"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	DataType          string                  `json:"dataType"`
+	Columns           []string                `json:"columns,omitempty"`
+	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
+	Sort              *DataframeSortInput     `json:"sort,omitempty"`
+	First             *int                    `json:"first,omitempty"`
+	After             *string                 `json:"after,omitempty"`
 }
 
 type DataframeSortInput struct {

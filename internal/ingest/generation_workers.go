@@ -78,8 +78,9 @@ type fileWriteTask struct {
 
 type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
 
-// loadFile owns one scanner and closes it before returning. Every row is
-// wrapped with the immutable generation identity before insertion.
+// loadFile owns one scanner and closes it before returning. A blank generation
+// preserves the primary resource-loader identity; overwrite controls its
+// upsert contract while immutable generations always pass false.
 func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
@@ -87,6 +88,7 @@ func loadFile(
 	schema *graph.GraphSchema,
 	file string,
 	datasetGeneration string,
+	overwrite bool,
 	start time.Time,
 	priorVertices int,
 	priorEdges int,
@@ -109,13 +111,15 @@ func loadFile(
 
 	var rowBuilder RowBuilder
 	if opts.UseGeneric || !supportsGeneratedLoad(resourceType) {
-		rowBuilder = NewGenericRowBuilder(opts.Project, class, schema, graphExtraArgs(opts.AuthResourcePath))
+		rowBuilder = NewGenericRowBuilder(opts.Project, class, schema, graphExtraArgs(opts.Project, opts.AuthResourcePath))
 	} else {
 		rowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	}
-	rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
-	if err != nil {
-		return result, err
+	if strings.TrimSpace(datasetGeneration) != "" {
+		rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
+		if err != nil {
+			return result, err
+		}
 	}
 
 	linesChan := make(chan fileLine, 10000)
@@ -349,7 +353,7 @@ func loadFile(
 						return
 					}
 					insertStart := time.Now()
-					if insertErr := insert(fileCtx, client, task.collection, task.docs, false, opts.WriteAPI); insertErr != nil {
+					if insertErr := insert(fileCtx, client, task.collection, task.docs, overwrite, opts.WriteAPI); insertErr != nil {
 						setPipelineErr(insertErr)
 						return
 					}

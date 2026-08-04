@@ -82,8 +82,8 @@ func TestGenerationFileErrors(t *testing.T) {
 		err  error
 		code string
 	}{
-		{&apiError{Status: http.StatusBadRequest, Code: "INVALID_GENERATION_FILE"}, "INVALID_GENERATION_FILE"},
-		{&apiError{Status: http.StatusBadRequest, Code: "DUPLICATE_GENERATION_FILE"}, "DUPLICATE_GENERATION_FILE"},
+		{dataframeerrors.NewError(dataframeerrors.CodeInvalidGenerationFile, ""), "INVALID_GENERATION_FILE"},
+		{dataframeerrors.NewError(dataframeerrors.CodeDuplicateGenerationFile, ""), "DUPLICATE_GENERATION_FILE"},
 	} {
 		mapped := MapDataframeError(test.err, "req-file")
 		if mapped.Status != http.StatusBadRequest || mapped.Body.Error.Code != test.code || mapped.Body.Error.Retryable {

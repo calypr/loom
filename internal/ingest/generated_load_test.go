@@ -61,6 +61,27 @@ func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
 	}
 }
 
+func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
+	project := "HTAN_INT-BForePC"
+	vertex, _, _, err := loadRowGenerated("Patient", []byte(`{
+  "resourceType": "Patient",
+  "id": "patient-1"
+}`), project, map[string]float64{})
+	if err != nil {
+		t.Fatalf("loadRowGenerated(Patient): %v", err)
+	}
+	if vertex.ProjectID != project {
+		t.Fatalf("project_id envelope = %q, want %q", vertex.ProjectID, project)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(vertex.Payload.(json.RawMessage), &payload); err != nil {
+		t.Fatalf("decode generated payload: %v", err)
+	}
+	if got := payload["project_id"]; got != project {
+		t.Fatalf("payload project_id = %#v, want %q", got, project)
+	}
+}
+
 func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
 	_, _, kind, err := loadRowGenerated("DocumentReference", []byte(`{
   "resourceType": "DocumentReference",

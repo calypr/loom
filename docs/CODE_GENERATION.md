@@ -9,7 +9,6 @@ patching executor, model, schema, or FHIR output by hand.
 The two gqlgen configurations live at the repository root:
 
 - `gqlgen.yml` builds the graph and FHIR dataframe API.
-- `gqlgen.clickhouse.yml` builds the published-dataframe reader API.
 
 ## Where generated code lives
 
@@ -23,8 +22,6 @@ under `internal`:
 | `generated/graphql/graph/executor/` | `executor` | Primary gqlgen executable schema. |
 | `generated/graphql/graph/model/` | `model` | Shared GraphQL input/output models. |
 | `internal/api/graphql/graph/resolver/` | `resolver` | Primary gqlgen resolver bindings. |
-| `generated/graphql/flat/executor/` | `executor` | Flat-reader executable schema. |
-| `internal/api/graphql/flat/resolver/` | `resolver` | Flat-reader resolver bindings. |
 
 The generated executors expose gqlgen's resolver interfaces. gqlgen requires
 resolver receivers and preserved resolver implementations to share one Go
@@ -43,11 +40,9 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 | Directory | Responsibility |
 | --- | --- |
 | `internal/api/graphql/graph/schema/` | Handwritten primary GraphQL schema. |
-| `internal/api/graphql/flat/schema/` | Handwritten flat-reader schema. |
 | `internal/api/graphql/graph/` | HTTP handler and shared GraphQL error presentation. |
 | `internal/api/graphql/graph/query/` | Arango graph and FHIR dataframe request services. |
 | `internal/api/graphql/graph/materialization/` | Published-dataframe transport mapping. |
-| `internal/api/graphql/flat/` | Flat-reader HTTP handler. |
 
 ## Sources of truth and outputs
 
@@ -55,7 +50,6 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 | --- | --- | --- |
 | `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphql/graph/schema/fhir_schema.graphqls` |
 | `internal/api/graphql/graph/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` and `internal/api/graphql/graph/resolver/` |
-| `internal/api/graphql/flat/schema/schema.graphqls` and `gqlgen.clickhouse.yml` | `make generate-graphql` | Flat-reader executor and resolver bindings under `generated/graphql/flat/` |
 
 `generated/graphql/graph/executor/fhir_schema.generated.go` and
 `generated/graphql/graph/executor/root_.generated.go` are

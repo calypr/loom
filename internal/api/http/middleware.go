@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -25,7 +26,7 @@ func (s *HTTPServer) recoveryMiddleware(c fiber.Ctx) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered)
-			err = &apiError{Status: fiber.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: "internal server error", Cause: errors.New("panic recovered")}
+			err = dataframeerrors.Wrap(errors.New("panic recovered"), dataframeerrors.CodeInternalError, "")
 		}
 	}()
 	return c.Next()
@@ -35,9 +36,8 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 	start := time.Now()
 	err := c.Next()
 	if err != nil {
-		var apiErr *apiError
-		if errors.As(err, &apiErr) && c.Response().StatusCode() < 400 {
-			c.Status(apiErr.Status)
+		if c.Response().StatusCode() < 400 {
+			c.Status(MapDataframeError(err, requestIDFromCtx(c)).Status)
 		}
 	}
 	s.logger.Info("http request", "request_id", requestIDFromCtx(c), "method", c.Method(), "path", c.Path(), "status", c.Response().StatusCode(), "duration_ms", time.Since(start).Milliseconds())
@@ -52,7 +52,7 @@ func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
 	}
 	principal, err := s.authn.Authenticate(c.Context(), c.GetReqHeaders())
 	if err != nil {
-		return &apiError{Status: fiber.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "authentication is required", Cause: err}
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
 	}
 	c.Locals("principal", principal)
 	c.SetContext(authscope.ContextWithPrincipal(c.Context(), principal))

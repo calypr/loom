@@ -33,7 +33,10 @@ func recipeGraphQLError(err error) error {
 	}
 	if _, ok := dataframeerrors.AsUserError(err); !ok {
 		var validation *recipe.ValidationError
+		var resolution *engine.ResolutionError
 		switch {
+		case errors.As(err, &resolution):
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeResolutionFailed, resolution.Error())
 		case errors.As(err, &validation):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
 		case errors.Is(err, recipeexec.ErrRecipeNotFound):

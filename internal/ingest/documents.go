@@ -19,6 +19,7 @@ type VertexDocument struct {
 	Key              string `json:"_key"`
 	ID               string `json:"id"`
 	Project          string `json:"project"`
+	ProjectID        string `json:"project_id"`
 	ResourceType     string `json:"resourceType"`
 	AuthResourcePath string `json:"auth_resource_path,omitempty"`
 	Payload          any    `json:"payload"`
@@ -51,6 +52,7 @@ func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs ma
 		Key:              SanitizeKey(id),
 		ID:               id,
 		Project:          project,
+		ProjectID:        project,
 		ResourceType:     resourceType,
 		AuthResourcePath: authResourcePath,
 		Payload:          payloadCopy,

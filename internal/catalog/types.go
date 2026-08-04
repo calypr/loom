@@ -65,47 +65,6 @@ type PopulatedFieldOptions struct {
 	CursorBatch                   int
 }
 
-// DatasetSummaryOptions describes one scoped dataset-discovery read. The
-// reader accepts an explicit project allowlist; an empty allowlist means no
-// projects are queried. Callers may select a different immutable generation
-// and authorization scope for every project in the allowlist.
-type DatasetSummaryOptions struct {
-	ProjectAllowlist           []string
-	DatasetGenerationByProject map[string]string
-	AuthScopesByProject        map[string]DatasetAuthScope
-	DatasetStateByProject      map[string]string
-	CursorBatch                int
-}
-
-// DatasetAuthScope is the catalog-facing form of an effective read scope.
-// Unrestricted is authoritative even when AuthResourcePaths is empty, so a
-// restricted caller with no surviving paths cannot be widened accidentally.
-type DatasetAuthScope struct {
-	AuthResourcePaths []string
-	Unrestricted      bool
-}
-
-// DatasetSummary is the persistence-neutral summary advertised to frontend
-// callers. It contains only catalog facts and never exposes Arango collection
-// names or raw catalog documents.
-type DatasetSummary struct {
-	Project           string
-	DatasetGeneration string
-	State             string
-	ResourceTypes     []ResourceTypeSummary
-}
-
-// ResourceTypeSummary contains the visible, populated catalog facts for one
-// FHIR resource type. DocumentCount is the maximum populated field count;
-// this avoids multiplying the estimate when several field paths describe the
-// same documents.
-type ResourceTypeSummary struct {
-	ResourceType        string
-	DocumentCount       int64
-	PopulatedFieldCount int
-	PivotCandidateCount int
-}
-
 type PopulatedField struct {
 	Project               string   `json:"project"`
 	DatasetGeneration     string   `json:"dataset_generation,omitempty"`

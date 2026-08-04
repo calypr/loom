@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -35,7 +36,12 @@ func TestGenericRowBuilderIsSafeForParallelWorkers(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, _, buildErr := builder.Build(resourceType, line, map[string]float64{})
+			result, _, buildErr := builder.Build(resourceType, line, map[string]float64{})
+			if buildErr == nil {
+				if got := result.payload["project_id"]; got != "HTAN_INT-BForePC" {
+					buildErr = fmt.Errorf("payload project_id = %#v", got)
+				}
+			}
 			errs <- buildErr
 		}()
 	}

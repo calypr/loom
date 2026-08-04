@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
 // resolveActiveGeneration pins builder-side catalog discovery to the exact
-// READY manifest selected for this request. Without a configured resolver the
-// legacy catalog namespace remains the explicit empty generation.
+// READY manifest selected for this request. Without a manifest, the primary
+// unversioned catalog namespace remains the fallback.
 func (s *Service) resolveActiveGeneration(ctx context.Context, project string) (string, error) {
 	if s == nil || s.activeManifestResolver == nil {
 		return "", nil
@@ -18,7 +17,7 @@ func (s *Service) resolveActiveGeneration(ctx context.Context, project string) (
 	manifest, err := publication.ResolveActive(ctx, s.activeManifestResolver, project)
 	if err != nil {
 		if errors.Is(err, publication.ErrNoActiveGeneration) {
-			return "", dataframeerrors.Wrap(err, dataframeerrors.CodeNoActiveGeneration, "")
+			return "", nil
 		}
 		return "", queryBackend(err)
 	}

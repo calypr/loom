@@ -159,6 +159,15 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 	}, nil
 }
 
+// DataframeMaterialization is the resolver for the dataframeMaterialization field.
+func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
+	value, err := r.materializations.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return materializationapi.Model(*value), nil
+}
+
 // DataframeDatasets is the resolver for the dataframeDatasets field.
 func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error) {
 	values, err := r.materializations.Datasets(ctx)
@@ -214,6 +223,19 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
 	}
 	return &model.DataframeAggregateResult{Materialization: materializationapi.Model(result.Materialization), Columns: result.Columns, Rows: rows}, nil
+}
+
+// DataframeAggregations is the resolver for the dataframeAggregations field.
+func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
+	result, err := r.materializations.AggregationsInput(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	aggregations, err := materializationapi.AggregationsJSON(result)
+	if err != nil {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
+	}
+	return &model.DataframeAggregationsResult{Materialization: materializationapi.FederatedMaterialization(result.Dataset), Aggregations: aggregations}, nil
 }
 
 // DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.

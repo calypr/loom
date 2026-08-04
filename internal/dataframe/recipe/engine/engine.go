@@ -54,6 +54,25 @@ type Resolved struct {
 	ResolvedSchemaDigest string
 }
 
+// ResolutionError marks failures while compiling a recipe before publication
+// starts. Transport adapters can expose these as actionable recipe errors;
+// publication and backend failures remain opaque internal errors.
+type ResolutionError struct{ Err error }
+
+func (e *ResolutionError) Error() string {
+	if e == nil || e.Err == nil {
+		return "recipe resolution failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *ResolutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 type OutputStream struct {
 	Name          string
 	Columns       []string
@@ -171,7 +190,7 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
 	if err != nil {
-		return Resolved{}, err
+		return Resolved{}, &ResolutionError{Err: err}
 	}
 	if publish != nil {
 		if err := publish(ctx, resolved); err != nil {

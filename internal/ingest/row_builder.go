@@ -15,11 +15,12 @@ func graphObjectID(payload map[string]any, class *jsonschema.Schema) (string, er
 	return util.GetObjectID(payload, class)
 }
 
-func graphExtraArgs(authResourcePath string) map[string]any {
-	if authResourcePath == "" {
-		return nil
+func graphExtraArgs(project, authResourcePath string) map[string]any {
+	extraArgs := map[string]any{"project_id": project}
+	if authResourcePath != "" {
+		extraArgs["auth_resource_path"] = authResourcePath
 	}
-	return map[string]any{"auth_resource_path": authResourcePath}
+	return extraArgs
 }
 
 type rowErrorType string
@@ -76,6 +77,9 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 		return rowBuildResult{}, rowErrorValidation, err
 	}
 	stageSeconds["payload_map_decode"] += time.Since(decodeStart).Seconds()
+	// Keep the load API's project identity in the raw payload as well as the
+	// Loom document envelope. This is the field consumed by Explorer flat rows.
+	payload["project_id"] = b.project
 	return rowBuildResult{
 		vertex:  json.RawMessage(vBytes),
 		edges:   eDocs,
@@ -135,6 +139,7 @@ func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds
 		return rowBuildResult{}, rowErrorValidation, err
 	}
 	stageSeconds["validate"] += time.Since(validateStart).Seconds()
+	payload["project_id"] = b.project
 
 	vertexStart := time.Now()
 	vDoc, err := VertexFromFHIRWithExtra(b.project, resourceType, payload, extraArgs)

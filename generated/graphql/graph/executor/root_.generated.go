@@ -577,6 +577,11 @@ type ComplexityRoot struct {
 		Rows            func(childComplexity int) int
 	}
 
+	DataframeAggregationsResult struct {
+		Aggregations    func(childComplexity int) int
+		Materialization func(childComplexity int) int
+	}
+
 	DataframeBuilderIntrospection struct {
 		AuthResourcePaths func(childComplexity int) int
 		Fields            func(childComplexity int) int
@@ -2364,9 +2369,11 @@ type ComplexityRoot struct {
 		BodyStructure                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
 		Condition                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
 		DataframeAggregate            func(childComplexity int, input model.DataframeAggregateInput) int
+		DataframeAggregations         func(childComplexity int, input model.DataframeAggregationsInput) int
 		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
 		DataframeDataset              func(childComplexity int, input model.DataframeDatasetInput) int
 		DataframeDatasets             func(childComplexity int) int
+		DataframeMaterialization      func(childComplexity int, id string) int
 		DataframeRecipeExecution      func(childComplexity int, id string) int
 		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
 		DiagnosticReport              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
@@ -5427,6 +5434,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeAggregateResult.Rows(childComplexity), true
+
+	case "DataframeAggregationsResult.aggregations":
+		if e.ComplexityRoot.DataframeAggregationsResult.Aggregations == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeAggregationsResult.Aggregations(childComplexity), true
+	case "DataframeAggregationsResult.materialization":
+		if e.ComplexityRoot.DataframeAggregationsResult.Materialization == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeAggregationsResult.Materialization(childComplexity), true
 
 	case "DataframeBuilderIntrospection.authResourcePaths":
 		if e.ComplexityRoot.DataframeBuilderIntrospection.AuthResourcePaths == nil {
@@ -14246,6 +14266,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeAggregate(childComplexity, args["input"].(model.DataframeAggregateInput)), true
+	case "Query.dataframeAggregations":
+		if e.ComplexityRoot.Query.DataframeAggregations == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeAggregations_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeAggregations(childComplexity, args["input"].(model.DataframeAggregationsInput)), true
 	case "Query.dataframeBuilderIntrospection":
 		if e.ComplexityRoot.Query.DataframeBuilderIntrospection == nil {
 			break
@@ -14274,6 +14305,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeDatasets(childComplexity), true
+	case "Query.dataframeMaterialization":
+		if e.ComplexityRoot.Query.DataframeMaterialization == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeMaterialization_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeMaterialization(childComplexity, args["id"].(string)), true
 	case "Query.dataframeRecipeExecution":
 		if e.ComplexityRoot.Query.DataframeRecipeExecution == nil {
 			break
@@ -19727,6 +19769,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputDataframeAggregateInput,
+		ec.unmarshalInputDataframeAggregationSpecInput,
+		ec.unmarshalInputDataframeAggregationsInput,
 		ec.unmarshalInputDataframeBuilderIntrospectionInput,
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
@@ -19834,10 +19878,12 @@ var sources = []*ast.Source{
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
 
+  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
+  dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
@@ -20155,6 +20201,9 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
+  # Legacy callers may target one published physical materialization directly.
+  # When omitted, the request uses the project-federated dataframe.
+  materializationId: ID
   dataType: String!
   columns: [String!]
   filters: [DataframeFilterInput!]
@@ -20177,6 +20226,9 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
+  # Legacy callers may target one published physical materialization directly.
+  # When omitted, the request uses the project-federated dataframe.
+  materializationId: ID
   dataType: String!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
@@ -20188,6 +20240,27 @@ type DataframeAggregateResult {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+}
+
+input DataframeAggregationSpecInput {
+  name: String!
+  kind: String!
+  column: String!
+  size: Int
+  interval: Float
+  dateInterval: Int
+  excludeSelfFilter: Boolean = false
+}
+
+input DataframeAggregationsInput {
+  dataType: String!
+  filters: [DataframeFilterInput!]
+  specs: [DataframeAggregationSpecInput!]!
+}
+
+type DataframeAggregationsResult {
+  materialization: DataframeMaterialization!
+  aggregations: JSON!
 }
 
 input DataframeBuilderIntrospectionInput {
@@ -24238,6 +24311,16 @@ func (ec *executionContext) childFields_DataframeAggregateResult(ctx context.Con
 		return ec.fieldContext_DataframeAggregateResult_rows(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeAggregateResult", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeAggregationsResult(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "materialization":
+		return ec.fieldContext_DataframeAggregationsResult_materialization(ctx, field)
+	case "aggregations":
+		return ec.fieldContext_DataframeAggregationsResult_aggregations(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeAggregationsResult", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeBuilderIntrospection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {

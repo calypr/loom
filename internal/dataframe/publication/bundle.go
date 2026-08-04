@@ -55,12 +55,12 @@ func (i BundleIdentity) Key() string {
 }
 
 type BundleOutputRecord struct {
-	Name, Alias, PhysicalTable string
-	Columns                    []PhysicalColumn
-	RowCount, ByteCount        int64
-	State                      BundleState
-	FailureCode                string `json:"failureCode,omitempty"`
-	FailureRetryable           bool   `json:"failureRetryable,omitempty"`
+	Name, PhysicalTable string
+	Columns             []PhysicalColumn
+	RowCount, ByteCount int64
+	State               BundleState
+	FailureCode         string `json:"failureCode,omitempty"`
+	FailureRetryable    bool   `json:"failureRetryable,omitempty"`
 }
 
 type PhysicalColumn struct {
@@ -90,23 +90,15 @@ type BundlePointer struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// StaleBundleCatalog is optional so existing lightweight registries remain
-// source-compatible. Production catalogs implement it for startup recovery.
-type StaleBundleCatalog interface {
-	ListExecutions(context.Context, BundleState, time.Time) ([]BundleExecution, error)
-}
-
 // BundleCatalog is the durable metadata/pointer boundary. Implementations
-// should make CompareAndSwapPointer atomic in their backing store.
+// make pointer updates and lease acquisition atomic in their backing store.
 type BundleCatalog interface {
 	SaveExecution(context.Context, BundleExecution) error
 	GetExecution(context.Context, string) (BundleExecution, error)
 	FindExecutionByKey(context.Context, string) (BundleExecution, error)
 	GetPointer(context.Context, string) (BundlePointer, error)
 	CompareAndSwapPointer(context.Context, string, string, string) error
-}
-
-type BundleLeaseCatalog interface {
+	ListExecutions(context.Context, BundleState, time.Time) ([]BundleExecution, error)
 	AcquireBundleLease(context.Context, string, string, time.Time) (bool, error)
 	RenewBundleLease(context.Context, string, string, time.Time) (bool, error)
 	ReleaseBundleLease(context.Context, string, string) error

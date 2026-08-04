@@ -56,7 +56,6 @@ type Target interface {
 
 type Transaction interface {
 	WriteBatch(context.Context, string, []map[string]any) error
-	Validate(context.Context) error
 	Commit(context.Context) ([]PublishedOutput, error)
 	Rollback(context.Context) error
 }

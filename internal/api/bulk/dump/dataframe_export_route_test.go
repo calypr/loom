@@ -10,6 +10,7 @@ import (
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
@@ -17,7 +18,7 @@ type fakeDataframeExporter struct{}
 
 func (fakeDataframeExporter) ExportDataframe(_ context.Context, request dfmaterialization.ExportRequest, out io.Writer) error {
 	if request.DataType != "files" || request.Format.Normalize() != dfmaterialization.ExportCSV {
-		return &apiError{Status: http.StatusBadRequest, Code: "bad_request", Message: "unexpected request"}
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	_, err := io.WriteString(out, "id\n1\n")
 	return err

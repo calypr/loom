@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -86,57 +85,6 @@ func (s *Store) DiscoverReferences(ctx context.Context, opts catalog.PopulatedRe
 	return rows, err
 }
 
-func (s *Store) DiscoverDatasets(ctx context.Context, opts catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error) {
-	if opts.CursorBatch <= 0 {
-		opts.CursorBatch = 1000
-	}
-	projects := normalizedProjects(opts.ProjectAllowlist)
-	result := make([]catalog.DatasetSummary, 0, len(projects))
-	for _, project := range projects {
-		generationValue := opts.DatasetGenerationByProject[project]
-		scope, hasScope := opts.AuthScopesByProject[project]
-		if !hasScope {
-			scope.Unrestricted = true
-		}
-		state := opts.DatasetStateByProject[project]
-		if state == "" {
-			state = "LEGACY"
-			if generationValue != "" {
-				state = "READY"
-			}
-		}
-		vars := map[string]any{"project": project, "dataset_generation": generation(generationValue), "auth_resource_paths": append([]string(nil), scope.AuthResourcePaths...), "auth_resource_paths_unrestricted": scope.Unrestricted}
-		rows := make([]catalog.ResourceTypeSummary, 0, 16)
-		if err := s.client.QueryRows(ctx, datasetSummariesAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-			resourceType := stringValue(row["resource_type"])
-			if resourceType == "" {
-				return fmt.Errorf("dataset summary returned an empty resource type for project %q", project)
-			}
-			documentCount, err := decodeInt64(row["document_count"])
-			if err != nil {
-				return fmt.Errorf("decode document_count for %s/%s: %w", project, resourceType, err)
-			}
-			populatedFields, err := decodeInt64(row["populated_field_count"])
-			if err != nil {
-				return fmt.Errorf("decode populated_field_count for %s/%s: %w", project, resourceType, err)
-			}
-			pivotCandidates, err := decodeInt64(row["pivot_candidate_count"])
-			if err != nil {
-				return fmt.Errorf("decode pivot_candidate_count for %s/%s: %w", project, resourceType, err)
-			}
-			rows = append(rows, catalog.ResourceTypeSummary{ResourceType: resourceType, DocumentCount: documentCount, PopulatedFieldCount: int(populatedFields), PivotCandidateCount: int(pivotCandidates)})
-			return nil
-		}); err != nil {
-			return nil, err
-		}
-		if len(rows) > 0 {
-			sort.Slice(rows, func(i, j int) bool { return rows[i].ResourceType < rows[j].ResourceType })
-			result = append(result, catalog.DatasetSummary{Project: project, DatasetGeneration: catalog.NormalizeDatasetGeneration(generationValue), State: state, ResourceTypes: rows})
-		}
-	}
-	return result, nil
-}
-
 func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
@@ -160,6 +108,9 @@ func (s *Store) WriteFieldCatalog(ctx context.Context, collection string, docs [
 }
 func (s *Store) WriteRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	return catalog.WriteRelationshipCatalog(ctx, s.client, docs, batchSize, overwrite, writeAPI, timings)
+}
+func (s *Store) AccumulateRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, timings map[string]float64) error {
+	return catalog.AccumulateRelationshipCatalog(ctx, s.client, docs, timings)
 }
 func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.RelationshipRebuildOptions) (catalog.RelationshipRebuildSummary, error) {
 	if opts.CursorBatch <= 0 {
@@ -215,24 +166,6 @@ func generation(value string) any {
 		return nil
 	}
 	return value
-}
-
-func normalizedProjects(projects []string) []string {
-	seen := make(map[string]struct{}, len(projects))
-	result := make([]string, 0, len(projects))
-	for _, project := range projects {
-		project = strings.TrimSpace(project)
-		if project == "" {
-			continue
-		}
-		if _, ok := seen[project]; ok {
-			continue
-		}
-		seen[project] = struct{}{}
-		result = append(result, project)
-	}
-	sort.Strings(result)
-	return result
 }
 
 func stringValue(value any) string {
@@ -387,17 +320,6 @@ FOR d IN fhir_relationship_catalog
     AGGREGATE edge_count = SUM(d.edge_count)
   SORT from_type, edge_count DESC, label, to_type
   RETURN { dataset_generation: @dataset_generation, from_type, label, to_type, edge_count }`
-const datasetSummariesAQL = `
-FOR d IN fhir_field_catalog
-  FILTER d.project == @project
-  FILTER d.dataset_generation == @dataset_generation
-  FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
-  COLLECT resource_type = d.resource_type, path = d.path
-    AGGREGATE document_count = MAX(d.doc_count), pivot_candidate = MAX(d.pivot_candidate ? 1 : 0)
-  COLLECT resource_type = resource_type
-    AGGREGATE document_count = MAX(document_count), populated_field_count = COUNT(), pivot_candidate_count = SUM(pivot_candidate)
-  SORT resource_type
-  RETURN { resource_type, document_count, populated_field_count, pivot_candidate_count }`
 const existingAuthResourcePathsAQL = `
 FOR d IN fhir_field_catalog
   FILTER d.project == @project

@@ -1,12 +1,9 @@
 package dump
 
 import (
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/gofiber/fiber/v3"
 )
-
-type apiError = httpapi.Error
 
 type Handler struct {
 	rawExporter       RawExporter

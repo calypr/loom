@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/gofiber/fiber/v3"
 )
@@ -11,21 +12,21 @@ import (
 func (s *Handler) exportDataframe(c fiber.Ctx) error {
 	var request dfmaterialization.ExportRequest
 	if err := json.Unmarshal(c.Body(), &request); err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "invalid_export_request", Message: "request body must be valid JSON"}
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	request.DataType = strings.TrimSpace(request.DataType)
 	if request.DataType == "" {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_data_type", Message: "dataType is required"}
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	if request.Format.Normalize() == "" {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_export_format", Message: "format is required"}
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	filename := sanitizeExportFilename(request.Filename, request.Format.Normalize())
 	c.Set(fiber.HeaderContentType, exportContentType(request.Format.Normalize()))
 	c.Set(fiber.HeaderContentDisposition, `attachment; filename="`+filename+`"`)
 	if err := s.dataframeExporter.ExportDataframe(c.Context(), request, c); err != nil {
 		resetExportResponse(c)
-		return &apiError{Status: fiber.StatusBadRequest, Code: "EXPORT_FAILED", Message: "export failed", Cause: err}
+		return err
 	}
 	return nil
 }

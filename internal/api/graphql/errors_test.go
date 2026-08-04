@@ -48,6 +48,20 @@ func TestPresentErrorRedactsUnknownErrors(t *testing.T) {
 	}
 }
 
+func TestPresentRecipeResolutionErrorKeepsActionableMessage(t *testing.T) {
+	err := dataframeerrors.NewError(
+		dataframeerrors.CodeRecipeResolutionFailed,
+		`outputs[0] DocumentReference: field "project_id" is not in the active FHIR schema`,
+	)
+	graphqlErr := PresentError(err, "request-789")
+	if graphqlErr.Message != err.Error() {
+		t.Fatalf("recipe resolution message = %q", graphqlErr.Message)
+	}
+	if graphqlErr.Extensions["code"] != string(dataframeerrors.CodeRecipeResolutionFailed) {
+		t.Fatalf("recipe resolution extensions = %#v", graphqlErr.Extensions)
+	}
+}
+
 func TestExtensionsForErrorOmitsEmptyRequestID(t *testing.T) {
 	extensions := ExtensionsForError(dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, ""), "")
 	if _, ok := extensions["requestId"]; ok {

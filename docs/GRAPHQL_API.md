@@ -1,11 +1,12 @@
 # Loom GraphQL API
 
-Loom has three GraphQL surfaces with different responsibilities:
+Loom has two GraphQL routes with different responsibilities:
 
 - `/graphql/graph` reads and compiles against the authorized Arango graph.
 - `/graphql/dataframe` compiles and executes FHIR dataframe requests against
   the authorized Arango graph.
-- `/graphql/flat` reads published dataframe outputs from ClickHouse.
+- `/graphql/graph` also reads published dataframe outputs from ClickHouse.
+- `/graphql/flat` remains as a compatibility alias for published-dataframe queries.
 
 All surfaces are authorization-aware. Clients provide logical names and FHIR
 fields; they do not provide AQL, SQL, physical collection names, or physical
@@ -19,7 +20,7 @@ The useful development URLs are:
 ```text
 GraphQL graph: http://127.0.0.1:8080/graphql/graph
 GraphQL dataframe: http://127.0.0.1:8080/graphql/dataframe
-GraphQL flat:  http://127.0.0.1:8080/graphql/flat
+GraphQL flat (compatibility alias): http://127.0.0.1:8080/graphql/flat
 Playground:    http://127.0.0.1:8080/graphql/graph
 Apollo:        http://127.0.0.1:8080/apollo
 ```
@@ -133,9 +134,8 @@ catalog projections, and recursive traversal shaping. Its traversal default is
 The graph endpoint also exposes generated resource roots for the supported FHIR
 types. These are convenient for resource-shaped reads, not graph path queries:
 
-Use these roots only at `/graphql/graph`; the `/graphql/flat` endpoint exposes
-the ClickHouse dataframe API and does not define `Patient`, `Observation`, or
-other FHIR resource roots.
+Use these roots at `/graphql/graph`; published dataframe fields live on the
+same schema and do not define duplicate FHIR resource roots.
 
 ```graphql
 query Patients($project: String!, $filters: [FhirFilterInput!]) {
@@ -297,9 +297,9 @@ query. `live: true` issues an Arango `EXPLAIN` request only; it does not open a
 result cursor. Raw AQL, bind values, collections, and scope paths are not
 returned through this API.
 
-## Flat API
+## Published dataframe API
 
-The flat endpoint reads only published, READY dataframe outputs from ClickHouse.
+The published-dataframe fields read only published, READY outputs from ClickHouse.
 The client supplies the logical `dataType`; Loom resolves the authorized
 project set and current READY publication from the catalog.
 

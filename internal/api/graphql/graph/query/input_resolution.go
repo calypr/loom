@@ -11,15 +11,8 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, error) {
-	prepared, _, _, err := s.prepareRunInput(ctx, input)
-	return prepared, err
-}
-
 // prepareRunInput resolves field references and returns the effective scope
-// and selected generation alongside the GraphQL-shaped input. The public
-// PrepareRunInput keeps the GraphQL transport shape while Run carries the
-// resolved scope and generation into recipe.RuntimeBindings.
+// and selected generation alongside the GraphQL-shaped input.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")

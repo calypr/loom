@@ -8,6 +8,10 @@ import (
 	"github.com/bytedance/sonic"
 )
 
+type aqlExecutor interface {
+	ExecuteAQL(context.Context, string, map[string]interface{}) error
+}
+
 func WriteFieldCatalog(ctx context.Context, client interface {
 	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
 }, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
@@ -76,4 +80,47 @@ func WriteRelationshipCatalog(ctx context.Context, client interface {
 		}
 	}
 	return nil
+}
+
+// AccumulateRelationshipCatalog adds edge counts to the existing unversioned
+// resource catalog without replacing counts written by other resource files.
+func AccumulateRelationshipCatalog(ctx context.Context, client aqlExecutor, docs []RelationshipCatalogDocument, timings map[string]float64) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	rows := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
+		rows = append(rows, map[string]any{
+			"_key":               doc.Key,
+			"project":            doc.Project,
+			"dataset_generation": datasetGenerationBindValue(doc.DatasetGeneration),
+			"auth_resource_path": doc.AuthResourcePath,
+			"from_type":          doc.FromType,
+			"label":              doc.Label,
+			"to_type":            doc.ToType,
+			"edge_count":         doc.EdgeCount,
+		})
+	}
+	start := time.Now()
+	const query = `
+FOR d IN @docs
+  UPSERT { _key: d._key }
+  INSERT d
+  UPDATE { edge_count: OLD.edge_count + d.edge_count }
+  IN fhir_relationship_catalog
+`
+	if err := client.ExecuteAQL(ctx, query, map[string]any{"docs": rows}); err != nil {
+		return err
+	}
+	if timings != nil {
+		timings["relationship_catalog_accumulate"] += time.Since(start).Seconds()
+	}
+	return nil
+}
+
+func datasetGenerationBindValue(generation string) any {
+	if generation == "" {
+		return nil
+	}
+	return generation
 }

@@ -318,6 +318,9 @@ func walkShapeValue(value any, accessor []pathStep, path string, fieldMap map[st
 		}
 		keys := sortedKeys(typed)
 		for _, key := range keys {
+			if path == "" && isLoomMetadataField(key) {
+				continue
+			}
 			child := typed[key]
 			if child == nil {
 				continue
@@ -353,6 +356,15 @@ func walkShapeValue(value any, accessor []pathStep, path string, fieldMap map[st
 		if path != "" {
 			addFieldPlan(fieldMap, path, accessor, fieldKindScalar, false, "")
 		}
+	}
+}
+
+func isLoomMetadataField(path string) bool {
+	switch path {
+	case "project_id", "auth_resource_path", "dataset_generation":
+		return true
+	default:
+		return false
 	}
 }
 

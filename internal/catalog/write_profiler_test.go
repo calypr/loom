@@ -80,6 +80,22 @@ func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 	}
 }
 
+func TestFieldCatalogProfilerSkipsLoomMetadata(t *testing.T) {
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Patient", NewShapePlanCache())
+	profiler.ObservePayload(map[string]any{
+		"id":                 "patient-1",
+		"project_id":         "TEST",
+		"auth_resource_path": "pathA",
+		"dataset_generation": "generation-1",
+	}, map[string]float64{})
+
+	for _, doc := range profiler.Documents() {
+		if isLoomMetadataField(doc.Path) {
+			t.Fatalf("Loom metadata entered FHIR field catalog: %q", doc.Path)
+		}
+	}
+}
+
 func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
 	cache := NewShapePlanCache()
 	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Patient", cache)

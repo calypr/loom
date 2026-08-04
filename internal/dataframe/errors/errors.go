@@ -44,6 +44,7 @@ const (
 	CodeUnauthenticated             ErrorCode = "UNAUTHENTICATED"
 	CodeForbidden                   ErrorCode = "FORBIDDEN"
 	CodeRecipeNotFound              ErrorCode = "RECIPE_NOT_FOUND"
+	CodeRecipeResolutionFailed      ErrorCode = "RECIPE_RESOLUTION_FAILED"
 	CodeRecipeExecutionNotFound     ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
 	CodeExportLimitExceeded         ErrorCode = "EXPORT_LIMIT_EXCEEDED"
 	CodeIngestPreflightFailed       ErrorCode = "INGEST_PREFLIGHT_FAILED"
@@ -224,6 +225,9 @@ func PublicMessage(err error) string {
 	if userErr == nil {
 		return "internal server error"
 	}
+	if userErr.Code() == string(CodeRecipeResolutionFailed) {
+		return userErr.Error()
+	}
 	return defaultMessage(ErrorCode(userErr.Code()))
 }
 
@@ -307,6 +311,8 @@ func defaultMessage(code ErrorCode) string {
 		return "the caller is not permitted to perform this operation"
 	case CodeRecipeNotFound:
 		return "the requested recipe was not found"
+	case CodeRecipeResolutionFailed:
+		return "recipe resolution failed"
 	case CodeRecipeExecutionNotFound:
 		return "the requested recipe execution was not found"
 	case CodeExportLimitExceeded:

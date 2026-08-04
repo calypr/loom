@@ -47,7 +47,8 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 		},
 	})
 	service := NewService(Config{
-		ScopeResolver: resolver,
+		ScopeResolver:          resolver,
+		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			preparedCatalogCalls++
 			assertRestrictedEmptyFieldScope(t, options)
@@ -76,7 +77,8 @@ func TestIntrospectKeepsRestrictedEmptyCatalogMode(t *testing.T) {
 	fieldCalls := 0
 	referenceCalls := 0
 	service := NewService(Config{
-		ScopeResolver: resolver,
+		ScopeResolver:          resolver,
+		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			fieldCalls++
 			assertRestrictedEmptyFieldScope(t, options)

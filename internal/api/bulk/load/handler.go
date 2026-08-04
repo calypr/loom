@@ -2,7 +2,6 @@ package load
 
 import (
 	"fmt"
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/gofiber/fiber/v3"
 )
@@ -31,5 +30,3 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Post("/api/v1/datasets/:project/generations/:generation", h.createGeneration)
 	router.Put("/api/v1/raw", h.loadRaw)
 }
-
-type apiError = httpapi.Error

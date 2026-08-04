@@ -26,6 +26,7 @@ func (s *HTTPServer) health(c fiber.Ctx) error {
 	result := healthResult{status: "ready", core: "ready", dataframe: "ready", httpStatus: fiber.StatusOK}
 	if s.coreReadyCheck != nil {
 		if err := s.coreReadyCheck(ctx); err != nil {
+			s.logger.Error("core readiness check failed", "error", err)
 			result = healthResult{status: "not_ready", core: "not_ready", httpStatus: fiber.StatusServiceUnavailable}
 			s.lastHealth, s.lastHealthResult = time.Now(), result
 			return s.writeHealth(c, result)
@@ -36,6 +37,7 @@ func (s *HTTPServer) health(c fiber.Ctx) error {
 	}
 	if s.clickHouseEnabled && s.clickHouseReadyCheck != nil {
 		if err := s.clickHouseReadyCheck(ctx); err != nil {
+			s.logger.Error("dataframe readiness check failed", "error", err)
 			result.status, result.dataframe = "degraded", "backend_unavailable"
 		}
 	}

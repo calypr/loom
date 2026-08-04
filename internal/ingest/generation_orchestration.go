@@ -15,9 +15,12 @@ import (
 	"github.com/bmeg/jsonschemagraph/graph"
 )
 
-// Load writes one complete immutable dataset generation. Every physical graph
-// document, catalog row, and lifecycle operation is bound to that generation.
+// Load selects the primary unversioned resource loader unless an immutable
+// dataset reference is supplied explicitly.
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
+	if opts.Dataset == nil {
+		return loadResource(ctx, opts)
+	}
 	return loadGeneration(ctx, opts)
 }
 
@@ -178,6 +181,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			schema,
 			file,
 			plan.Dataset.Generation,
+			false,
 			start,
 			summary.VerticesInserted,
 			summary.EdgesInserted,

@@ -121,6 +121,15 @@ func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state publicati
 	}
 	return out, nil
 }
+func (c *bundleCatalogFixture) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	return true, nil
+}
+func (c *bundleCatalogFixture) RenewBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	return true, nil
+}
+func (c *bundleCatalogFixture) ReleaseBundleLease(context.Context, string, string) error {
+	return nil
+}
 
 type bundleClickHouseFixture struct {
 	tables      map[string][]map[string]any
@@ -219,19 +228,24 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 		execution := publication.BundleExecution{
 			ID: "execution-" + string(rune('a'+index)), BundleIdentity: identity,
 			State: publication.BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
-			Outputs: []publication.BundleOutputRecord{{Name: "observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []publication.PhysicalColumn{{Name: "id", ClickHouse: "String"}}, State: publication.BundleReady}},
+			Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []publication.PhysicalColumn{{Name: "id", ClickHouse: "String"}}, State: publication.BundleReady}},
 		}
 		catalog.executions[execution.ID] = execution
 		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
-	first, err := dfpublished.ResolvePublishedOutput(context.Background(), catalog, "project-a", "generation-1", "observation")
+	reader := &dfpublished.Reader{Catalog: catalog}
+	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, "Observation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := dfpublished.ResolvePublishedOutput(context.Background(), catalog, "project-b", "generation-1", "observation")
+	secondSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-b"}, "Observation")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(firstSources) != 1 || len(secondSources) != 1 {
+		t.Fatalf("source counts = %d and %d, want 1 each", len(firstSources), len(secondSources))
+	}
+	first, second := firstSources[0], secondSources[0]
 	if first.PhysicalTable == second.PhysicalTable || first.Project == second.Project {
 		t.Fatalf("project-scoped outputs collided: first=%#v second=%#v", first, second)
 	}
@@ -289,6 +303,38 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	if err := tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); !errors.Is(err, ErrBundleLeaseLost) {
 		t.Fatalf("InsertRows() error = %v, want lease loss", err)
+	}
+	_ = tx.Rollback(context.Background())
+}
+
+func TestClickHouseBundleTransactionContinuesAfterLeaseRenewal(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewResult: true, renewStarted: make(chan struct{})}
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	store.leaseRenewInterval = time.Millisecond
+	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-renewal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-catalog.renewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("lease renewal did not start")
+	}
+	time.Sleep(10 * time.Millisecond)
+	done := make(chan error, 1)
+	go func() {
+		done <- tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}})
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("transaction deadlocked after successful lease renewal")
 	}
 	_ = tx.Rollback(context.Background())
 }

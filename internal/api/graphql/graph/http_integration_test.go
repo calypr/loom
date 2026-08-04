@@ -15,11 +15,13 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/runtime"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
@@ -157,6 +159,16 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 	if payload.Data.Schema.QueryType.Name != "Query" || payload.Data.Schema.MutationType.Name != "Mutation" {
 		t.Fatalf("unexpected schema payload: %#v", payload.Data.Schema)
 	}
+	aliasReq := httptest.NewRequest(http.MethodPost, "/graphql/flat", strings.NewReader(queryBody))
+	aliasReq.Header.Set("Content-Type", "application/json")
+	aliasResp, err := server.App().Test(aliasReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer aliasResp.Body.Close()
+	if aliasResp.StatusCode != http.StatusOK {
+		t.Fatalf("flat compatibility alias status = %d", aliasResp.StatusCode)
+	}
 }
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
@@ -170,6 +182,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":
@@ -263,6 +276,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":
@@ -343,4 +357,22 @@ func newGraphServer(root *graphresolver.Resolver, auth authscope.Authenticator) 
 	}
 	graph.RegisterRoutes(server.App(), graph.RouteConfig{Handler: graph.NewHandler(root), Playground: graph.NewPlaygroundHandler("/graphql/graph"), Sandbox: graph.NewApolloSandboxHandler("/graphql/graph")})
 	return server, nil
+}
+
+type testActiveManifestResolver struct{}
+
+func (testActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (publication.Manifest, error) {
+	schema, err := publication.NewSchemaSnapshot("urn:loom:graphql-test", "", strings.Repeat("a", 64), []string{"Patient", "Specimen"})
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	ref, err := publication.NewRef(project, "generation-1")
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	manifest, err := publication.NewManifest(ref, schema)
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	return manifest.Transition(publication.StateReady)
 }

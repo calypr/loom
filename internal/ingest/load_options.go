@@ -95,8 +95,9 @@ var (
 	ErrGenerationLoadTruncateForbidden = errors.New("dataset generation load cannot truncate collections")
 	// ErrGenerationDatasetProjectMismatch prevents graph documents and their
 	// lifecycle manifest from being scoped to different projects.
-	ErrGenerationDatasetProjectMismatch = errors.New("dataset generation project does not match load project")
-	ErrGenerationDatasetRequired        = errors.New("dataset generation is required")
+	ErrGenerationDatasetProjectMismatch    = errors.New("dataset generation project does not match load project")
+	ErrGenerationSingleResourceUnsupported = errors.New("single-resource imports cannot create a dataset generation")
+	ErrGenerationDatasetRequired           = errors.New("dataset generation is required")
 )
 
 // ActivationOutcomeError means the generation reached READY but Loom could

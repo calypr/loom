@@ -28,7 +28,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
 
 	result, err := loadFile(
-		context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0,
+		context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
 		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 			return nil
 		},
@@ -42,7 +42,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -79,7 +79,7 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 				documents = append(documents, docs...)
 				return nil
 			}
-			result, err := loadFile(context.Background(), opts, nil, schema, file, test.generation, time.Now(), 0, 0, insert)
+			result, err := loadFile(context.Background(), opts, nil, schema, file, test.generation, false, time.Now(), 0, 0, insert)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -118,7 +118,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 		}
 		failFastOpts := opts
 		failFastOpts.FailFast = true
-		_, err := loadFile(context.Background(), failFastOpts, nil, schema, file, "generation-1", time.Now(), 0, 0, insert)
+		_, err := loadFile(context.Background(), failFastOpts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, insert)
 		if err == nil || !strings.Contains(err.Error(), "Patient.ndjson Patient row 4:") {
 			t.Fatalf("error = %v, want physical row 4", err)
 		}
@@ -137,7 +137,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 		if err := os.WriteFile(file, []byte(input.String()), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0, insert)
+		result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, insert)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +165,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project", BatchSize: 1, WriterCount: 2})
 	var inserted int64
-	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
 		atomic.AddInt64(&inserted, int64(len(docs)))
 		return nil
 	})
@@ -179,7 +179,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	writeErr := errors.New("writer failed")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return writeErr
 	})
 	if !errors.Is(err, writeErr) {

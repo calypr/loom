@@ -3,10 +3,12 @@ type Query {
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
 
+  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
+  dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
@@ -324,6 +326,9 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
+  # Legacy callers may target one published physical materialization directly.
+  # When omitted, the request uses the project-federated dataframe.
+  materializationId: ID
   dataType: String!
   columns: [String!]
   filters: [DataframeFilterInput!]
@@ -346,6 +351,9 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
+  # Legacy callers may target one published physical materialization directly.
+  # When omitted, the request uses the project-federated dataframe.
+  materializationId: ID
   dataType: String!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
@@ -357,6 +365,27 @@ type DataframeAggregateResult {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+}
+
+input DataframeAggregationSpecInput {
+  name: String!
+  kind: String!
+  column: String!
+  size: Int
+  interval: Float
+  dateInterval: Int
+  excludeSelfFilter: Boolean = false
+}
+
+input DataframeAggregationsInput {
+  dataType: String!
+  filters: [DataframeFilterInput!]
+  specs: [DataframeAggregationSpecInput!]!
+}
+
+type DataframeAggregationsResult {
+  materialization: DataframeMaterialization!
+  aggregations: JSON!
 }
 
 input DataframeBuilderIntrospectionInput {

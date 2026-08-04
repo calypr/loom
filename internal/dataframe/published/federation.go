@@ -13,11 +13,12 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// FederatedDataset is the logical reader view of one alias across all
-// authorized project publications. Project remains source metadata; it is
-// intentionally not a public dataframe row column.
+// FederatedDataset is the logical reader view of one FHIR resource type across all
+// authorized project publications. project_id is a public, stable row column;
+// legacy outputs that predate it are filled from the source publication project.
 type FederatedDataset struct {
 	Name             string
 	Revision         string
@@ -82,122 +83,6 @@ type FederatedAggregateResult struct {
 	Rows    []map[string]any
 }
 
-func resolveFederatedDataset(ctx context.Context, catalog bundlepublication.BundleCatalog, active publication.ActiveResolver, projects []string, alias string) (FederatedDataset, error) {
-	if catalog == nil {
-		return FederatedDataset{}, fmt.Errorf("bundle catalog is required")
-	}
-	listed, ok := catalog.(bundlepublication.StaleBundleCatalog)
-	if !ok {
-		return FederatedDataset{}, fmt.Errorf("bundle catalog does not support dataset resolution")
-	}
-	alias = strings.TrimSpace(alias)
-	if alias == "" {
-		return FederatedDataset{}, fmt.Errorf("dataType is required")
-	}
-	uniqueProjects := normalizedProjects(projects)
-	if len(uniqueProjects) == 0 {
-		return FederatedDataset{}, fmt.Errorf("principal has no authorized projects")
-	}
-	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
-	if err != nil {
-		return FederatedDataset{}, err
-	}
-	activeGeneration := make(map[string]string, len(uniqueProjects))
-	if active != nil {
-		for _, project := range uniqueProjects {
-			manifest, resolveErr := publication.ResolveActive(ctx, active, project)
-			if errors.Is(resolveErr, publication.ErrNoActiveGeneration) {
-				continue
-			}
-			if resolveErr != nil {
-				return FederatedDataset{}, resolveErr
-			}
-			activeGeneration[project] = manifest.Dataset.Generation
-		}
-	}
-	allowed := make(map[string]struct{}, len(uniqueProjects))
-	for _, project := range uniqueProjects {
-		allowed[project] = struct{}{}
-	}
-	latest := make(map[string]bundlepublication.BundleExecution, len(uniqueProjects))
-	for _, execution := range executions {
-		if execution.State != bundlepublication.BundleReady {
-			continue
-		}
-		if _, ok := allowed[execution.Project]; !ok {
-			continue
-		}
-		if active != nil {
-			generation, ok := activeGeneration[execution.Project]
-			if !ok || execution.DatasetGeneration != generation {
-				continue
-			}
-		}
-		pointer, pointerErr := catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return FederatedDataset{}, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		if !hasOutputAlias(execution, alias) {
-			continue
-		}
-		current, ok := latest[execution.Project]
-		if !ok || execution.UpdatedAt.After(current.UpdatedAt) {
-			latest[execution.Project] = execution
-		}
-	}
-	if len(latest) == 0 {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	sources := make([]Materialization, 0, len(latest))
-	for _, project := range uniqueProjects {
-		execution, ok := latest[project]
-		if !ok {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias {
-				sources = append(sources, publishedMaterialization(execution, output, alias))
-				break
-			}
-		}
-	}
-	if len(sources) == 0 {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	sort.Slice(sources, func(i, j int) bool {
-		if sources[i].Project != sources[j].Project {
-			return sources[i].Project < sources[j].Project
-		}
-		if sources[i].DatasetGeneration != sources[j].DatasetGeneration {
-			return sources[i].DatasetGeneration < sources[j].DatasetGeneration
-		}
-		return sources[i].ID < sources[j].ID
-	})
-	columns, err := reconcileFederatedColumns(sources)
-	if err != nil {
-		return FederatedDataset{}, dataframeerrors.Wrap(err, dataframeerrors.CodeSchemaConflict, "")
-	}
-	rowCount := int64(0)
-	parts := make([]string, 0, len(sources))
-	for _, source := range sources {
-		rowCount += source.RowCount
-		parts = append(parts, source.ID, source.DatasetGeneration, source.PhysicalTable)
-	}
-	for _, column := range columns {
-		parts = append(parts, column.Name, column.ClickHouse)
-	}
-	sort.Strings(parts)
-	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return FederatedDataset{Name: alias, Revision: hex.EncodeToString(digest[:]), Sources: sources, Columns: columns, RowCount: rowCount}, nil
-}
-
 func normalizedProjects(projects []string) []string {
 	seen := make(map[string]struct{}, len(projects))
 	result := make([]string, 0, len(projects))
@@ -216,13 +101,9 @@ func normalizedProjects(projects []string) []string {
 	return result
 }
 
-func hasOutputAlias(execution bundlepublication.BundleExecution, alias string) bool {
+func hasOutputResourceType(execution bundlepublication.BundleExecution, resourceType string) bool {
 	for _, output := range execution.Outputs {
-		outputAlias := output.Alias
-		if outputAlias == "" {
-			outputAlias = output.Name
-		}
-		if outputAlias == alias {
+		if output.Name == resourceType {
 			return true
 		}
 	}
@@ -287,6 +168,9 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 		}
 	}
 	newNames := make([]string, 0)
+	// project_id is part of Loom's dataframe contract. Keep it available when
+	// reconciling legacy publications whose physical table predates the column.
+	all[projectIDColumn] = parsedType{base: "String"}
 	for name := range all {
 		if _, ok := firstIndex[name]; !ok {
 			newNames = append(newNames, name)
@@ -313,30 +197,19 @@ func nowPlusSecond() time.Time {
 	return time.Now().UTC().Add(time.Second)
 }
 
-func (r *Reader) ResolveFederatedDataset(ctx context.Context, projects []string, alias string) (FederatedDataset, error) {
-	if r == nil || r.Catalog == nil {
-		return FederatedDataset{}, fmt.Errorf("bundle catalog dependency is required")
-	}
-	return resolveFederatedDataset(ctx, r.Catalog, r.ActiveManifestResolver, projects, alias)
-}
-
 // CurrentFederatedSources returns the exact READY pointer-backed publications
 // without touching schema reconciliation. It is the authorization snapshot
 // boundary used by GraphQL and export callers.
-func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string, alias string) ([]Materialization, error) {
+func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string, resourceType string) ([]Materialization, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support dataset resolution")
-	}
 	projects = normalizedProjects(projects)
-	alias = strings.TrimSpace(alias)
-	if len(projects) == 0 || alias == "" {
+	resourceType = strings.TrimSpace(resourceType)
+	if len(projects) == 0 || !fhirschema.HasResource(resourceType) {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +240,11 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 		}
 		if r.ActiveManifestResolver != nil {
 			generation, ok := activeGenerations[execution.Project]
-			if !ok || execution.DatasetGeneration != generation {
+			if ok {
+				if execution.DatasetGeneration != generation {
+					continue
+				}
+			} else if execution.DatasetGeneration != "" {
 				continue
 			}
 		}
@@ -378,7 +255,7 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 		if pointer.ExecutionID != execution.ID {
 			continue
 		}
-		if !hasOutputAlias(execution, alias) {
+		if !hasOutputResourceType(execution, resourceType) {
 			continue
 		}
 		current, ok := latest[execution.Project]
@@ -393,12 +270,8 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 			continue
 		}
 		for _, output := range execution.Outputs {
-			outputAlias := output.Alias
-			if outputAlias == "" {
-				outputAlias = output.Name
-			}
-			if outputAlias == alias {
-				result = append(result, publishedMaterialization(execution, output, alias))
+			if output.Name == resourceType {
+				result = append(result, publishedMaterialization(execution, output, resourceType))
 				break
 			}
 		}
@@ -415,13 +288,9 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	return result, nil
 }
 
-func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string) ([]string, error) {
+func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []string) ([]string, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
-	}
-	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support dataset listing")
 	}
 	projects = normalizedProjects(projects)
 	allowed := map[string]struct{}{}
@@ -441,18 +310,22 @@ func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string)
 			activeGenerations[project] = manifest.Dataset.Generation
 		}
 	}
-	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
-	aliases := map[string]struct{}{}
+	resourceTypes := map[string]struct{}{}
 	for _, execution := range executions {
 		if _, ok := allowed[execution.Project]; !ok {
 			continue
 		}
 		if r.ActiveManifestResolver != nil {
 			generation, ok := activeGenerations[execution.Project]
-			if !ok || generation != execution.DatasetGeneration {
+			if ok {
+				if generation != execution.DatasetGeneration {
+					continue
+				}
+			} else if execution.DatasetGeneration != "" {
 				continue
 			}
 		}
@@ -464,22 +337,20 @@ func (r *Reader) CurrentFederatedAliases(ctx context.Context, projects []string)
 			continue
 		}
 		for _, output := range execution.Outputs {
-			alias := output.Alias
-			if alias == "" {
-				alias = output.Name
+			if fhirschema.HasResource(output.Name) {
+				resourceTypes[output.Name] = struct{}{}
 			}
-			aliases[alias] = struct{}{}
 		}
 	}
-	result := make([]string, 0, len(aliases))
-	for alias := range aliases {
-		result = append(result, alias)
+	result := make([]string, 0, len(resourceTypes))
+	for resourceType := range resourceTypes {
+		result = append(result, resourceType)
 	}
 	sort.Strings(result)
 	return result, nil
 }
 
-func ReconcileFederatedDataset(alias string, sources []Materialization) (FederatedDataset, error) {
+func ReconcileFederatedDataset(resourceType string, sources []Materialization) (FederatedDataset, error) {
 	if len(sources) == 0 {
 		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
@@ -504,7 +375,7 @@ func ReconcileFederatedDataset(alias string, sources []Materialization) (Federat
 	}
 	sort.Strings(parts)
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return FederatedDataset{Name: alias, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount}, nil
+	return FederatedDataset{Name: resourceType, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount}, nil
 }
 
 // PublishedProjects returns project identities that have a current READY
@@ -514,11 +385,7 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	listed, ok := r.Catalog.(bundlepublication.StaleBundleCatalog)
-	if !ok {
-		return nil, fmt.Errorf("bundle catalog does not support project discovery")
-	}
-	executions, err := listed.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
@@ -541,17 +408,6 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func (r *Reader) PageFederated(ctx context.Context, projects []string, alias string, req FederatedPageRequest) (FederatedPage, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
-	if err != nil {
-		return FederatedPage{}, err
-	}
-	return r.PageFederatedDataset(ctx, dataset, req)
 }
 
 func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedPageRequest) (FederatedPage, error) {
@@ -657,23 +513,6 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 	return FederatedPage{Dataset: dataset, Columns: columns, Rows: rows, TotalCount: count, HasNext: hasNext, NextCursor: next}, nil
 }
 
-// StreamFederated visits rows from the authorized current publication union
-// without buffering the complete result in Loom. Internal source identifiers
-// are removed before the visitor is called.
-func (r *Reader) StreamFederated(ctx context.Context, projects []string, alias string, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	if visit == nil {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
-	if err != nil {
-		return FederatedDataset{}, err
-	}
-	return r.StreamFederatedDataset(ctx, dataset, req, visit)
-}
-
 func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
 	if r == nil || r.ClickHouse == nil {
 		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -773,17 +612,6 @@ func datasetVisibleColumns(dataset FederatedDataset) []string {
 	return result
 }
 
-func (r *Reader) AggregateFederated(ctx context.Context, projects []string, alias string, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	dataset, err := r.ResolveFederatedDataset(ctx, projects, alias)
-	if err != nil {
-		return FederatedAggregateResult{}, err
-	}
-	return r.AggregateFederatedDataset(ctx, dataset, req)
-}
-
 func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
 	if r == nil || r.ClickHouse == nil {
 		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -855,11 +683,12 @@ func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset Federate
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	if len(req.GroupBy) > 0 {
-		query += " ORDER BY " + quotedColumns(req.GroupBy)
-	}
+	query += aggregateGroupOrderClause(req.GroupBy)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
 	if err != nil {
+		if r.Logger != nil {
+			r.Logger.Error("clickhouse federated aggregate failed", "query_id", shortQueryID(query), "query", query, "bind_count", len(args), "error", err)
+		}
 		return FederatedAggregateResult{}, backendCallError(err)
 	}
 	return FederatedAggregateResult{Dataset: dataset, Columns: columns, Rows: rows}, nil
@@ -915,7 +744,12 @@ func federatedNormalizedUnion(dataset FederatedDataset, columns []string, access
 			if !ok {
 				return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 			}
-			if sourceColumn, exists := present[column]; exists {
+			if column == projectIDColumn {
+				// The catalog project is authoritative, including for legacy tables
+				// without a physical project_id column.
+				selects = append(selects, fmt.Sprintf("CAST(? AS %s) AS `project_id`", target.ClickHouse))
+				args = append(args, source.Project)
+			} else if sourceColumn, exists := present[column]; exists {
 				selects = append(selects, fmt.Sprintf("CAST(`%s` AS %s) AS `%s`", sourceColumn.Name, target.ClickHouse, column))
 			} else if strings.HasPrefix(target.ClickHouse, "Array(") {
 				selects = append(selects, fmt.Sprintf("CAST([] AS %s) AS `%s`", target.ClickHouse, column))
@@ -964,6 +798,19 @@ func quotedColumns(columns []string) string {
 		quoted[index] = fmt.Sprintf("`%s`", column)
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func aggregateGroupOrderClause(groupBy []string) string {
+	if len(groupBy) == 0 {
+		return ""
+	}
+	columns := quotedColumns(groupBy)
+	return " GROUP BY " + columns + " ORDER BY " + columns
+}
+
+func shortQueryID(query string) string {
+	digest := sha256.Sum256([]byte(query))
+	return hex.EncodeToString(digest[:8])
 }
 
 func federatedCursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {

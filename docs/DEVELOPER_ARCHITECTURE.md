@@ -13,7 +13,7 @@ The top-level directories have distinct ownership:
 | Path | Ownership |
 | --- | --- |
 | `schemas/` | Source schemas edited by developers. |
-| `gqlgen.yml`, `gqlgen.clickhouse.yml` | GraphQL generator configuration. |
+| `gqlgen.yml` | GraphQL generator configuration. |
 | `generated/` | Checked-in generated output; never server business logic. |
 | `internal/` | Handwritten server implementation. |
 | `cmd/` | Executable entry points and developer generators. |
@@ -43,17 +43,17 @@ and `dataframe/published` owns safe published-data reading and federation.
 - `discover-populated-references` and `discover-populated-fields` for
   catalog diagnostics.
 
-`cmd/arango-fhir-server` owns the HTTP process. It mounts health, GraphQL, and
-developer GraphQL tools. In `--dataset-generations` mode it resolves one active
-READY generation and rejects the legacy one-file HTTP import endpoint.
+`cmd/arango-fhir-server` owns the HTTP process. It mounts health, GraphQL,
+developer GraphQL tools, and the primary project/resourceType upload endpoint.
+Complete immutable generations remain an explicit CLI/load workflow.
 
 The GraphQL dataframe mutation is the live compiler transport. Do not add a
 second query compiler or hand-maintained AQL path behind another endpoint.
 
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
-Arango graph/control-plane GraphQL endpoint, `/graphql/dataframe` is the
-Arango-backed FHIR dataframe compiler endpoint, and `/graphql/flat` is the
-dedicated published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
+Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
+reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
+compiler endpoint. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
 dynamic-data contract defined in
 [`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
 Only registered READY publication outputs are exposed; adding a dataset or
@@ -112,8 +112,7 @@ GraphQL request
 
 Runtime preparation and execution live in `internal/dataframe/runtime`;
 compiler orchestration lives in `internal/dataframe/compiler`; structured transport
-errors live in `internal/dataframe/errors`; and guided templates live in
-`internal/dataframe/template`. `internal/catalog` owns scoped observed-field
+errors live in `internal/dataframe/errors`. `internal/catalog` owns scoped observed-field
 and relationship facts. `internal/fhir/schema` owns structural metadata and
 selector semantics. These
 boundaries matter: catalog observations constrain what is populated, while
@@ -123,8 +122,8 @@ The ClickHouse read path is parallel but separate:
 
 ```text
 GraphQL request
-  -> internal/api/graphql/flat HTTP handler
-  -> generated ClickHouse executor and internal resolver binding
+  -> internal/api/graphql/graph HTTP handler
+  -> generated graph executor and internal resolver binding
   -> internal/api/graphql/graph/materialization.Service
   -> dataframe/published.Reader
   -> ClickHouse

@@ -16,15 +16,6 @@ type Target struct {
 	Store IdentityBundleStore
 }
 
-func (t *Target) Reconcile(ctx context.Context, olderThan time.Time) error {
-	if store, ok := t.Store.(interface {
-		Reconcile(context.Context, time.Time) error
-	}); ok {
-		return store.Reconcile(ctx, olderThan)
-	}
-	return fmt.Errorf("ClickHouse publication store does not support reconciliation")
-}
-
 func New(bundleStore IdentityBundleStore) (*Target, error) {
 	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
@@ -73,13 +64,6 @@ func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[
 		return fmt.Errorf("output %q was not declared", output)
 	}
 	return t.tx.InsertRows(ctx, output, columns, rows)
-}
-
-func (t *transaction) Validate(context.Context) error {
-	if t.closed {
-		return fmt.Errorf("ClickHouse publication transaction is closed")
-	}
-	return nil
 }
 
 func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {
