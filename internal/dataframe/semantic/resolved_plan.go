@@ -72,7 +72,7 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 					candidates = append(candidates, Candidate{Key: column, ValueType: "unknown"})
 				}
 				schema, err := Freeze(DynamicSpec{
-					Name: dynamic.Name, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
+					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
 				}, candidates)
 				if err != nil {
 					return fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)

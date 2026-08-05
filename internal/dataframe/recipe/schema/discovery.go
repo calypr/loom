@@ -198,8 +198,10 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 		if dynamic.Key == nil {
 			return fmt.Errorf("dynamic column %q has no static columns or key selector", dynamic.Name)
 		}
-		keySelect := strings.TrimPrefix(strings.TrimSpace(dynamic.Key.Select), "item.")
-		source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), alias+".")
+		source, keySelect, transforms, err := dynamicDiscoveryKey(*dynamic, alias)
+		if err != nil {
+			return fmt.Errorf("dynamic column %q key discovery: %w", dynamic.Name, err)
+		}
 		keyPath := source + "." + keySelect
 		candidates, err := discovery.Fields(ctx, scope, resourceType)
 		if err != nil {
@@ -214,7 +216,13 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 				return fmt.Errorf("dynamic column %q key discovery at %q was truncated", dynamic.Name, keyPath)
 			}
 			for _, value := range candidate.DistinctValues {
-				values[value] = struct{}{}
+				transformed, err := applyDynamicKeyTransforms(value, transforms)
+				if err != nil {
+					return fmt.Errorf("dynamic column %q key %q: %w", dynamic.Name, value, err)
+				}
+				if transformed != "" {
+					values[transformed] = struct{}{}
+				}
 			}
 		}
 		if dynamic.MaxColumns <= 0 {
@@ -231,6 +239,85 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 		// entire dataframe.
 	}
 	return nil
+}
+
+// dynamicDiscoveryKey derives the catalog path that supplies raw dynamic keys
+// and the deterministic transforms the physical key expression applies. The
+// catalog stores only observed scalar paths, so a transformed key (for
+// example last_segment(item.url)) must be frozen from the transformed catalog
+// values; freezing the original URL would make physical map lookups miss.
+func dynamicDiscoveryKey(dynamic recipe.DynamicColumn, alias string) (string, string, []string, error) {
+	source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), alias+".")
+	if source == "" {
+		return "", "", nil, fmt.Errorf("source must be a selector")
+	}
+	if dynamic.Key == nil {
+		return "", "", nil, fmt.Errorf("key selector is required")
+	}
+	key, transforms, err := dynamicKeySelector(*dynamic.Key)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return source, key, transforms, nil
+}
+
+func dynamicKeySelector(expr recipe.Expression) (string, []string, error) {
+	if expr.Select != "" {
+		key := strings.TrimPrefix(strings.TrimSpace(expr.Select), "item.")
+		if key == "" || key == strings.TrimSpace(expr.Select) {
+			return "", nil, fmt.Errorf("key must be rooted at item")
+		}
+		return key, nil, nil
+	}
+	name := strings.ToLower(strings.TrimSpace(expr.Call))
+	switch name {
+	case "last_segment", "basename", "path_segment", "sanitize_name", "sanitize_graphql_name":
+		if len(expr.Args) != 1 {
+			return "", nil, fmt.Errorf("call %q requires one argument", expr.Call)
+		}
+		key, transforms, err := dynamicKeySelector(expr.Args[0])
+		if err != nil {
+			return "", nil, err
+		}
+		return key, append(transforms, name), nil
+	default:
+		return "", nil, fmt.Errorf("key must be an item selector or a supported key-normalization call")
+	}
+}
+
+func applyDynamicKeyTransforms(value string, transforms []string) (string, error) {
+	for _, transform := range transforms {
+		switch transform {
+		case "last_segment", "basename", "path_segment":
+			value = strings.TrimRight(value, "/")
+			parts := strings.FieldsFunc(value, func(r rune) bool { return r == '/' || r == '#' })
+			if len(parts) == 0 {
+				return "", nil
+			}
+			value = parts[len(parts)-1]
+		case "sanitize_name", "sanitize_graphql_name":
+			var name strings.Builder
+			for _, r := range value {
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+					name.WriteRune(r)
+				} else {
+					name.WriteByte('_')
+				}
+			}
+			value = name.String()
+			if value == "" {
+				value = "_"
+			} else if value[0] >= '0' && value[0] <= '9' {
+				value = "_" + value
+			}
+			if strings.HasPrefix(value, "__") {
+				value = "_" + strings.TrimPrefix(value, "__")
+			}
+		default:
+			return "", fmt.Errorf("unsupported key transform %q", transform)
+		}
+	}
+	return value, nil
 }
 
 func qualifyDiscoveredSelector(alias, selector string) string {

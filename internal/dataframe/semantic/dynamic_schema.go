@@ -13,10 +13,11 @@ import (
 )
 
 type DynamicSpec struct {
-	Name        string
-	AllowedKeys []string
-	MaxColumns  int
-	Collision   string
+	Name         string
+	ColumnPrefix *string
+	AllowedKeys  []string
+	MaxColumns   int
+	Collision    string
 }
 
 type Candidate struct {
@@ -67,7 +68,14 @@ func Freeze(spec DynamicSpec, candidates []Candidate) (FrozenSchema, error) {
 		if key == "" {
 			continue
 		}
-		name := spec.Name + "_" + key
+		prefix := spec.Name
+		if spec.ColumnPrefix != nil {
+			prefix = *spec.ColumnPrefix
+		}
+		name := key
+		if prefix != "" {
+			name = prefix + "_" + key
+		}
 		column := Column{Name: name, ValueType: candidate.ValueType, SourceKey: candidate.Key}
 		if column.ValueType == "" {
 			column.ValueType = "unknown"

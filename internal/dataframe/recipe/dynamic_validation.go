@@ -12,6 +12,11 @@ func validateDynamicColumns(items []DynamicColumn, path string, budget *int) err
 		if err := validateRecipeName(dynamic.Name, dp+".name"); err != nil {
 			return err
 		}
+		if dynamic.ColumnPrefix != nil && *dynamic.ColumnPrefix != "" {
+			if err := validateRecipeName(*dynamic.ColumnPrefix, dp+".columnPrefix"); err != nil {
+				return err
+			}
+		}
 		if seen[dynamic.Name] {
 			return validationError("duplicate_name", dp+".name", "duplicate dynamic column name")
 		}

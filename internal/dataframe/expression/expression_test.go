@@ -39,6 +39,7 @@ func TestCheckOperationTypes(t *testing.T) {
 		want Type
 	}{
 		{"coalesce_string", Function("coalesce_string", Constant(Type{Kind: KindInteger, Cardinality: OptionalOne}, int64(3)), stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
+		{"last_segment", Function("last_segment", stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"concat", Function("concat", stringOne, stringOne), Type{Kind: KindString, Cardinality: RequiredOne}},
 		{"first", Function("first", Function("all", stringOne)), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"uuid5", Function("uuid5", stringOne, stringOne), Type{Kind: KindUUID, Cardinality: RequiredOne}},

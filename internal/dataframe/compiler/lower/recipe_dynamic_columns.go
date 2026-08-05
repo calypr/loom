@@ -33,11 +33,12 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 	if returnOp < 0 {
 		return nil, fmt.Errorf("canonical plan has no RETURN operation for dynamic columns")
 	}
-	seen := map[string]bool{}
-	for _, projection := range plan.Operations[returnOp].Return.Projections {
-		seen[projection.Name] = true
+	projectionIndexes := map[string]int{}
+	for index, projection := range plan.Operations[returnOp].Return.Projections {
+		projectionIndexes[projection.Name] = index
 	}
 	metadata := make([]DynamicColumnMetadata, 0)
+	metadataIndexes := map[string]int{}
 	runtimeKeyFields := make([]ir.PhysicalExpressionProjection, 0, len(dynamics))
 	setVariables := recipeSetVariables(*plan)
 	for _, dynamic := range dynamics {
@@ -97,18 +98,33 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		}
 		for index, column := range columns {
 			outputName := projectionPrefix + column.Column.Name
-			if column.Column.Name == "" || seen[outputName] {
-				if seen[outputName] {
-					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)
-				}
+			if column.Column.Name == "" {
 				return nil, fmt.Errorf("dynamic map %q contains an empty resolved column name", dynamic.Name)
 			}
 			matchBindKey := nextDynamicBindKey(plan.BindVars, projectionPrefix+dynamic.Name, index)
 			plan.BindVars[matchBindKey] = column.Column.SourceKey
 			lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: value.Cardinality, NullBehavior: value.NullBehavior, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: matchBindKey}}
+			entry := DynamicColumnMetadata{Name: outputName, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType}
+			if projectionIndex, exists := projectionIndexes[outputName]; exists {
+				if output.Collision != "overwrite" {
+					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)
+				}
+				// The legacy dataframe flatteners update one row map in declaration
+				// order. Preserve that contract for an explicit overwrite policy
+				// instead of rejecting a category/identifier or extension collision.
+				plan.Operations[returnOp].Return.Projections[projectionIndex] = ir.PhysicalProjection{Name: outputName, Expression: &lookup}
+				if metadataIndex, dynamicExists := metadataIndexes[outputName]; dynamicExists {
+					metadata[metadataIndex] = entry
+				} else {
+					metadataIndexes[outputName] = len(metadata)
+					metadata = append(metadata, entry)
+				}
+				continue
+			}
+			projectionIndexes[outputName] = len(plan.Operations[returnOp].Return.Projections)
 			plan.Operations[returnOp].Return.Projections = append(plan.Operations[returnOp].Return.Projections, ir.PhysicalProjection{Name: outputName, Expression: &lookup})
-			seen[outputName] = true
-			metadata = append(metadata, DynamicColumnMetadata{Name: outputName, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType})
+			metadataIndexes[outputName] = len(metadata)
+			metadata = append(metadata, entry)
 		}
 	}
 	if len(runtimeKeyFields) > 0 {

@@ -34,6 +34,36 @@ func TestResolveRecipePlanFreezesScopedDynamicColumns(t *testing.T) {
 	}
 }
 
+func TestResolveRecipePlanHonorsExplicitEmptyDynamicColumnPrefix(t *testing.T) {
+	prefix := ""
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "dynamic",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+			DynamicColumns: []recipe.DynamicColumn{{
+				Name: "attachment_extensions", ColumnPrefix: &prefix,
+				Source: recipe.Expression{Select: "content[].attachment.extension[]"},
+				Key:    &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.url"}}},
+				Value:  &recipe.Expression{Select: "item.valueString"}, Columns: []string{"source_path"}, MaxColumns: 4,
+			}},
+		}},
+	}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveRecipePlan(plan, "scope-1", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := resolved.ResolvedColumns["DocumentReference:attachment_extensions"]
+	if len(columns) != 1 || columns[0].Column.Name != "source_path" || columns[0].Column.SourceKey != "source_path" {
+		t.Fatalf("unexpected compatibility dynamic column: %#v", columns)
+	}
+}
+
 func TestResolveRecipePlanRequiresDiscoveryForUnfrozenDynamicMap(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "code", Source: recipe.Expression{Select: "identifier[].value"}}}}}}
 	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})

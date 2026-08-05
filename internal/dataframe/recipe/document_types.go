@@ -316,12 +316,17 @@ type Identity struct {
 // DynamicColumn discovers a bounded set of key/value columns. The compiler
 // freezes discovered keys before materialization.
 type DynamicColumn struct {
-	Name       string      `json:"name"`
-	Source     Expression  `json:"source"`
-	Key        *Expression `json:"key,omitempty"`
-	Value      *Expression `json:"value,omitempty"`
-	Columns    []string    `json:"columns,omitempty"`
-	MaxColumns int         `json:"maxColumns,omitempty"`
+	Name string `json:"name"`
+	// ColumnPrefix controls the public prefix of frozen dynamic columns. When
+	// omitted, Name remains the prefix for backwards compatibility. An explicit
+	// empty string permits a dynamic family such as URL-keyed extensions to
+	// publish its normalized keys directly (for example source_path).
+	ColumnPrefix *string     `json:"columnPrefix,omitempty"`
+	Source       Expression  `json:"source"`
+	Key          *Expression `json:"key,omitempty"`
+	Value        *Expression `json:"value,omitempty"`
+	Columns      []string    `json:"columns,omitempty"`
+	MaxColumns   int         `json:"maxColumns,omitempty"`
 }
 
 // CatalogProjection describes a bounded family of populated FHIR paths. It

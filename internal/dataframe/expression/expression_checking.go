@@ -283,7 +283,7 @@ func inferCall(name string, args []Type, target *Type) (Type, error) {
 		}
 		return result, nil
 	}
-	if name == "reference_id" || name == "path_segment" || name == "sanitize_name" {
+	if name == "reference_id" || name == "path_segment" || name == "basename" || name == "last_segment" || name == "sanitize_name" || name == "sanitize_graphql_name" {
 		if len(args) != 1 || args[0].Kind != KindString || args[0].Cardinality == Many {
 			return Type{}, fmt.Errorf("%s requires one scalar string argument", name)
 		}

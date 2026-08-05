@@ -201,6 +201,10 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			columns = append([]string{}, dynamic.Columns...)
 		}
 		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns}
+		if dynamic.ColumnPrefix != nil {
+			prefix := *dynamic.ColumnPrefix
+			item.ColumnPrefix = &prefix
+		}
 		var err error
 		item.Source, err = scope.expression(dynamic.Source, fmt.Sprintf("%s[%d].source", path, index))
 		if err != nil {

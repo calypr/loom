@@ -120,6 +120,7 @@ func (u SemanticUnnest) Validate() error {
 
 type SemanticDynamicMap struct {
 	Name         string
+	ColumnPrefix *string
 	ScopeAlias   string
 	ResourceType string
 	Source       SemanticExpression
