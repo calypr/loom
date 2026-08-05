@@ -331,6 +331,7 @@ go test ./...
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)
+- [Dataframer recipe reference and operating manual](docs/DATAFRAMER_RECIPE_REFERENCE.md)
 - [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)

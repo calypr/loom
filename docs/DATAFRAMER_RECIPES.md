@@ -1,5 +1,15 @@
 # Authoring a default dataframer recipe
 
+This is the practical introduction.  For the complete field-by-field language
+reference, safe editing/runbook, dynamic-column semantics, default replacement
+behavior, and a lossless `DocumentReference` attachment mapping, read the
+[Dataframer recipe reference and operating manual](DATAFRAMER_RECIPE_REFERENCE.md).
+
+If you are changing the shipped default, use that reference's safe editing
+loop before deploying.  In particular, do not use wildcard scalar catalog
+discovery to model FHIR extension URL/value pairs: define a targeted dynamic
+key/value family instead.
+
 A dataframer recipe tells Loom how to turn an authorized FHIR graph into one
 or more flat ClickHouse datasets. It defines roots, outbound traversals,
 selected fields, and bounded column discovery. It does not contain project
