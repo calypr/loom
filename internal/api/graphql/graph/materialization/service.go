@@ -63,7 +63,10 @@ func (s *Service) projects(ctx context.Context, principal *authscope.Principal) 
 		return nil, mapReaderError(err)
 	}
 	if len(projects) == 0 {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
+		// An empty publication catalog is an expected data state, not an
+		// authorization failure. Callers can present a useful "not published"
+		// state while real source-level access checks still fail closed below.
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	return projects, nil
 }
