@@ -243,8 +243,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			if clickhouse == nil {
 				return nil
 			}
-			_, err := clickhouse.QueryRowsArgs(ctx, "SELECT 1", []string{"ok"})
-			return err
+			return clickhouse.Ping(ctx)
 		}, ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled})
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)

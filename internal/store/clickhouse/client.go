@@ -67,6 +67,14 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// Ping verifies that the configured ClickHouse connection is reachable.
+func (c *Client) Ping(ctx context.Context) error {
+	if c == nil || c.conn == nil {
+		return fmt.Errorf("ClickHouse connection is not configured")
+	}
+	return c.conn.Ping(ctx)
+}
+
 func (c *Client) CreateTable(ctx context.Context, table string, columns []Column) error {
 	if err := validateIdentifier(table); err != nil {
 		return err

@@ -149,7 +149,9 @@ Useful local URLs:
 - [Apollo Sandbox](http://127.0.0.1:8080/apollo)
 - FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
 - Published dataframe reader: `http://127.0.0.1:8080/graphql/graph` (legacy alias: `/graphql/flat`)
-- [Health check](http://127.0.0.1:8080/health)
+- [Health summary](http://127.0.0.1:8080/health)
+- [Process liveness](http://127.0.0.1:8080/livez)
+- [Dependency readiness](http://127.0.0.1:8080/readyz)
 
 Run the checked-in graph dataframe example after the server is up:
 

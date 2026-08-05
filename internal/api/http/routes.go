@@ -2,8 +2,9 @@ package httpapi
 
 import (
 	"context"
-	"github.com/gofiber/fiber/v3"
 	"time"
+
+	"github.com/gofiber/fiber/v3"
 )
 
 func (s *HTTPServer) register() {
@@ -13,6 +14,8 @@ func (s *HTTPServer) register() {
 
 func (s *HTTPServer) registerHealthRoutes() {
 	s.app.Get("/health", s.health)
+	s.app.Get("/livez", s.liveness)
+	s.app.Get("/readyz", s.readiness)
 }
 
 func (s *HTTPServer) health(c fiber.Ctx) error {
@@ -23,13 +26,32 @@ func (s *HTTPServer) health(c fiber.Ctx) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
+	result := s.checkDependencies(ctx)
+	s.lastHealth, s.lastHealthResult = time.Now(), result
+	return s.writeHealth(c, result)
+}
+
+func (s *HTTPServer) liveness(c fiber.Ctx) error {
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "live"})
+}
+
+func (s *HTTPServer) readiness(c fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	defer cancel()
+	result := s.checkDependencies(ctx)
+	if result.core != "ready" || result.dataframe == "backend_unavailable" {
+		result.status = "not_ready"
+		result.httpStatus = fiber.StatusServiceUnavailable
+	}
+	return s.writeHealth(c, result)
+}
+
+func (s *HTTPServer) checkDependencies(ctx context.Context) healthResult {
 	result := healthResult{status: "ready", core: "ready", dataframe: "ready", httpStatus: fiber.StatusOK}
 	if s.coreReadyCheck != nil {
 		if err := s.coreReadyCheck(ctx); err != nil {
 			s.logger.Error("core readiness check failed", "error", err)
-			result = healthResult{status: "not_ready", core: "not_ready", httpStatus: fiber.StatusServiceUnavailable}
-			s.lastHealth, s.lastHealthResult = time.Now(), result
-			return s.writeHealth(c, result)
+			return healthResult{status: "not_ready", core: "not_ready", httpStatus: fiber.StatusServiceUnavailable}
 		}
 	}
 	if !s.clickHouseEnabled {
@@ -41,8 +63,7 @@ func (s *HTTPServer) health(c fiber.Ctx) error {
 			result.status, result.dataframe = "degraded", "backend_unavailable"
 		}
 	}
-	s.lastHealth, s.lastHealthResult = time.Now(), result
-	return s.writeHealth(c, result)
+	return result
 }
 
 func (s *HTTPServer) writeHealth(c fiber.Ctx, result healthResult) error {

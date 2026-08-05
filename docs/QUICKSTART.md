@@ -86,7 +86,9 @@ Useful endpoints:
 - GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
 - FHIR dataframe endpoint: [http://127.0.0.1:8080/graphql/dataframe](http://127.0.0.1:8080/graphql/dataframe)
 - Published dataframe fields: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
-- Health check: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
+- Health summary: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
+- Process liveness: [http://127.0.0.1:8080/livez](http://127.0.0.1:8080/livez)
+- Dependency readiness: [http://127.0.0.1:8080/readyz](http://127.0.0.1:8080/readyz)
 
 On macOS you can jump straight to Apollo with:
 

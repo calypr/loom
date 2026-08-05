@@ -47,7 +47,8 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
 	// Health probes must remain available before credentials are configured and
 	// are deliberately not project/data APIs.
-	if c.Path() == "/health" {
+	switch c.Path() {
+	case "/health", "/livez", "/readyz":
 		return c.Next()
 	}
 	principal, err := s.authn.Authenticate(c.Context(), c.GetReqHeaders())
