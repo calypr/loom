@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	ErrBundleInFlight  = errors.New("identical bundle execution is already in flight")
-	ErrBundleLeaseLost = errors.New("bundle lease ownership was lost")
+	ErrBundleInFlight        = errors.New("identical bundle execution is already in flight")
+	ErrBundleLeaseLost       = errors.New("bundle lease ownership was lost")
+	ErrBundleCommitUncertain = errors.New("bundle publication commit outcome is uncertain")
 )
 
 type IdentityBundleStore interface {
@@ -410,13 +411,46 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
 	if err := t.store.catalog.PublishExecution(ctx, t.execution.PointerName(), t.expectedPointer, t.execution); err != nil {
 		if errors.Is(err, publication.ErrBundlePointerConflict) {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithRetryable(true))
-		} else {
-			err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+			return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 		}
+		committed, conclusive, confirmErr := t.confirmCommit(ctx)
+		if committed {
+			t.closed = true
+			return t.stopLease()
+		}
+		if !conclusive {
+			t.closed = true // Prevent the runner from deleting possibly published tables.
+			uncertain := dataframeerrors.Wrap(errors.Join(ErrBundleCommitUncertain, err, confirmErr), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+			return publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
+		}
+		err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 	}
 	t.closed = true
 	return t.stopLease()
+}
+
+// confirmCommit distinguishes a lost success response from a transaction that
+// definitely did not publish. Inconsistent or unreadable metadata remains
+// uncertain so callers never delete tables that a live pointer may reference.
+func (t *clickHouseBundleTx) confirmCommit(ctx context.Context) (committed, conclusive bool, err error) {
+	execution, executionErr := t.store.catalog.GetExecution(ctx, t.execution.ID)
+	pointer, pointerErr := t.store.catalog.GetPointer(ctx, t.execution.PointerName())
+	if errors.Is(pointerErr, publication.ErrBundleNotFound) {
+		pointerErr = nil
+		pointer = publication.BundlePointer{Name: t.execution.PointerName()}
+	}
+	if executionErr != nil || pointerErr != nil {
+		return false, false, errors.Join(executionErr, pointerErr)
+	}
+	if execution.State.Successful() && pointer.ExecutionID == execution.ID && allOutputsQueryable(execution.Outputs) {
+		t.execution = execution
+		return true, true, nil
+	}
+	if !execution.State.Successful() && pointer.ExecutionID != execution.ID {
+		return false, true, nil
+	}
+	return false, false, fmt.Errorf("publication metadata is inconsistent: execution state %q, pointer %q", execution.State, pointer.ExecutionID)
 }
 
 func (t *clickHouseBundleTx) Rollback(ctx context.Context) error {
@@ -528,7 +562,7 @@ func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(va
 // commands that have not started are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
 	reconcilerID := "reconciler-" + uuid.NewString()
-	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundlePreflight, publication.BundleLoading} {
+	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundlePreflight, publication.BundleLoading, publication.BundleFailed} {
 		executions, err := s.catalog.ListExecutions(ctx, state, olderThan)
 		if err != nil {
 			return err
@@ -545,9 +579,11 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.OwnerID = reconcilerID
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
 			var first error
+			remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
 			for _, output := range execution.Outputs {
 				if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
 					first = errors.Join(first, err)
+					remaining = append(remaining, output)
 				}
 			}
 			execution.State = publication.BundleFailed
@@ -555,7 +591,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
 			execution.FailureRetryable = true
 			execution.UpdatedAt = time.Now().UTC()
-			execution.Outputs = nil
+			execution.Outputs = remaining
 			if execution.MaxAttempts > 0 && execution.Attempt < execution.MaxAttempts {
 				execution.State = publication.BundleQueued
 				next := execution.UpdatedAt

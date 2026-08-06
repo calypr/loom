@@ -47,6 +47,7 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 		result := &RecipeExecution{
 			ID:                   execution.ID,
 			Name:                 execution.Name,
+			TranslationVersion:   execution.TranslationVersion,
 			RecipeDigest:         execution.RecipeDigest,
 			ResolvedSchemaDigest: execution.SchemaDigest,
 			SourceGeneration:     execution.DatasetGeneration,
@@ -54,6 +55,7 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 			Error:                execution.Error,
 			ErrorCode:            execution.FailureCode,
 			ErrorRetryable:       execution.FailureRetryable,
+			Phase:                execution.FailurePhase,
 			Outputs:              make([]RecipeExecutionOutput, 0, len(execution.Outputs)),
 		}
 		for _, output := range execution.Outputs {
@@ -65,6 +67,7 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 			result.Outputs = append(result.Outputs, RecipeExecutionOutput{
 				Name: output.Name, State: outputState, RowCount: &rowCount, Error: execution.Error,
 				ErrorCode: output.FailureCode, ErrorRetryable: output.FailureRetryable,
+				Selector: output.Selector, Phase: output.FailurePhase,
 			})
 		}
 		return result, nil
@@ -95,6 +98,12 @@ func recipeExecutionLookupError(err error) error {
 
 func graphQLRecipeExecutionState(state materialization.BundleState) (string, error) {
 	switch state {
+	case materialization.BundleQueued:
+		return "QUEUED", nil
+	case materialization.BundleRunning:
+		return "RUNNING", nil
+	case materialization.BundlePublished:
+		return "PUBLISHED", nil
 	case materialization.BundlePending:
 		return "ACCEPTED", nil
 	case materialization.BundlePreflight, materialization.BundleValidating:

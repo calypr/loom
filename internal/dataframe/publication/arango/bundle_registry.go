@@ -100,6 +100,29 @@ SORT doc.publishedAt DESC, doc.readyAt DESC, doc.updatedAt DESC LIMIT 1 RETURN d
 	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
 }
 
+// DataframeSelectorForExecution exposes exact selector metadata to federation
+// without making the reader understand the registry's persisted document.
+func (r *Registry) DataframeSelectorForExecution(ctx context.Context, executionID, outputName string) (publication.DataframeSelector, error) {
+	execution, err := r.GetExecution(ctx, executionID)
+	if err != nil {
+		return publication.DataframeSelector{}, err
+	}
+	for _, output := range execution.Outputs {
+		if output.Name != outputName {
+			continue
+		}
+		if output.Selector.Valid() {
+			return output.Selector, nil
+		}
+		selector := execution.Selector(outputName)
+		if selector.Valid() {
+			return selector, nil
+		}
+		break
+	}
+	return publication.DataframeSelector{}, publication.ErrBundleNotFound
+}
+
 func (r *Registry) loadExecution(ctx context.Context, query string, vars map[string]interface{}) (publication.BundleExecution, error) {
 	var found *publication.BundleExecution
 	err := r.client.QueryRows(ctx, query, r.batchSize, vars, func(row map[string]any) error {

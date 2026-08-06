@@ -52,15 +52,7 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	if value.Availability != "" {
 		availability := model.DataframeAvailability(value.Availability)
 		result.Availability = &availability
-		included, expected := len(value.ProjectStatuses), value.ExpectedProjects
-		for _, status := range value.ProjectStatuses {
-			if status.State != materialization.ProjectCurrent && status.State != materialization.ProjectStale {
-				included--
-			}
-		}
-		if included < 0 {
-			included = 0
-		}
+		included, expected := value.IncludedProjects, value.ExpectedProjects
 		result.IncludedProjectCount, result.ExpectedProjectCount = &included, &expected
 		completeness := 0.0
 		if expected > 0 {

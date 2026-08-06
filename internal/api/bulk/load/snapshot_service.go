@@ -67,8 +67,27 @@ func (s *SnapshotService) Upload(ctx context.Context, project, generation, resou
 	if err != nil {
 		return dataset.SnapshotGeneration{}, err
 	}
-	if prior, ok := snapshot.Upload(resourceType); ok && (prior.SHA256 != upload.SHA256 || prior.Size != upload.Size) {
-		return dataset.SnapshotGeneration{}, dataset.ErrChecksumConflict
+	if prior, ok := snapshot.Upload(resourceType); ok {
+		if prior.SHA256 != upload.SHA256 || prior.Size != upload.Size {
+			return dataset.SnapshotGeneration{}, dataset.ErrChecksumConflict
+		}
+		return snapshot, nil
+	}
+	if snapshot.State != dataset.StateLoading {
+		if snapshot.State == dataset.StateFailed {
+			return dataset.SnapshotGeneration{}, dataset.ErrSnapshotAborted
+		}
+		return dataset.SnapshotGeneration{}, dataset.ErrSnapshotFinalized
+	}
+	declared := false
+	for _, expected := range snapshot.ExpectedResourceTypes {
+		if expected == resourceType {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return dataset.SnapshotGeneration{}, fmt.Errorf("%w: resource type %q was not declared", dataset.ErrSnapshotConflict, resourceType)
 	}
 	if err := s.Blobs.Put(ctx, ref, upload, body); err != nil {
 		return dataset.SnapshotGeneration{}, err

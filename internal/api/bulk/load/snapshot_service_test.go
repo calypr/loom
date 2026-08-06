@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,7 +39,8 @@ func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
 	store := dataset.NewMemoryLifecycleStore()
 	runner := &snapshotRunnerFixture{}
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	service := &SnapshotService{Repository: store, Blobs: LocalSnapshotBlobs{Root: t.TempDir()}, Runner: runner, Now: func() time.Time { return now }}
+	blobs := LocalSnapshotBlobs{Root: t.TempDir()}
+	service := &SnapshotService{Repository: store, Blobs: blobs, Runner: runner, Now: func() time.Time { return now }}
 	ctx := context.Background()
 
 	created, err := service.CreateOrResume(ctx, "project-a", "commit-a", "", []string{"Patient", "Observation"})
@@ -47,6 +50,13 @@ func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
 	resumed, err := service.CreateOrResume(ctx, "project-a", "commit-a", "", []string{"Observation", "Patient"})
 	if err != nil || resumed.Dataset != created.Dataset {
 		t.Fatalf("resume = %#v, %v", resumed, err)
+	}
+	undeclared := []byte("{}\n")
+	if _, err := service.Upload(ctx, "project-a", "commit-a", "Encounter", checksumFor(undeclared), undeclared); !errors.Is(err, dataset.ErrSnapshotConflict) {
+		t.Fatalf("undeclared resource upload = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(blobs.generationDirectory(created.Dataset), "Encounter.ndjson")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("undeclared resource left a blob: %v", err)
 	}
 	patient := []byte("{\"resourceType\":\"Patient\",\"id\":\"p1\"}\n")
 	checksum := checksumFor(patient)
@@ -72,6 +82,9 @@ func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
 	}
 	if runner.calls != 1 || len(runner.requests) != 1 || !runner.requests[0].StageOnly {
 		t.Fatalf("runner requests = %#v", runner.requests)
+	}
+	if _, err := service.Upload(ctx, "project-a", "commit-a", "Patient", checksum, patient); err != nil {
+		t.Fatalf("idempotent upload after finalize = %v", err)
 	}
 	stagedAgain, resultAgain, err := service.Finalize(ctx, "project-a", "commit-a", "operator")
 	if err != nil || stagedAgain.State != dataset.StateStaged || resultAgain != nil || runner.calls != 1 {

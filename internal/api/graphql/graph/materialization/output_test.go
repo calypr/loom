@@ -19,7 +19,8 @@ func TestFederationMetadataMapping(t *testing.T) {
 	value := Model(dfpublished.Materialization{
 		ID: "federated", Name: "DocumentReference", Selector: dfpublished.DataframeSelector{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"},
 		ActiveContractVersion: "v1", Availability: dfpublished.FederationDegraded, ExpectedProjects: 2,
-		ProjectStatuses: []dfpublished.ProjectStatus{{ProjectID: "allowed", State: dfpublished.ProjectCurrent}, {ProjectID: "missing", State: dfpublished.ProjectMissing}},
+		IncludedProjects: 1,
+		ProjectStatuses:  []dfpublished.ProjectStatus{{ProjectID: "allowed", State: dfpublished.ProjectCurrent}, {ProjectID: "missing", State: dfpublished.ProjectMissing}},
 	})
 	if value.Selector == nil || value.Selector.TranslationVersion != "v2" || value.ActiveContractVersion == nil || *value.ActiveContractVersion != "v1" {
 		t.Fatalf("selector metadata = %#v", value)

@@ -41,6 +41,7 @@ type PublicationIdentity struct {
 	ScopeDigest        string
 	EngineVersion      string
 	TargetConfigDigest string
+	AuthScopeMode      string
 	AuthResourcePaths  []string
 }
 

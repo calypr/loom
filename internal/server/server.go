@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,8 +19,10 @@ import (
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
@@ -88,10 +92,15 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
 	}
+	if err := lifecycleClient.Bootstrap(ctx, dataframeContractBootstrapSpec()); err != nil {
+		degradation = recordDegradation(logger, degradation, "bootstrap dataframe contract registry", err)
+	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
+	initialRecipe := strings.TrimSpace(serverConfig.Server.DefaultRecipe)
+	initialVersion := strings.TrimSpace(serverConfig.Server.DefaultTranslationVersion)
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -104,7 +113,21 @@ func run(ctx context.Context, serverConfig Config) error {
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
+		if initialRecipe == "" && initialVersion == "" {
+			initialRecipe, initialVersion = defaultBundle.Name, defaultBundle.TranslationVersion
+		}
 	}
+	contractStore := dataframeContractStore{query: lifecycleClient}
+	contractState := &dataframeContractState{}
+	contract, contractErr := contractStore.Load(ctx)
+	if errors.Is(contractErr, errNoDataframeContract) && initialRecipe != "" && initialVersion != "" {
+		contract, contractErr = contractStore.Promote(ctx, initialRecipe, initialVersion)
+	}
+	if contractErr != nil && !errors.Is(contractErr, errNoDataframeContract) {
+		degradation = recordDegradation(logger, degradation, "load dataframe contract", contractErr)
+		contract = promotedDataframeContract{Recipe: initialRecipe, TranslationVersion: initialVersion}
+	}
+	contractState.Set(contract)
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create dataset lifecycle store: %w", err)
@@ -179,6 +202,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("create dataframe recipe engine: %w", err)
 	}
 	var bundleTarget publication.Target
+	var publicationWorker *publicationclickhouse.Worker
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
 		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, publishedRegistry)
 		if err != nil {
@@ -193,7 +217,83 @@ func run(ctx context.Context, serverConfig Config) error {
 			if err != nil {
 				return fmt.Errorf("create dataframe publication target: %w", err)
 			}
+			publicationWorker, err = publicationclickhouse.NewWorker(bundleStore, recipePublicationProcessor(recipeEngine, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes), publicationclickhouse.WorkerConfig{Lease: serverConfig.Server.PublicationWorkerLease, MaxAttempts: serverConfig.Server.PublicationMaxAttempts})
+			if err != nil {
+				return fmt.Errorf("create dataframe publication worker: %w", err)
+			}
 		}
+	}
+	verificationStore := publicationVerificationStore{executions: publishedRegistry, query: lifecycleClient}
+	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	noAuthEnabled := serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
+	var candidateProjects func(context.Context) ([]string, error)
+	if noAuthEnabled {
+		inventory := publicationcontract.ProjectInventory{Snapshots: lifecycleStore, Releases: lifecycleStore, Executions: verificationStore}
+		candidateProjects = func(ctx context.Context) ([]string, error) {
+			return inventory.ExpectedProjects(ctx, nil, true)
+		}
+	}
+	if materializationReader != nil {
+		statusResolver := releaseProjectStatusResolver{releases: lifecycleStore, executions: publishedRegistry}
+		materializationReader.ProjectStatusResolver = statusResolver
+		materializationReader.ReleaseExecutionResolver = statusResolver
+	}
+	var exactStarter graphresolver.ExactMaterializationStarter
+	if publicationWorker != nil {
+		exactStarter = func(ctx context.Context, selector publicationcontract.DataframeSelector, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+			identity := publication.BundleIdentity{
+				Name: selector.Recipe, TranslationVersion: selector.TranslationVersion,
+				Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
+				ScopeDigest: recipeScopeDigest(bindings), EngineVersion: "loom-recipe-v1",
+				AuthScopeMode:     string(bindings.AuthScopeMode),
+				AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+			}
+			execution, err := publicationWorker.Enqueue(ctx, identity)
+			if err != nil {
+				return graphresolver.RecipeExecution{}, err
+			}
+			return graphresolver.RecipeExecution{
+				ID: execution.ID, Name: execution.Name, TranslationVersion: execution.TranslationVersion,
+				SourceGeneration: execution.DatasetGeneration, State: string(execution.State.Canonical()),
+				Outputs: []graphresolver.RecipeExecutionOutput{{Name: selector.Output, State: string(execution.State.Canonical()), Selector: selector}},
+			}, nil
+		}
+	}
+	releaseActivator := func(ctx context.Context, project, releaseID, expectedRevision string) (graphresolver.ProjectRelease, error) {
+		revision := int64(0)
+		if strings.TrimSpace(expectedRevision) != "" {
+			parsed, err := strconv.ParseInt(expectedRevision, 10, 64)
+			if err != nil || parsed < 0 {
+				return graphresolver.ProjectRelease{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+			}
+			revision = parsed
+		}
+		active, err := releaseService.ActivateExisting(ctx, project, releaseID, revision)
+		if err != nil {
+			return graphresolver.ProjectRelease{}, err
+		}
+		return graphresolver.ProjectRelease{ID: active.Release.ID, Project: active.Release.Project, Generation: active.Release.Generation, Revision: strconv.FormatInt(active.Revision, 10), State: "ACTIVE"}, nil
+	}
+	contractPromoter := func(ctx context.Context, recipeName, version string) (graphresolver.DataframeContract, error) {
+		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).LoadVersion(ctx, recipeName, version); err != nil {
+			return graphresolver.DataframeContract{}, err
+		}
+		contract, err := contractStore.Promote(ctx, recipeName, version)
+		if err != nil {
+			return graphresolver.DataframeContract{}, err
+		}
+		contractState.Set(contract)
+		return graphresolver.DataframeContract{Recipe: contract.Recipe, TranslationVersion: contract.TranslationVersion, PromotedAt: contract.PromotedAt.Format(time.RFC3339Nano)}, nil
+	}
+	contractAuthorizer := func(ctx context.Context) error {
+		principal, ok := authscope.PrincipalFromContext(ctx)
+		if !ok || principal == nil {
+			return authscope.ErrUnauthenticated
+		}
+		if noAuthEnabled || strings.EqualFold(serverConfig.Auth.Mode, "basic") || strings.EqualFold(principal.Claims["loom_operator"], "true") {
+			return nil
+		}
+		return authscope.ErrForbidden
 	}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
@@ -212,9 +312,15 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeControl: engine.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) (engine.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
-		RecipeAuthorizer:  recipeAuthorization{resolver: scopeResolver},
-		RecipeExecutions:  graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
-		RecipeMaterialize: recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		RecipeAuthorizer:            recipeAuthorization{resolver: scopeResolver},
+		RecipeExecutions:            graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
+		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		ExactMaterializationStarter: exactStarter,
+		ProjectReleaseActivator:     releaseActivator,
+		DataframeContractPromoter:   contractPromoter,
+		DataframeContractAuthorizer: contractAuthorizer,
+		CandidateProjects:           candidateProjects,
+		DefaultContract:             contractState.Current,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
@@ -234,8 +340,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("create resource load service: %w", err)
 	}
 	snapshotService := &loadapi.SnapshotService{Repository: lifecycleStore, Blobs: loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory}, Runner: ingestRunner}
-	verificationStore := publicationVerificationStore{query: lifecycleClient}
-	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
 	deletedGenerations, retentionErr := (publicationcontract.RetentionService{
 		Repository: lifecycleStore,
 		Blobs:      loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory},
@@ -264,6 +368,16 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
+	}
+	if publicationWorker != nil {
+		go func() {
+			err := publicationWorker.Run(ctx, time.Second, func(workerErr error) {
+				logger.Error("dataframe publication worker iteration failed", "error", workerErr)
+			})
+			if err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("dataframe publication worker stopped", "error", err)
+			}
+		}()
 	}
 
 	errCh := make(chan error, 1)

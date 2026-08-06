@@ -144,6 +144,16 @@ func (w *Worker) runExecution(ctx context.Context, execution publication.BundleE
 	execution.Attempt++
 	execution.UpdatedAt = time.Now().UTC()
 	execution.NextAttemptAt = nil
+	if len(execution.Outputs) != 0 {
+		remaining, cleanupErr := w.dropOutputs(ctx, execution.Outputs)
+		execution.Outputs = remaining
+		if cleanupErr != nil {
+			if saveErr := w.store.catalog.SaveExecution(ctx, execution); saveErr != nil {
+				cleanupErr = errors.Join(cleanupErr, saveErr)
+			}
+			return w.recordFailure(ctx, execution.ID, owner, publication.WithPhase(cleanupErr, "CLEANUP", ""))
+		}
+	}
 	if err := w.store.catalog.SaveExecution(ctx, execution); err != nil {
 		_ = w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
 		return err
@@ -161,6 +171,10 @@ func (w *Worker) runExecution(ctx context.Context, execution publication.BundleE
 		}
 	}
 	if err != nil {
+		if errors.Is(err, ErrBundleCommitUncertain) {
+			releaseErr := w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
+			return errors.Join(err, releaseErr)
+		}
 		return w.recordFailure(ctx, execution.ID, owner, err)
 	}
 	return w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
@@ -185,10 +199,10 @@ func (w *Worker) recordFailure(ctx context.Context, executionID, owner string, c
 	if loadErr != nil {
 		return errors.Join(cause, loadErr)
 	}
-	for _, output := range execution.Outputs {
-		if err := w.store.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
-			cause = errors.Join(cause, err)
-		}
+	remaining, cleanupErr := w.dropOutputs(cleanupCtx, execution.Outputs)
+	if cleanupErr != nil {
+		cleanupErr = dataframeerrors.Wrap(cleanupErr, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		cause = publication.WithPhase(errors.Join(cleanupErr, cause), "CLEANUP", "")
 	}
 	normalized := dataframeerrors.Normalize(cause)
 	execution.State = publication.BundleFailed
@@ -200,7 +214,7 @@ func (w *Worker) recordFailure(ctx context.Context, executionID, owner string, c
 	if errors.As(cause, &phase) {
 		execution.FailurePhase, execution.FailureOutput = phase.Phase, phase.Output
 	}
-	execution.Outputs = nil
+	execution.Outputs = remaining
 	execution.OwnerID, execution.LeaseExpiresAt = "", nil
 	execution.UpdatedAt = time.Now().UTC()
 	if normalized.Retryable() && execution.Attempt < execution.MaxAttempts {
@@ -214,31 +228,48 @@ func (w *Worker) recordFailure(ctx context.Context, executionID, owner string, c
 }
 
 func (w *Worker) recoverExpired(ctx context.Context, now time.Time) error {
-	running, err := w.store.catalog.ListExecutions(ctx, publication.BundleRunning, now)
-	if err != nil {
-		return err
-	}
-	for _, execution := range running {
-		if execution.LeaseExpiresAt != nil && execution.LeaseExpiresAt.After(now) {
-			continue
-		}
-		owner := w.workerID + "-recovery-" + uuid.NewString()
-		expires := now.Add(w.store.leaseTTL)
-		claimed, err := w.store.catalog.AcquireBundleLease(ctx, execution.Key, owner, expires)
+	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating} {
+		executions, err := w.store.catalog.ListExecutions(ctx, state, now)
 		if err != nil {
 			return err
 		}
-		if !claimed {
-			continue
-		}
-		execution.OwnerID = owner
-		if err := w.store.catalog.SaveExecution(ctx, execution); err != nil {
-			return err
-		}
-		recovery := dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
-		if err := w.recordFailure(ctx, execution.ID, owner, publication.WithPhase(recovery, "RECOVER_LEASE", "")); err != nil && execution.Attempt >= execution.MaxAttempts {
-			return err
+		for _, execution := range executions {
+			if execution.LeaseExpiresAt != nil && execution.LeaseExpiresAt.After(now) {
+				continue
+			}
+			owner := w.workerID + "-recovery-" + uuid.NewString()
+			expires := now.Add(w.store.leaseTTL)
+			claimed, err := w.store.catalog.AcquireBundleLease(ctx, execution.Key, owner, expires)
+			if err != nil {
+				return err
+			}
+			if !claimed {
+				continue
+			}
+			execution.OwnerID = owner
+			if err := w.store.catalog.SaveExecution(ctx, execution); err != nil {
+				return err
+			}
+			recovery := dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
+			if err := w.recordFailure(ctx, execution.ID, owner, publication.WithPhase(recovery, "RECOVER_LEASE", "")); err != nil && execution.Attempt >= execution.MaxAttempts {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (w *Worker) dropOutputs(ctx context.Context, outputs []publication.BundleOutputRecord) ([]publication.BundleOutputRecord, error) {
+	remaining := make([]publication.BundleOutputRecord, 0, len(outputs))
+	var joined error
+	for _, output := range outputs {
+		if strings.TrimSpace(output.PhysicalTable) == "" {
+			continue
+		}
+		if err := w.store.clickHouse.DropTable(ctx, output.PhysicalTable); err != nil {
+			remaining = append(remaining, output)
+			joined = errors.Join(joined, fmt.Errorf("drop staging table %q: %w", output.PhysicalTable, err))
+		}
+	}
+	return remaining, joined
 }
