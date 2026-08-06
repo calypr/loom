@@ -261,12 +261,13 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 		catalog.executions[execution.ID] = execution
 		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
-	reader := &dfpublished.Reader{Catalog: catalog}
-	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, "Observation")
+	reader := &dfpublished.Reader{Catalog: catalog, LegacyTranslationVersion: "legacy"}
+	selector := dfpublished.DataframeSelector{Recipe: "observation", TranslationVersion: "legacy", Output: "Observation"}
+	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, selector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-b"}, "Observation")
+	secondSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-b"}, selector)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,6 +27,42 @@ type Mutation {
   validateDataframeRecipe(input: ValidateDataframeRecipeInput!): DataframeRecipeValidation!
   previewDataframeRecipe(input: PreviewDataframeRecipeInput!): DataframeRecipePreview!
   materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
+  startDataframeMaterialization(input: StartDataframeMaterializationInput!): DataframeRecipeExecution!
+  activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
+  promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
+}
+
+input StartDataframeMaterializationInput {
+  project: String!
+  generation: String!
+  selector: DataframeSelectorInput!
+}
+
+input ActivateProjectReleaseInput {
+  project: String!
+  releaseId: ID!
+  expectedActiveRevision: String
+}
+
+type ProjectRelease {
+  id: ID!
+  project: String!
+  generation: String!
+  revision: String!
+  state: ProjectReleaseState!
+}
+
+enum ProjectReleaseState { ACTIVE }
+
+input PromoteDataframeContractInput {
+  recipe: String!
+  translationVersion: String!
+}
+
+type DataframeContract {
+  recipe: String!
+  translationVersion: String!
+  promotedAt: String!
 }
 
 input DataframeRecipeBindingsInput {
@@ -250,8 +286,10 @@ type DataframeRecipeResultOutput {
 
 enum DataframeRecipeExecutionState {
   ACCEPTED
+  QUEUED
   VALIDATING
   RUNNING
+  PUBLISHED
   READY
   FAILED
 }
@@ -262,11 +300,14 @@ type DataframeRecipeExecution {
   recipeDigest: String!
   resolvedSchemaDigest: String!
   sourceGeneration: String!
+  translationVersion: String
   state: DataframeRecipeExecutionState!
   outputs: [DataframeRecipeExecutionOutput!]!
   error: String
   errorCode: String
   errorRetryable: Boolean
+  phase: String
+  requestId: String
 }
 
 type DataframeRecipeExecutionOutput {
@@ -276,6 +317,8 @@ type DataframeRecipeExecutionOutput {
   error: String
   errorCode: String
   errorRetryable: Boolean
+  selector: DataframeSelector
+  phase: String
 }
 
 enum DataframeMaterializationState {
@@ -308,10 +351,56 @@ type DataframeMaterialization {
   error: String
   errorCode: String
   errorRetryable: Boolean
+  selector: DataframeSelector
+  activeContractVersion: String
+  availability: DataframeAvailability
+  completeness: Float
+  includedProjectCount: Int
+  expectedProjectCount: Int
+  projectStatuses: [DataframeProjectStatus!]!
+}
+
+input DataframeSelectorInput {
+  recipe: String!
+  translationVersion: String!
+  output: String!
+}
+
+type DataframeSelector {
+  recipe: String!
+  translationVersion: String!
+  output: String!
+}
+
+enum DataframeAvailability {
+  AVAILABLE
+  DEGRADED
+  UNAVAILABLE
+}
+
+enum DataframeProjectState {
+  CURRENT
+  STALE
+  BUILDING
+  FAILED
+  MISSING
+  EXCLUDED
+}
+
+type DataframeProjectStatus {
+  project: String!
+  state: DataframeProjectState!
+  generation: String
+  executionId: ID
+  createdAt: String
+  updatedAt: String
+  errorCode: String
+  retryable: Boolean!
 }
 
 input DataframeDatasetInput {
-  dataType: String!
+  selector: DataframeSelectorInput
+  dataType: String @deprecated(reason: "Use selector")
 }
 
 input DataframeFilterInput {
@@ -329,7 +418,8 @@ input DataframeRowsInput {
   # Legacy callers may target one published physical materialization directly.
   # When omitted, the request uses the project-federated dataframe.
   materializationId: ID
-  dataType: String!
+  selector: DataframeSelectorInput
+  dataType: String @deprecated(reason: "Use selector")
   columns: [String!]
   filters: [DataframeFilterInput!]
   sort: DataframeSortInput
@@ -354,7 +444,8 @@ input DataframeAggregateInput {
   # Legacy callers may target one published physical materialization directly.
   # When omitted, the request uses the project-federated dataframe.
   materializationId: ID
-  dataType: String!
+  selector: DataframeSelectorInput
+  dataType: String @deprecated(reason: "Use selector")
   groupBy: [String!]
   filters: [DataframeFilterInput!]
   operation: String!
@@ -378,7 +469,8 @@ input DataframeAggregationSpecInput {
 }
 
 input DataframeAggregationsInput {
-  dataType: String!
+  selector: DataframeSelectorInput
+  dataType: String @deprecated(reason: "Use selector")
   filters: [DataframeFilterInput!]
   specs: [DataframeAggregationSpecInput!]!
 }

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	publication "github.com/calypr/loom/internal/dataframe/publication"
+	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type State string
@@ -18,24 +19,32 @@ type Column struct {
 	ClickHouse string `json:"clickhouseType"`
 }
 
+type DataframeSelector = dataset.DataframeSelector
+
 type Materialization struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Revision          string     `json:"revision,omitempty"`
-	Project           string     `json:"project"`
-	DatasetGeneration string     `json:"datasetGeneration"`
-	State             State      `json:"state"`
-	ScopeUnrestricted bool       `json:"scopeUnrestricted"`
-	AuthResourcePaths []string   `json:"authResourcePaths,omitempty"`
-	Columns           []Column   `json:"columns"`
-	PhysicalTable     string     `json:"physicalTable"`
-	RowCount          int64      `json:"rowCount"`
-	RowCountKnown     bool       `json:"-"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	ReadyAt           *time.Time `json:"readyAt,omitempty"`
-	Error             string     `json:"error,omitempty"`
-	FailureCode       string     `json:"failureCode,omitempty"`
-	FailureRetryable  bool       `json:"failureRetryable,omitempty"`
+	ID                    string                 `json:"id"`
+	Name                  string                 `json:"name"`
+	Revision              string                 `json:"revision,omitempty"`
+	Project               string                 `json:"project"`
+	DatasetGeneration     string                 `json:"datasetGeneration"`
+	State                 State                  `json:"state"`
+	ScopeUnrestricted     bool                   `json:"scopeUnrestricted"`
+	AuthResourcePaths     []string               `json:"authResourcePaths,omitempty"`
+	Columns               []Column               `json:"columns"`
+	PhysicalTable         string                 `json:"physicalTable"`
+	RowCount              int64                  `json:"rowCount"`
+	RowCountKnown         bool                   `json:"-"`
+	CreatedAt             time.Time              `json:"createdAt"`
+	UpdatedAt             time.Time              `json:"updatedAt"`
+	ReadyAt               *time.Time             `json:"readyAt,omitempty"`
+	Error                 string                 `json:"error,omitempty"`
+	FailureCode           string                 `json:"failureCode,omitempty"`
+	FailureRetryable      bool                   `json:"failureRetryable,omitempty"`
+	Selector              DataframeSelector      `json:"selector"`
+	Availability          FederationAvailability `json:"availability,omitempty"`
+	ExpectedProjects      int                    `json:"expectedProjects,omitempty"`
+	ProjectStatuses       []ProjectStatus        `json:"projectStatuses,omitempty"`
+	ActiveContractVersion string                 `json:"activeContractVersion,omitempty"`
 }
 
 func publishedMaterialization(execution publication.BundleExecution, output publication.BundleOutputRecord, resourceType string) Materialization {
@@ -52,6 +61,7 @@ func publishedMaterialization(execution publication.BundleExecution, output publ
 		PhysicalTable:     output.PhysicalTable,
 		RowCount:          output.RowCount,
 		CreatedAt:         execution.CreatedAt,
+		UpdatedAt:         execution.UpdatedAt,
 		ReadyAt:           execution.ReadyAt,
 	}
 }
