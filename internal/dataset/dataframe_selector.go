@@ -1,6 +1,5 @@
 package dataset
 
-<<<<<<< HEAD
 import (
 	"fmt"
 	"strings"
@@ -14,7 +13,6 @@ type DataframeSelector struct {
 	Output             string `json:"output"`
 }
 
-<<<<<<< HEAD
 func (s DataframeSelector) Validate() error {
 	for name, value := range map[string]string{
 		"recipe": s.Recipe, "translationVersion": s.TranslationVersion, "output": s.Output,
