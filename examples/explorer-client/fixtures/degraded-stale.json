@@ -1,0 +1,21 @@
+{
+  "scenario": "stale",
+  "authorizedProjects": ["project-alpha", "project-beta"],
+  "forbiddenProjects": ["project-secret"],
+  "expectedCounts": {"CURRENT": 1, "STALE": 1, "BUILDING": 0, "FAILED": 0, "MISSING": 0, "EXCLUDED": 0},
+  "data": {"dataframeRows": {
+    "materialization": {
+      "id": "federated:documents:v2:DocumentReference", "name": "DocumentReference", "revision": "r-stale",
+      "selector": {"recipe": "documents", "translationVersion": "v2", "output": "DocumentReference"},
+      "activeContractVersion": "v2", "availability": "DEGRADED", "completeness": 1,
+      "includedProjectCount": 2, "expectedProjectCount": 2, "columns": [],
+      "projectStatuses": [
+        {"project": "project-alpha", "state": "CURRENT", "generation": "git-a2", "executionId": "exec-a2", "retryable": false},
+        {"project": "project-beta", "state": "STALE", "generation": "git-b1", "executionId": "exec-b1", "retryable": false}
+      ]
+    },
+    "columns": ["project_id"], "rows": [{"project_id": "project-alpha"}, {"project_id": "project-beta"}], "totalCount": 2,
+    "pageInfo": {"hasNextPage": false, "endCursor": null}
+  }}
+}
+

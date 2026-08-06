@@ -1,0 +1,52 @@
+query ExplorerDataset($input: DataframeDatasetInput!) {
+  dataframeDataset(input: $input) {
+    id
+    name
+    revision
+    selector { recipe translationVersion output }
+    activeContractVersion
+    availability
+    completeness
+    includedProjectCount
+    expectedProjectCount
+    columns { name logicalType nullable repeated filterable sortable aggregatable }
+    projectStatuses {
+      project state generation executionId createdAt updatedAt errorCode retryable
+    }
+  }
+}
+
+query ExplorerRows($input: DataframeRowsInput!) {
+  dataframeRows(input: $input) {
+    materialization {
+      id
+      name
+      revision
+      selector { recipe translationVersion output }
+      activeContractVersion
+      availability
+      completeness
+      includedProjectCount
+      expectedProjectCount
+      columns { name logicalType nullable repeated filterable sortable aggregatable }
+      projectStatuses {
+        project state generation executionId createdAt updatedAt errorCode retryable
+      }
+    }
+    columns
+    rows
+    totalCount
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+query ExplorerDatasets {
+  dataframeDatasets {
+    id
+    selector { recipe translationVersion output }
+    activeContractVersion
+    availability
+    completeness
+  }
+}
+

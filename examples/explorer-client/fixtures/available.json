@@ -1,0 +1,26 @@
+{
+  "scenario": "available",
+  "authorizedProjects": ["project-alpha", "project-beta"],
+  "forbiddenProjects": ["project-secret"],
+  "expectedCounts": {"CURRENT": 2, "STALE": 0, "BUILDING": 0, "FAILED": 0, "MISSING": 0, "EXCLUDED": 0},
+  "data": {"dataframeRows": {
+    "materialization": {
+      "id": "federated:documents:v1:DocumentReference", "name": "DocumentReference", "revision": "r-available",
+      "selector": {"recipe": "documents", "translationVersion": "v1", "output": "DocumentReference"},
+      "activeContractVersion": "v1", "availability": "AVAILABLE", "completeness": 1,
+      "includedProjectCount": 2, "expectedProjectCount": 2,
+      "columns": [
+        {"name": "project_id", "logicalType": "string", "nullable": false, "repeated": false, "filterable": true, "sortable": true, "aggregatable": true},
+        {"name": "alpha_only", "logicalType": "string", "nullable": true, "repeated": false, "filterable": true, "sortable": true, "aggregatable": true}
+      ],
+      "projectStatuses": [
+        {"project": "project-alpha", "state": "CURRENT", "generation": "git-a", "executionId": "exec-a", "updatedAt": "2026-08-01T00:00:00Z", "retryable": false},
+        {"project": "project-beta", "state": "CURRENT", "generation": "git-b", "executionId": "exec-b", "updatedAt": "2026-08-01T00:00:00Z", "retryable": false}
+      ]
+    },
+    "columns": ["project_id", "alpha_only"],
+    "rows": [{"project_id": "project-alpha", "alpha_only": "present"}, {"project_id": "project-beta"}],
+    "totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": null}
+  }}
+}
+

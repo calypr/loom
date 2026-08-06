@@ -311,6 +311,7 @@ make build                 # server and CLI binaries
 make generate-fhir         # generated FHIR structs and schema metadata
 make generate-graphql      # gqlgen bindings
 make graphql-check         # GraphQL and dataframe checks
+make explorer-contract-test # Explorer client contract and federation fixtures
 make test                  # full Go test suite
 make conformance           # compiler conformance corpus
 ```
@@ -337,6 +338,9 @@ go test ./...
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)
 - [Explorer/Loom parity plan](docs/EXPLORER_LOOM_SLICE_PARITY_PLAN.md)
+- [Versioned Explorer UX specification](docs/EXPLORER_VERSIONED_DATAFRAME_UX.md)
+- [Local snapshot-to-Explorer workflow](docs/LOCAL_SNAPSHOT_EXPLORER_WORKFLOW.md)
+- [Explorer client contract and fixtures](examples/explorer-client/README.md)
 - [Experimental local stack](experimental/README.md)
 
 The Helm chart lives in the separate `gen3-helm` repository under `helm/loom`.

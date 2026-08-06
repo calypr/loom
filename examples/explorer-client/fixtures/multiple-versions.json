@@ -1,0 +1,6 @@
+{
+  "data": {"dataframeDatasets": [
+    {"id": "federated:documents:v1:DocumentReference", "selector": {"recipe": "documents", "translationVersion": "v1", "output": "DocumentReference"}, "activeContractVersion": "v1", "availability": "AVAILABLE", "completeness": 1},
+    {"id": "federated:documents:v2:DocumentReference", "selector": {"recipe": "documents", "translationVersion": "v2", "output": "DocumentReference"}, "activeContractVersion": "v1", "availability": "DEGRADED", "completeness": 0.5}
+  ]}
+}
