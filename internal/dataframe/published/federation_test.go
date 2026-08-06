@@ -83,6 +83,24 @@ func TestExactSelectorDoesNotMixRecipesSharingOutput(t *testing.T) {
 	}
 }
 
+func TestLegacyReadyExecutionUsesLegacyPointerAndDefaultVersion(t *testing.T) {
+	now := time.Now().UTC()
+	execution := bundlepublication.BundleExecution{ID: "legacy", BundleIdentity: bundlepublication.BundleIdentity{Name: "documents", Project: "p", DatasetGeneration: "g"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "legacy_table", State: bundlepublication.BundleReady}}}
+	catalog := &versionedFederationCatalog{federationCatalog: &federationCatalog{executions: []bundlepublication.BundleExecution{execution}, pointers: map[string]bundlepublication.BundlePointer{execution.PointerName(): {ExecutionID: execution.ID}}}, selectors: map[string]DataframeSelector{}}
+	reader := Reader{Catalog: catalog, LegacyTranslationVersion: "v1"}
+	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, DataframeSelector{Recipe: "documents", TranslationVersion: "v1", Output: "DocumentReference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].PhysicalTable != "legacy_table" {
+		t.Fatalf("legacy sources = %#v", sources)
+	}
+	projects, err := reader.PublishedProjects(context.Background())
+	if err != nil || len(projects) != 1 || projects[0] != "p" {
+		t.Fatalf("legacy projects = %#v, %v", projects, err)
+	}
+}
+
 func TestRecipeVersionsRemainIndependentlyQueryable(t *testing.T) {
 	now := time.Now().UTC()
 	executions := []bundlepublication.BundleExecution{
@@ -140,16 +158,52 @@ type versionedFederationCatalog struct {
 	selectors map[string]DataframeSelector
 }
 
+type releaseExecutionFixture map[string]string
+
+func (f releaseExecutionFixture) ActiveReleaseExecutionIDs(context.Context, []string, DataframeSelector) (map[string]string, error) {
+	result := make(map[string]string, len(f))
+	for project, executionID := range f {
+		result[project] = executionID
+	}
+	return result, nil
+}
+
+func (f releaseExecutionFixture) ActiveReleaseSelectors(context.Context, []string) ([]DataframeSelector, map[string]bool, error) {
+	controlled := make(map[string]bool, len(f))
+	for project := range f {
+		controlled[project] = true
+	}
+	return nil, controlled, nil
+}
+
 func (c *versionedFederationCatalog) DataframeSelectorForExecution(_ context.Context, executionID, output string) (DataframeSelector, error) {
 	selector := c.selectors[executionID]
 	selector.Output = output
 	return selector, nil
 }
 
+func TestActiveReleaseExecutionOverridesMutablePublicationPointer(t *testing.T) {
+	now := time.Now().UTC()
+	selector := DataframeSelector{Recipe: "documents", TranslationVersion: "v1", Output: "DocumentReference"}
+	selected := bundlepublication.BundleExecution{ID: "release-selected", BundleIdentity: bundlepublication.BundleIdentity{Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Project: "p", DatasetGeneration: "old"}, State: bundlepublication.BundlePublished, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: selector.Output, PhysicalTable: "stable", State: bundlepublication.BundlePublished}}}
+	newer := bundlepublication.BundleExecution{ID: "pointer-newer", BundleIdentity: bundlepublication.BundleIdentity{Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Project: "p", DatasetGeneration: "new"}, State: bundlepublication.BundlePublished, UpdatedAt: now.Add(time.Second), Outputs: []bundlepublication.BundleOutputRecord{{Name: selector.Output, PhysicalTable: "replacement", State: bundlepublication.BundlePublished}}}
+	catalog := &federationCatalog{executions: []bundlepublication.BundleExecution{selected, newer}, pointers: map[string]bundlepublication.BundlePointer{
+		selected.PointerName(): {ExecutionID: newer.ID}, newer.PointerName(): {ExecutionID: newer.ID},
+	}}
+	reader := Reader{Catalog: catalog, ActiveManifestResolver: noActiveFederationResolver{}, ReleaseExecutionResolver: releaseExecutionFixture{"p": selected.ID}}
+	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].ID != selected.ID+":"+selector.Output || sources[0].PhysicalTable != "stable" {
+		t.Fatalf("release-selected sources = %#v", sources)
+	}
+}
+
 func (c *federationCatalog) ListExecutions(_ context.Context, state bundlepublication.BundleState, before time.Time) ([]bundlepublication.BundleExecution, error) {
 	result := make([]bundlepublication.BundleExecution, 0, len(c.executions))
 	for _, execution := range c.executions {
-		if execution.State == state && execution.UpdatedAt.Before(before) {
+		if execution.State.Canonical() == state.Canonical() && execution.UpdatedAt.Before(before) {
 			result = append(result, execution)
 		}
 	}

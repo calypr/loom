@@ -24,7 +24,8 @@ type Reader struct {
 	// LegacyTranslationVersion maps pre-versioned execution rows only during
 	// the compatibility window. New rows always carry their exact version.
 	LegacyTranslationVersion string
-	ProjectStatusResolver     ProjectStatusResolver
+	ProjectStatusResolver    ProjectStatusResolver
+	ReleaseExecutionResolver ReleaseExecutionResolver
 }
 
 type Filter struct {
@@ -170,7 +171,7 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 	if err != nil {
 		return Materialization{}, err
 	}
-	if execution.State != bundlepublication.BundleReady {
+	if !execution.State.Successful() {
 		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())

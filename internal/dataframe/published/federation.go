@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -75,6 +74,14 @@ type ExecutionSelectorResolver interface {
 // caller always passes an authorization-filtered project list.
 type ProjectStatusResolver interface {
 	DataframeProjectStatuses(context.Context, []string, DataframeSelector) ([]ProjectStatus, error)
+}
+
+// ReleaseExecutionResolver selects the immutable execution recorded by each
+// active project release. A present project with an empty execution ID means
+// the active release intentionally does not expose that selector.
+type ReleaseExecutionResolver interface {
+	ActiveReleaseExecutionIDs(context.Context, []string, DataframeSelector) (map[string]string, error)
+	ActiveReleaseSelectors(context.Context, []string) ([]DataframeSelector, map[string]bool, error)
 }
 
 func (r *Reader) FederationProjectStatuses(ctx context.Context, projects []string, selector DataframeSelector) ([]ProjectStatus, error) {
@@ -295,11 +302,18 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	if len(projects) == 0 || !selector.Valid() {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
-	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundlePublished, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
 	activeGenerations := map[string]string{}
+	releaseExecutions := map[string]string{}
+	if r.ReleaseExecutionResolver != nil {
+		releaseExecutions, err = r.ReleaseExecutionResolver.ActiveReleaseExecutionIDs(ctx, projects, selector)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if r.ActiveManifestResolver != nil {
 		for _, project := range projects {
 			manifest, resolveErr := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
@@ -318,13 +332,18 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	}
 	selected := map[string]bundlepublication.BundleExecution{}
 	for _, execution := range executions {
-		if execution.State != bundlepublication.BundleReady {
+		if !execution.State.Successful() {
 			continue
 		}
 		if _, ok := allowed[execution.Project]; !ok {
 			continue
 		}
-		if r.ActiveManifestResolver != nil {
+		releaseExecutionID, releaseControlled := releaseExecutions[execution.Project]
+		if releaseControlled {
+			if releaseExecutionID == "" || releaseExecutionID != execution.ID {
+				continue
+			}
+		} else if r.ActiveManifestResolver != nil {
 			generation, ok := activeGenerations[execution.Project]
 			if ok {
 				if execution.DatasetGeneration != generation {
@@ -334,12 +353,14 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 				continue
 			}
 		}
-		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr != nil {
-			return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
+		if !releaseControlled {
+			pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
+			if pointerErr != nil {
+				return nil, fmt.Errorf("resolve dataframe pointer: %w", pointerErr)
+			}
+			if pointer.ExecutionID != execution.ID {
+				continue
+			}
 		}
 		executionSelector, selectorErr := r.selectorForExecution(ctx, execution, selector.Output)
 		if selectorErr != nil {
@@ -380,16 +401,9 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	return result, nil
 }
 
-// executionTranslationVersion is a compatibility seam for the publication
-// package. New execution records expose TranslationVersion directly; legacy
-// records remain readable but cannot be selected by an exact version.
 func executionTranslationVersion(execution bundlepublication.BundleExecution, legacyDefault string) string {
-	value := reflect.ValueOf(execution)
-	field := value.FieldByName("TranslationVersion")
-	if field.IsValid() && field.Kind() == reflect.String {
-		if version := strings.TrimSpace(field.String()); version != "" {
-			return version
-		}
+	if version := strings.TrimSpace(execution.TranslationVersion); version != "" {
+		return version
 	}
 	return strings.TrimSpace(legacyDefault)
 }
@@ -397,66 +411,28 @@ func executionTranslationVersion(execution bundlepublication.BundleExecution, le
 func (r *Reader) selectorForExecution(ctx context.Context, execution bundlepublication.BundleExecution, output string) (DataframeSelector, error) {
 	if resolver, ok := r.Catalog.(ExecutionSelectorResolver); ok {
 		selector, err := resolver.DataframeSelectorForExecution(ctx, execution.ID, output)
-		if err != nil {
+		if err == nil && selector.Valid() {
+			return selector, nil
+		}
+		if strings.TrimSpace(execution.TranslationVersion) != "" {
+			if err == nil {
+				return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
+			}
 			return DataframeSelector{}, err
 		}
-		return selector, nil
 	}
 	return DataframeSelector{Recipe: execution.Name, TranslationVersion: executionTranslationVersion(execution, r.LegacyTranslationVersion), Output: output}, nil
 }
 
 func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []string) ([]string, error) {
-	if r == nil || r.Catalog == nil {
-		return nil, fmt.Errorf("bundle catalog dependency is required")
-	}
-	projects = normalizedProjects(projects)
-	allowed := map[string]struct{}{}
-	for _, project := range projects {
-		allowed[project] = struct{}{}
-	}
-	activeGenerations := map[string]string{}
-	if r.ActiveManifestResolver != nil {
-		for _, project := range projects {
-			manifest, err := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
-			if errors.Is(err, publication.ErrNoActiveGeneration) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			activeGenerations[project] = manifest.Dataset.Generation
-		}
-	}
-	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	selectors, err := r.CurrentFederatedSelectors(ctx, projects)
 	if err != nil {
 		return nil, err
 	}
 	resourceTypes := map[string]struct{}{}
-	for _, execution := range executions {
-		if _, ok := allowed[execution.Project]; !ok {
-			continue
-		}
-		if r.ActiveManifestResolver != nil {
-			generation, ok := activeGenerations[execution.Project]
-			if ok {
-				if generation != execution.DatasetGeneration {
-					continue
-				}
-			} else if execution.DatasetGeneration != "" {
-				continue
-			}
-		}
-		pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
-		if err != nil {
-			return nil, err
-		}
-		if pointer.ExecutionID != execution.ID {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			if fhirschema.HasResource(output.Name) {
-				resourceTypes[output.Name] = struct{}{}
-			}
+	for _, selector := range selectors {
+		if fhirschema.HasResource(selector.Output) {
+			resourceTypes[selector.Output] = struct{}{}
 		}
 	}
 	result := make([]string, 0, len(resourceTypes))
@@ -479,6 +455,18 @@ func (r *Reader) CurrentFederatedSelectors(ctx context.Context, projects []strin
 		allowed[project] = struct{}{}
 	}
 	activeGenerations := map[string]string{}
+	controlledProjects := map[string]bool{}
+	selectors := map[string]DataframeSelector{}
+	if r.ReleaseExecutionResolver != nil {
+		releaseSelectors, controlled, releaseErr := r.ReleaseExecutionResolver.ActiveReleaseSelectors(ctx, projects)
+		if releaseErr != nil {
+			return nil, releaseErr
+		}
+		controlledProjects = controlled
+		for _, selector := range releaseSelectors {
+			selectors[selector.Key()] = selector
+		}
+	}
 	if r.ActiveManifestResolver != nil {
 		for _, project := range projects {
 			manifest, resolveErr := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
@@ -491,13 +479,15 @@ func (r *Reader) CurrentFederatedSelectors(ctx context.Context, projects []strin
 			activeGenerations[project] = manifest.Dataset.Generation
 		}
 	}
-	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundlePublished, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
-	selectors := map[string]DataframeSelector{}
 	for _, execution := range executions {
 		if _, ok := allowed[execution.Project]; !ok {
+			continue
+		}
+		if controlledProjects[execution.Project] {
 			continue
 		}
 		if r.ActiveManifestResolver != nil {
@@ -626,13 +616,13 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
-	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundlePublished, nowPlusSecond())
 	if err != nil {
 		return nil, err
 	}
 	projects := make(map[string]struct{})
 	for _, execution := range executions {
-		if execution.State != bundlepublication.BundleReady || execution.Project == "" {
+		if !execution.State.Successful() || execution.Project == "" {
 			continue
 		}
 		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())

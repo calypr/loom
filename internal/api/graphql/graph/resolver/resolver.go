@@ -63,11 +63,12 @@ type RecipeExecutionOutput struct {
 // resolve it again.
 type RecipeMaterializeFunc func(context.Context, string, recipe.RuntimeBindings) (RecipeExecution, error)
 type RecipeExecutionReader func(context.Context, string) (*RecipeExecution, error)
-type ExactMaterializationStarter func(context.Context, dataset.DataframeSelector, string, string) (RecipeExecution, error)
+type ExactMaterializationStarter func(context.Context, dataset.DataframeSelector, recipe.RuntimeBindings) (RecipeExecution, error)
 type ProjectRelease struct{ ID, Project, Generation, Revision, State string }
 type ProjectReleaseActivator func(context.Context, string, string, string) (ProjectRelease, error)
 type DataframeContract struct{ Recipe, TranslationVersion, PromotedAt string }
 type DataframeContractPromoter func(context.Context, string, string) (DataframeContract, error)
+type DataframeContractAuthorizer func(context.Context) error
 
 // RecipeAuthorizer resolves request bindings against the caller's project
 // grants. GraphQL operation type is intentionally irrelevant: preview/run are
@@ -87,6 +88,7 @@ type Resolver struct {
 	exactMaterializationStarter ExactMaterializationStarter
 	projectReleaseActivator     ProjectReleaseActivator
 	dataframeContractPromoter   DataframeContractPromoter
+	dataframeContractAuthorizer DataframeContractAuthorizer
 }
 
 type ResolverConfig struct {
@@ -99,9 +101,12 @@ type ResolverConfig struct {
 	RecipeAuthorizer            RecipeAuthorizer
 	DefaultRecipe               string
 	DefaultTranslationVersion   string
+	DefaultContract             func() (string, string)
 	ExactMaterializationStarter ExactMaterializationStarter
 	ProjectReleaseActivator     ProjectReleaseActivator
 	DataframeContractPromoter   DataframeContractPromoter
+	DataframeContractAuthorizer DataframeContractAuthorizer
+	CandidateProjects           func(context.Context) ([]string, error)
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
@@ -119,6 +124,8 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 			Logger:                    cfg.Logger,
 			DefaultRecipe:             cfg.DefaultRecipe,
 			DefaultTranslationVersion: cfg.DefaultTranslationVersion,
+			DefaultContract:           cfg.DefaultContract,
+			CandidateProjects:         cfg.CandidateProjects,
 		}),
 		recipeControl:               cfg.RecipeControl,
 		recipeMaterialize:           cfg.RecipeMaterialize,
@@ -127,6 +134,7 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		exactMaterializationStarter: cfg.ExactMaterializationStarter,
 		projectReleaseActivator:     cfg.ProjectReleaseActivator,
 		dataframeContractPromoter:   cfg.DataframeContractPromoter,
+		dataframeContractAuthorizer: cfg.DataframeContractAuthorizer,
 	}
 }
 

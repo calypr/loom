@@ -49,6 +49,30 @@ func TestWorkerDuplicateRequestsAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestWorkerIdentityIncludesRestrictedEmptyScope(t *testing.T) {
+	unrestricted := workerIdentity()
+	unrestricted.AuthScopeMode = "unrestricted"
+	restricted := unrestricted
+	restricted.AuthScopeMode = "restricted"
+	if unrestricted.Key() == restricted.Key() {
+		t.Fatal("restricted-empty and unrestricted commands shared an idempotency key")
+	}
+	catalog := newBundleCatalogFixture()
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	var observed string
+	worker, _ := NewWorker(store, func(_ context.Context, execution publication.BundleExecution, _ publication.Target) error {
+		observed = execution.AuthScopeMode
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidData, "")
+	}, WorkerConfig{MaxAttempts: 1})
+	if _, err := worker.Enqueue(context.Background(), restricted); err != nil {
+		t.Fatal(err)
+	}
+	_ = worker.RunOnce(context.Background())
+	if observed != "restricted" {
+		t.Fatalf("recovered auth scope mode = %q, want restricted", observed)
+	}
+}
+
 func TestWorkerRetriesTypedRetryableFailure(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
@@ -131,6 +155,87 @@ func TestWorkerRecoversExpiredLeaseAndCleansStaging(t *testing.T) {
 	}
 	if got := catalog.executions[execution.ID]; got.State != publication.BundlePublished || got.Attempt != 2 {
 		t.Fatalf("recovered execution = %#v", got)
+	}
+}
+
+func TestWorkerRecoversExpiredValidatingLease(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, _ := NewBundleStore(client, catalog)
+	worker, _ := NewWorker(store, func(ctx context.Context, execution publication.BundleExecution, target publication.Target) error {
+		return publishFixture(ctx, execution, target, "one")
+	}, WorkerConfig{MaxAttempts: 3, RetryDelay: time.Nanosecond})
+	identity := workerIdentity()
+	past := time.Now().Add(-time.Minute)
+	execution := publication.BundleExecution{ID: "validating", Key: identity.Key(), BundleIdentity: identity, State: publication.BundleValidating, Attempt: 1, MaxAttempts: 3, CreatedAt: past, UpdatedAt: past, LeaseExpiresAt: &past, Outputs: []publication.BundleOutputRecord{{Name: "one", PhysicalTable: "staging_validating", State: publication.BundleValidating}}}
+	catalog.executions[execution.ID] = execution
+	client.tables["staging_validating"] = []map[string]any{{"id": "partial"}}
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	recovered := catalog.executions[execution.ID]
+	if recovered.State != publication.BundleQueued || len(recovered.Outputs) != 0 {
+		t.Fatalf("validating recovery = %#v", recovered)
+	}
+}
+
+func TestWorkerRetainsFailedCleanupUntilDropSucceeds(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	client.dropErr = errors.New("ClickHouse unavailable")
+	store, _ := NewBundleStore(client, catalog)
+	worker, _ := NewWorker(store, func(ctx context.Context, execution publication.BundleExecution, target publication.Target) error {
+		return publishFixture(ctx, execution, target, "one")
+	}, WorkerConfig{MaxAttempts: 3, RetryDelay: time.Nanosecond})
+	identity := workerIdentity()
+	past := time.Now().Add(-time.Minute)
+	execution := publication.BundleExecution{ID: "cleanup", Key: identity.Key(), BundleIdentity: identity, State: publication.BundleRunning, Attempt: 1, MaxAttempts: 3, CreatedAt: past, UpdatedAt: past, LeaseExpiresAt: &past, Outputs: []publication.BundleOutputRecord{{Name: "one", PhysicalTable: "staging_cleanup", State: publication.BundleRunning}}}
+	catalog.executions[execution.ID] = execution
+	client.tables["staging_cleanup"] = []map[string]any{{"id": "partial"}}
+	_ = worker.RunOnce(context.Background())
+	retained := catalog.executions[execution.ID]
+	if retained.State != publication.BundleQueued || len(retained.Outputs) != 1 {
+		t.Fatalf("failed cleanup was forgotten: %#v", retained)
+	}
+	client.dropErr = nil
+	due := time.Now().Add(-time.Second)
+	retained.NextAttemptAt = &due
+	catalog.executions[execution.ID] = retained
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := client.tables["staging_cleanup"]; exists {
+		t.Fatal("retained staging table was not cleaned on retry")
+	}
+	if got := catalog.executions[execution.ID]; got.State != publication.BundlePublished {
+		t.Fatalf("execution did not recover: %#v", got)
+	}
+}
+
+func TestWorkerConfirmsCommitAfterLostResponse(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewResult: true, publishCommitThenErr: errors.New("response lost")}
+	client := newBundleClickHouseFixture()
+	store, _ := NewBundleStore(client, catalog)
+	worker, _ := NewWorker(store, func(ctx context.Context, execution publication.BundleExecution, target publication.Target) error {
+		return publishFixture(ctx, execution, target, "one")
+	}, WorkerConfig{MaxAttempts: 1})
+	execution, err := worker.Enqueue(context.Background(), workerIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	published := catalog.executions[execution.ID]
+	if published.State != publication.BundlePublished || !allOutputsQueryable(published.Outputs) {
+		t.Fatalf("lost response was not confirmed: %#v", published)
+	}
+	if _, exists := client.tables[published.Outputs[0].PhysicalTable]; !exists {
+		t.Fatal("confirmed published table was deleted")
+	}
+	pointer, err := catalog.GetPointer(context.Background(), workerIdentity().PointerName())
+	if err != nil || pointer.ExecutionID != execution.ID {
+		t.Fatalf("published pointer = %#v, %v", pointer, err)
 	}
 }
 

@@ -91,17 +91,32 @@ func TestConcurrentReleaseActivationUsesCompareAndSwap(t *testing.T) {
 	now := time.Now().UTC()
 	stageSnapshot(t, store, "project-a", "commit-a", now)
 	selector := DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}
-	verifier := &verificationFixture{results: map[string]PublicationVerification{selector.Key(): published(selector, "execution-a", "commit-a", now)}, errors: map[string]error{}}
+	optional := DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Observation"}
+	verifier := &verificationFixture{results: map[string]PublicationVerification{
+		selector.Key(): published(selector, "execution-a", "commit-a", now),
+		optional.Key(): published(optional, "execution-b", "commit-a", now),
+	}, errors: map[string]error{}}
 	service := ReleaseService{Snapshots: store, Releases: store, Verifier: verifier, Required: []DataframeSelector{selector}, Now: func() time.Time { return now }}
+	first, err := service.Create(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Create(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", OptionalSelectors: []DataframeSelector{optional}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("distinct release contents produced the same ID")
+	}
 
 	start := make(chan struct{})
 	errorsSeen := make(chan error, 2)
-	for range 2 {
-		go func() {
+	for _, releaseID := range []string{first.ID, second.ID} {
+		go func(releaseID string) {
 			<-start
-			_, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: 0})
+			_, err := service.ActivateExisting(ctx, "project-a", releaseID, 0)
 			errorsSeen <- err
-		}()
+		}(releaseID)
 	}
 	close(start)
 	results := []error{<-errorsSeen, <-errorsSeen}

@@ -20,6 +20,19 @@ func (emptyPublicationCatalog) ListExecutions(context.Context, bundlepublication
 	return []bundlepublication.BundleExecution{}, nil
 }
 
+func TestNoAuthCandidateProjectsIncludeObservedUnpublishedProjects(t *testing.T) {
+	service := NewService(Config{CandidateProjects: func(context.Context) ([]string, error) {
+		return []string{"staged", "failed"}, nil
+	}})
+	projects, err := service.projects(context.Background(), &authscope.Principal{Subject: "anonymous"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 || projects[0] != "staged" || projects[1] != "failed" {
+		t.Fatalf("candidate projects = %#v", projects)
+	}
+}
+
 func TestProjectsReportsEmptyPublicationCatalogAsDatasetNotFound(t *testing.T) {
 	service := &Service{reader: &dfpublished.Reader{Catalog: emptyPublicationCatalog{}}}
 
@@ -49,6 +62,24 @@ func TestResolveLegacyDataTypeUsesPromotedDefaultContract(t *testing.T) {
 	}
 	if selector.Recipe != "default" || selector.TranslationVersion != "v7" || selector.Output != "Patient" {
 		t.Fatalf("selector = %#v", selector)
+	}
+}
+
+func TestResolveLegacyDataTypeObservesExplicitContractPromotion(t *testing.T) {
+	recipeName, version := "default", "v1"
+	service := NewService(Config{DefaultContract: func() (string, string) { return recipeName, version }})
+	legacy := "Patient"
+	first, err := service.resolveSelector(nil, &legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = "v2"
+	second, err := service.resolveSelector(nil, &legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.TranslationVersion != "v1" || second.TranslationVersion != "v2" {
+		t.Fatalf("selectors before/after promotion = %#v %#v", first, second)
 	}
 }
 

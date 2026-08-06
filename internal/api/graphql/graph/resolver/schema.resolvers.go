@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -148,7 +149,7 @@ func (r *mutationResolver) StartDataframeMaterialization(ctx context.Context, in
 	if r.exactMaterializationStarter == nil {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
-	execution, err := r.exactMaterializationStarter(ctx, selector, bindings.Project, bindings.DatasetGeneration)
+	execution, err := r.exactMaterializationStarter(ctx, selector, bindings)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -184,6 +185,12 @@ func (r *mutationResolver) PromoteDataframeContract(ctx context.Context, input m
 	recipeName, version := strings.TrimSpace(input.Recipe), strings.TrimSpace(input.TranslationVersion)
 	if recipeName == "" || version == "" {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, ""))
+	}
+	if r.dataframeContractAuthorizer == nil {
+		return nil, recipeGraphQLError(authscope.ErrForbidden)
+	}
+	if err := r.dataframeContractAuthorizer(ctx); err != nil {
+		return nil, recipeGraphQLError(err)
 	}
 	if r.dataframeContractPromoter == nil {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))

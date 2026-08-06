@@ -66,6 +66,7 @@ type BundleIdentity struct {
 	SchemaDigest       string   `json:"schemaDigest"`
 	ScopeDigest        string   `json:"scopeDigest"`
 	EngineVersion      string   `json:"engineVersion"`
+	AuthScopeMode      string   `json:"authScopeMode,omitempty"`
 	AuthResourcePaths  []string `json:"authResourcePaths,omitempty"`
 }
 
@@ -73,6 +74,9 @@ type BundleIdentity struct {
 // Project and generation are part of the key so two tenants can publish the
 // same recipe/output name without racing a shared pointer.
 func (i BundleIdentity) PointerName() string {
+	if strings.TrimSpace(i.TranslationVersion) == "" {
+		return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name}, "\x00")
+	}
 	return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name, i.TranslationVersion}, "\x00")
 }
 
@@ -82,8 +86,9 @@ func (i BundleIdentity) Key() string {
 		TranslationVersion               string `json:"TranslationVersion,omitempty"`
 		RecipeDigest, SchemaDigest       string
 		ScopeDigest, EngineVersion       string
+		AuthScopeMode                    string   `json:"AuthScopeMode,omitempty"`
 		AuthResourcePaths                []string `json:"AuthResourcePaths,omitempty"`
-	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthResourcePaths})
+	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

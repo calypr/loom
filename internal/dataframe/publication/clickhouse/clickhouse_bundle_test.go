@@ -19,19 +19,20 @@ type bundleCatalogFixture struct {
 
 type leaseBundleCatalog struct {
 	*bundleCatalogFixture
-	acquire            bool
-	acquireCalls       int
-	onAcquire          func()
-	releaseCalls       int
-	releaseErr         error
-	renewResult        bool
-	renewErr           error
-	renewBlock         bool
-	renewStarted       chan struct{}
-	saveErr            error
-	requireSaveContext bool
-	pointerErr         error
-	publishErr         error
+	acquire              bool
+	acquireCalls         int
+	onAcquire            func()
+	releaseCalls         int
+	releaseErr           error
+	renewResult          bool
+	renewErr             error
+	renewBlock           bool
+	renewStarted         chan struct{}
+	saveErr              error
+	requireSaveContext   bool
+	pointerErr           error
+	publishErr           error
+	publishCommitThenErr error
 }
 
 func newBundleCatalogFixture() *bundleCatalogFixture {
@@ -80,6 +81,12 @@ func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (publi
 	return c.bundleCatalogFixture.GetPointer(ctx, name)
 }
 func (c *leaseBundleCatalog) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
+	if c.publishCommitThenErr != nil {
+		if err := c.bundleCatalogFixture.PublishExecution(ctx, name, expected, execution); err != nil {
+			return err
+		}
+		return c.publishCommitThenErr
+	}
 	if c.publishErr != nil {
 		return c.publishErr
 	}
@@ -129,7 +136,7 @@ func (c *bundleCatalogFixture) PublishExecution(ctx context.Context, name, expec
 func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
 	for _, e := range c.executions {
-		if e.State == state && e.UpdatedAt.Before(before) {
+		if e.State.Canonical() == state.Canonical() && e.UpdatedAt.Before(before) {
 			out = append(out, e)
 		}
 	}
@@ -151,6 +158,7 @@ type bundleClickHouseFixture struct {
 	insertCalls int
 	maxRows     int
 	verifyErr   error
+	dropErr     error
 }
 
 func newBundleClickHouseFixture() *bundleClickHouseFixture {
@@ -173,6 +181,9 @@ func (c *bundleClickHouseFixture) InsertRows(_ context.Context, name string, _ [
 }
 
 func (c *bundleClickHouseFixture) DropTable(_ context.Context, name string) error {
+	if c.dropErr != nil {
+		return c.dropErr
+	}
 	delete(c.tables, name)
 	return nil
 }

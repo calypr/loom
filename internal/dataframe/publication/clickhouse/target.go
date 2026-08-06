@@ -26,7 +26,7 @@ func New(bundleStore IdentityBundleStore) (*Target, error) {
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
 	var tx publication.AtomicBundleTx
 	var err error
 	if t.ExecutionID != "" {

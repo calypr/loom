@@ -35,3 +35,12 @@ func TestRecipeScopeDigestIsOrderIndependent(t *testing.T) {
 		t.Fatalf("scope digest changed with path order: %q != %q", got, want)
 	}
 }
+
+func TestRecipeScopeDigestDistinguishesRestrictedEmptyScope(t *testing.T) {
+	unrestricted := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted}
+	restricted := unrestricted
+	restricted.AuthScopeMode = authscope.ReadScopeRestricted
+	if recipeScopeDigest(unrestricted) == recipeScopeDigest(restricted) {
+		t.Fatal("restricted-empty and unrestricted bindings shared a scope digest")
+	}
+}

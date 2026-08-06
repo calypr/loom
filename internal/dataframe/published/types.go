@@ -42,6 +42,7 @@ type Materialization struct {
 	FailureRetryable      bool                   `json:"failureRetryable,omitempty"`
 	Selector              DataframeSelector      `json:"selector"`
 	Availability          FederationAvailability `json:"availability,omitempty"`
+	IncludedProjects      int                    `json:"includedProjects,omitempty"`
 	ExpectedProjects      int                    `json:"expectedProjects,omitempty"`
 	ProjectStatuses       []ProjectStatus        `json:"projectStatuses,omitempty"`
 	ActiveContractVersion string                 `json:"activeContractVersion,omitempty"`
