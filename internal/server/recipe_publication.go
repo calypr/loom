@@ -88,7 +88,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			if err != nil {
 				return err
 			}
-			identity = publication.BundleIdentity{Name: name, Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest, ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1", AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
+			identity = publication.BundleIdentity{Name: name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion, Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest, ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1", AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
 			streamInputs := make([]publication.OutputStream, 0, len(streams))
 			for _, stream := range streams {
 				stream := stream
@@ -108,7 +108,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 					},
 				})
 			}
-			publicationIdentity := publication.PublicationIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
+			publicationIdentity := publication.PublicationIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
 			_, err = publication.Publish(ctx, bundleTarget, publicationIdentity, streamInputs, publication.Limits{BatchRows: batchRows, BatchBytes: batchBytes})
 			return err
 		})
@@ -121,6 +121,6 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
 			return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
 		}
-		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(publication.BundleReady)}, nil
+		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(publication.BundlePublished)}, nil
 	}
 }

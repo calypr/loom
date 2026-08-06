@@ -33,6 +33,7 @@ type OutputStream struct {
 
 type PublicationIdentity struct {
 	Name               string
+	TranslationVersion string
 	Project            string
 	DatasetGeneration  string
 	RecipeDigest       string

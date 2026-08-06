@@ -55,6 +55,7 @@ const (
 	CodePublicationInProgress       ErrorCode = "PUBLICATION_IN_PROGRESS"
 	CodePublicationConflict         ErrorCode = "PUBLICATION_CONFLICT"
 	CodePublicationLeaseLost        ErrorCode = "PUBLICATION_LEASE_LOST"
+	CodePublicationFailed           ErrorCode = "PUBLICATION_FAILED"
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 )
 
@@ -244,7 +245,7 @@ func SanitizePersistedFailure(raw string) (message, code string, retryable bool)
 }
 
 func IsRetryableCode(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost
+	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost || code == CodePublicationFailed
 }
 
 func defaultMessage(code ErrorCode) string {
@@ -333,6 +334,8 @@ func defaultMessage(code ErrorCode) string {
 		return "the publication changed while it was being committed"
 	case CodePublicationLeaseLost:
 		return "publication ownership was lost"
+	case CodePublicationFailed:
+		return "dataframe publication failed"
 	case CodeOutputEncodingFailed:
 		return "the response data could not be encoded"
 	default:
