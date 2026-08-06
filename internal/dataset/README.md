@@ -1,20 +1,26 @@
-# Publication
+# Dataset lifecycle
 
-`internal/dataset` owns the small persistence-neutral contract that makes a
-completed ingest visible to readers.
+`internal/dataset` owns persistence-neutral contracts for immutable FHIR
+generations, exact dataframe selectors, and atomic project releases.
 
-It does not store FHIR rows, build catalogs, authorize requests, or open a
-database. Ingest creates a manifest in `LOADING`, marks it `READY` only after
-the graph and catalogs are complete, or marks it `FAILED` when loading cannot
-finish. `READY` and `FAILED` are terminal.
+Snapshot upload sessions begin in `LOADING`. Each declared resource type is
+recorded with an immutable SHA-256 checksum. Finalization loads the graph and
+catalogs and moves the generation to `STAGED`; it never changes normal reads.
+Failures and explicit aborts move an unfinalized session to `FAILED`.
 
-The project-level active pointer selects the manifest used by normal reads.
-`ResolveActive` validates that the adapter returned the requested project's
-complete `READY` manifest. Explicit generation reads may resolve any `READY`
-manifest, whether or not it is active.
+A project release binds one staged Git generation to verified `PUBLISHED`
+dataframe executions selected by `(recipe, translationVersion, output)`.
+Release creation is durable but invisible. Compare-and-swap activation updates
+the active release and active generation together, so graph and dataframe
+visibility change through one release revision. Optional publications from the
+prior release are carried forward and marked stale when their generation is
+older.
 
-The `arango` subpackage persists manifests and active pointers in
-`loom_dataset_lifecycle`. Activation changes only the active pointer, using
-Arango revision checking so concurrent activations cannot silently overwrite
-one another. It also normalizes legacy lifecycle states when reading old
-documents; it does not resume abandoned loads.
+Stored legacy `READY` manifests remain readable as successful staged data.
+New workflows write `STAGED`, and only release activation makes that data
+active. The legacy direct manifest activation method remains for the migration
+window but is not used by snapshot finalization.
+
+Retention removes only expired failed generations. Active, last-good, staged,
+loading, recoverable, and in-flight generations are protected, with the Arango
+adapter rechecking those guards before deleting generation-qualified data.

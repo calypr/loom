@@ -78,6 +78,10 @@ func activePlaceholderDocument(project string) map[string]any {
 	return map[string]any{"_key": activeDocumentKey(project), "recordType": activeRecordType, "project": project}
 }
 
+func activeReleasePlaceholderDocument(project string) map[string]any {
+	return map[string]any{"_key": activeReleaseDocumentKey(project), "recordType": activeReleaseRecordType, "project": project, "revision": 0}
+}
+
 func schemaIdentityBindValue(identity publication.SchemaSnapshot) (map[string]any, error) {
 	if err := identity.Validate(); err != nil {
 		return nil, err
@@ -111,7 +115,7 @@ func manifestFromValue(value any) (publication.Manifest, error) {
 		decoded.State = publication.StateLoading
 	case "SUPERSEDED":
 		decoded.State = publication.StateReady
-	case publication.StateLoading, publication.StateReady, publication.StateFailed:
+	case publication.StateLoading, publication.StateStaged, publication.StateReady, publication.StateFailed:
 	default:
 		return publication.Manifest{}, fmt.Errorf("%w: unknown manifest state %q", ErrUnexpectedStoreResult, decoded.State)
 	}

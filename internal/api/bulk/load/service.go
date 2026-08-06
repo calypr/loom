@@ -15,6 +15,7 @@ type GenerationLoadRequest struct {
 	AuthResourcePath string
 	StagedDir        string
 	SubmittedBy      string
+	StageOnly        bool
 }
 
 type ImportRequest struct {
@@ -79,6 +80,7 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.Dataset = &ref
 	opts.Truncate = false
 	opts.EventSink = sink
+	opts.StageOnly = req.StageOnly
 	return ingest.Load(ctx, opts)
 }
 

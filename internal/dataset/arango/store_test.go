@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -124,6 +125,81 @@ func TestNewAndMissingActive(t *testing.T) {
 	store := mustStore(t, &fakeQueryClient{})
 	if _, err := store.ResolveActiveManifest(context.Background(), "project-a"); !errors.Is(err, publication.ErrNoActiveGeneration) {
 		t.Fatalf("missing active = %v", err)
+	}
+}
+
+func TestSnapshotPersistenceIsIdempotentAndChecksumQualified(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	snapshot, err := publication.NewSnapshotGeneration("project-a", "commit-a", "", []string{"Observation", "Patient"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, snapshot)}}}
+	store := mustStore(t, fake)
+	created, err := store.CreateOrResumeSnapshot(context.Background(), snapshot)
+	if err != nil || !reflect.DeepEqual(created, snapshot) {
+		t.Fatalf("CreateOrResumeSnapshot = %#v, %v", created, err)
+	}
+	call := fake.onlyCall(t)
+	for _, required := range []string{"existing.expectedResourceTypes == @candidate.expectedResourceTypes", "existing.authResourcePath == @candidate.authResourcePath", "existing.gitCommit == @candidate.gitCommit"} {
+		if !strings.Contains(call.query, required) {
+			t.Fatalf("create/resume query missing %q:\n%s", required, call.query)
+		}
+	}
+}
+
+func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}
+	want := publication.ActiveRelease{Release: release, Revision: 4}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, want)}}}
+	store := mustStore(t, fake)
+	got, err := store.CompareAndSwapActivateRelease(context.Background(), release, 3)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("CompareAndSwapActivateRelease = %#v, %v", got, err)
+	}
+	call := fake.onlyCall(t)
+	for _, required := range []string{
+		"currentRevision == @expected_revision OR alreadyActive",
+		"manifest.state IN [@staged_state, @ready_state]",
+		"active_project_release",
+		"FOR item IN updates",
+		"UPDATE item.document WITH item.patch",
+		"releaseRevision: selectedRevision",
+	} {
+		if !strings.Contains(call.query, required) {
+			t.Fatalf("release activation query missing %q:\n%s", required, call.query)
+		}
+	}
+	if got := strings.Count(call.query, "UPDATE "); got != 1 {
+		t.Fatalf("release activation must use one AQL modification operation, got %d:\n%s", got, call.query)
+	}
+}
+
+func TestSaveReleasePersistsCandidateWithoutMovingVisibility(t *testing.T) {
+	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, release)}}}
+	store := mustStore(t, fake)
+	got, err := store.SaveRelease(context.Background(), release)
+	if err != nil || !reflect.DeepEqual(got, release) {
+		t.Fatalf("SaveRelease = %#v, %v", got, err)
+	}
+	call := fake.onlyCall(t)
+	if !strings.Contains(call.query, "active_release_placeholder") || call.bindVars["active_release_placeholder"] == nil {
+		t.Fatalf("save release did not ensure active pointer placeholder: %#v", call.bindVars)
+	}
+	for _, forbidden := range []string{"active_generation", "releaseRevision", "UPDATE "} {
+		if strings.Contains(call.query, forbidden) {
+			t.Fatalf("save release moved visibility via %q:\n%s", forbidden, call.query)
+		}
+	}
+}
+
+func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
+	store := mustStore(t, &fakeQueryClient{})
+	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
+	if _, err := store.CompareAndSwapActivateRelease(context.Background(), release, 2); !errors.Is(err, publication.ErrReleaseActivationConflict) {
+		t.Fatalf("activation conflict = %v", err)
 	}
 }
 

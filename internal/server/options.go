@@ -1,11 +1,14 @@
 package server
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/dataset"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -16,15 +19,18 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen               string           `yaml:"listen"`
-	URL                  string           `yaml:"url"`
-	Database             string           `yaml:"database"`
-	Schema               string           `yaml:"schema"`
-	ClickHouse           ClickHouseConfig `yaml:"clickhouse"`
-	Dataframer           DataframerConfig `yaml:"dataframer"`
-	RecipeBatchRows      int              `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes     int              `yaml:"recipe_batch_bytes"`
-	AllowUnauthenticated bool             `yaml:"allow_unauthenticated"`
+	Listen                     string                      `yaml:"listen"`
+	URL                        string                      `yaml:"url"`
+	Database                   string                      `yaml:"database"`
+	Schema                     string                      `yaml:"schema"`
+	ClickHouse                 ClickHouseConfig            `yaml:"clickhouse"`
+	Dataframer                 DataframerConfig            `yaml:"dataframer"`
+	RecipeBatchRows            int                         `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
+	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
+	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	SnapshotDirectory          string                      `yaml:"snapshot_directory"`
+	SnapshotRetention          time.Duration               `yaml:"snapshot_retention"`
 }
 
 type ClickHouseConfig struct {
@@ -62,6 +68,7 @@ func DefaultConfig() Config {
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
+			SnapshotDirectory: ".loom-snapshots", SnapshotRetention: 7 * 24 * time.Hour,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -140,7 +147,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 func LoadConfig(path string) (Config, error) {
 	cfg := DefaultConfig()
 	if strings.TrimSpace(path) == "" {
-		return applyEnvironment(cfg), nil
+		return applyEnvironment(cfg)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -151,23 +158,49 @@ func LoadConfig(path string) (Config, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decode server config %q: %w", path, err)
 	}
-	return applyEnvironment(cfg), nil
+	return applyEnvironment(cfg)
 }
 
-func applyEnvironment(cfg Config) Config {
+func applyEnvironment(cfg Config) (Config, error) {
 	if cfg.Auth.Basic.Username == "" {
 		cfg.Auth.Basic.Username = os.Getenv("LOOM_AUTH_BASIC_USERNAME")
 	}
 	if cfg.Auth.Basic.Password == "" {
 		cfg.Auth.Basic.Password = os.Getenv("LOOM_AUTH_BASIC_PASSWORD")
 	}
-	return cfg
+	if raw := strings.TrimSpace(os.Getenv("LOOM_REQUIRED_DATAFRAME_SELECTORS")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.Server.RequiredDataframeSelectors); err != nil {
+			return Config{}, fmt.Errorf("parse LOOM_REQUIRED_DATAFRAME_SELECTORS: %w", err)
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_RETENTION")); value != "" {
+		retention, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse LOOM_SNAPSHOT_RETENTION: %w", err)
+		}
+		cfg.Server.SnapshotRetention = retention
+	}
+	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_DIRECTORY")); value != "" {
+		cfg.Server.SnapshotDirectory = value
+	}
+	return cfg, nil
 }
 
 func (c Config) Validate() error {
 	cfg := c
 	if cfg.Server.ClickHouse.Enabled && strings.TrimSpace(cfg.Server.Dataframer.Recipe) == "" {
 		return fmt.Errorf("server.dataframer.recipe is required when server.clickhouse.enabled is true")
+	}
+	if strings.TrimSpace(cfg.Server.SnapshotDirectory) == "" {
+		return fmt.Errorf("server.snapshot_directory is required")
+	}
+	if cfg.Server.SnapshotRetention <= 0 {
+		return fmt.Errorf("server.snapshot_retention must be positive")
+	}
+	for index, selector := range cfg.Server.RequiredDataframeSelectors {
+		if err := selector.Validate(); err != nil {
+			return fmt.Errorf("server.required_dataframe_selectors[%d]: %w", index, err)
+		}
 	}
 	cfg.Auth.Mode = strings.ToLower(strings.TrimSpace(cfg.Auth.Mode))
 	if cfg.Auth.Mode == "" {

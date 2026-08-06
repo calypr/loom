@@ -31,7 +31,7 @@ func TestRegisterRoutesExposesResourceLoadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}); err != nil {
+	if err := registerRoutes(server, resourceService, nil, nil, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}); err != nil {
 		t.Fatal(err)
 	}
 

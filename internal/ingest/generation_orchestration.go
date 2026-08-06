@@ -147,12 +147,12 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	manifestReady := false
+	manifestStaged := false
 	defer func() {
-		if err == nil || manifestReady {
+		if err == nil || manifestStaged {
 			return
 		}
-		// Once READY is persisted we deliberately leave it alone,
+		// Once STAGED is persisted we deliberately leave it alone,
 		// because an activation error is an unknown outcome rather than proof
 		// that the generation failed.
 		_, cleanupErr := lifecycleStore.TransitionManifest(
@@ -282,14 +282,16 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
-	readyManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateReady)
+	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr
 	}
-	manifest = readyManifest
-	manifestReady = true
-	if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
-		return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
+	manifest = stagedManifest
+	manifestStaged = true
+	if !opts.StageOnly {
+		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
+			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
+		}
 	}
 
 	emitEvent(opts.EventSink, "go_load_complete", map[string]any{

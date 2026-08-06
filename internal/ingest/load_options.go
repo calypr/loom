@@ -27,6 +27,9 @@ type LoadOptions struct {
 	// generation activates only after every graph file and catalog finalization
 	// succeeds.
 	Dataset *publication.Ref
+	// StageOnly leaves a successfully loaded immutable generation STAGED. It is
+	// selected for reads only after project-release activation succeeds.
+	StageOnly bool
 	// PreflightSampleRows bounds the number of payloads inspected from every
 	// staged file before Loom opens or mutates Arango. Zero uses the safe
 	// default; full row validation still happens in the loader.
@@ -100,8 +103,8 @@ var (
 	ErrGenerationDatasetRequired           = errors.New("dataset generation is required")
 )
 
-// ActivationOutcomeError means the generation reached READY but Loom could
-// not prove that the active-generation pointer was updated. READY is kept for
+// ActivationOutcomeError means the generation reached STAGED but Loom could
+// not prove that the legacy active-generation pointer was updated. STAGED is kept for
 // an operator to reconcile; it must never be downgraded to FAILED because the
 // activation request may have committed before its error reached the caller.
 type ActivationOutcomeError struct {
