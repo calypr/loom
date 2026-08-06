@@ -1,0 +1,17 @@
+{
+  "scenario": "unavailable",
+  "authorizedProjects": ["project-alpha", "project-beta"],
+  "forbiddenProjects": ["project-secret"],
+  "expectedCounts": {"CURRENT": 0, "STALE": 0, "BUILDING": 1, "FAILED": 1, "MISSING": 0, "EXCLUDED": 0},
+  "data": {"dataframeDataset": {
+    "id": "federated:documents:v3:DocumentReference", "name": "DocumentReference", "revision": "r-unavailable",
+    "selector": {"recipe": "documents", "translationVersion": "v3", "output": "DocumentReference"},
+    "activeContractVersion": "v3", "availability": "UNAVAILABLE", "completeness": 0,
+    "includedProjectCount": 0, "expectedProjectCount": 2, "columns": [],
+    "projectStatuses": [
+      {"project": "project-alpha", "state": "BUILDING", "generation": "git-a", "executionId": "exec-a", "retryable": true},
+      {"project": "project-beta", "state": "FAILED", "generation": "git-b", "executionId": "exec-b", "errorCode": "PUBLICATION_FAILED", "retryable": false}
+    ]
+  }}
+}
+

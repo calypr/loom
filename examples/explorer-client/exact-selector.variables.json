@@ -1,0 +1,11 @@
+{
+  "input": {
+    "selector": {
+      "recipe": "aced-meta-default",
+      "translationVersion": "2026-08-01",
+      "output": "DocumentReference"
+    },
+    "first": 100
+  }
+}
+

@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test explorer-contract-test explorer-query conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -16,6 +16,9 @@ DATAFRAME_QUERY ?= examples/meta_gdc_case_matrix.graphql
 DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
+EXPLORER_QUERY ?= examples/explorer-client/rows.graphql
+EXPLORER_VARIABLES ?= examples/explorer-client/exact-selector.variables.json
+EXPLORER_GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/graph
 
 build: build-cli build-server
 
@@ -56,6 +59,16 @@ compiler-bench:
 dataframe-demo:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(GRAPHQL_URL) -query $(DATAFRAME_QUERY) -variables $(DATAFRAME_VARIABLES) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
+
+explorer-contract-test:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./examples/explorer-client -count=1
+
+# Runs the same exact-selector rows query handed to the external Explorer app.
+# Requires an integrated reliability API and a matching local publication.
+explorer-query:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(EXPLORER_GRAPHQL_URL) -query $(EXPLORER_QUERY) -variables $(EXPLORER_VARIABLES) -repeat 1 -timeout $(DATAFRAME_TIMEOUT) -print-response=true
 
 # Requires a loaded META fixture database. Compiles the checked-in GDC fixture,
 # writes exact rendered AQL, then runs Arango EXPLAIN and PROFILE 2.

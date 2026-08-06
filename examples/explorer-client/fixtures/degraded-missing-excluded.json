@@ -1,0 +1,22 @@
+{
+  "scenario": "missing-excluded",
+  "authorizedProjects": ["project-alpha", "project-beta", "project-gamma"],
+  "forbiddenProjects": ["project-secret"],
+  "expectedCounts": {"CURRENT": 1, "STALE": 0, "BUILDING": 0, "FAILED": 0, "MISSING": 1, "EXCLUDED": 1},
+  "data": {"dataframeRows": {
+    "materialization": {
+      "id": "federated:documents:v2:DocumentReference", "name": "DocumentReference", "revision": "r-missing",
+      "selector": {"recipe": "documents", "translationVersion": "v2", "output": "DocumentReference"},
+      "activeContractVersion": "v2", "availability": "DEGRADED", "completeness": 0.3333333333,
+      "includedProjectCount": 1, "expectedProjectCount": 3, "columns": [],
+      "projectStatuses": [
+        {"project": "project-alpha", "state": "CURRENT", "generation": "git-a", "executionId": "exec-a", "retryable": false},
+        {"project": "project-beta", "state": "MISSING", "retryable": false},
+        {"project": "project-gamma", "state": "EXCLUDED", "errorCode": "RECIPE_CONTRACT_VIOLATION", "retryable": false}
+      ]
+    },
+    "columns": ["project_id"], "rows": [{"project_id": "project-alpha"}], "totalCount": 1,
+    "pageInfo": {"hasNextPage": false, "endCursor": null}
+  }}
+}
+
