@@ -8,12 +8,15 @@ package resolver
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/calypr/loom/generated/graphql/graph/executor"
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
@@ -130,6 +133,66 @@ func (r *mutationResolver) MaterializeDataframeRecipeBundle(ctx context.Context,
 		return nil, recipeGraphQLError(err)
 	}
 	return executionModel(execution), nil
+}
+
+// StartDataframeMaterialization is the resolver for the startDataframeMaterialization field.
+func (r *mutationResolver) StartDataframeMaterialization(ctx context.Context, input model.StartDataframeMaterializationInput) (*model.DataframeRecipeExecution, error) {
+	selector := dataset.DataframeSelector{Recipe: input.Selector.Recipe, TranslationVersion: input.Selector.TranslationVersion, Output: input.Selector.Output}
+	if !selector.Valid() || input.Project == "" || input.Generation == "" {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, ""))
+	}
+	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.Project, DatasetGeneration: input.Generation})
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if r.exactMaterializationStarter == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	execution, err := r.exactMaterializationStarter(ctx, selector, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return executionModel(execution), nil
+}
+
+// ActivateProjectRelease is the resolver for the activateProjectRelease field.
+func (r *mutationResolver) ActivateProjectRelease(ctx context.Context, input model.ActivateProjectReleaseInput) (*model.ProjectRelease, error) {
+	project, releaseID := strings.TrimSpace(input.Project), strings.TrimSpace(input.ReleaseID)
+	if project == "" || releaseID == "" {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, ""))
+	}
+	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: project})
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if r.projectReleaseActivator == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	expected := ""
+	if input.ExpectedActiveRevision != nil {
+		expected = strings.TrimSpace(*input.ExpectedActiveRevision)
+	}
+	release, err := r.projectReleaseActivator(ctx, bindings.Project, releaseID, expected)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return &model.ProjectRelease{ID: release.ID, Project: release.Project, Generation: release.Generation, Revision: release.Revision, State: model.ProjectReleaseState(release.State)}, nil
+}
+
+// PromoteDataframeContract is the resolver for the promoteDataframeContract field.
+func (r *mutationResolver) PromoteDataframeContract(ctx context.Context, input model.PromoteDataframeContractInput) (*model.DataframeContract, error) {
+	recipeName, version := strings.TrimSpace(input.Recipe), strings.TrimSpace(input.TranslationVersion)
+	if recipeName == "" || version == "" {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, ""))
+	}
+	if r.dataframeContractPromoter == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	contract, err := r.dataframeContractPromoter(ctx, recipeName, version)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return &model.DataframeContract{Recipe: contract.Recipe, TranslationVersion: contract.TranslationVersion, PromotedAt: contract.PromotedAt}, nil
 }
 
 // DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.

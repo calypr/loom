@@ -322,8 +322,25 @@ func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 	outputs := make([]*model.DataframeRecipeExecutionOutput, 0, len(value.Outputs))
 	for _, output := range value.Outputs {
 		errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
-		outputs = append(outputs, &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable})
+		item := &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
+		if output.Selector.Valid() {
+			item.Selector = &model.DataframeSelector{Recipe: output.Selector.Recipe, TranslationVersion: output.Selector.TranslationVersion, Output: output.Selector.Output}
+		}
+		if output.Phase != "" {
+			item.Phase = &output.Phase
+		}
+		outputs = append(outputs, item)
 	}
 	errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(value.Error, value.ErrorCode, value.ErrorRetryable)
-	return &model.DataframeRecipeExecution{ID: value.ID, Name: value.Name, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, State: model.DataframeRecipeExecutionState(value.State), Outputs: outputs, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
+	result := &model.DataframeRecipeExecution{ID: value.ID, Name: value.Name, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, State: model.DataframeRecipeExecutionState(value.State), Outputs: outputs, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
+	if value.TranslationVersion != "" {
+		result.TranslationVersion = &value.TranslationVersion
+	}
+	if value.Phase != "" {
+		result.Phase = &value.Phase
+	}
+	if value.RequestID != "" {
+		result.RequestID = &value.RequestID
+	}
+	return result
 }

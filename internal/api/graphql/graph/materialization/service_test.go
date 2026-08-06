@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
@@ -26,5 +27,42 @@ func TestProjectsReportsEmptyPublicationCatalogAsDatasetNotFound(t *testing.T) {
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok || userErr.Code() != string(dataframeerrors.CodeDatasetNotFound) {
 		t.Fatalf("projects() error = %v, want DATASET_NOT_FOUND", err)
+	}
+}
+
+func TestResolveSelectorRejectsAmbiguousInputs(t *testing.T) {
+	service := NewService(Config{DefaultRecipe: "default", DefaultTranslationVersion: "v1"})
+	legacy := "Patient"
+	_, err := service.resolveSelector(&model.DataframeSelectorInput{Recipe: "other", TranslationVersion: "v2", Output: "Patient"}, &legacy)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeInvalidSelector) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestResolveLegacyDataTypeUsesPromotedDefaultContract(t *testing.T) {
+	service := NewService(Config{DefaultRecipe: "default", DefaultTranslationVersion: "v7"})
+	legacy := "Patient"
+	selector, err := service.resolveSelector(nil, &legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector.Recipe != "default" || selector.TranslationVersion != "v7" || selector.Output != "Patient" {
+		t.Fatalf("selector = %#v", selector)
+	}
+}
+
+func TestProjectFilterNarrowsBeforeFederation(t *testing.T) {
+	projects := []string{"a", "b", "c"}
+	filtered := filterProjects(projects, []dfpublished.Filter{{Column: "project_id", Op: "IN", Value: []any{"b", "c"}}})
+	if len(filtered) != 2 || filtered[0] != "b" || filtered[1] != "c" {
+		t.Fatalf("filtered = %#v", filtered)
+	}
+}
+
+func TestProjectStatusesNeverExposeUnauthorizedProjects(t *testing.T) {
+	statuses := filterAuthorizedStatuses([]string{"allowed"}, []dfpublished.ProjectStatus{{ProjectID: "allowed"}, {ProjectID: "secret"}})
+	if len(statuses) != 1 || statuses[0].ProjectID != "allowed" {
+		t.Fatalf("statuses = %#v", statuses)
 	}
 }

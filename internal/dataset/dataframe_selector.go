@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// DataframeSelector is the exact, versioned identity of one recipe output.
-// It is shared by publication, release activation, and federation adapters.
+// DataframeSelector is the exact, versioned identity used by publication,
+// releases, federation, GraphQL, and ETL.
 type DataframeSelector struct {
 	Recipe             string `json:"recipe"`
 	TranslationVersion string `json:"translationVersion"`
@@ -23,6 +23,8 @@ func (s DataframeSelector) Validate() error {
 	}
 	return nil
 }
+
+func (s DataframeSelector) Valid() bool { return s.Validate() == nil }
 
 // Key is a collision-safe stable key for maps and persisted documents.
 func (s DataframeSelector) Key() string {

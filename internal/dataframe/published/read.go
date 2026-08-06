@@ -21,6 +21,10 @@ type Reader struct {
 	Logger                 *slog.Logger
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver
+	// LegacyTranslationVersion maps pre-versioned execution rows only during
+	// the compatibility window. New rows always carry their exact version.
+	LegacyTranslationVersion string
+	ProjectStatusResolver     ProjectStatusResolver
 }
 
 type Filter struct {

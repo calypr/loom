@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"log/slog"
+	"os"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
@@ -11,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 // RecipeControl is the transport-neutral semantic control plane used by the
@@ -39,6 +41,9 @@ type RecipeExecution struct {
 	Error                string
 	ErrorCode            string
 	ErrorRetryable       bool
+	TranslationVersion   string
+	Phase                string
+	RequestID            string
 }
 
 type RecipeExecutionOutput struct {
@@ -48,6 +53,8 @@ type RecipeExecutionOutput struct {
 	Error          string
 	ErrorCode      string
 	ErrorRetryable bool
+	Selector       dataset.DataframeSelector
+	Phase          string
 }
 
 // RecipeMaterializeFunc owns the complete materialization operation. The
@@ -56,6 +63,11 @@ type RecipeExecutionOutput struct {
 // resolve it again.
 type RecipeMaterializeFunc func(context.Context, string, recipe.RuntimeBindings) (RecipeExecution, error)
 type RecipeExecutionReader func(context.Context, string) (*RecipeExecution, error)
+type ExactMaterializationStarter func(context.Context, dataset.DataframeSelector, string, string) (RecipeExecution, error)
+type ProjectRelease struct{ ID, Project, Generation, Revision, State string }
+type ProjectReleaseActivator func(context.Context, string, string, string) (ProjectRelease, error)
+type DataframeContract struct{ Recipe, TranslationVersion, PromotedAt string }
+type DataframeContractPromoter func(context.Context, string, string) (DataframeContract, error)
 
 // RecipeAuthorizer resolves request bindings against the caller's project
 // grants. GraphQL operation type is intentionally irrelevant: preview/run are
@@ -66,36 +78,55 @@ type RecipeAuthorizer interface {
 }
 
 type Resolver struct {
-	query             *queryapi.Service
-	materializations  *materializationapi.Service
-	recipeControl     RecipeControl
-	recipeMaterialize RecipeMaterializeFunc
-	recipeExecutions  RecipeExecutionReader
-	recipeAuthorizer  RecipeAuthorizer
+	query                       *queryapi.Service
+	materializations            *materializationapi.Service
+	recipeControl               RecipeControl
+	recipeMaterialize           RecipeMaterializeFunc
+	recipeExecutions            RecipeExecutionReader
+	recipeAuthorizer            RecipeAuthorizer
+	exactMaterializationStarter ExactMaterializationStarter
+	projectReleaseActivator     ProjectReleaseActivator
+	dataframeContractPromoter   DataframeContractPromoter
 }
 
 type ResolverConfig struct {
-	DataframeQuery        queryapi.Config
-	MaterializationReader *materialization.Reader
-	Logger                *slog.Logger
-	RecipeControl         RecipeControl
-	RecipeMaterialize     RecipeMaterializeFunc
-	RecipeExecutions      RecipeExecutionReader
-	RecipeAuthorizer      RecipeAuthorizer
+	DataframeQuery              queryapi.Config
+	MaterializationReader       *materialization.Reader
+	Logger                      *slog.Logger
+	RecipeControl               RecipeControl
+	RecipeMaterialize           RecipeMaterializeFunc
+	RecipeExecutions            RecipeExecutionReader
+	RecipeAuthorizer            RecipeAuthorizer
+	DefaultRecipe               string
+	DefaultTranslationVersion   string
+	ExactMaterializationStarter ExactMaterializationStarter
+	ProjectReleaseActivator     ProjectReleaseActivator
+	DataframeContractPromoter   DataframeContractPromoter
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
+	if cfg.DefaultRecipe == "" {
+		cfg.DefaultRecipe = os.Getenv("LOOM_DEFAULT_RECIPE")
+	}
+	if cfg.DefaultTranslationVersion == "" {
+		cfg.DefaultTranslationVersion = os.Getenv("LOOM_DEFAULT_TRANSLATION_VERSION")
+	}
 	return &Resolver{
 		query: queryapi.NewService(cfg.DataframeQuery),
 		materializations: materializationapi.NewService(materializationapi.Config{
-			Reader:        cfg.MaterializationReader,
-			ScopeResolver: cfg.DataframeQuery.ScopeResolver,
-			Logger:        cfg.Logger,
+			Reader:                    cfg.MaterializationReader,
+			ScopeResolver:             cfg.DataframeQuery.ScopeResolver,
+			Logger:                    cfg.Logger,
+			DefaultRecipe:             cfg.DefaultRecipe,
+			DefaultTranslationVersion: cfg.DefaultTranslationVersion,
 		}),
-		recipeControl:     cfg.RecipeControl,
-		recipeMaterialize: cfg.RecipeMaterialize,
-		recipeExecutions:  cfg.RecipeExecutions,
-		recipeAuthorizer:  cfg.RecipeAuthorizer,
+		recipeControl:               cfg.RecipeControl,
+		recipeMaterialize:           cfg.RecipeMaterialize,
+		recipeExecutions:            cfg.RecipeExecutions,
+		recipeAuthorizer:            cfg.RecipeAuthorizer,
+		exactMaterializationStarter: cfg.ExactMaterializationStarter,
+		projectReleaseActivator:     cfg.ProjectReleaseActivator,
+		dataframeContractPromoter:   cfg.DataframeContractPromoter,
 	}
 }
 

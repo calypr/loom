@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -20,12 +21,67 @@ import (
 // authorized project publications. project_id is a public, stable row column;
 // legacy outputs that predate it are filled from the source publication project.
 type FederatedDataset struct {
-	Name             string
-	Revision         string
-	Sources          []Materialization
-	Columns          []Column
-	RowCount         int64
-	RowCountComplete bool
+	Selector              DataframeSelector
+	ActiveContractVersion string
+	Name                  string
+	Revision              string
+	Sources               []Materialization
+	Columns               []Column
+	RowCount              int64
+	RowCountComplete      bool
+	Availability          FederationAvailability
+	ExpectedProjects      int
+	ProjectStatuses       []ProjectStatus
+}
+
+type FederationAvailability string
+
+const (
+	FederationAvailable   FederationAvailability = "AVAILABLE"
+	FederationDegraded    FederationAvailability = "DEGRADED"
+	FederationUnavailable FederationAvailability = "UNAVAILABLE"
+)
+
+type ProjectState string
+
+const (
+	ProjectCurrent  ProjectState = "CURRENT"
+	ProjectStale    ProjectState = "STALE"
+	ProjectBuilding ProjectState = "BUILDING"
+	ProjectFailed   ProjectState = "FAILED"
+	ProjectMissing  ProjectState = "MISSING"
+	ProjectExcluded ProjectState = "EXCLUDED"
+)
+
+type ProjectStatus struct {
+	ProjectID   string
+	State       ProjectState
+	Generation  string
+	ExecutionID string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ErrorCode   string
+	Retryable   bool
+}
+
+// ExecutionSelectorResolver is the narrow integration contract implemented by
+// version-aware publication catalogs. It lets federation consume exact
+// identities without depending on publication persistence internals.
+type ExecutionSelectorResolver interface {
+	DataframeSelectorForExecution(context.Context, string, string) (DataframeSelector, error)
+}
+
+// ProjectStatusResolver is implemented by the project-release store. The
+// caller always passes an authorization-filtered project list.
+type ProjectStatusResolver interface {
+	DataframeProjectStatuses(context.Context, []string, DataframeSelector) ([]ProjectStatus, error)
+}
+
+func (r *Reader) FederationProjectStatuses(ctx context.Context, projects []string, selector DataframeSelector) ([]ProjectStatus, error) {
+	if r != nil && r.ProjectStatusResolver != nil {
+		return r.ProjectStatusResolver.DataframeProjectStatuses(ctx, append([]string(nil), projects...), selector)
+	}
+	return nil, nil
 }
 
 // SourceAccess is the already-resolved visibility for one published project.
@@ -136,6 +192,8 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 		return result, nil
 	}
 	all := map[string]parsedType{}
+	typeSources := map[string]map[string][]string{}
+	presenceCount := map[string]int{}
 	firstOrder := make([]string, 0)
 	firstIndex := map[string]int{}
 	for sourceIndex, source := range sources {
@@ -148,6 +206,7 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 				return nil, fmt.Errorf("duplicate column %q in source %q", column.Name, source.ID)
 			}
 			seen[column.Name] = struct{}{}
+			presenceCount[column.Name]++
 			parsed, err := parse(column.ClickHouse)
 			if err != nil {
 				return nil, err
@@ -158,13 +217,27 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 			}
 			if previous, ok := all[column.Name]; ok {
 				if previous.base != parsed.base || previous.array != parsed.array {
-					return nil, fmt.Errorf("incompatible schema column %q", column.Name)
+					projects := make([]string, 0)
+					types := make([]string, 0)
+					for typ, values := range typeSources[column.Name] {
+						types = append(types, typ)
+						projects = append(projects, values...)
+					}
+					types = append(types, column.ClickHouse)
+					projects = append(projects, source.Project)
+					sort.Strings(types)
+					sort.Strings(projects)
+					return nil, dataframeerrors.NewError(dataframeerrors.CodeFederationIncompatible, "", dataframeerrors.WithDetails(map[string]any{"column": column.Name, "projects": projects, "types": types}))
 				}
 				previous.nullable = previous.nullable || parsed.nullable
 				all[column.Name] = previous
 			} else {
 				all[column.Name] = parsed
 			}
+			if typeSources[column.Name] == nil {
+				typeSources[column.Name] = map[string][]string{}
+			}
+			typeSources[column.Name][column.ClickHouse] = append(typeSources[column.Name][column.ClickHouse], source.Project)
 		}
 	}
 	newNames := make([]string, 0)
@@ -181,6 +254,9 @@ func reconcileFederatedColumns(sources []Materialization) ([]Column, error) {
 	result := make([]Column, 0, len(order))
 	for _, name := range order {
 		parsed := all[name]
+		if name != projectIDColumn && presenceCount[name] < len(sources) && !parsed.array {
+			parsed.nullable = true
+		}
 		typ := parsed.base
 		if parsed.array {
 			typ = "Array(" + typ + ")"
@@ -197,16 +273,26 @@ func nowPlusSecond() time.Time {
 	return time.Now().UTC().Add(time.Second)
 }
 
+func validFederationClickHouseType(value string) bool {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "Nullable(") && strings.HasSuffix(value, ")") {
+		value = value[len("Nullable(") : len(value)-1]
+	}
+	if strings.HasPrefix(value, "Array(") && strings.HasSuffix(value, ")") {
+		value = value[len("Array(") : len(value)-1]
+	}
+	return value != "" && !strings.HasPrefix(value, "Nullable(") && !strings.HasPrefix(value, "Array(")
+}
+
 // CurrentFederatedSources returns the exact READY pointer-backed publications
 // without touching schema reconciliation. It is the authorization snapshot
 // boundary used by GraphQL and export callers.
-func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string, resourceType string) ([]Materialization, error) {
+func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string, selector DataframeSelector) ([]Materialization, error) {
 	if r == nil || r.Catalog == nil {
 		return nil, fmt.Errorf("bundle catalog dependency is required")
 	}
 	projects = normalizedProjects(projects)
-	resourceType = strings.TrimSpace(resourceType)
-	if len(projects) == 0 || !fhirschema.HasResource(resourceType) {
+	if len(projects) == 0 || !selector.Valid() {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
@@ -230,7 +316,7 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	for _, project := range projects {
 		allowed[project] = struct{}{}
 	}
-	latest := map[string]bundlepublication.BundleExecution{}
+	selected := map[string]bundlepublication.BundleExecution{}
 	for _, execution := range executions {
 		if execution.State != bundlepublication.BundleReady {
 			continue
@@ -255,29 +341,35 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 		if pointer.ExecutionID != execution.ID {
 			continue
 		}
-		if !hasOutputResourceType(execution, resourceType) {
+		executionSelector, selectorErr := r.selectorForExecution(ctx, execution, selector.Output)
+		if selectorErr != nil {
+			return nil, selectorErr
+		}
+		if executionSelector != selector || !hasOutputResourceType(execution, selector.Output) {
 			continue
 		}
-		current, ok := latest[execution.Project]
-		if !ok || execution.UpdatedAt.After(current.UpdatedAt) {
-			latest[execution.Project] = execution
+		if current, ok := selected[execution.Project]; ok && current.ID != execution.ID {
+			return nil, dataframeerrors.NewError(dataframeerrors.CodeFederationIncompatible, "", dataframeerrors.WithDetails(map[string]any{"project": execution.Project, "selector": selector.Key(), "executions": []string{current.ID, execution.ID}}))
 		}
+		selected[execution.Project] = execution
 	}
-	result := make([]Materialization, 0, len(latest))
+	result := make([]Materialization, 0, len(selected))
 	for _, project := range projects {
-		execution, ok := latest[project]
+		execution, ok := selected[project]
 		if !ok {
 			continue
 		}
 		for _, output := range execution.Outputs {
-			if output.Name == resourceType {
-				result = append(result, publishedMaterialization(execution, output, resourceType))
+			if output.Name == selector.Output {
+				materialization := publishedMaterialization(execution, output, selector.Output)
+				materialization.Selector = selector
+				result = append(result, materialization)
 				break
 			}
 		}
 	}
 	if len(result) == 0 {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+		return []Materialization{}, nil
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Project != result[j].Project {
@@ -286,6 +378,29 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 		return result[i].ID < result[j].ID
 	})
 	return result, nil
+}
+
+// executionTranslationVersion is a compatibility seam for the publication
+// package. New execution records expose TranslationVersion directly; legacy
+// records remain readable but cannot be selected by an exact version.
+func executionTranslationVersion(execution bundlepublication.BundleExecution, legacyDefault string) string {
+	value := reflect.ValueOf(execution)
+	field := value.FieldByName("TranslationVersion")
+	if field.IsValid() && field.Kind() == reflect.String {
+		return strings.TrimSpace(field.String())
+	}
+	return strings.TrimSpace(legacyDefault)
+}
+
+func (r *Reader) selectorForExecution(ctx context.Context, execution bundlepublication.BundleExecution, output string) (DataframeSelector, error) {
+	if resolver, ok := r.Catalog.(ExecutionSelectorResolver); ok {
+		selector, err := resolver.DataframeSelectorForExecution(ctx, execution.ID, output)
+		if err != nil {
+			return DataframeSelector{}, err
+		}
+		return selector, nil
+	}
+	return DataframeSelector{Recipe: execution.Name, TranslationVersion: executionTranslationVersion(execution, r.LegacyTranslationVersion), Output: output}, nil
 }
 
 func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []string) ([]string, error) {
@@ -350,9 +465,78 @@ func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []s
 	return result, nil
 }
 
-func ReconcileFederatedDataset(resourceType string, sources []Materialization) (FederatedDataset, error) {
+// CurrentFederatedSelectors discovers pointer-backed datasets by their full
+// identity. Output-name-only discovery is intentionally not used here.
+func (r *Reader) CurrentFederatedSelectors(ctx context.Context, projects []string) ([]DataframeSelector, error) {
+	if r == nil || r.Catalog == nil {
+		return nil, fmt.Errorf("bundle catalog dependency is required")
+	}
+	projects = normalizedProjects(projects)
+	allowed := make(map[string]struct{}, len(projects))
+	for _, project := range projects {
+		allowed[project] = struct{}{}
+	}
+	activeGenerations := map[string]string{}
+	if r.ActiveManifestResolver != nil {
+		for _, project := range projects {
+			manifest, resolveErr := publication.ResolveActive(ctx, r.ActiveManifestResolver, project)
+			if errors.Is(resolveErr, publication.ErrNoActiveGeneration) {
+				continue
+			}
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			activeGenerations[project] = manifest.Dataset.Generation
+		}
+	}
+	executions, err := r.Catalog.ListExecutions(ctx, bundlepublication.BundleReady, nowPlusSecond())
+	if err != nil {
+		return nil, err
+	}
+	selectors := map[string]DataframeSelector{}
+	for _, execution := range executions {
+		if _, ok := allowed[execution.Project]; !ok {
+			continue
+		}
+		if r.ActiveManifestResolver != nil {
+			generation, ok := activeGenerations[execution.Project]
+			if (ok && execution.DatasetGeneration != generation) || (!ok && execution.DatasetGeneration != "") {
+				continue
+			}
+		}
+		pointer, pointerErr := r.Catalog.GetPointer(ctx, execution.PointerName())
+		if pointerErr != nil {
+			return nil, pointerErr
+		}
+		if pointer.ExecutionID != execution.ID {
+			continue
+		}
+		for _, output := range execution.Outputs {
+			selector, selectorErr := r.selectorForExecution(ctx, execution, output.Name)
+			if selectorErr != nil {
+				return nil, selectorErr
+			}
+			if !selector.Valid() {
+				continue
+			}
+			selectors[selector.Key()] = selector
+		}
+	}
+	result := make([]DataframeSelector, 0, len(selectors))
+	for _, selector := range selectors {
+		result = append(result, selector)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Key() < result[j].Key() })
+	return result, nil
+}
+
+func ReconcileFederatedDataset(selector DataframeSelector, expectedProjects []string, sources []Materialization) (FederatedDataset, error) {
 	if len(sources) == 0 {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+		statuses := make([]ProjectStatus, 0, len(expectedProjects))
+		for _, project := range expectedProjects {
+			statuses = append(statuses, ProjectStatus{ProjectID: project, State: ProjectMissing})
+		}
+		return FederatedDataset{Selector: selector, Name: selector.Output, Availability: FederationUnavailable, ExpectedProjects: len(expectedProjects), ProjectStatuses: statuses}, nil
 	}
 	sort.Slice(sources, func(i, j int) bool {
 		if sources[i].Project != sources[j].Project {
@@ -360,9 +544,42 @@ func ReconcileFederatedDataset(resourceType string, sources []Materialization) (
 		}
 		return sources[i].ID < sources[j].ID
 	})
+	validSources := make([]Materialization, 0, len(sources))
+	excluded := map[string]string{}
+	for _, source := range sources {
+		seen := map[string]struct{}{}
+		valid := strings.TrimSpace(source.PhysicalTable) != ""
+		for _, column := range source.Columns {
+			if strings.TrimSpace(column.Name) == "" || !validFederationClickHouseType(column.ClickHouse) {
+				valid = false
+				break
+			}
+			if _, ok := seen[column.Name]; ok {
+				valid = false
+				break
+			}
+			seen[column.Name] = struct{}{}
+		}
+		if !valid {
+			excluded[source.Project] = string(dataframeerrors.CodeRecipeContractViolation)
+			continue
+		}
+		validSources = append(validSources, source)
+	}
+	if len(validSources) == 0 {
+		statuses := make([]ProjectStatus, 0, len(expectedProjects))
+		for _, project := range expectedProjects {
+			statuses = append(statuses, ProjectStatus{ProjectID: project, State: ProjectExcluded, ErrorCode: excluded[project]})
+		}
+		return FederatedDataset{Selector: selector, Name: selector.Output, Availability: FederationUnavailable, ExpectedProjects: len(expectedProjects), ProjectStatuses: statuses}, nil
+	}
+	sources = validSources
 	columns, err := reconcileFederatedColumns(sources)
 	if err != nil {
-		return FederatedDataset{}, dataframeerrors.Wrap(err, dataframeerrors.CodeSchemaConflict, "")
+		if _, ok := dataframeerrors.AsUserError(err); ok {
+			return FederatedDataset{}, err
+		}
+		return FederatedDataset{}, dataframeerrors.Wrap(err, dataframeerrors.CodeFederationIncompatible, "")
 	}
 	parts := make([]string, 0, len(sources))
 	var rowCount int64
@@ -375,7 +592,29 @@ func ReconcileFederatedDataset(resourceType string, sources []Materialization) (
 	}
 	sort.Strings(parts)
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return FederatedDataset{Name: resourceType, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount}, nil
+	statuses := make([]ProjectStatus, 0, len(expectedProjects))
+	byProject := make(map[string]Materialization, len(sources))
+	for _, source := range sources {
+		byProject[source.Project] = source
+	}
+	for _, project := range expectedProjects {
+		status := ProjectStatus{ProjectID: project, State: ProjectMissing}
+		if code, ok := excluded[project]; ok {
+			status.State, status.ErrorCode = ProjectExcluded, code
+		}
+		if source, ok := byProject[project]; ok {
+			status.State, status.Generation, status.ExecutionID, status.CreatedAt, status.UpdatedAt = ProjectCurrent, source.DatasetGeneration, source.ID, source.CreatedAt, source.UpdatedAt
+			if status.UpdatedAt.IsZero() && source.ReadyAt != nil {
+				status.UpdatedAt = *source.ReadyAt
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	availability := FederationAvailable
+	if len(sources) < len(expectedProjects) {
+		availability = FederationDegraded
+	}
+	return FederatedDataset{Selector: selector, Name: selector.Output, Revision: hex.EncodeToString(digest[:]), Sources: append([]Materialization(nil), sources...), Columns: columns, RowCount: rowCount, Availability: availability, ExpectedProjects: len(expectedProjects), ProjectStatuses: statuses}, nil
 }
 
 // PublishedProjects returns project identities that have a current READY
@@ -448,22 +687,21 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 	}
 	queryColumns := append([]string(nil), unionColumns...)
 	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
+	selectColumns := quotedColumns(queryColumns) + ", count() OVER() AS `__loom_total`"
+	readColumns := append(append([]string(nil), queryColumns...), "__loom_total")
+	counted := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", selectColumns, union)
 	queryArgs := append([]any(nil), unionArgs...)
 	queryArgs = append(queryArgs, whereArgs...)
 	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
+		counted += " WHERE " + strings.Join(where, " AND ")
 	}
+	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_counted", quotedColumns(readColumns), counted)
 	if cursor != nil {
 		cursorWhere, cursorArgs, err := federatedCursorPredicate(cursor, req.Sort)
 		if err != nil {
 			return FederatedPage{}, err
 		}
-		if strings.Contains(query, " WHERE ") {
-			query += " AND " + cursorWhere
-		} else {
-			query += " WHERE " + cursorWhere
-		}
+		query += " WHERE " + cursorWhere
 		queryArgs = append(queryArgs, cursorArgs...)
 	}
 	if req.Sort != nil {
@@ -476,13 +714,23 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 		query += " ORDER BY `__loom_global_row_id` ASC"
 	}
 	query += fmt.Sprintf(" LIMIT %d", first+1)
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, queryArgs...)
+	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, readColumns, queryArgs...)
 	if err != nil {
 		return FederatedPage{}, backendCallError(err)
 	}
-	count, err := r.federatedCountDataset(ctx, dataset, allowed, req)
-	if err != nil {
-		return FederatedPage{}, err
+	var count int64
+	if len(rows) > 0 {
+		count, err = numericCount(rows[0]["__loom_total"])
+		if err != nil {
+			return FederatedPage{}, err
+		}
+	} else {
+		// A window has no carrier row for an empty page (including an after
+		// cursor beyond the end), so only that case needs the count fallback.
+		count, err = r.federatedCountDataset(ctx, dataset, allowed, req)
+		if err != nil {
+			return FederatedPage{}, err
+		}
 	}
 	hasNext := len(rows) > first
 	if hasNext {
@@ -502,6 +750,7 @@ func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedData
 		next = encodeCursor(rowID, sortValue)
 	}
 	for _, row := range rows {
+		delete(row, "__loom_total")
 		delete(row, "__loom_row_id")
 		delete(row, "__loom_global_row_id")
 		for _, column := range unionColumns {

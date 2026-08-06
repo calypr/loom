@@ -15,8 +15,8 @@ func (s *Handler) exportDataframe(c fiber.Ctx) error {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	request.DataType = strings.TrimSpace(request.DataType)
-	if request.DataType == "" {
-		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	if (request.Selector == nil && request.DataType == "") || (request.Selector != nil && request.DataType != "") {
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
 	}
 	if request.Format.Normalize() == "" {
 		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")

@@ -24,9 +24,16 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err != nil {
 		return err
 	}
-	dataset, access, err := s.authorizedFederation(ctx, principal, request.DataType)
+	selector, err := s.resolvePublishedSelector(request.Selector, request.DataType)
 	if err != nil {
 		return err
+	}
+	dataset, access, err := s.authorizedFederation(ctx, principal, selector, request.Filters)
+	if err != nil {
+		return err
+	}
+	if len(dataset.Sources) == 0 {
+		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	format := request.Format.Normalize()
 	if format != dfmaterialization.ExportCSV && format != dfmaterialization.ExportTSV && format != dfmaterialization.ExportJSON && format != dfmaterialization.ExportJSONL {
