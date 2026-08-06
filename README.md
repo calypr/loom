@@ -161,7 +161,8 @@ make dataframe-demo
 
 See [the Quickstart](docs/QUICKSTART.md) for the complete local setup flow and
 [the GraphQL API guide](docs/GRAPHQL_API.md) for copy-paste examples of the
-graph/compiler and published flat-reader APIs.
+graph/compiler and published flat-reader APIs. External snapshot loaders use
+the typed [snapshot ETL client](docs/ETL_SNAPSHOT_CLIENT.md).
 
 ## Graph and flat GraphQL contracts
 
