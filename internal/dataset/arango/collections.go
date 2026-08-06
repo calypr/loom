@@ -9,17 +9,18 @@ const (
 	// operation to change both records atomically.
 	LifecycleCollection = "loom_dataset_lifecycle"
 
-	manifestRecordType = "manifest"
-	activeRecordType   = "active_generation"
+	manifestRecordType      = "manifest"
+	activeRecordType        = "active_generation"
+	snapshotRecordType      = "snapshot_generation"
+	releaseRecordType       = "project_release"
+	activeReleaseRecordType = "active_project_release"
 )
 
 // CollectionSpecs returns a fresh bootstrap specification for persistent
 // dataset lifecycle metadata. It never requests truncation: a FHIR reload
 // must not erase manifest history or an active-generation selection.
 func CollectionSpecs() []arangostore.CollectionSpec {
-	return []arangostore.CollectionSpec{{
-		Name: LifecycleCollection,
-	}}
+	return []arangostore.CollectionSpec{{Name: LifecycleCollection}}
 }
 
 // BootstrapSpec returns the Arango bootstrap work needed by this adapter.

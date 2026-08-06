@@ -216,11 +216,12 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeExecutions:  graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize: recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 	})
+	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
+		ConnectionOptions: connOpts,
+		Schema:            serverConfig.Server.Schema,
+	}}
 	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{
-		Runner: loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
-			ConnectionOptions: connOpts,
-			Schema:            serverConfig.Server.Schema,
-		}},
+		Runner: ingestRunner, GenerationRunner: ingestRunner,
 		Logger: logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
@@ -231,6 +232,19 @@ func run(ctx context.Context, serverConfig Config) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create resource load service: %w", err)
+	}
+	snapshotService := &loadapi.SnapshotService{Repository: lifecycleStore, Blobs: loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory}, Runner: ingestRunner}
+	verificationStore := publicationVerificationStore{query: lifecycleClient}
+	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	deletedGenerations, retentionErr := (publicationcontract.RetentionService{
+		Repository: lifecycleStore,
+		Blobs:      loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory},
+		Retention:  serverConfig.Server.SnapshotRetention,
+	}).RunOnce(ctx)
+	if retentionErr != nil {
+		logger.Error("snapshot retention cleanup failed", "error", retentionErr)
+	} else if len(deletedGenerations) != 0 {
+		logger.Info("snapshot retention cleanup complete", "deleted_generations", len(deletedGenerations))
 	}
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
@@ -248,7 +262,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, resourceService, authorizer, resolver); err != nil {
+	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 

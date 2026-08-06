@@ -56,8 +56,10 @@ func (s *Store) CreateManifest(ctx context.Context, manifest publication.Manifes
 	bindVars := lifecycleBindVars(manifest.Dataset.Project)
 	bindVars["manifest"] = document
 	bindVars["active_placeholder"] = activePlaceholderDocument(manifest.Dataset.Project)
+	bindVars["active_release_placeholder"] = activeReleasePlaceholderDocument(manifest.Dataset.Project)
 	bindVars["manifest_key"] = manifestDocumentKey(manifest.Dataset)
 	bindVars["active_key"] = activeDocumentKey(manifest.Dataset.Project)
+	bindVars["active_release_key"] = activeReleaseDocumentKey(manifest.Dataset.Project)
 
 	var created *publication.Manifest
 	var unexpected error
@@ -161,6 +163,7 @@ func (s *Store) ResolveActiveManifest(ctx context.Context, project string) (publ
 	}
 	bindVars := lifecycleBindVars(project)
 	bindVars["active_key"] = activeDocumentKey(project)
+	bindVars["staged_state"] = string(publication.StateStaged)
 	bindVars["ready_state"] = string(publication.StateReady)
 	rows, err := s.manifestRows(ctx, readActiveAQL, bindVars)
 	if err != nil {
@@ -170,7 +173,7 @@ func (s *Store) ResolveActiveManifest(ctx context.Context, project string) (publ
 		return publication.Manifest{}, fmt.Errorf("%w: %s", publication.ErrNoActiveGeneration, project)
 	}
 	if rows[0].Dataset.Project != project || !rows[0].IsReady() {
-		return publication.Manifest{}, fmt.Errorf("%w: active pointer and READY manifest are inconsistent", ErrUnexpectedStoreResult)
+		return publication.Manifest{}, fmt.Errorf("%w: active pointer and staged manifest are inconsistent", ErrUnexpectedStoreResult)
 	}
 	return rows[0], nil
 }
@@ -194,6 +197,7 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 	bindVars["active_key"] = activeDocumentKey(candidate.Dataset.Project)
 	bindVars["generation"] = candidate.Dataset.Generation
 	bindVars["schema_identity"] = schemaIdentity
+	bindVars["staged_state"] = string(publication.StateStaged)
 	bindVars["ready_state"] = string(publication.StateReady)
 
 	var selected bool
@@ -222,7 +226,7 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 		return fmt.Errorf("activate generation: %w", err)
 	}
 	if !selected {
-		return fmt.Errorf("%w: candidate %s/%s was not a persisted READY manifest with a valid active pointer", ErrActivationConflict, candidate.Dataset.Project, candidate.Dataset.Generation)
+		return fmt.Errorf("%w: candidate %s/%s was not a persisted staged manifest with a valid active pointer", ErrActivationConflict, candidate.Dataset.Project, candidate.Dataset.Generation)
 	}
 	return nil
 }
@@ -231,9 +235,11 @@ const createManifestAQL = `
 LET existing = DOCUMENT(@@lifecycle_collection, @manifest_key)
 FILTER existing == null
 LET active = DOCUMENT(@@lifecycle_collection, @active_key)
-LET documents = active == null ? [@manifest, @active_placeholder] : [@manifest]
+LET activeRelease = DOCUMENT(@@lifecycle_collection, @active_release_key)
+LET documents = APPEND([@manifest], APPEND(active == null ? [@active_placeholder] : [], activeRelease == null ? [@active_release_placeholder] : []))
 FOR document IN documents
   INSERT document INTO @@lifecycle_collection
+  FILTER NEW.recordType == @manifest_record_type
   RETURN {
     recordType: NEW.recordType,
     manifest: NEW.recordType == @manifest_record_type ? {
@@ -285,7 +291,7 @@ FOR active IN @@lifecycle_collection
     FILTER manifest._key == active.manifestKey
     FILTER manifest.recordType == @manifest_record_type
     FILTER manifest.dataset == active.dataset
-    FILTER manifest.state == @ready_state
+    FILTER manifest.state == @ready_state OR manifest.state == @staged_state
     LIMIT 2
     RETURN {
       dataset: manifest.dataset,
@@ -302,7 +308,7 @@ LET candidate = FIRST(
     FILTER manifest.recordType == @manifest_record_type
     FILTER manifest.dataset.project == @project
     FILTER manifest.dataset.generation == @generation
-    FILTER manifest.state == @ready_state
+    FILTER manifest.state == @ready_state OR manifest.state == @staged_state
     FILTER manifest.schemaIdentity == @schema_identity
     RETURN manifest
 )
