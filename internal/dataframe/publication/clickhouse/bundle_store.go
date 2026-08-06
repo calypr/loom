@@ -25,6 +25,11 @@ type IdentityBundleStore interface {
 	BeginBundleFor(context.Context, publication.BundleIdentity) (publication.AtomicBundleTx, error)
 }
 
+type ClaimedIdentityBundleStore interface {
+	IdentityBundleStore
+	BeginClaimedBundleFor(context.Context, string, string, publication.BundleIdentity) (publication.AtomicBundleTx, error)
+}
+
 // ClickHouseBundleStore publishes staged tables by advancing a durable logical
 // pointer in publication.BundleCatalog. ClickHouse itself has no cross-table transaction;
 // the pointer is therefore the visibility boundary.
@@ -40,6 +45,7 @@ type ClickHouseBundleStore struct {
 type BundleClickHouseStore interface {
 	CreateTable(context.Context, string, []clickhouse.Column) error
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
+	VerifyOutput(context.Context, string, []clickhouse.Column, int64) error
 	DropTable(context.Context, string) error
 }
 
@@ -63,9 +69,9 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	key := identity.Key()
 	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
 		switch existing.State {
-		case publication.BundleReady:
+		case publication.BundlePublished, publication.BundleReady:
 			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true}, nil
-		case publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
+		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
 			return nil, dataframeerrors.Wrap(fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
 		}
 	} else if !errors.Is(err, publication.ErrBundleNotFound) {
@@ -85,12 +91,40 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	if !acquired {
 		return nil, dataframeerrors.Wrap(fmt.Errorf("%w: lease for %s", ErrBundleInFlight, key), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
 	}
-	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleLoading, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil}
+	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleQueued, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil, Attempt: 1, MaxAttempts: 1}
 	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
 		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
 			return nil, errors.Join(err, releaseErr)
 		}
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	execution.State = publication.BundleRunning
+	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
+		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
+			return nil, errors.Join(err, releaseErr)
+		}
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
+	tx.startLeaseRenewal(ctx)
+	return tx, nil
+}
+
+func (s *ClickHouseBundleStore) BeginClaimedBundleFor(ctx context.Context, executionID, ownerID string, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
+	execution, err := s.catalog.GetExecution(ctx, executionID)
+	if err != nil {
+		return nil, err
+	}
+	execution = execution.CanonicalizeLegacy()
+	if execution.Name != identity.Name || execution.TranslationVersion != identity.TranslationVersion || execution.Project != identity.Project || execution.DatasetGeneration != identity.DatasetGeneration || execution.OwnerID != ownerID || execution.State != publication.BundleRunning {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
+	}
+	// Resolution-time digests are intentionally filled after enqueue. The
+	// command key remains the pre-validation idempotency key.
+	execution.BundleIdentity = identity
+	expectedPointer, err := s.pointer(ctx, identity.PointerName())
+	if err != nil {
+		return nil, err
 	}
 	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
 	tx.startLeaseRenewal(ctx)
@@ -256,7 +290,7 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	for i, c := range columns {
 		converted[i] = publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}
 	}
-	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Columns: converted, State: publication.BundleLoading})
+	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
 	return t.save(ctx)
 }
 
@@ -347,30 +381,39 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
 		return t.fail(ctx, fmt.Errorf("bundle has no outputs"))
 	}
 	t.execution.State = publication.BundleValidating
+	for i := range t.execution.Outputs {
+		t.execution.Outputs[i].State = publication.BundleValidating
+	}
 	if err := t.save(ctx); err != nil {
 		return err
 	}
 	for i := range t.execution.Outputs {
-		if t.execution.Outputs[i].RowCount < 0 {
-			return t.fail(ctx, fmt.Errorf("output %q has invalid row count", t.execution.Outputs[i].Name))
+		output := &t.execution.Outputs[i]
+		if output.RowCount < 0 {
+			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, fmt.Errorf("output %q has invalid row count", output.Name))
 		}
-		t.execution.Outputs[i].State = publication.BundleReady
-	}
-	if err := t.save(ctx); err != nil {
-		return err
+		columns := make([]clickhouse.Column, len(output.Columns))
+		for columnIndex, column := range output.Columns {
+			columns[columnIndex] = clickhouse.Column{Name: column.Name, Type: column.ClickHouse}
+		}
+		if err := t.store.clickHouse.VerifyOutput(ctx, output.PhysicalTable, columns, output.RowCount); err != nil {
+			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, dataframeerrors.Wrap(err, dataframeerrors.CodePublicationFailed, "", dataframeerrors.WithRetryable(true)))
+		}
+		verified := time.Now().UTC()
+		output.VerifiedAt = &verified
 	}
 	now := time.Now().UTC()
-	t.execution.State, t.execution.ReadyAt, t.execution.UpdatedAt = publication.BundleReady, &now, now
-	if err := t.save(ctx); err != nil {
-		return err
+	t.execution.State, t.execution.PublishedAt, t.execution.UpdatedAt = publication.BundlePublished, &now, now
+	for i := range t.execution.Outputs {
+		t.execution.Outputs[i].State = publication.BundlePublished
 	}
-	if err := t.store.catalog.CompareAndSwapPointer(ctx, t.execution.PointerName(), t.expectedPointer, t.execution.ID); err != nil {
+	if err := t.store.catalog.PublishExecution(ctx, t.execution.PointerName(), t.expectedPointer, t.execution); err != nil {
 		if errors.Is(err, publication.ErrBundlePointerConflict) {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithRetryable(true))
 		} else {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
-		return t.fail(ctx, fmt.Errorf("publish bundle pointer: %w", err))
+		return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 	}
 	t.closed = true
 	return t.stopLease()
@@ -396,8 +439,10 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
-	if err := t.fail(cleanupCtx, cause); err != nil {
-		cleanup = errors.Join(cleanup, err)
+	if t.execution.State != publication.BundleFailed {
+		if err := t.fail(cleanupCtx, cause); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
 	}
 	t.closed = true
 	return errors.Join(cleanup, t.stopLease())
@@ -435,13 +480,21 @@ func (t *clickHouseBundleTx) save(ctx context.Context) error {
 }
 
 func (t *clickHouseBundleTx) fail(ctx context.Context, err error) error {
+	return t.failPhase(ctx, "PUBLICATION", "", err)
+}
+
+func (t *clickHouseBundleTx) failPhase(ctx context.Context, phase, output string, err error) error {
 	normalized := dataframeerrors.Normalize(err)
 	t.execution.State, t.execution.Error = publication.BundleFailed, err.Error()
+	t.execution.PublishedAt = nil
 	t.execution.FailureCode, t.execution.FailureRetryable = normalized.Code(), normalized.Retryable()
+	t.execution.FailurePhase, t.execution.FailureOutput, t.execution.FailureDetails = phase, output, err.Error()
 	for i := range t.execution.Outputs {
 		t.execution.Outputs[i].State = publication.BundleFailed
 		t.execution.Outputs[i].FailureCode = normalized.Code()
 		t.execution.Outputs[i].FailureRetryable = normalized.Retryable()
+		t.execution.Outputs[i].FailurePhase = phase
+		t.execution.Outputs[i].FailureDetails = err.Error()
 	}
 	if persistenceErr := t.save(ctx); persistenceErr != nil {
 		return errors.Join(err, persistenceErr)
@@ -470,12 +523,12 @@ func validateBundleColumn(column publication.PhysicalColumn) error {
 
 func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(value) }
 
-// Reconcile marks abandoned executions failed and removes their staging
-// tables. It is safe to call repeatedly during server startup; READY pointers
-// are never touched.
+// Reconcile removes abandoned staging tables and requeues bounded-retry work.
+// It is safe to call repeatedly during startup; published pointers and queued
+// commands that have not started are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
 	reconcilerID := "reconciler-" + uuid.NewString()
-	for _, state := range []publication.BundleState{publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating} {
+	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundlePreflight, publication.BundleLoading} {
 		executions, err := s.catalog.ListExecutions(ctx, state, olderThan)
 		if err != nil {
 			return err
@@ -502,6 +555,12 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
 			execution.FailureRetryable = true
 			execution.UpdatedAt = time.Now().UTC()
+			execution.Outputs = nil
+			if execution.MaxAttempts > 0 && execution.Attempt < execution.MaxAttempts {
+				execution.State = publication.BundleQueued
+				next := execution.UpdatedAt
+				execution.NextAttemptAt = &next
+			}
 			execution.OwnerID = ""
 			execution.LeaseExpiresAt = nil
 			if err := s.catalog.SaveExecution(cleanupCtx, execution); err != nil {

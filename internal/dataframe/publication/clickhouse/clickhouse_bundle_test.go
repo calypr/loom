@@ -31,6 +31,7 @@ type leaseBundleCatalog struct {
 	saveErr            error
 	requireSaveContext bool
 	pointerErr         error
+	publishErr         error
 }
 
 func newBundleCatalogFixture() *bundleCatalogFixture {
@@ -78,6 +79,12 @@ func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (publi
 	}
 	return c.bundleCatalogFixture.GetPointer(ctx, name)
 }
+func (c *leaseBundleCatalog) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
+	if c.publishErr != nil {
+		return c.publishErr
+	}
+	return c.bundleCatalogFixture.PublishExecution(ctx, name, expected, execution)
+}
 func (c *leaseBundleCatalog) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
 	c.acquireCalls++
 	if c.onAcquire != nil {
@@ -112,6 +119,13 @@ func (c *bundleCatalogFixture) CompareAndSwapPointer(_ context.Context, name, ex
 	c.pointers[name] = publication.BundlePointer{Name: name, ExecutionID: next}
 	return nil
 }
+func (c *bundleCatalogFixture) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
+	if err := c.CompareAndSwapPointer(ctx, name, expected, execution.ID); err != nil {
+		return err
+	}
+	c.executions[execution.ID] = execution
+	return nil
+}
 func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
 	for _, e := range c.executions {
@@ -136,6 +150,7 @@ type bundleClickHouseFixture struct {
 	failInsert  bool
 	insertCalls int
 	maxRows     int
+	verifyErr   error
 }
 
 func newBundleClickHouseFixture() *bundleClickHouseFixture {
@@ -159,6 +174,19 @@ func (c *bundleClickHouseFixture) InsertRows(_ context.Context, name string, _ [
 
 func (c *bundleClickHouseFixture) DropTable(_ context.Context, name string) error {
 	delete(c.tables, name)
+	return nil
+}
+func (c *bundleClickHouseFixture) VerifyOutput(_ context.Context, name string, columns []clickhouse.Column, expectedRows int64) error {
+	if c.verifyErr != nil {
+		return c.verifyErr
+	}
+	rows, ok := c.tables[name]
+	if !ok {
+		return errors.New("table not found")
+	}
+	if int64(len(rows)) != expectedRows || len(columns) == 0 {
+		return errors.New("verification mismatch")
+	}
 	return nil
 }
 func (c *bundleClickHouseFixture) QueryRows(_ context.Context, query string, _ []string) ([]map[string]any, error) {

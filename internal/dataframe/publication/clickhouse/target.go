@@ -13,7 +13,9 @@ import (
 )
 
 type Target struct {
-	Store IdentityBundleStore
+	Store       IdentityBundleStore
+	ExecutionID string
+	OwnerID     string
 }
 
 func New(bundleStore IdentityBundleStore) (*Target, error) {
@@ -24,8 +26,18 @@ func New(bundleStore IdentityBundleStore) (*Target, error) {
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := publication.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
-	tx, err := t.Store.BeginBundleFor(ctx, bundleIdentity)
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	var tx publication.AtomicBundleTx
+	var err error
+	if t.ExecutionID != "" {
+		claimed, ok := t.Store.(ClaimedIdentityBundleStore)
+		if !ok {
+			return nil, fmt.Errorf("ClickHouse bundle store cannot resume durable executions")
+		}
+		tx, err = claimed.BeginClaimedBundleFor(ctx, t.ExecutionID, t.OwnerID, bundleIdentity)
+	} else {
+		tx, err = t.Store.BeginBundleFor(ctx, bundleIdentity)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +59,13 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 		result.columns[schema.Name] = columns
 	}
 	return result, nil
+}
+
+func NewClaimed(store ClaimedIdentityBundleStore, executionID, ownerID string) (*Target, error) {
+	if store == nil || strings.TrimSpace(executionID) == "" || strings.TrimSpace(ownerID) == "" {
+		return nil, fmt.Errorf("claimed ClickHouse target requires store, execution ID, and owner ID")
+	}
+	return &Target{Store: store, ExecutionID: executionID, OwnerID: ownerID}, nil
 }
 
 type transaction struct {

@@ -40,16 +40,27 @@ func (r *Registry) SaveExecution(ctx context.Context, execution publication.Bund
 }
 
 func (r *Registry) GetExecution(ctx context.Context, id string) (publication.BundleExecution, error) {
-	return r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": id})
+	execution, err := r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": id})
+	return execution.CanonicalizeLegacy(), err
 }
 
 func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publication.BundleExecution, error) {
-	return r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc.key == @key SORT doc.createdAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": key})
+	execution, err := r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc.key == @key SORT doc.createdAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": key})
+	return execution.CanonicalizeLegacy(), err
 }
 
 func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state == @state AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "state": state, "before": before}, func(row map[string]any) error {
+	states := []publication.BundleState{state.Canonical()}
+	switch state.Canonical() {
+	case publication.BundleQueued:
+		states = append(states, publication.BundlePending)
+	case publication.BundleRunning:
+		states = append(states, publication.BundlePreflight, publication.BundleLoading)
+	case publication.BundlePublished:
+		states = append(states, publication.BundleReady)
+	}
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state IN @states AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "states": states, "before": before}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
 			return err
@@ -58,10 +69,35 @@ func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleS
 		if err := json.Unmarshal(data, &execution); err != nil {
 			return err
 		}
-		out = append(out, execution)
+		out = append(out, execution.CanonicalizeLegacy())
 		return nil
 	})
 	return out, err
+}
+
+func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+	if err := selector.Validate(); err != nil {
+		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
+	}
+	execution, err := r.loadExecution(ctx, `FOR doc IN @@collection
+FILTER (doc.project == @project OR doc.Project == @project) AND (doc.datasetGeneration == @generation OR doc.DatasetGeneration == @generation)
+  AND (doc.name == @recipe OR doc.Name == @recipe) AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion)
+  AND doc.state IN ["PUBLISHED", "READY"]
+  AND LENGTH(FOR output IN doc.outputs FILTER output.name == @output OR output.Name == @output RETURN 1) > 0
+SORT doc.publishedAt DESC, doc.readyAt DESC, doc.updatedAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{
+		"@collection": BundleExecutionsCollection, "project": project, "generation": generation,
+		"recipe": selector.Recipe, "translationVersion": selector.TranslationVersion, "output": selector.Output,
+	})
+	if err != nil {
+		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
+	}
+	execution = execution.CanonicalizeLegacy()
+	for _, output := range execution.Outputs {
+		if output.Name == selector.Output {
+			return execution, output, nil
+		}
+	}
+	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
 }
 
 func (r *Registry) loadExecution(ctx context.Context, query string, vars map[string]interface{}) (publication.BundleExecution, error) {
@@ -141,6 +177,40 @@ RETURN {updated: true}`, r.batchSize, map[string]interface{}{"@collection": Bund
 	return nil
 }
 
+// PublishExecution atomically commits both the visibility pointer and the
+// PUBLISHED metadata. A failed compare-and-swap leaves both documents intact.
+func (r *Registry) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
+	data, err := json.Marshal(execution)
+	if err != nil {
+		return err
+	}
+	var executionDoc map[string]any
+	if err := json.Unmarshal(data, &executionDoc); err != nil {
+		return err
+	}
+	updated := false
+	err = r.client.QueryRows(ctx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
+LET execution = DOCUMENT(@@executions, @executionKey)
+FILTER execution != null AND (pointer == null OR pointer.executionId == @expected)
+UPDATE execution WITH @execution IN @@executions
+UPSERT {_key: @pointerKey}
+INSERT {_key: @pointerKey, name: @name, executionId: @executionKey, updatedAt: @updatedAt}
+UPDATE {executionId: @executionKey, updatedAt: @updatedAt}
+IN @@pointers
+RETURN {updated: true}`, r.batchSize, map[string]interface{}{
+		"@pointers": BundlePointersCollection, "@executions": BundleExecutionsCollection,
+		"pointerKey": pointerDocumentKey(name), "executionKey": execution.ID,
+		"name": name, "expected": expected, "updatedAt": execution.UpdatedAt, "execution": executionDoc,
+	}, func(map[string]any) error { updated = true; return nil })
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return publication.ErrBundlePointerConflict
+	}
+	return nil
+}
+
 func (r *Registry) AcquireBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
 	claimed := false
 	err := r.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
@@ -178,4 +248,4 @@ func pointerDocumentKey(name string) string {
 }
 
 var _ publication.BundleCatalog = (*Registry)(nil)
-var _ publication.BundleCatalog = (*Registry)(nil)
+var _ publication.ExactExecutionCatalog = (*Registry)(nil)

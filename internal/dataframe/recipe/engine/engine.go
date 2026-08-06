@@ -27,6 +27,11 @@ type Registry interface {
 	LoadRecipe(context.Context, string) (exec.Entry, error)
 }
 
+type VersionedRegistry interface {
+	Registry
+	LoadRecipeVersion(context.Context, string, string) (exec.Entry, error)
+}
+
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
 type Config struct {
@@ -110,12 +115,30 @@ func New(cfg Config) (*Engine, error) {
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
-	}
 	entry, err := e.registry.LoadRecipe(ctx, name)
 	if err != nil {
 		return Resolved{}, err
+	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+// ResolveVersion loads an exact immutable recipe version. New publication
+// workflows must use this method; Resolve is the deprecated default alias.
+func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	registry, ok := e.registry.(VersionedRegistry)
+	if !ok {
+		return Resolved{}, fmt.Errorf("recipe registry does not support exact versions")
+	}
+	entry, err := registry.LoadRecipeVersion(ctx, name, translationVersion)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
+	if strings.TrimSpace(bindings.Project) == "" {
+		return Resolved{}, fmt.Errorf("recipe project is required")
 	}
 	bundle := entry.Bundle
 	storedRecipeDigest, err := bundle.Digest()
@@ -189,6 +212,19 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 // the publisher. Resolve and compile therefore share one discovery snapshot.
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
+	if err != nil {
+		return Resolved{}, &ResolutionError{Err: err}
+	}
+	if publish != nil {
+		if err := publish(ctx, resolved); err != nil {
+			return Resolved{}, err
+		}
+	}
+	return resolved, nil
+}
+
+func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
+	resolved, err := e.ResolveVersion(ctx, name, translationVersion, bindings)
 	if err != nil {
 		return Resolved{}, &ResolutionError{Err: err}
 	}
