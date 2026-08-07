@@ -36,6 +36,9 @@ func TestClickHouseNativeRoundTrip(t *testing.T) {
 	if err := client.EnsureDatabase(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("ping ClickHouse: %v", err)
+	}
 	table := "loom_it_" + uuid.NewString()[:8]
 	defer client.DropTable(ctx, table)
 	if err := client.CreateTable(ctx, table, []Column{

@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func BuildRecipePlan(bundle recipe.Bundle, bindings recipe.RuntimeBindings) (RecipePlan, error) {

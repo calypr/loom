@@ -108,7 +108,15 @@ func referenceKey(opts PopulatedReferenceOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.NodeType), strings.TrimSpace(opts.Mode), scope, datasetGenerationKey(opts.DatasetGeneration)), nil
+	mode := opts.Mode
+	if mode == "" {
+		mode = TraversalModeStorage
+	}
+	filter := opts.FromType
+	if mode == TraversalModeBuilder {
+		filter = opts.NodeType
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(filter), mode, scope, datasetGenerationKey(opts.DatasetGeneration)), nil
 }
 
 func datasetGenerationKey(generation string) string {

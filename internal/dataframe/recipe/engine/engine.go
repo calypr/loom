@@ -27,6 +27,11 @@ type Registry interface {
 	LoadRecipe(context.Context, string) (exec.Entry, error)
 }
 
+type VersionedRegistry interface {
+	Registry
+	LoadRecipeVersion(context.Context, string, string) (exec.Entry, error)
+}
+
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
 type Config struct {
@@ -52,6 +57,25 @@ type Resolved struct {
 	Compiled             lower.CompiledRecipe
 	StoredRecipeDigest   string
 	ResolvedSchemaDigest string
+}
+
+// ResolutionError marks failures while compiling a recipe before publication
+// starts. Transport adapters can expose these as actionable recipe errors;
+// publication and backend failures remain opaque internal errors.
+type ResolutionError struct{ Err error }
+
+func (e *ResolutionError) Error() string {
+	if e == nil || e.Err == nil {
+		return "recipe resolution failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *ResolutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 type OutputStream struct {
@@ -91,12 +115,30 @@ func New(cfg Config) (*Engine, error) {
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
-	}
 	entry, err := e.registry.LoadRecipe(ctx, name)
 	if err != nil {
 		return Resolved{}, err
+	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+// ResolveVersion loads an exact immutable recipe version. New publication
+// workflows must use this method; Resolve is the deprecated default alias.
+func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	registry, ok := e.registry.(VersionedRegistry)
+	if !ok {
+		return Resolved{}, fmt.Errorf("recipe registry does not support exact versions")
+	}
+	entry, err := registry.LoadRecipeVersion(ctx, name, translationVersion)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
+	if strings.TrimSpace(bindings.Project) == "" {
+		return Resolved{}, fmt.Errorf("recipe project is required")
 	}
 	bundle := entry.Bundle
 	storedRecipeDigest, err := bundle.Digest()
@@ -171,7 +213,20 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
 	if err != nil {
-		return Resolved{}, err
+		return Resolved{}, &ResolutionError{Err: err}
+	}
+	if publish != nil {
+		if err := publish(ctx, resolved); err != nil {
+			return Resolved{}, err
+		}
+	}
+	return resolved, nil
+}
+
+func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
+	resolved, err := e.ResolveVersion(ctx, name, translationVersion, bindings)
+	if err != nil {
+		return Resolved{}, &ResolutionError{Err: err}
 	}
 	if publish != nil {
 		if err := publish(ctx, resolved); err != nil {
@@ -225,7 +280,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		streams = append(streams, OutputStream{
-			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: cloneRowIdentity(query.RowIdentity), Query: query.Query,
+			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(), Query: query.Query,
 			BindVars: query.BindVars, DynamicChecks: dynamicChecks(output.DynamicColumns), stream: e.queryRows, batchSize: e.batchSize,
 		})
 	}
@@ -350,15 +405,6 @@ func ensureStableRowIdentity(row map[string]any, identity *spec.RowIdentity, bin
 	digest := sha256.Sum256(encoded)
 	row["__loom_row_id"] = hex.EncodeToString(digest[:])
 	return nil
-}
-
-func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
-	if identity == nil {
-		return nil
-	}
-	copy := *identity
-	copy.Fields = append([]string(nil), identity.Fields...)
-	return &copy
 }
 
 func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string]DynamicColumnCheck {

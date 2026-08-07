@@ -6,29 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/bmeg/jsonschema/v6"
-	"github.com/bmeg/jsonschemagraph/util"
 )
 
-func graphObjectID(payload map[string]any, class *jsonschema.Schema) (string, error) {
-	return util.GetObjectID(payload, class)
-}
-
-func graphExtraArgs(authResourcePath string) map[string]any {
-	if authResourcePath == "" {
-		return nil
-	}
-	return map[string]any{
-		"auth_resource_path": authResourcePath,
-	}
-}
-
+// LoadSingleResourceReader stages one resource stream into the normal resource
+// loader so callers get the same validation, writes, and catalog updates as a
+// directory load without exposing temporary-file details.
 func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceType string, reader io.Reader, compressed bool) (LoadSummary, error) {
 	if opts.Dataset != nil {
 		return LoadSummary{}, ErrGenerationSingleResourceUnsupported
 	}
-	dir, err := os.MkdirTemp("", "arango-fhir-single-resource-*")
+	dir, err := os.MkdirTemp("", "arango-fhir-single-resource-")
 	if err != nil {
 		return LoadSummary{}, err
 	}
@@ -44,7 +31,7 @@ func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceTyp
 		return LoadSummary{}, err
 	}
 	if _, err := io.Copy(f, reader); err != nil {
-		f.Close()
+		_ = f.Close()
 		return LoadSummary{}, err
 	}
 	if err := f.Close(); err != nil {
@@ -56,6 +43,8 @@ func LoadSingleResourceReader(ctx context.Context, opts LoadOptions, resourceTyp
 	return Load(ctx, singleOpts)
 }
 
+// LoadSingleResourceFile loads one resource file through the primary resource
+// loader. Gzip input remains supported for callers that already have it.
 func LoadSingleResourceFile(ctx context.Context, opts LoadOptions, resourceType, path string) (LoadSummary, error) {
 	if opts.Dataset != nil {
 		return LoadSummary{}, ErrGenerationSingleResourceUnsupported

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -163,20 +163,6 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 		if strings.HasPrefix(event, "go_backend_") || event == "go_bootstrap_start" {
 			t.Fatalf("Load() emitted %q for empty generation input; events = %v", event, events)
 		}
-	}
-}
-
-func TestSingleResourceImportsRejectDatasetGenerationBeforeFileOrTempIO(t *testing.T) {
-	ref, err := publication.NewRef("project-a", "generation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	opts := LoadOptions{Dataset: &ref}
-	if _, err := LoadSingleResourceReader(context.Background(), opts, "Patient", strings.NewReader(`{"resourceType":"Patient"}`), false); !errors.Is(err, ErrGenerationSingleResourceUnsupported) {
-		t.Fatalf("LoadSingleResourceReader() error = %v, want %v", err, ErrGenerationSingleResourceUnsupported)
-	}
-	if _, err := LoadSingleResourceFile(context.Background(), opts, "Patient", filepath.Join(t.TempDir(), "missing.ndjson")); !errors.Is(err, ErrGenerationSingleResourceUnsupported) {
-		t.Fatalf("LoadSingleResourceFile() error = %v, want %v", err, ErrGenerationSingleResourceUnsupported)
 	}
 }
 

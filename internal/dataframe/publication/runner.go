@@ -8,6 +8,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
@@ -21,7 +22,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if len(outputs) == 0 {
 		return Result{}, fmt.Errorf("publication requires at least one output")
 	}
-	normalizedOutputs, err := injectAuthResourcePath(identity, outputs)
+	normalizedOutputs, err := injectPublicationMetadata(identity, outputs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -35,13 +36,15 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, err
 	}
 	fail := func(cause error) (Result, error) {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
 		var abortErr error
 		if aborter, ok := tx.(interface {
 			Abort(context.Context, error) error
 		}); ok {
-			abortErr = aborter.Abort(context.Background(), cause)
+			abortErr = aborter.Abort(cleanupCtx, cause)
 		} else {
-			abortErr = tx.Rollback(context.Background())
+			abortErr = tx.Rollback(cleanupCtx)
 		}
 		return Result{}, errors.Join(cause, abortErr)
 	}
@@ -92,9 +95,6 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		}
 		stats[output.Name] = stat
 	}
-	if err := tx.Validate(ctx); err != nil {
-		return fail(fmt.Errorf("publication validation: %w", err))
-	}
 	published, err := tx.Commit(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("publication commit: %w", err))
@@ -115,30 +115,39 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	return Result{Outputs: published}, nil
 }
 
-func injectAuthResourcePath(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
+func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
 	result := make([]OutputStream, 0, len(outputs))
 	for _, output := range outputs {
+		columns := make([]LogicalColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
 			if column.Name == "auth_resource_path" {
 				return nil, fmt.Errorf("output %q column %q is reserved by Loom", output.Name, column.Name)
 			}
+			if column.Name != "project_id" {
+				columns = append(columns, column)
+			}
 		}
 		copyOutput := output
-		copyOutput.Columns = append([]LogicalColumn{{Name: "auth_resource_path", Kind: "string", Nullable: true}}, output.Columns...)
+		copyOutput.Columns = append([]LogicalColumn{
+			{Name: "auth_resource_path", Kind: "string", Nullable: true},
+			{Name: "project_id", Kind: "string"},
+		}, columns...)
 		originalStream := output.Stream
 		copyOutput.Stream = func(ctx context.Context, visit func(map[string]any) error) error {
 			return originalStream(ctx, func(row map[string]any) error {
 				if row == nil {
 					return visit(nil)
 				}
+				row = cloneRow(row)
 				if _, ok := row["auth_resource_path"]; !ok {
-					row = cloneRow(row)
 					if len(identity.AuthResourcePaths) == 1 {
 						row["auth_resource_path"] = identity.AuthResourcePaths[0]
 					} else {
 						row["auth_resource_path"] = ""
 					}
 				}
+				// project_id is Loom-owned metadata; never trust a source row value.
+				row["project_id"] = identity.Project
 				return visit(row)
 			})
 		}

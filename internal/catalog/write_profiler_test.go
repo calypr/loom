@@ -30,7 +30,7 @@ func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {
 
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 	cache := NewShapePlanCache()
-	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Observation", cache)
 	timings := map[string]float64{}
 	payload := map[string]any{
 		"identifier": []any{
@@ -80,9 +80,25 @@ func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 	}
 }
 
+func TestFieldCatalogProfilerSkipsLoomMetadata(t *testing.T) {
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Patient", NewShapePlanCache())
+	profiler.ObservePayload(map[string]any{
+		"id":                 "patient-1",
+		"project_id":         "TEST",
+		"auth_resource_path": "pathA",
+		"dataset_generation": "generation-1",
+	}, map[string]float64{})
+
+	for _, doc := range profiler.Documents() {
+		if isLoomMetadataField(doc.Path) {
+			t.Fatalf("Loom metadata entered FHIR field catalog: %q", doc.Path)
+		}
+	}
+}
+
 func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
 	cache := NewShapePlanCache()
-	profiler := NewProfiler("TEST", "pathA", "Patient", cache)
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Patient", cache)
 	timings := map[string]float64{}
 
 	first := map[string]any{
@@ -113,7 +129,7 @@ func TestFieldCatalogShapeCacheReusesPlans(t *testing.T) {
 
 func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
 	cache := NewShapePlanCache()
-	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Observation", cache)
 	timings := map[string]float64{}
 
 	payload := map[string]any{
@@ -163,7 +179,7 @@ func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
 
 func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
 	cache := NewShapePlanCache()
-	profiler := NewProfiler("TEST", "pathA", "Observation", cache)
+	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Observation", cache)
 	timings := map[string]float64{}
 
 	payload := map[string]any{
@@ -209,7 +225,7 @@ func TestGenerationProfilerSeparatesCatalogDocumentsAndKeys(t *testing.T) {
 	payload := map[string]any{"id": "patient-1"}
 	timings := map[string]float64{}
 
-	legacy := NewProfiler("P1", "scopeA", "Patient", cache)
+	legacy := NewProfilerForGeneration("P1", "", "scopeA", "Patient", cache)
 	generationA := NewProfilerForGeneration("P1", " generation/a ", "scopeA", "Patient", cache)
 	generationB := NewProfilerForGeneration("P1", "generation a", "scopeA", "Patient", cache)
 	canonicalGenerationA := NewProfilerForGeneration("P1", "generation/a", "scopeA", "Patient", cache)
@@ -264,7 +280,7 @@ func TestLegacyProfilerConstructorAndKeyCompatibility(t *testing.T) {
 	}
 	timings := map[string]float64{}
 
-	legacy := NewProfiler(" Project One ", "scope A", "Patient", cache)
+	legacy := NewProfilerForGeneration(" Project One ", "", "scope A", "Patient", cache)
 	emptyGeneration := NewProfilerForGeneration(" Project One ", " \t ", "scope A", "Patient", cache)
 	legacy.ObservePayload(payload, timings)
 	emptyGeneration.ObservePayload(payload, timings)

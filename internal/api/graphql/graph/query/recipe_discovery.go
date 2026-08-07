@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
@@ -28,7 +29,7 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 	}
 	read := d.read
 	if read == nil {
-		read = catalog.DiscoverPopulatedFields
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	fields, err := read(ctx, catalog.PopulatedFieldOptions{
 		Project: scope.Project, DatasetGeneration: scope.DatasetGeneration,

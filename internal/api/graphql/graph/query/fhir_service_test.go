@@ -46,12 +46,13 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 				},
 			})
 			service := NewService(Config{
-				ScopeResolver: scopeResolver,
+				ScopeResolver:          scopeResolver,
+				ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 				DiscoverFields: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 					return nil, nil
 				},
 				Dataframes: runtime.NewService(runtime.ServiceConfig{
-					ExecuteRows: func(context.Context, runtime.ExecuteQueryOptions, string, map[string]any, func(map[string]any) error) error {
+					QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 						return nil
 					},
 				}),

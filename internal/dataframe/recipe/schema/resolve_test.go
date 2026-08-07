@@ -77,6 +77,31 @@ func TestResolveDiscoveryFreezesPivotAndKeyedColumns(t *testing.T) {
 	}
 }
 
+func TestResolveTransformsDiscoveredDynamicKeys(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "catalog", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		DynamicColumns: []recipe.DynamicColumn{{
+			Name: "attachment_extensions", ColumnPrefix: stringPointer(""),
+			Source: recipe.Expression{Select: "root.content[].attachment.extension[]"},
+			Key:    &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.url"}}},
+			Value:  &recipe.Expression{Select: "item.valueString"}, MaxColumns: 4,
+		}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{fields: []FieldCandidate{{
+		ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", Kind: "scalar",
+		DistinctValues: []string{"http://aced-idp.org/fhir/StructureDefinition/sha256", "http://aced-idp.org/fhir/StructureDefinition/source_path"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := resolved.Bundle.Outputs[0].DynamicColumns[0].Columns
+	if got, want := strings.Join(columns, ","), "sha256,source_path"; got != want {
+		t.Fatalf("transformed dynamic columns = %q, want %q", got, want)
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
 func TestResolveOmitsPivotWithNoDiscoveredColumns(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "document-reference", TranslationVersion: "1", Outputs: []recipe.Output{{
 		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document",

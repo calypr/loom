@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -23,16 +23,25 @@ type LoadOptions struct {
 	UseGeneric       bool
 	WriteAPI         string
 	EventSink        EventSink
-	// Dataset selects immutable generation mode. A nil value preserves the
-	// original unversioned loader behavior. A non-nil value requires a complete
-	// directory import, writes generation-qualified graph identities, and only
-	// activates the generation after every graph file and catalog finalization
+	// Dataset identifies the complete immutable generation being loaded. The
+	// generation activates only after every graph file and catalog finalization
 	// succeeds.
 	Dataset *publication.Ref
+	// StageOnly leaves a successfully loaded immutable generation STAGED. It is
+	// selected for reads only after project-release activation succeeds.
+	StageOnly bool
 	// PreflightSampleRows bounds the number of payloads inspected from every
 	// staged file before Loom opens or mutates Arango. Zero uses the safe
 	// default; full row validation still happens in the loader.
 	PreflightSampleRows int
+}
+
+type RowErrorSample struct {
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	ResourceType string `json:"resource_type"`
+	Category     string `json:"category"`
+	Message      string `json:"message"`
 }
 
 type LoadSummary struct {
@@ -46,6 +55,7 @@ type LoadSummary struct {
 	Resources        map[string]int     `json:"resources"`
 	StageSeconds     map[string]float64 `json:"stage_seconds"`
 	Preflight        PreflightReport    `json:"preflight"`
+	RowErrors        []RowErrorSample   `json:"row_errors,omitempty"`
 	// SchemaIdentity is the exact configured graph-schema evidence used for
 	// this load. It remains nil when Loom cannot load the configured schema, so
 	// an early failure never looks like a successful schema observation.
@@ -88,14 +98,13 @@ var (
 	ErrGenerationLoadTruncateForbidden = errors.New("dataset generation load cannot truncate collections")
 	// ErrGenerationDatasetProjectMismatch prevents graph documents and their
 	// lifecycle manifest from being scoped to different projects.
-	ErrGenerationDatasetProjectMismatch = errors.New("dataset generation project does not match load project")
-	// ErrGenerationSingleResourceUnsupported makes the legacy HTTP one-file
-	// path explicitly unavailable in immutable snapshot mode.
+	ErrGenerationDatasetProjectMismatch    = errors.New("dataset generation project does not match load project")
 	ErrGenerationSingleResourceUnsupported = errors.New("single-resource imports cannot create a dataset generation")
+	ErrGenerationDatasetRequired           = errors.New("dataset generation is required")
 )
 
-// ActivationOutcomeError means the generation reached READY but Loom could
-// not prove that the active-generation pointer was updated. READY is kept for
+// ActivationOutcomeError means the generation reached STAGED but Loom could
+// not prove that the legacy active-generation pointer was updated. STAGED is kept for
 // an operator to reconcile; it must never be downgraded to FAILED because the
 // activation request may have committed before its error reached the caller.
 type ActivationOutcomeError struct {
@@ -148,11 +157,10 @@ type generationLoadPlan struct {
 }
 
 // newGenerationLoadPlan validates and snapshots all immutable information
-// after input preflight and before a database connection is opened. Nil keeps
-// the legacy loader path exactly unversioned.
+// after input preflight and before a database connection is opened.
 func newGenerationLoadPlan(opts LoadOptions, files []string, schemaSnapshot publication.SchemaSnapshot) (*generationLoadPlan, error) {
 	if opts.Dataset == nil {
-		return nil, nil
+		return nil, ErrGenerationDatasetRequired
 	}
 
 	ref := *opts.Dataset
@@ -182,7 +190,3 @@ func newGenerationLoadPlan(opts LoadOptions, files []string, schemaSnapshot publ
 	}
 	return &generationLoadPlan{Dataset: ref, Manifest: manifest}, nil
 }
-
-// loadLegacy is the original unversioned loader. Load dispatches to it only
-// when Dataset is nil so existing import/API behavior and physical identities
-// remain unchanged while generation mode evolves independently.

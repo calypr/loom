@@ -6,34 +6,12 @@ import (
 	"testing"
 )
 
-func TestParseLegacyLoadPreservesMutableDefaults(t *testing.T) {
-	config, err := parseLoadCommand([]string{
-		"--project", "legacy-project",
-		"--meta-dir", "META_SMALL",
-	}, false, flag.ContinueOnError)
-	if err != nil {
-		t.Fatalf("parseLoadCommand() error = %v", err)
-	}
-	if !config.Options.Truncate {
-		t.Fatal("legacy load truncate = false, want true default")
-	}
-	if config.Options.Dataset != nil {
-		t.Fatalf("legacy load Dataset = %#v, want nil", config.Options.Dataset)
-	}
-	if got, want := config.Options.Project, "legacy-project"; got != want {
-		t.Fatalf("legacy load project = %q, want %q", got, want)
-	}
-	if got, want := config.Options.MetaDir, "META_SMALL"; got != want {
-		t.Fatalf("legacy load meta dir = %q, want %q", got, want)
-	}
-}
-
 func TestParseGenerationLoadWiresImmutableDataset(t *testing.T) {
 	config, err := parseLoadCommand([]string{
 		"--project", "project-a",
 		"--generation", "load:2026-07-11/v1",
 		"--meta-dir", "META_SMALL",
-	}, true, flag.ContinueOnError)
+	}, flag.ContinueOnError)
 	if err != nil {
 		t.Fatalf("parseLoadCommand() error = %v", err)
 	}
@@ -75,7 +53,7 @@ func TestParseGenerationLoadRejectsUnsafeOrInvalidInput(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := parseLoadCommand(test.args, true, flag.ContinueOnError)
+			_, err := parseLoadCommand(test.args, flag.ContinueOnError)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("parseLoadCommand() error = %v, want containing %q", err, test.want)
 			}
@@ -84,7 +62,7 @@ func TestParseGenerationLoadRejectsUnsafeOrInvalidInput(t *testing.T) {
 }
 
 func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
-	fields, err := parseDiscoverPopulatedFieldOptions([]string{
+	fields, _, err := parseDiscoverPopulatedFieldOptions([]string{
 		"--project", "project-a",
 		"--dataset-generation", "generation-a",
 		"--resource-type", "Patient",
@@ -99,7 +77,7 @@ func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 		t.Fatalf("field discovery resource type = %q, want %q", got, want)
 	}
 
-	references, err := parseDiscoverPopulatedReferenceOptions([]string{
+	references, _, err := parseDiscoverPopulatedReferenceOptions([]string{
 		"--project", "project-a",
 		"--dataset-generation", "generation-a",
 		"--from-type", "Specimen",

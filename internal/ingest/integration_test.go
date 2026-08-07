@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bmeg/jsonschemagraph/util"
 	"github.com/bytedance/sonic"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 func TestLoadAndQueryFixture(t *testing.T) {
@@ -59,6 +61,10 @@ func TestLoadAndQueryFixture(t *testing.T) {
 			name = "Generic"
 		}
 		t.Run(name, func(t *testing.T) {
+			generation, err := publication.NewRef("ARANGO_PROTO_TEST", strings.ToLower(name)+"-generation")
+			if err != nil {
+				t.Fatal(err)
+			}
 			database := "fhir_proto_int_" + strings.ToLower(name) + "_" + time.Now().Format("20060102150405")
 			loadSummary, err := Load(ctx, LoadOptions{
 				ConnectionOptions: arangostore.ConnectionOptions{
@@ -68,9 +74,9 @@ func TestLoadAndQueryFixture(t *testing.T) {
 				Schema:        repoPath(t, "schemas", "graph-fhir.json"),
 				MetaDir:       fixtureDir,
 				Project:       "ARANGO_PROTO_TEST",
+				Dataset:       &generation,
 				BatchSize:     100,
 				ProgressEvery: 1000,
-				Truncate:      true,
 				UseGeneric:    useGeneric,
 			})
 			if err != nil {
@@ -88,11 +94,16 @@ func TestLoadAndQueryFixture(t *testing.T) {
 				}
 			}
 
-			fields, err := catalog.DiscoverPopulatedFields(ctx, catalog.PopulatedFieldOptions{
-				ConnectionOptions: arangostore.ConnectionOptions{
-					URL:      "http://127.0.0.1:8529",
-					Database: database,
-				},
+			client, err := arangostore.Open(ctx, "http://127.0.0.1:8529", database)
+			if err != nil {
+				t.Fatalf("open catalog client: %v", err)
+			}
+			defer client.Close(ctx)
+			catalogStore, err := catalogarango.New(client)
+			if err != nil {
+				t.Fatalf("create catalog store: %v", err)
+			}
+			fields, err := catalogStore.DiscoverFields(ctx, catalog.PopulatedFieldOptions{
 				Project:      "ARANGO_PROTO_TEST",
 				ResourceType: "Condition",
 				CursorBatch:  100,

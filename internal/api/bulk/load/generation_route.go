@@ -9,41 +9,42 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/gofiber/fiber/v3"
 )
 
 func (s *Handler) createGeneration(c fiber.Ctx) error {
 	if !c.IsMultipart() {
-		return &apiError{Status: fiber.StatusUnsupportedMediaType, Code: "unsupported_media_type", Message: "expected multipart/form-data"}
+		return fiber.NewError(fiber.StatusUnsupportedMediaType)
 	}
 	form, err := c.Req().MultipartForm()
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "invalid_multipart_form", Message: err.Error()}
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	project := strings.TrimSpace(c.Req().FormValue("project"))
 	generation := strings.TrimSpace(c.Req().FormValue("generation"))
 	if project == "" || generation == "" {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_generation_identity", Message: "project and generation are required"}
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	files := form.File["file"]
 	if len(files) == 0 {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "missing_file", Message: "at least one file is required"}
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	authResourcePath := strings.TrimSpace(c.Req().FormValue("auth_resource_path"))
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
-		return &apiError{Status: fiber.StatusForbidden, Code: "forbidden", Message: "the requested resource is not available", Cause: err}
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
 	}
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 	stagedDir, err := stageGenerationFiles(files)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
-			return &apiError{Status: fiber.StatusBadRequest, Code: "INVALID_GENERATION_FILE", Message: "uploaded filenames must be NDJSON basenames"}
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidGenerationFile, "")
 		}
 		if errors.Is(err, os.ErrExist) {
-			return &apiError{Status: fiber.StatusBadRequest, Code: "DUPLICATE_GENERATION_FILE", Message: "uploaded generation filenames must be unique"}
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeDuplicateGenerationFile, "")
 		}
-		return &apiError{Status: fiber.StatusInternalServerError, Code: "stage_failed", Message: err.Error()}
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	defer os.RemoveAll(stagedDir)
 	req := GenerationLoadRequest{Project: project, Generation: generation, AuthResourcePath: authResourcePath, StagedDir: stagedDir}
@@ -52,7 +53,7 @@ func (s *Handler) createGeneration(c fiber.Ctx) error {
 	}
 	result, err := s.service.RunGeneration(c.Context(), req)
 	if err != nil {
-		return &apiError{Status: fiber.StatusBadRequest, Code: "GENERATION_LOAD_FAILED", Message: "generation load failed", Cause: err}
+		return err
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
 }

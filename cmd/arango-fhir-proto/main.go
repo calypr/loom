@@ -11,14 +11,10 @@ import (
 	"runtime/trace"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/materialization"
-	materializationarango "github.com/calypr/loom/internal/dataframe/materialization/arango"
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
-	publication "github.com/calypr/loom/internal/publication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 const (
@@ -37,8 +33,6 @@ func main() {
 	ctx := context.Background()
 	var err error
 	switch os.Args[1] {
-	case "load":
-		err = runLoad(ctx, os.Args[2:])
 	case "load-generation":
 		err = runLoadGeneration(ctx, os.Args[2:])
 	case "discover-populated-references":
@@ -47,8 +41,6 @@ func main() {
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
 	case "rebuild-relationship-catalog":
 		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
-	case "materialize-dataframe":
-		err = runMaterializeDataframe(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -61,7 +53,6 @@ func main() {
 
 type loadCommandConfig struct {
 	Options ingest.LoadOptions
-	Backend string
 
 	CPUProfile   string
 	MemProfile   string
@@ -71,38 +62,20 @@ type loadCommandConfig struct {
 	Generation string
 }
 
-func runLoad(ctx context.Context, args []string) error {
-	return runLoadCommand(ctx, args, false)
-}
-
 func runLoadGeneration(ctx context.Context, args []string) error {
-	return runLoadCommand(ctx, args, true)
-}
-
-func runLoadCommand(ctx context.Context, args []string, generationMode bool) error {
-	config, err := parseLoadCommand(args, generationMode, flag.ExitOnError)
+	config, err := parseLoadCommand(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
 	return runConfiguredLoad(ctx, config)
 }
 
-func parseLoadCommand(args []string, generationMode bool, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
-	name := "load"
-	if generationMode {
-		name = "load-generation"
-	}
-	fs := flag.NewFlagSet(name, errorHandling)
+func parseLoadCommand(args []string, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
+	fs := flag.NewFlagSet("load-generation", errorHandling)
 	config := loadCommandConfig{}
-	configureLoadFlags(fs, &config, generationMode)
+	configureLoadFlags(fs, &config)
 	if err := fs.Parse(args); err != nil {
 		return loadCommandConfig{}, err
-	}
-	if config.Backend != "arango" {
-		return loadCommandConfig{}, fmt.Errorf("unsupported backend %q: only arango is supported", config.Backend)
-	}
-	if !generationMode {
-		return config, nil
 	}
 	if config.Generation == "" {
 		return loadCommandConfig{}, fmt.Errorf("--generation is required for load-generation")
@@ -118,8 +91,7 @@ func parseLoadCommand(args []string, generationMode bool, errorHandling flag.Err
 	return config, nil
 }
 
-func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig, generationMode bool) {
-	fs.StringVar(&config.Backend, "backend", "arango", "Storage backend; only arango is supported")
+func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.StringVar(&config.CPUProfile, "cpu-profile", "", "Write CPU profile to file")
 	fs.StringVar(&config.MemProfile, "mem-profile", "", "Write heap profile to file at end of run")
 	fs.StringVar(&config.TraceProfile, "trace-profile", "", "Write runtime trace to file")
@@ -133,15 +105,10 @@ func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig, generationM
 	fs.IntVar(&config.Options.BatchSize, "batch-size", 5000, "Bulk insert batch size")
 	fs.IntVar(&config.Options.ProgressEvery, "progress-every", 50000, "Emit progress every N input rows")
 	fs.IntVar(&config.Options.WriterCount, "writers", 8, "Concurrent writer goroutines")
-	if !generationMode {
-		fs.BoolVar(&config.Options.Truncate, "truncate", true, "Truncate prototype collections before loading")
-	}
 	fs.BoolVar(&config.Options.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
 	fs.BoolVar(&config.Options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
 	fs.StringVar(&config.Options.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-	if generationMode {
-		fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
-	}
+	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
 }
 
 func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
@@ -166,11 +133,20 @@ func runConfiguredLoad(ctx context.Context, config loadCommandConfig) error {
 }
 
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
-	opts, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
+	opts, connection, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
-	results, err := catalog.DiscoverPopulatedReferences(ctx, opts)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	results, err := adapter.DiscoverReferences(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -178,11 +154,20 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 }
 
 func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
-	opts, err := parseDiscoverPopulatedFieldOptions(args, flag.ExitOnError)
+	opts, connection, err := parseDiscoverPopulatedFieldOptions(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
-	results, err := catalog.DiscoverPopulatedFields(ctx, opts)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	results, err := adapter.DiscoverFields(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -192,8 +177,9 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("rebuild-relationship-catalog", flag.ExitOnError)
 	opts := catalog.RelationshipRebuildOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Arango database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation; empty selects the legacy namespace")
 	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
@@ -202,88 +188,28 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	summary, err := catalog.RebuildRelationshipCatalog(ctx, opts)
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	adapter, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	summary, err := adapter.RebuildRelationshipCatalog(ctx, opts)
 	if err != nil {
 		return err
 	}
 	return printJSON(summary)
 }
 
-func runMaterializeDataframe(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("materialize-dataframe", flag.ExitOnError)
-	var requestPath, name, clickhouseURL, clickhouseDatabase string
-	var opts arangostore.ConnectionOptions
-	fs.StringVar(&requestPath, "request", "", "JSON file containing a FhirDataframeInput")
-	fs.StringVar(&name, "name", "", "Published dataframe name")
-	fs.StringVar(&opts.URL, "url", defaultURL, "ArangoDB URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Arango database")
-	fs.StringVar(&clickhouseURL, "clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL")
-	fs.StringVar(&clickhouseDatabase, "clickhouse-database", "loom", "ClickHouse database")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if requestPath == "" {
-		return fmt.Errorf("--request is required")
-	}
-	if name == "" {
-		return fmt.Errorf("--name is required")
-	}
-	data, err := os.ReadFile(requestPath)
-	if err != nil {
-		return err
-	}
-	var input materializationInput
-	if err := json.Unmarshal(data, &input); err != nil {
-		return fmt.Errorf("decode dataframe request: %w", err)
-	}
-	arango, err := arangostore.Open(ctx, opts.URL, opts.Database)
-	if err != nil {
-		return err
-	}
-	defer arango.Close(ctx)
-	if err := arango.Bootstrap(ctx, materializationarango.BootstrapSpec()); err != nil {
-		return err
-	}
-	registry, err := materializationarango.New(arango)
-	if err != nil {
-		return err
-	}
-	ch, err := clickhousestore.New(clickhousestore.Options{URL: clickhouseURL, Database: clickhouseDatabase})
-	if err != nil {
-		return err
-	}
-	defer ch.Close()
-	if err := ch.EnsureDatabase(ctx); err != nil {
-		return err
-	}
-	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{ConnectionOptions: opts})
-	service := &materialization.Service{Dataframes: dataframes, ClickHouse: ch, Registry: registry}
-	result, err := service.Materialize(ctx, materialization.Request{Name: name, Run: dataframeruntime.RunRequest{
-		Recipe:   input.Recipe,
-		Bindings: recipe.RuntimeBindings{Project: input.Project, DatasetGeneration: input.DatasetGeneration, AuthResourcePaths: input.AuthResourcePaths},
-	}, Schema: input.Schema})
-	if err != nil {
-		return err
-	}
-	return printJSON(result)
-}
-
-// materializationInput is the operator-facing recipe document. GraphQL and
-// CLI callers now share the same recipe wire format; no request translation is
-// performed at this boundary.
-type materializationInput struct {
-	Recipe            recipe.Bundle                  `json:"recipe"`
-	Project           string                         `json:"project"`
-	DatasetGeneration string                         `json:"datasetGeneration"`
-	AuthResourcePaths []string                       `json:"authResourcePaths"`
-	Schema            []materialization.SchemaColumn `json:"schema"`
-}
-
-func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, error) {
+func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
 	fs.StringVar(&opts.FromType, "from-type", "", "Optional source collection/resource type filter, for example Patient")
@@ -291,25 +217,26 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	fs.StringVar(&opts.Mode, "mode", catalog.TraversalModeStorage, "Traversal discovery mode: storage or builder")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedReferenceOptions{}, err
+		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, err
 	}
-	return opts, nil
+	return opts, connection, nil
 }
 
-func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, error) {
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
 	opts := catalog.PopulatedFieldOptions{}
-	fs.StringVar(&opts.URL, "url", defaultURL, "Backend base URL")
-	fs.StringVar(&opts.Database, "database", defaultDatabase, "Backend database")
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&opts.DatasetGeneration, "dataset-generation", "", "Optional generation to inspect; empty selects the legacy namespace and never resolves an active generation")
 	fs.StringVar(&opts.ResourceType, "resource-type", "", "Optional resource type filter, for example Patient")
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedFieldOptions{}, err
+		return catalog.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
 	}
-	return opts, nil
+	return opts, connection, nil
 }
 
 func printJSON(value any) error {
@@ -323,12 +250,10 @@ func printJSON(value any) error {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
-  arango-fhir-proto load [flags]  # legacy mutable import; default --truncate=true
-  arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory; no --truncate flag
+  arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]
   arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill
-  arango-fhir-proto materialize-dataframe --request dataframe.json --name case-explorer [flags]
 `)
 }
 

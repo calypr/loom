@@ -16,8 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	dfruntime "github.com/calypr/loom/internal/dataframe/runtime"
-	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 const (
@@ -188,15 +186,7 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation,
 		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode,
 		PreviewLimit: normalized.Limit + 1}
-	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
-	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
+	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
@@ -242,15 +232,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
 	bindings := recipe.RuntimeBindings{Project: normalized.Project, DatasetGeneration: generation, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.Mode, PreviewLimit: normalized.Limit + 1}
-	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
-	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "", generation)
+	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
@@ -265,7 +247,10 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	if live {
 		// Explain only: this invokes Arango's EXPLAIN endpoint and never opens a
 		// result cursor. The assessment is intentionally not returned here.
-		if _, err := dfruntime.ExplainCompiledQueryAssessment(ctx, s.connOpts, compiled); err != nil {
+		if s.explain == nil {
+			return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		}
+		if err := s.explain(ctx, compiled); err != nil {
 			return nil, queryBackend(err)
 		}
 	}

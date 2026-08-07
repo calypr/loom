@@ -75,15 +75,6 @@ type DynamicColumnMetadata struct {
 	ValueType   string
 }
 
-func cloneRowIdentity(identity *spec.RowIdentity) *spec.RowIdentity {
-	if identity == nil {
-		return nil
-	}
-	copy := *identity
-	copy.Fields = append([]string(nil), identity.Fields...)
-	return &copy
-}
-
 // CompileResolvedRecipePlan lowers every resolved recipe output into the
 // canonical physical IR.  The optimizer and renderer are intentionally not
 // called here: callers can apply an explicit PhysicalOptimizationPolicy and
@@ -170,6 +161,6 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
 		RowGrain: output.RowGrain, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
-		RowIdentity: cloneRowIdentity(&identity), DynamicColumns: dynamicMetadata, Plan: physical,
+		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Plan: physical,
 	}, nil
 }

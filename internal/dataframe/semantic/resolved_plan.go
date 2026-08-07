@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	planpkg "github.com/calypr/loom/internal/dataframe/recipe/plan"
 )
 
 // ResolvedColumn is a discovered output column whose name and logical value
@@ -17,7 +15,7 @@ import (
 type ResolvedColumn struct {
 	Output      string
 	DynamicName string
-	Column      planpkg.Column
+	Column      Column
 }
 
 // ResolvedRecipePlan is the only recipe representation accepted by a
@@ -69,12 +67,12 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 					// no schema or physical lookup to attach to this node.
 					continue
 				}
-				candidates := make([]planpkg.Candidate, 0, len(dynamic.Columns))
+				candidates := make([]Candidate, 0, len(dynamic.Columns))
 				for _, column := range dynamic.Columns {
-					candidates = append(candidates, planpkg.Candidate{Key: column, ValueType: "unknown"})
+					candidates = append(candidates, Candidate{Key: column, ValueType: "unknown"})
 				}
-				schema, err := planpkg.Freeze(planpkg.DynamicSpec{
-					Name: dynamic.Name, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
+				schema, err := Freeze(DynamicSpec{
+					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
 				}, candidates)
 				if err != nil {
 					return fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)

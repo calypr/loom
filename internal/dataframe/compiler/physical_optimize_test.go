@@ -16,7 +16,7 @@ import (
 
 func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("OptimizePhysicalPlan() error = %v", err)
 	}
@@ -49,7 +49,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 }
 
 func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Lookup: &ir.PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
 		returnOp.Return.Projections = append(returnOp.Return.Projections, ir.PhysicalProjection{Name: item.name, Expression: &expression})
 	}
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestOptimizePhysicalPlanKeepsConsumerProjectionOffBroadSharedSet(t *testing
 		set.Projection = &ir.PhysicalSetProjection{Fields: []ir.PhysicalSetProjectionField{{Name: "__loom_projection_0", ResourceType: resourceType, Selector: mustPhysicalSelector(t, "id")}}}
 		set.Output = nil
 	}
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
 
 func TestOptimizePhysicalPlanRendersOneScopedTraversalForSiblingSets(t *testing.T) {
 	plan := physicalScopedSiblingPlan(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,11 +332,11 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 	if len(sets) != 2 {
 		t.Fatalf("physical sets = %d, want 2", len(sets))
 	}
-	first, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[0])
+	first, err := ir.DecomposePhysicalTraversalPrefixAt(plan, *sets[0], physicalSetIndex(plan, *sets[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ir.DecomposePhysicalTraversalPrefix(plan, *sets[1])
+	second, err := ir.DecomposePhysicalTraversalPrefixAt(plan, *sets[1], physicalSetIndex(plan, *sets[1]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestDecomposePhysicalTraversalPrefixIsAlphaEquivalentAcrossSiblingVariables
 
 func TestOptimizePhysicalPlanRebindsTypedConsumerFiltersToSharedSubsetItems(t *testing.T) {
 	plan := physicalScopedSiblingPlanWithFilters(t)
-	optimized, err := optimize.OptimizePhysicalPlan(plan)
+	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,12 +378,12 @@ func TestDecomposePhysicalTraversalPrefixRejectsUnscopedOrSharedSets(t *testing.
 	plan := physicalScopedSiblingPlan(t)
 	set := *physicalSets(plan)[0]
 	set.Subplan.Operations = set.Subplan.Operations[:6]
-	_, err := ir.DecomposePhysicalTraversalPrefix(plan, set)
+	_, err := ir.DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetIndex(plan, set))
 	assertPrefixRejection(t, err, ir.PhysicalPrefixMissingTraversal)
 
 	set = *physicalSets(plan)[0]
 	set.SourceSetVariable = "another_set"
-	_, err = ir.DecomposePhysicalTraversalPrefix(plan, set)
+	_, err = ir.DecomposePhysicalTraversalPrefixAt(plan, set, physicalSetIndex(plan, set))
 	assertPrefixRejection(t, err, ir.PhysicalPrefixSharedSubset)
 }
 
@@ -398,9 +398,18 @@ func assertPrefixRejection(t *testing.T, err error, want ir.PhysicalTraversalPre
 	}
 }
 
+func physicalSetIndex(plan ir.PhysicalPlan, set ir.PhysicalSet) int {
+	for index, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalSetOp && operation.Set != nil && operation.Set.Variable == set.Variable {
+			return index
+		}
+	}
+	return -1
+}
+
 func physicalScopedSiblingPlan(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{
 			{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Condition.id", Selector: mustPhysicalSelector(t, "id")}}},

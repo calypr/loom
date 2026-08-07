@@ -77,19 +77,3 @@ func TestResolveSemanticFieldRejectsInvalidSemantics(t *testing.T) {
 		})
 	}
 }
-
-func TestNormalizeSelectionPlanStableAliases(t *testing.T) {
-	gender, _ := spec.ParseSelector("gender")
-	id, _ := spec.ParseSelector("identifier[].value")
-	plan := semantic.SemanticPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{Name: "z", Selector: gender}, {Selector: id}},
-	}}
-	got, err := semantic.NormalizeSelectionPlan(plan)
-	if err != nil {
-		t.Fatalf("NormalizeSelectionPlan: %v", err)
-	}
-	if len(got) != 2 || got[0].Alias != "root.field_2" || got[1].Alias != "root.z" {
-		t.Fatalf("unexpected stable aliases: %#v", got)
-	}
-}

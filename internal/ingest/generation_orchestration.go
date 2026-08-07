@@ -8,18 +8,18 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	publication "github.com/calypr/loom/internal/publication"
-	publicationarango "github.com/calypr/loom/internal/publication/arango"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
+	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
 
-// Load selects the legacy loader only when no immutable Dataset reference was
-// supplied. Dataset mode is a separate write contract: every physical graph
-// document, catalog row, and lifecycle operation is bound to one generation.
+// Load selects the primary unversioned resource loader unless an immutable
+// dataset reference is supplied explicitly.
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	if opts.Dataset == nil {
-		return loadLegacy(ctx, opts)
+		return loadResource(ctx, opts)
 	}
 	return loadGeneration(ctx, opts)
 }
@@ -106,6 +106,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
+	catalogStore, err := catalogarango.New(client)
+	if err != nil {
+		return summary, err
+	}
 	emitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
@@ -143,12 +147,12 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	manifestReady := false
+	manifestStaged := false
 	defer func() {
-		if err == nil || manifestReady {
+		if err == nil || manifestStaged {
 			return
 		}
-		// Once READY is persisted we deliberately leave it alone,
+		// Once STAGED is persisted we deliberately leave it alone,
 		// because an activation error is an unknown outcome rather than proof
 		// that the generation failed.
 		_, cleanupErr := lifecycleStore.TransitionManifest(
@@ -192,6 +196,12 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.ValidationErrors += result.ValidationErrors
 		summary.GenerationErrors += result.GenerationErrors
 		summary.EdgeErrors += result.EdgeErrors
+		if remaining := rowErrorSampleLimit - len(summary.RowErrors); remaining > 0 {
+			if remaining > len(result.RowErrors) {
+				remaining = len(result.RowErrors)
+			}
+			summary.RowErrors = append(summary.RowErrors, result.RowErrors[:remaining]...)
+		}
 		summary.Resources[result.ResourceType] += result.Rows
 		summary.BatchCounts["vertex_insert"] += result.VertexBatches
 		summary.BatchCounts["edge_insert"] += result.EdgeBatches
@@ -247,9 +257,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if err = ctx.Err(); err != nil {
 			return summary, err
 		}
-		if err = catalog.WriteFieldCatalog(
+		if err = catalogStore.WriteFieldCatalog(
 			ctx,
-			client,
 			catalog.FieldCatalogCollection,
 			catalogs[key].Documents(),
 			opts.BatchSize,
@@ -260,9 +269,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return summary, err
 		}
 	}
-	if err = catalog.WriteRelationshipCatalog(
+	if err = catalogStore.WriteRelationshipCatalog(
 		ctx,
-		client,
 		catalog.RelationshipCatalogDocuments(relationshipCounts),
 		opts.BatchSize,
 		false,
@@ -274,14 +282,16 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
-	readyManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateReady)
+	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr
 	}
-	manifest = readyManifest
-	manifestReady = true
-	if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
-		return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
+	manifest = stagedManifest
+	manifestStaged = true
+	if !opts.StageOnly {
+		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
+			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
+		}
 	}
 
 	emitEvent(opts.EventSink, "go_load_complete", map[string]any{

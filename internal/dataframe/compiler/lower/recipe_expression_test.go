@@ -3,10 +3,10 @@ package lower
 import (
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestLowerRecipeExpressionUsesTypedPhysicalCallsAndBinds(t *testing.T) {

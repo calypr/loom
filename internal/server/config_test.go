@@ -1,12 +1,38 @@
 package server
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.Listen != ":19091" || !options.Server.AllowUnauthenticated || !options.Auth.AllowUnauthenticated {
+		t.Fatalf("resolved options = %#v", options)
+	}
+}
+
+func TestParseServerOptionsConfigOverridesFlags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "server:\n  listen: :19092\n  allow_unauthenticated: false\n  clickhouse:\n    enabled: false\nauth:\n  mode: basic\n  basic:\n    username: loom\n    password: secret\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options, err := parseServerOptions([]string{"--config", path, "--listen", ":19093", "--no-auth"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.Listen != ":19092" || options.Server.AllowUnauthenticated || options.Auth.AllowUnauthenticated {
+		t.Fatalf("YAML did not retain precedence: %#v", options)
+	}
+}
 
 func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 	cfg := DefaultConfig()
@@ -92,5 +118,34 @@ func TestLoadConfigRejectsRemovedPublicationBackends(t *testing.T) {
 				t.Fatal("removed publication backend configuration unexpectedly accepted")
 			}
 		})
+	}
+}
+
+func TestRequiredDataframeSelectorsAndSnapshotRetentionFromEnvironment(t *testing.T) {
+	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `[{"recipe":"core","translationVersion":"v1","output":"Patient"}]`)
+	t.Setenv("LOOM_SNAPSHOT_RETENTION", "48h")
+	t.Setenv("LOOM_SNAPSHOT_DIRECTORY", t.TempDir())
+	t.Setenv("LOOM_PUBLICATION_WORKER_LEASE", "90s")
+	t.Setenv("LOOM_PUBLICATION_MAX_ATTEMPTS", "5")
+	t.Setenv("LOOM_DEFAULT_RECIPE", "core")
+	t.Setenv("LOOM_DEFAULT_TRANSLATION_VERSION", "v1")
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour || cfg.Server.PublicationWorkerLease != 90*time.Second || cfg.Server.PublicationMaxAttempts != 5 || cfg.Server.DefaultRecipe != "core" || cfg.Server.DefaultTranslationVersion != "v1" {
+		t.Fatalf("environment config = %#v", cfg.Server)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {
+		// Environment parsing succeeded; the unrelated default ClickHouse recipe
+		// requirement remains enforced by Validate.
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
+func TestInvalidRequiredDataframeSelectorsEnvironmentIsRejected(t *testing.T) {
+	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `{not-json}`)
+	if _, err := LoadConfig(""); err == nil || !strings.Contains(err.Error(), "LOOM_REQUIRED_DATAFRAME_SELECTORS") {
+		t.Fatalf("invalid selector environment = %v", err)
 	}
 }

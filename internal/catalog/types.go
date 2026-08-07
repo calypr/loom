@@ -1,10 +1,6 @@
 package catalog
 
-import (
-	"sync"
-
-	arangostore "github.com/calypr/loom/internal/store/arango"
-)
+import "sync"
 
 const (
 	FieldCatalogCollection        = "fhir_field_catalog"
@@ -53,7 +49,6 @@ type FieldCatalogDocument struct {
 
 // Read-side field discovery request and response types.
 type PopulatedFieldOptions struct {
-	arangostore.ConnectionOptions
 	Project string
 	// DatasetGeneration is optional. An empty value means the legacy dataset
 	// namespace and therefore reads only catalog documents whose
@@ -68,48 +63,6 @@ type PopulatedFieldOptions struct {
 	ResourceType                  string
 	PivotOnly                     bool
 	CursorBatch                   int
-}
-
-// DatasetSummaryOptions describes one scoped dataset-discovery read. The
-// reader accepts an explicit project allowlist; an empty allowlist means no
-// projects are queried. Callers may select a different immutable generation
-// and authorization scope for every project in the allowlist.
-type DatasetSummaryOptions struct {
-	arangostore.ConnectionOptions
-	ProjectAllowlist           []string
-	DatasetGenerationByProject map[string]string
-	AuthScopesByProject        map[string]DatasetAuthScope
-	DatasetStateByProject      map[string]string
-	CursorBatch                int
-}
-
-// DatasetAuthScope is the catalog-facing form of an effective read scope.
-// Unrestricted is authoritative even when AuthResourcePaths is empty, so a
-// restricted caller with no surviving paths cannot be widened accidentally.
-type DatasetAuthScope struct {
-	AuthResourcePaths []string
-	Unrestricted      bool
-}
-
-// DatasetSummary is the persistence-neutral summary advertised to frontend
-// callers. It contains only catalog facts and never exposes Arango collection
-// names or raw catalog documents.
-type DatasetSummary struct {
-	Project           string
-	DatasetGeneration string
-	State             string
-	ResourceTypes     []ResourceTypeSummary
-}
-
-// ResourceTypeSummary contains the visible, populated catalog facts for one
-// FHIR resource type. DocumentCount is the maximum populated field count;
-// this avoids multiplying the estimate when several field paths describe the
-// same documents.
-type ResourceTypeSummary struct {
-	ResourceType        string
-	DocumentCount       int64
-	PopulatedFieldCount int
-	PivotCandidateCount int
 }
 
 type PopulatedField struct {
@@ -136,7 +89,6 @@ type PopulatedField struct {
 
 // Read-side auth path discovery request type.
 type AuthResourcePathOptions struct {
-	arangostore.ConnectionOptions
 	Project           string
 	DatasetGeneration string
 	CursorBatch       int
@@ -144,7 +96,6 @@ type AuthResourcePathOptions struct {
 
 // Read-side reference discovery request and response types.
 type PopulatedReferenceOptions struct {
-	arangostore.ConnectionOptions
 	Project string
 	// DatasetGeneration follows the same legacy-null contract as
 	// PopulatedFieldOptions.

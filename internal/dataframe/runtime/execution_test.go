@@ -30,7 +30,7 @@ func TestFlattenPivotFieldsCreatesStableFlattenedKeys(t *testing.T) {
 
 func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, _ string, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			for _, row := range []map[string]any{
 				{"_key": "first", "pivot": map[string]any{"zeta": "z", "alpha": "a"}},
 				{"_key": "second", "pivot": map[string]any{"beta": "b"}},
@@ -63,7 +63,7 @@ func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 
 func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, _ string, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			for _, row := range []map[string]any{
 				{"_key": "first", "pivot": map[string]any{"zeta": "z", "alpha": "a"}},
 				{"_key": "second", "pivot": map[string]any{"beta": "b"}},
@@ -107,7 +107,7 @@ func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.
 
 func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		ExecuteRows: func(_ context.Context, _ ExecuteQueryOptions, _ string, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			if err := visit(map[string]any{"_key": "first"}); err != nil {
 				return err
 			}

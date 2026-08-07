@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan

@@ -264,6 +264,49 @@ func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
 	t.Fatal("dynamic item lookup projection not found")
 }
 
+func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns(t *testing.T) {
+	emptyPrefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "legacy-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", CollisionPolicy: "overwrite",
+		Fields: []recipe.Field{
+			{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}},
+			{Name: "contentType", Expr: recipe.Expression{Select: "root.content[].attachment.contentType"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "url", Expr: recipe.Expression{Select: "root.content[].attachment.url"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "size", Expr: recipe.Expression{Select: "root.content[].attachment.size"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "hash", Expr: recipe.Expression{Select: "root.content[].attachment.hash"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "title", Expr: recipe.Expression{Select: "root.content[].attachment.title"}, ValueMode: recipe.ValueModeFirst},
+		},
+		DynamicColumns: []recipe.DynamicColumn{
+			{Name: "identifier_keys", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}, Value: &recipe.Expression{Select: "item.value"}, Columns: []string{"HTAN_DATA_FILE_ID"}},
+			{Name: "category_keys", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "root.category[].coding[]"}, Key: &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}, Value: &recipe.Expression{Select: "item.display"}, Columns: []string{"HTAN_DATA_FILE_ID"}},
+		},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.Outputs[0].DynamicColumns; len(got) != 1 || got[0].Name != "HTAN_DATA_FILE_ID" || got[0].DynamicName != "category_keys" {
+		t.Fatalf("dynamic overwrite metadata = %#v", got)
+	}
+	count := 0
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "HTAN_DATA_FILE_ID" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("HTAN_DATA_FILE_ID projections = %d, want one", count)
+	}
+}
+
 func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "dynamic", Source: recipe.Expression{Select: "root.identifier[].value"}, Columns: []string{"x"}}}}}}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})

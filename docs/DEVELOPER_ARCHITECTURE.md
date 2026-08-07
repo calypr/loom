@@ -13,7 +13,7 @@ The top-level directories have distinct ownership:
 | Path | Ownership |
 | --- | --- |
 | `schemas/` | Source schemas edited by developers. |
-| `gqlgen.yml`, `gqlgen.clickhouse.yml` | GraphQL generator configuration. |
+| `gqlgen.yml` | GraphQL generator configuration. |
 | `generated/` | Checked-in generated output; never server business logic. |
 | `internal/` | Handwritten server implementation. |
 | `cmd/` | Executable entry points and developer generators. |
@@ -30,6 +30,12 @@ they do not live in `generated/`.
 
 ## Runtime surfaces
 
+Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
+owns persistence-neutral observed facts; `catalog/arango` owns catalog
+persistence; `dataframe/publication` owns dataframe publishing contracts and
+the runner; `dataframe/publication/{arango,clickhouse}` own storage adapters;
+and `dataframe/published` owns safe published-data reading and federation.
+
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
 
 - `load` for the temporary mutable compatibility load;
@@ -37,17 +43,17 @@ they do not live in `generated/`.
 - `discover-populated-references` and `discover-populated-fields` for
   catalog diagnostics.
 
-`cmd/arango-fhir-server` owns the HTTP process. It mounts health, GraphQL, and
-developer GraphQL tools. In `--dataset-generations` mode it resolves one active
-READY generation and rejects the legacy one-file HTTP import endpoint.
+`cmd/arango-fhir-server` owns the HTTP process. It mounts health, GraphQL,
+developer GraphQL tools, and the primary project/resourceType upload endpoint.
+Complete immutable generations remain an explicit CLI/load workflow.
 
 The GraphQL dataframe mutation is the live compiler transport. Do not add a
 second query compiler or hand-maintained AQL path behind another endpoint.
 
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
-Arango graph/control-plane GraphQL endpoint, `/graphql/dataframe` is the
-Arango-backed FHIR dataframe compiler endpoint, and `/graphql/flat` is the
-dedicated published ClickHouse dataframe reader. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
+Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
+reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
+compiler endpoint. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
 dynamic-data contract defined in
 [`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
 Only registered READY publication outputs are exposed; adding a dataset or
@@ -77,7 +83,7 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/publication` and `internal/publication/arango`. Dataset
+Immutable loads use `internal/dataset` and `internal/dataset/arango`. Dataset
 owns schema identity and generation manifests; ingest owns the Arango vertex
 and edge document shapes it writes. Their manifest records project, generation,
 and schema identity; the active pointer selects one READY generation per
@@ -92,7 +98,7 @@ The current runtime call path is:
 ```text
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
-  -> generated gqlgen executor and resolver binding
+  -> generated gqlgen executor and internal resolver binding
   -> internal/api/graphql/graph/query.Service
   -> dataframe/runtime.Service
   -> dataframe/spec request contracts
@@ -106,8 +112,7 @@ GraphQL request
 
 Runtime preparation and execution live in `internal/dataframe/runtime`;
 compiler orchestration lives in `internal/dataframe/compiler`; structured transport
-errors live in `internal/dataframe/errors`; and guided templates live in
-`internal/dataframe/template`. `internal/catalog` owns scoped observed-field
+errors live in `internal/dataframe/errors`. `internal/catalog` owns scoped observed-field
 and relationship facts. `internal/fhir/schema` owns structural metadata and
 selector semantics. These
 boundaries matter: catalog observations constrain what is populated, while
@@ -117,10 +122,10 @@ The ClickHouse read path is parallel but separate:
 
 ```text
 GraphQL request
-  -> internal/api/graphql/flat HTTP handler
-  -> generated ClickHouse executor and resolver binding
+  -> internal/api/graphql/graph HTTP handler
+  -> generated graph executor and internal resolver binding
   -> internal/api/graphql/graph/materialization.Service
-  -> dataframe/materialization.Reader
+  -> dataframe/published.Reader
   -> ClickHouse
 ```
 
@@ -156,14 +161,10 @@ For the complete ownership map and move history, see
 and the current compiler split plan
 [`DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md`](DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md).
 
-## Compatibility tracks and removal order
+## Compatibility tracks
 
-The following compatibility tracks remain deliberately, but should not grow:
-
-- mutable CLI `load` and `POST /api/v1/imports`, until a complete
-  generation-aware upload/job flow replaces them;
-- raw-structure GraphQL dataframe input, until a deliberately designed guided
-  transport exists.
+The raw-structure GraphQL dataframe input remains for the existing compiler
+transport. Ingestion and publication now use immutable dataset generations.
 
 The former hard-coded GDC AQL files, GDC export command, browser `/builder`
 demo, and unowned bootstrap materializations were removed. They bypassed the

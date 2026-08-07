@@ -13,23 +13,19 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	publication "github.com/calypr/loom/internal/publication"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 type Service struct {
-	connOpts                arangostore.ConnectionOptions
-	discoverReferences      func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFields          func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	dataframes              *runtime.Service
-	scopeResolver           *authscope.ScopeResolver
-	activeManifestResolver  publication.ActiveResolver
-	discoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
-	datasetProjectAllowlist []string
+	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	dataframes             *runtime.Service
+	scopeResolver          *authscope.ScopeResolver
+	activeManifestResolver publication.ActiveResolver
+	explain                func(context.Context, runtime.CompiledQuery) error
 }
 
 type Config struct {
-	ConnectionOptions  arangostore.ConnectionOptions
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	Dataframes         *runtime.Service
@@ -38,45 +34,68 @@ type Config struct {
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
 	ActiveManifestResolver publication.ActiveResolver
-	// DatasetProjectAllowlist is the explicit project source used when a
-	// principal does not carry a project list. An empty value never triggers an
-	// unrestricted catalog scan.
-	DatasetProjectAllowlist []string
-	DiscoverDatasets        func(context.Context, catalog.DatasetSummaryOptions) ([]catalog.DatasetSummary, error)
+	Explain                func(context.Context, runtime.CompiledQuery) error
 }
 
 func NewService(cfg Config) *Service {
 	service := &Service{
-		connOpts:                cfg.ConnectionOptions,
-		scopeResolver:           cfg.ScopeResolver,
-		activeManifestResolver:  cfg.ActiveManifestResolver,
-		datasetProjectAllowlist: cloneStrings(cfg.DatasetProjectAllowlist),
-	}
-	if cfg.DiscoverDatasets != nil {
-		service.discoverDatasets = cfg.DiscoverDatasets
-	} else {
-		service.discoverDatasets = catalog.DiscoverDatasetSummaries
+		scopeResolver:          cfg.ScopeResolver,
+		activeManifestResolver: cfg.ActiveManifestResolver,
+		explain:                cfg.Explain,
 	}
 	if cfg.DiscoverReferences != nil {
-		service.discoverReferences = cfg.DiscoverReferences
-	} else {
-		service.discoverReferences = catalog.DiscoverPopulatedReferences
+		service.discoverReferencesFn = cfg.DiscoverReferences
 	}
 	if cfg.DiscoverFields != nil {
-		service.discoverFields = cfg.DiscoverFields
-	} else {
-		service.discoverFields = catalog.DiscoverPopulatedFields
+		service.discoverFieldsFn = cfg.DiscoverFields
 	}
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
 	} else {
-		service.dataframes = runtime.NewService(runtime.ServiceConfig{
-			ConnectionOptions:      cfg.ConnectionOptions,
-			ScopeResolver:          cfg.ScopeResolver,
-			ActiveManifestResolver: cfg.ActiveManifestResolver,
-		})
+		service.dataframes = runtime.NewService(runtime.ServiceConfig{})
 	}
 	return service
+}
+
+func catalogUnavailable() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+func (s *Service) discoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	if s == nil || s.discoverFieldsFn == nil {
+		return nil, catalogUnavailable()
+	}
+	return s.discoverFieldsFn(ctx, opts)
+}
+
+func (s *Service) discoverReferences(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+	if s == nil || s.discoverReferencesFn == nil {
+		return nil, catalogUnavailable()
+	}
+	return s.discoverReferencesFn(ctx, opts)
+}
+
+func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+	resolvedBundle, err := s.resolveRecipeBundle(ctx, bundle, bindings)
+	if err != nil {
+		return semantic.ResolvedRecipePlan{}, err
+	}
+	plan, err := semantic.BuildRecipePlan(resolvedBundle, bindings)
+	if err != nil {
+		return semantic.ResolvedRecipePlan{}, err
+	}
+	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
+}
+
+func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (runtime.CompiledQuery, error) {
+	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		return runtime.CompiledQuery{}, err
+	}
+	if len(queries) != 1 {
+		return runtime.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	return queries[0], nil
 }
 
 func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*runtime.Result, error) {
@@ -107,28 +126,17 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 		AuthScopeMode:     scope.Mode,
 		PreviewLimit:      rowLimit,
 	}
-	bundle, err = s.resolveRecipeBundle(ctx, bundle, bindings)
-	if err != nil {
-		return nil, queryInvalidErrorOrBackend(err)
-	}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
-	if err != nil {
-		return nil, queryInvalidErrorOrBackend(err)
-	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "", generation)
+	resolved, err := s.resolveRecipe(ctx, bundle, bindings)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
 	requestPreparationDuration := time.Since(preparationStarted)
 	compileStarted := time.Now()
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, rowLimit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compileSingleQuery(resolved, rowLimit)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
-	if len(queries) != 1 {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	result, err := s.dataframes.RunCompiled(ctx, queries[0])
+	result, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
 		return nil, queryBackend(err)
 	}

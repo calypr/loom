@@ -24,7 +24,7 @@ flowchart LR
     AQL --> Publish["Atomic publication catalog commit"]
     Publish --> ClickHouse["Versioned flat tables"]
     Publish --> Catalog["Arango publication catalog"]
-    Catalog["Arango publication catalog"] --> Flat["POST /graphql/flat"]
+    Catalog["Arango publication catalog"] --> Graph["POST /graphql/graph"]
     ClickHouse --> Flat
     Arango --> Graph["POST /graphql/graph"]
     Arango --> Dataframe["POST /graphql/dataframe"]
@@ -41,7 +41,7 @@ flowchart LR
 - Scoped publication of recipe outputs into ClickHouse.
 - A durable Arango catalog that maps logical dataframe names to current READY
   ClickHouse outputs.
-- Multi-project, `auth_resource_path`-scoped flat-data reads.
+- Multi-project, `project_id`-identifiable and `auth_resource_path`-scoped flat-data reads.
 
 Loom does **not** expose arbitrary ClickHouse tables, arbitrary SQL, or an
 Elasticsearch/Guppy fallback. A logical `dataType` is a catalog alias, never a
@@ -55,31 +55,20 @@ browser-supplied physical table name.
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
 | `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, builder introspection, recipe validation, preview, execution, and publication. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
-| `POST /graphql/flat` | ClickHouse reader: discover published datasets, fetch rows with filters/keyset cursors, and aggregate registered outputs. |
-| `POST /api/v1/imports` | Legacy one-resource import compatibility path; disabled in dataset-generation mode. |
-| `GET /api/v1/raw` | Stream project-scoped FHIR resources as raw NDJSON, optionally filtered by `resourceType` and `limit`. |
-| `PUT /api/v1/raw` | Load mixed-resource FHIR NDJSON; Loom infers each row's `resourceType`. |
+| `POST /graphql/graph` | Graph and published-dataframe API: graph reads, recipe control, and ClickHouse publication reads. |
+| `POST /graphql/flat` | Compatibility alias for `/graphql/graph` published-dataframe queries. |
+| `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
 
-Raw NDJSON uses ordinary FHIR resources without a Loom-specific envelope:
-
-```bash
-curl -H 'Authorization: Bearer ...' \
-  'http://127.0.0.1:8080/api/v1/raw?project=ARANGODB_PROTO&resourceType=Patient&limit=10'
-
-curl -X PUT -H 'Authorization: Bearer ...' \
-  -H 'Content-Type: application/x-ndjson' \
-  --data-binary @mixed.ndjson \
-  'http://127.0.0.1:8080/api/v1/raw?project=ARANGODB_PROTO&generation=restore-1'
-```
-
-`project` is required for reads. Writes default to the standalone `default`
-project when omitted. Generation-mode servers require `generation` on writes;
-mutable servers omit it. The normal read-scope and write-authorization
-boundaries apply before Arango is accessed.
+The server exposes only the primary resource upload route from the bulk
+load package. Raw, generation, and dump handlers remain available to
+in-cluster operators and direct database tooling, but are not public routes.
+The `:project` path parameter is required: it is the tenancy identity used for
+authorization and becomes the published row `project_id` (for example,
+`HTAN_INT-BForePC`).
 
 ## Data lifecycle
 
@@ -91,10 +80,10 @@ boundaries apply before Arango is accessed.
 4. Compile the resolved recipe to parameterized AQL and stream rows from
    ArangoDB.
 5. Publish output streams to new ClickHouse physical tables. Loom injects the
-   reserved `auth_resource_path` column, records schema/provenance in Arango,
-   and atomically advances the logical publication pointer only once every
-   output is READY.
-6. Query the logical dataframe through `/graphql/flat`. The reader resolves
+   reserved `project_id` and `auth_resource_path` columns, records
+   schema/provenance in Arango, and atomically advances the logical publication
+   pointer only once every output is READY.
+6. Query the logical dataframe through `/graphql/graph`. The reader resolves
    authorized current outputs from the catalog; it never accepts a physical
    ClickHouse table name.
 
@@ -159,8 +148,10 @@ Useful local URLs:
 - [Graph Playground](http://127.0.0.1:8080/graphql/graph)
 - [Apollo Sandbox](http://127.0.0.1:8080/apollo)
 - FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
-- Flat reader: `http://127.0.0.1:8080/graphql/flat`
-- [Health check](http://127.0.0.1:8080/health)
+- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph` (legacy alias: `/graphql/flat`)
+- [Health summary](http://127.0.0.1:8080/health)
+- [Process liveness](http://127.0.0.1:8080/livez)
+- [Dependency readiness](http://127.0.0.1:8080/readyz)
 
 Run the checked-in graph dataframe example after the server is up:
 
@@ -214,7 +205,7 @@ fully HL7-conformant GraphQL implementation.
 
 ### Flat: discover and read published dataframes
 
-`/graphql/flat` is the stable ClickHouse reader. The schema is intentionally
+Published dataframe reads are available through `/graphql/graph`. The schema is intentionally
 small and data-driven:
 
 ```graphql
@@ -239,12 +230,18 @@ query ExplorerRows($input: DataframeRowsInput!) {
 }
 ```
 
-The public reader input contains a logical `dataType`, not a project,
-generation, materialization ID, or physical table. Loom derives the authorized
-project set from the principal, finds each project’s current READY publication,
-and federates compatible outputs. Rows remain permissive JSON; columns and
-capabilities are discovered at runtime so a new publication does not require a
-GraphQL regeneration or server restart.
+The preferred reader input is the exact selector `(recipe,
+translationVersion, output)`. The deprecated `dataType` form remains
+available through the configured default recipe and translation version. Loom
+derives the authorized project set from the principal, selects each project's
+active pointer-backed publication, reconciles compatible outputs, and
+federates them into one logical dataframe. Every row exposes `project_id`,
+derived from the publication project identity (for example,
+`HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
+columns. Rows remain permissive JSON; columns and capabilities are discovered
+at runtime so a new publication does not require a GraphQL regeneration or
+server restart. See [`docs/DATAFRAME_FEDERATION.md`](docs/DATAFRAME_FEDERATION.md)
+for the source-selection, authorization, schema, and operational contract.
 
 ## Authorization and tenancy
 
@@ -253,7 +250,8 @@ authorization. Calypr mode resolves the caller’s allowed
 `auth_resource_path` values and applies them to graph reads and published flat
 reads. Publication injects `auth_resource_path` into every ClickHouse output;
 the flat reader treats it as an authorization predicate, never as a
-client-controlled filter.
+client-controlled filter. `project_id` identifies the source project for
+Explorer filters; it does not replace authorization paths.
 
 Set `--no-auth` only for local development. It creates an explicit unrestricted
 principal and must not be used in a deployment.
@@ -263,10 +261,8 @@ The server can be configured with YAML:
 ```yaml
 server:
   listen: ":8080"
-  backend: arango
   url: http://arangodb:8529
   database: fhir_proto
-  dataset_generations: true
   clickhouse:
     enabled: true
     url: clickhouse://clickhouse:9000
@@ -291,25 +287,25 @@ without rebuilding the server image.
 | --- | --- |
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
 | [`schemas/`](schemas) | Source FHIR graph schema. |
-| [`gqlgen.yml`](gqlgen.yml), [`gqlgen.clickhouse.yml`](gqlgen.clickhouse.yml) | gqlgen source configuration. |
+| [`gqlgen.yml`](gqlgen.yml) | gqlgen source configuration. |
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
 | [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
 | [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
-| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and resolver bindings. |
+| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and schemas. |
+| [`internal/api/graphql/graph/resolver`](internal/api/graphql/graph/resolver) | GraphQL resolver bindings and transport adapters. |
 | [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
-| [`internal/publication`](internal/publication) | Immutable generation and active-manifest contracts. |
+| [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
-| [`internal/dataframe/materialization`](internal/dataframe/materialization) | ClickHouse table lifecycle, durable publication pointers, and federated reads. |
+| [`internal/dataframe/published`](internal/dataframe/published) | Safe published-data reads and federation. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
 | [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
 | [`internal/api/graphql/graph/materialization`](internal/api/graphql/graph/materialization) | Published-dataframe transport mapping. |
-| [`internal/api/graphql/flat`](internal/api/graphql/flat) | Dedicated flat-reader GraphQL HTTP transport. |
 
 ## Build, generation, and tests
 
@@ -339,6 +335,7 @@ go test ./...
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)
+- [Dataframer recipe reference and operating manual](docs/DATAFRAMER_RECIPE_REFERENCE.md)
 - [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)

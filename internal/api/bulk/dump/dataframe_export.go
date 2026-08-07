@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	dfmaterialization "github.com/calypr/loom/internal/dataframe/materialization"
+	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 type DataframeExporter interface {

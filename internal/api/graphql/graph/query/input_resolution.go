@@ -11,15 +11,8 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-func (s *Service) PrepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, error) {
-	prepared, _, _, err := s.prepareRunInput(ctx, input)
-	return prepared, err
-}
-
 // prepareRunInput resolves field references and returns the effective scope
-// and selected generation alongside the GraphQL-shaped input. The public
-// PrepareRunInput keeps the GraphQL transport shape while Run carries the
-// resolved scope and generation into recipe.RuntimeBindings.
+// and selected generation alongside the GraphQL-shaped input.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -29,7 +22,7 @@ func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframe
 	}
 
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := authorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
+	if err := authscope.AuthorizeProject(principal, input.Project, s.scopeResolver != nil); err != nil {
 		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	generation, err := s.resolveActiveGeneration(ctx, input.Project)
@@ -73,7 +66,6 @@ func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datase
 
 func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, filters []*model.FhirFilterInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
 	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions:             s.connOpts,
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -207,21 +199,6 @@ func resolvePivotFieldRef(resourceType string, discovered []catalog.PopulatedFie
 		}
 	}
 	return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
-}
-
-func authorizeProject(principal *authscope.Principal, project string, ignorePrincipalProjects bool) error {
-	if ignorePrincipalProjects {
-		return nil
-	}
-	if principal == nil || len(principal.Projects) == 0 {
-		return nil
-	}
-	for _, candidate := range principal.Projects {
-		if candidate == project {
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: project access denied", authscope.ErrForbidden)
 }
 
 func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {

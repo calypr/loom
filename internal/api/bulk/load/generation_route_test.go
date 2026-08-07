@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -23,11 +24,11 @@ func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLo
 
 func TestCreateGenerationStagesCompleteBundle(t *testing.T) {
 	runner := &fakeGenerationRunner{summary: ingest.LoadSummary{Files: 2, VerticesInserted: 4}}
-	svc, err := NewService(ServiceConfig{Runner: fakeRunner{}, GenerationRunner: runner})
+	svc, err := NewService(ServiceConfig{GenerationRunner: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewHTTPServer(HTTPConfig{Service: svc})
+	server, err := NewHTTPServer(HTTPConfig{Service: svc, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func TestOptimizePhysicalPlanDoesNotShareAcrossUnnestBarrier(t *testing.T) {
 		t.Fatal("post-unnest prefix omitted active unnest scope identity")
 	}
 
-	optimized, err := OptimizePhysicalPlan(plan)
+	optimized, err := OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("OptimizePhysicalPlan() error = %v", err)
 	}

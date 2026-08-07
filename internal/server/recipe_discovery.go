@@ -2,17 +2,16 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type recipeCatalogDiscovery struct {
-	connectionOptions arangostore.ConnectionOptions
-	read              func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 }
 
 func (d recipeCatalogDiscovery) Fields(ctx context.Context, scope schema.Scope, resourceType string) ([]schema.FieldCandidate, error) {
@@ -27,10 +26,9 @@ func (d recipeCatalogDiscovery) Fields(ctx context.Context, scope schema.Scope, 
 	}
 	reader := d.read
 	if reader == nil {
-		reader = catalog.DiscoverPopulatedFields
+		return nil, fmt.Errorf("catalog field discovery is unavailable")
 	}
 	fields, err := reader(ctx, catalog.PopulatedFieldOptions{
-		ConnectionOptions:             d.connectionOptions,
 		Project:                       scope.Project,
 		DatasetGeneration:             scope.DatasetGeneration,
 		AuthResourcePaths:             append([]string(nil), scope.AuthResourcePaths...),
@@ -42,6 +40,9 @@ func (d recipeCatalogDiscovery) Fields(ctx context.Context, scope schema.Scope, 
 	}
 	result := make([]schema.FieldCandidate, 0, len(fields))
 	for _, field := range fields {
+		if isLoomMetadataField(field.Path) {
+			continue
+		}
 		result = append(result, schema.FieldCandidate{
 			ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind,
 			DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated,
@@ -55,12 +56,20 @@ func (d recipeCatalogDiscovery) Fields(ctx context.Context, scope schema.Scope, 
 	return result, nil
 }
 
-func recipeSchemaResolver(connectionOptions arangostore.ConnectionOptions, cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
-	read := catalog.DiscoverPopulatedFields
+func isLoomMetadataField(path string) bool {
+	switch path {
+	case "project_id", "auth_resource_path", "dataset_generation":
+		return true
+	default:
+		return false
+	}
+}
+
+func recipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error), cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 	if cache != nil {
 		read = cache.DiscoverFields(read)
 	}
-	discovery := recipeCatalogDiscovery{connectionOptions: connectionOptions, read: read}
+	discovery := recipeCatalogDiscovery{read: read}
 	return func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipe.Bundle, error) {
 		resolved, err := schema.Resolve(ctx, bundle, schema.Scope{
 			Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,

@@ -2,11 +2,11 @@ package authscope
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type fakeResourceAccessClient struct {
@@ -29,7 +29,6 @@ func (f *recordingResourceAccessClient) GetAllowedResources(ctx context.Context,
 
 func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{
 				"/programs/EllrottLab/projects/GDC_Data",
@@ -54,7 +53,6 @@ func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 
 func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
@@ -73,7 +71,6 @@ func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 
 func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testing.T) {
 	resolver := NewScopeResolver(ScopeResolverConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
@@ -183,7 +180,6 @@ func TestScopeResolverKeepsRestrictedEmptyScopeWithinGeneration(t *testing.T) {
 func TestScopeAuthorizerRequiresScopedWritePath(t *testing.T) {
 	authz := ScopeAuthorizer{
 		Resolver: NewScopeResolver(ScopeResolverConfig{
-			ConnectionOptions: arangostore.ConnectionOptions{},
 			ResourceAccess: fakeResourceAccessClient{
 				resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 			},
@@ -194,6 +190,26 @@ func TestScopeAuthorizerRequiresScopedWritePath(t *testing.T) {
 	}, "P1", "")
 	if err == nil {
 		t.Fatal("expected missing auth_resource_path error")
+	}
+}
+
+func TestScopeAuthorizerWithoutResolverFailsClosed(t *testing.T) {
+	err := (ScopeAuthorizer{}).AuthorizeWrite(context.Background(), &Principal{}, "P1", "path")
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("error = %v, want ErrForbidden", err)
+	}
+}
+
+func TestAuthorizeProjectUsesPrincipalAllowlist(t *testing.T) {
+	principal := &Principal{Projects: []string{"allowed"}}
+	if err := AuthorizeProject(principal, "allowed", false); err != nil {
+		t.Fatalf("allowed project rejected: %v", err)
+	}
+	if err := AuthorizeProject(principal, "denied", false); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("denied project error = %v, want ErrForbidden", err)
+	}
+	if err := AuthorizeProject(principal, "denied", true); err != nil {
+		t.Fatalf("ignored project restriction rejected: %v", err)
 	}
 }
 

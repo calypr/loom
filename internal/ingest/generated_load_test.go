@@ -8,15 +8,15 @@ import (
 	fhir "github.com/calypr/loom/generated/fhir"
 )
 
-func TestGeneratedLoadCapabilityFallsBackForSchemaOnlyRoots(t *testing.T) {
-	for _, resourceType := range []string{"Patient", "Specimen", "Observation"} {
+func TestGeneratedLoadCapabilityMatchesGeneratedFHIRMethods(t *testing.T) {
+	for _, resourceType := range []string{"Patient", "Specimen", "Observation", "DiagnosticReport", "Task"} {
 		if !supportsGeneratedLoad(resourceType) {
 			t.Fatalf("generated fast path unexpectedly unavailable for %s", resourceType)
 		}
 	}
-	for _, resourceType := range []string{"DiagnosticReport", "MedicationRequest", "MedicationStatement", "Procedure", "Task"} {
+	for _, resourceType := range []string{"Unknown", "Resource"} {
 		if supportsGeneratedLoad(resourceType) {
-			t.Fatalf("schema-only root %s should use generic loader fallback", resourceType)
+			t.Fatalf("unknown root %s should use generic loader fallback", resourceType)
 		}
 	}
 }
@@ -58,6 +58,27 @@ func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
 	}
 	if got, want := studyEdge.ToType, "ResearchStudy"; got != want {
 		t.Fatalf("study edge to_type = %q, want %q", got, want)
+	}
+}
+
+func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
+	project := "HTAN_INT-BForePC"
+	vertex, _, _, err := loadRowGenerated("Patient", []byte(`{
+  "resourceType": "Patient",
+  "id": "patient-1"
+}`), project, map[string]float64{})
+	if err != nil {
+		t.Fatalf("loadRowGenerated(Patient): %v", err)
+	}
+	if vertex.ProjectID != project {
+		t.Fatalf("project_id envelope = %q, want %q", vertex.ProjectID, project)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(vertex.Payload.(json.RawMessage), &payload); err != nil {
+		t.Fatalf("decode generated payload: %v", err)
+	}
+	if got := payload["project_id"]; got != project {
+		t.Fatalf("payload project_id = %#v, want %q", got, project)
 	}
 }
 

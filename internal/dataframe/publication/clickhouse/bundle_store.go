@@ -1,0 +1,613 @@
+package clickhouse
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/store/clickhouse"
+	"github.com/google/uuid"
+)
+
+var (
+	ErrBundleInFlight        = errors.New("identical bundle execution is already in flight")
+	ErrBundleLeaseLost       = errors.New("bundle lease ownership was lost")
+	ErrBundleCommitUncertain = errors.New("bundle publication commit outcome is uncertain")
+)
+
+type IdentityBundleStore interface {
+	BeginBundleFor(context.Context, publication.BundleIdentity) (publication.AtomicBundleTx, error)
+}
+
+type ClaimedIdentityBundleStore interface {
+	IdentityBundleStore
+	BeginClaimedBundleFor(context.Context, string, string, publication.BundleIdentity) (publication.AtomicBundleTx, error)
+}
+
+// ClickHouseBundleStore publishes staged tables by advancing a durable logical
+// pointer in publication.BundleCatalog. ClickHouse itself has no cross-table transaction;
+// the pointer is therefore the visibility boundary.
+type ClickHouseBundleStore struct {
+	clickHouse         BundleClickHouseStore
+	catalog            publication.BundleCatalog
+	prefix             string
+	mu                 sync.Mutex
+	leaseTTL           time.Duration
+	leaseRenewInterval time.Duration
+}
+
+type BundleClickHouseStore interface {
+	CreateTable(context.Context, string, []clickhouse.Column) error
+	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
+	VerifyOutput(context.Context, string, []clickhouse.Column, int64) error
+	DropTable(context.Context, string) error
+}
+
+func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
+	if client == nil || catalog == nil {
+		return nil, fmt.Errorf("ClickHouse client and bundle catalog are required")
+	}
+	return &ClickHouseBundleStore{clickHouse: client, catalog: catalog, prefix: "loom_bundle", leaseTTL: 2 * time.Minute, leaseRenewInterval: 30 * time.Second}, nil
+}
+
+func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
+	// ponytail: one process-wide begin lock; catalog leases handle cross-process races, per-key locks if throughput matters.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(identity.Name) == "" {
+		return nil, fmt.Errorf("bundle name is required")
+	}
+	if identity.EngineVersion == "" {
+		identity.EngineVersion = "loom"
+	}
+	key := identity.Key()
+	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
+		switch existing.State {
+		case publication.BundlePublished, publication.BundleReady:
+			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true}, nil
+		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
+			return nil, dataframeerrors.Wrap(fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
+		}
+	} else if !errors.Is(err, publication.ErrBundleNotFound) {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	id := uuid.NewString()
+	now := time.Now().UTC()
+	leaseUntil := now.Add(s.leaseTTL)
+	expectedPointer, err := s.pointer(ctx, identity.PointerName())
+	if err != nil {
+		return nil, err
+	}
+	acquired, err := s.catalog.AcquireBundleLease(ctx, key, id, leaseUntil)
+	if err != nil {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	if !acquired {
+		return nil, dataframeerrors.Wrap(fmt.Errorf("%w: lease for %s", ErrBundleInFlight, key), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
+	}
+	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleQueued, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil, Attempt: 1, MaxAttempts: 1}
+	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
+		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
+			return nil, errors.Join(err, releaseErr)
+		}
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	execution.State = publication.BundleRunning
+	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
+		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
+			return nil, errors.Join(err, releaseErr)
+		}
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
+	tx.startLeaseRenewal(ctx)
+	return tx, nil
+}
+
+func (s *ClickHouseBundleStore) BeginClaimedBundleFor(ctx context.Context, executionID, ownerID string, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
+	execution, err := s.catalog.GetExecution(ctx, executionID)
+	if err != nil {
+		return nil, err
+	}
+	execution = execution.CanonicalizeLegacy()
+	if execution.Name != identity.Name || execution.TranslationVersion != identity.TranslationVersion || execution.Project != identity.Project || execution.DatasetGeneration != identity.DatasetGeneration || execution.OwnerID != ownerID || execution.State != publication.BundleRunning {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
+	}
+	// Resolution-time digests are intentionally filled after enqueue. The
+	// command key remains the pre-validation idempotency key.
+	execution.BundleIdentity = identity
+	expectedPointer, err := s.pointer(ctx, identity.PointerName())
+	if err != nil {
+		return nil, err
+	}
+	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
+	tx.startLeaseRenewal(ctx)
+	return tx, nil
+}
+
+func (s *ClickHouseBundleStore) pointer(ctx context.Context, name string) (string, error) {
+	p, err := s.catalog.GetPointer(ctx, name)
+	if err != nil {
+		if errors.Is(err, publication.ErrBundleNotFound) {
+			return "", nil
+		}
+		return "", dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	return p.ExecutionID, nil
+}
+
+func (s *ClickHouseBundleStore) releaseLease(ctx context.Context, key, owner string) error {
+	if err := s.catalog.ReleaseBundleLease(ctx, key, owner); err != nil {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	return nil
+}
+
+type clickHouseBundleTx struct {
+	store           *ClickHouseBundleStore
+	execution       publication.BundleExecution
+	expectedPointer string
+	idempotent      bool
+	closed          bool
+	leaseLost       bool
+	leaseErr        error
+	leaseCancel     context.CancelFunc
+	leaseDone       chan struct{}
+	leaseMu         sync.RWMutex
+	leaseStopOnce   sync.Once
+	leaseStopErr    error
+}
+
+const bundleCleanupTimeout = 10 * time.Second
+
+func boundedBundleCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), bundleCleanupTimeout)
+}
+
+func (t *clickHouseBundleTx) startLeaseRenewal(parent context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+	t.leaseCancel, t.leaseDone = cancel, make(chan struct{})
+	go func() {
+		defer close(t.leaseDone)
+		interval := t.store.leaseRenewInterval
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				until := time.Now().UTC().Add(t.store.leaseTTL)
+				acquired, err := t.store.catalog.RenewBundleLease(ctx, t.execution.Key, t.execution.OwnerID, until)
+				t.leaseMu.Lock()
+				if err != nil || !acquired {
+					t.leaseLost = true
+					if err != nil {
+						t.leaseErr = err
+					} else {
+						t.leaseErr = ErrBundleLeaseLost
+					}
+					t.leaseMu.Unlock()
+					return
+				}
+				t.execution.LeaseExpiresAt = &until
+				t.leaseMu.Unlock()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (t *clickHouseBundleTx) ensureLease() error {
+	t.leaseMu.Lock()
+	defer t.leaseMu.Unlock()
+	if t.leaseLost {
+		if t.leaseErr != nil {
+			return dataframeerrors.Wrap(errors.Join(ErrBundleLeaseLost, t.leaseErr), dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
+		}
+		return dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true), dataframeerrors.WithCause(ErrBundleLeaseLost))
+	}
+	if t.execution.OwnerID == "" {
+		return nil
+	}
+	if expires := t.execution.LeaseExpiresAt; expires != nil && !time.Now().UTC().Before(*expires) {
+		t.leaseLost = true
+		return dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true), dataframeerrors.WithCause(ErrBundleLeaseLost))
+	}
+	return nil
+}
+
+func (t *clickHouseBundleTx) stopLease() error {
+	t.leaseStopOnce.Do(func() {
+		if t.leaseCancel != nil {
+			t.leaseCancel()
+			timer := time.NewTimer(bundleCleanupTimeout)
+			select {
+			case <-t.leaseDone:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+			case <-timer.C:
+				t.leaseStopErr = context.DeadlineExceeded
+				return
+			}
+		}
+		if t.execution.OwnerID != "" {
+			cleanupCtx, cancel := boundedBundleCleanupContext(context.Background())
+			defer cancel()
+			t.leaseStopErr = t.store.releaseLease(cleanupCtx, t.execution.Key, t.execution.OwnerID)
+		}
+	})
+	return t.leaseStopErr
+}
+
+func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, columns []clickhouse.Column) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	if !validBundleOutput(name) {
+		return fmt.Errorf("invalid bundle output name %q", name)
+	}
+	for _, output := range t.execution.Outputs {
+		if output.Name == name {
+			return fmt.Errorf("bundle output %q is duplicated", name)
+		}
+	}
+	if len(columns) == 0 {
+		return fmt.Errorf("bundle output %q has no columns", name)
+	}
+	columns = withRowIdentityColumn(columns)
+	for _, c := range columns {
+		if c.Name == "__loom_row_id" {
+			continue
+		}
+		if err := validateBundleColumn(publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}); err != nil {
+			return err
+		}
+	}
+	table := t.tableName(name)
+	if err := t.store.clickHouse.CreateTable(ctx, table, columns); err != nil {
+		return err
+	}
+	converted := make([]publication.PhysicalColumn, len(columns))
+	for i, c := range columns {
+		converted[i] = publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}
+	}
+	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
+	return t.save(ctx)
+}
+
+func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, columns []clickhouse.Column, rows []map[string]any) error {
+	if t.idempotent || len(rows) == 0 {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	idx := t.outputIndex(name)
+	if idx < 0 {
+		return fmt.Errorf("bundle output %q was not created", name)
+	}
+	record := &t.execution.Outputs[idx]
+	effectiveColumns := columns
+	if len(columns)+1 == len(record.Columns) && record.Columns[0].Name == "__loom_row_id" {
+		effectiveColumns = make([]clickhouse.Column, 0, len(columns)+1)
+		effectiveColumns = append(effectiveColumns, clickhouse.Column{Name: "__loom_row_id", Type: record.Columns[0].ClickHouse})
+		effectiveColumns = append(effectiveColumns, columns...)
+		rows = addGeneratedRowIdentities(rows, record.RowCount)
+	}
+	if len(effectiveColumns) != len(record.Columns) {
+		return fmt.Errorf("output %q schema changed after preflight", name)
+	}
+	for i, c := range effectiveColumns {
+		if record.Columns[i].Name != c.Name || record.Columns[i].ClickHouse != c.Type {
+			return fmt.Errorf("output %q schema changed after preflight", name)
+		}
+	}
+	if err := t.store.clickHouse.InsertRows(ctx, record.PhysicalTable, effectiveColumns, rows); err != nil {
+		return err
+	}
+	record.RowCount += int64(len(rows))
+	for _, row := range rows {
+		encoded, _ := json.Marshal(row)
+		record.ByteCount += int64(len(encoded))
+	}
+	return t.save(ctx)
+}
+
+func withRowIdentityColumn(columns []clickhouse.Column) []clickhouse.Column {
+	for _, column := range columns {
+		if column.Name == "__loom_row_id" {
+			return append([]clickhouse.Column(nil), columns...)
+		}
+	}
+	result := make([]clickhouse.Column, 0, len(columns)+1)
+	result = append(result, clickhouse.Column{Name: "__loom_row_id", Type: "String"})
+	return append(result, columns...)
+}
+
+func addGeneratedRowIdentities(rows []map[string]any, start int64) []map[string]any {
+	result := make([]map[string]any, len(rows))
+	for index, row := range rows {
+		copy := cloneBundleRow(row)
+		if _, ok := copy["__loom_row_id"]; !ok {
+			copy["__loom_row_id"] = fmt.Sprintf("%d", start+int64(index))
+		}
+		result[index] = copy
+	}
+	return result
+}
+
+func cloneBundleRow(row map[string]any) map[string]any {
+	copy := make(map[string]any, len(row)+1)
+	for key, value := range row {
+		copy[key] = value
+	}
+	return copy
+}
+
+func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
+	if t.idempotent {
+		t.closed = true
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	if len(t.execution.Outputs) == 0 {
+		return t.fail(ctx, fmt.Errorf("bundle has no outputs"))
+	}
+	t.execution.State = publication.BundleValidating
+	for i := range t.execution.Outputs {
+		t.execution.Outputs[i].State = publication.BundleValidating
+	}
+	if err := t.save(ctx); err != nil {
+		return err
+	}
+	for i := range t.execution.Outputs {
+		output := &t.execution.Outputs[i]
+		if output.RowCount < 0 {
+			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, fmt.Errorf("output %q has invalid row count", output.Name))
+		}
+		columns := make([]clickhouse.Column, len(output.Columns))
+		for columnIndex, column := range output.Columns {
+			columns[columnIndex] = clickhouse.Column{Name: column.Name, Type: column.ClickHouse}
+		}
+		if err := t.store.clickHouse.VerifyOutput(ctx, output.PhysicalTable, columns, output.RowCount); err != nil {
+			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, dataframeerrors.Wrap(err, dataframeerrors.CodePublicationFailed, "", dataframeerrors.WithRetryable(true)))
+		}
+		verified := time.Now().UTC()
+		output.VerifiedAt = &verified
+	}
+	now := time.Now().UTC()
+	t.execution.State, t.execution.PublishedAt, t.execution.UpdatedAt = publication.BundlePublished, &now, now
+	for i := range t.execution.Outputs {
+		t.execution.Outputs[i].State = publication.BundlePublished
+	}
+	if err := t.store.catalog.PublishExecution(ctx, t.execution.PointerName(), t.expectedPointer, t.execution); err != nil {
+		if errors.Is(err, publication.ErrBundlePointerConflict) {
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithRetryable(true))
+			return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
+		}
+		committed, conclusive, confirmErr := t.confirmCommit(ctx)
+		if committed {
+			t.closed = true
+			return t.stopLease()
+		}
+		if !conclusive {
+			t.closed = true // Prevent the runner from deleting possibly published tables.
+			uncertain := dataframeerrors.Wrap(errors.Join(ErrBundleCommitUncertain, err, confirmErr), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+			return publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
+		}
+		err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
+	}
+	t.closed = true
+	return t.stopLease()
+}
+
+// confirmCommit distinguishes a lost success response from a transaction that
+// definitely did not publish. Inconsistent or unreadable metadata remains
+// uncertain so callers never delete tables that a live pointer may reference.
+func (t *clickHouseBundleTx) confirmCommit(ctx context.Context) (committed, conclusive bool, err error) {
+	execution, executionErr := t.store.catalog.GetExecution(ctx, t.execution.ID)
+	pointer, pointerErr := t.store.catalog.GetPointer(ctx, t.execution.PointerName())
+	if errors.Is(pointerErr, publication.ErrBundleNotFound) {
+		pointerErr = nil
+		pointer = publication.BundlePointer{Name: t.execution.PointerName()}
+	}
+	if executionErr != nil || pointerErr != nil {
+		return false, false, errors.Join(executionErr, pointerErr)
+	}
+	if execution.State.Successful() && pointer.ExecutionID == execution.ID && allOutputsQueryable(execution.Outputs) {
+		t.execution = execution
+		return true, true, nil
+	}
+	if !execution.State.Successful() && pointer.ExecutionID != execution.ID {
+		return false, true, nil
+	}
+	return false, false, fmt.Errorf("publication metadata is inconsistent: execution state %q, pointer %q", execution.State, pointer.ExecutionID)
+}
+
+func (t *clickHouseBundleTx) Rollback(ctx context.Context) error {
+	return t.Abort(ctx, fmt.Errorf("bundle rolled back"))
+}
+
+func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
+	if t.idempotent || t.closed {
+		return nil
+	}
+	if err := t.ensureLease(); err != nil {
+		t.closed = true
+		return errors.Join(err, t.stopLease())
+	}
+	cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+	defer cancel()
+	var cleanup error
+	for _, output := range t.execution.Outputs {
+		if err := t.store.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
+	}
+	if t.execution.State != publication.BundleFailed {
+		if err := t.fail(cleanupCtx, cause); err != nil {
+			cleanup = errors.Join(cleanup, err)
+		}
+	}
+	t.closed = true
+	return errors.Join(cleanup, t.stopLease())
+}
+
+func (t *clickHouseBundleTx) outputIndex(name string) int {
+	for i := range t.execution.Outputs {
+		if t.execution.Outputs[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (t *clickHouseBundleTx) tableName(output string) string {
+	return t.store.prefix + "_" + strings.ReplaceAll(t.execution.ID, "-", "") + "_" + output
+}
+
+func (t *clickHouseBundleTx) save(ctx context.Context) error {
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	t.leaseMu.Lock()
+	t.execution.UpdatedAt = time.Now().UTC()
+	snapshot := t.execution
+	if t.execution.LeaseExpiresAt != nil {
+		expires := *t.execution.LeaseExpiresAt
+		snapshot.LeaseExpiresAt = &expires
+	}
+	t.leaseMu.Unlock()
+	if err := t.store.catalog.SaveExecution(ctx, snapshot); err != nil {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	return nil
+}
+
+func (t *clickHouseBundleTx) fail(ctx context.Context, err error) error {
+	return t.failPhase(ctx, "PUBLICATION", "", err)
+}
+
+func (t *clickHouseBundleTx) failPhase(ctx context.Context, phase, output string, err error) error {
+	normalized := dataframeerrors.Normalize(err)
+	t.execution.State, t.execution.Error = publication.BundleFailed, err.Error()
+	t.execution.PublishedAt = nil
+	t.execution.FailureCode, t.execution.FailureRetryable = normalized.Code(), normalized.Retryable()
+	t.execution.FailurePhase, t.execution.FailureOutput, t.execution.FailureDetails = phase, output, err.Error()
+	for i := range t.execution.Outputs {
+		t.execution.Outputs[i].State = publication.BundleFailed
+		t.execution.Outputs[i].FailureCode = normalized.Code()
+		t.execution.Outputs[i].FailureRetryable = normalized.Retryable()
+		t.execution.Outputs[i].FailurePhase = phase
+		t.execution.Outputs[i].FailureDetails = err.Error()
+	}
+	if persistenceErr := t.save(ctx); persistenceErr != nil {
+		return errors.Join(err, persistenceErr)
+	}
+	return err
+}
+
+var bundleOutputRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+var schemaIdentifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var supportedSchemaScalarRE = regexp.MustCompile(`^(String|UUID|Bool|Int8|Int16|Int32|Int64|Int128|Int256|UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Float32|Float64|Date|Date32|DateTime|DateTime64(\([^)]*\))?)$`)
+
+func validateBundleColumn(column publication.PhysicalColumn) error {
+	if column.Name == "" || !schemaIdentifierRE.MatchString(column.Name) || column.Name == "__loom_row_id" {
+		return fmt.Errorf("invalid dataframe schema column %q", column.Name)
+	}
+	typ := column.ClickHouse
+	for strings.HasPrefix(typ, "Nullable(") || strings.HasPrefix(typ, "Array(") {
+		typ = strings.TrimSuffix(strings.TrimPrefix(typ, strings.SplitN(typ, "(", 2)[0]+"("), ")")
+	}
+	if typ == "" || !supportedSchemaScalarRE.MatchString(typ) {
+		return fmt.Errorf("unsupported ClickHouse type %q for schema column %q", column.ClickHouse, column.Name)
+	}
+	return nil
+}
+
+func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(value) }
+
+// Reconcile removes abandoned staging tables and requeues bounded-retry work.
+// It is safe to call repeatedly during startup; published pointers and queued
+// commands that have not started are never touched.
+func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
+	reconcilerID := "reconciler-" + uuid.NewString()
+	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundlePreflight, publication.BundleLoading, publication.BundleFailed} {
+		executions, err := s.catalog.ListExecutions(ctx, state, olderThan)
+		if err != nil {
+			return err
+		}
+		for _, execution := range executions {
+			expires := time.Now().UTC().Add(s.leaseTTL)
+			claimed, err := s.catalog.AcquireBundleLease(ctx, execution.Key, reconcilerID, expires)
+			if err != nil {
+				return err
+			}
+			if !claimed {
+				continue
+			}
+			execution.OwnerID = reconcilerID
+			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+			var first error
+			remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
+			for _, output := range execution.Outputs {
+				if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+					first = errors.Join(first, err)
+					remaining = append(remaining, output)
+				}
+			}
+			execution.State = publication.BundleFailed
+			execution.Error = "stale execution reconciled"
+			execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
+			execution.FailureRetryable = true
+			execution.UpdatedAt = time.Now().UTC()
+			execution.Outputs = remaining
+			if execution.MaxAttempts > 0 && execution.Attempt < execution.MaxAttempts {
+				execution.State = publication.BundleQueued
+				next := execution.UpdatedAt
+				execution.NextAttemptAt = &next
+			}
+			execution.OwnerID = ""
+			execution.LeaseExpiresAt = nil
+			if err := s.catalog.SaveExecution(cleanupCtx, execution); err != nil {
+				first = errors.Join(first, err)
+			}
+			first = errors.Join(first, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+			cancel()
+			if first != nil {
+				return first
+			}
+		}
+	}
+	return nil
+}

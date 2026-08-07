@@ -15,13 +15,6 @@ func NewShapePlanCache() *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan)}
 }
 
-// NewProfiler constructs a profiler in the legacy catalog namespace. Keep
-// this constructor for existing ingest callers: an empty generation produces
-// the exact same catalog documents and keys as before generation support.
-func NewProfiler(project, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
-	return NewProfilerForGeneration(project, "", authResourcePath, resourceType, cache)
-}
-
 // NewProfilerForGeneration constructs a profiler whose catalog documents are
 // bound to one immutable dataset generation. A blank (or whitespace-only)
 // generation intentionally selects the legacy namespace for compatibility.
@@ -325,6 +318,9 @@ func walkShapeValue(value any, accessor []pathStep, path string, fieldMap map[st
 		}
 		keys := sortedKeys(typed)
 		for _, key := range keys {
+			if path == "" && isLoomMetadataField(key) {
+				continue
+			}
 			child := typed[key]
 			if child == nil {
 				continue
@@ -360,6 +356,15 @@ func walkShapeValue(value any, accessor []pathStep, path string, fieldMap map[st
 		if path != "" {
 			addFieldPlan(fieldMap, path, accessor, fieldKindScalar, false, "")
 		}
+	}
+}
+
+func isLoomMetadataField(path string) bool {
+	switch path {
+	case "project_id", "auth_resource_path", "dataset_generation":
+		return true
+	default:
+		return false
 	}
 }
 

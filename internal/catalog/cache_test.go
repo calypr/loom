@@ -69,6 +69,29 @@ func TestCacheDiscoverReferencesSeparatesAuthScopes(t *testing.T) {
 	}
 }
 
+func TestCacheDiscoverReferencesSeparatesActiveFiltersByMode(t *testing.T) {
+	cache := NewCache()
+	calls := 0
+	discover := cache.DiscoverReferences(func(_ context.Context, opts PopulatedReferenceOptions) ([]PopulatedReference, error) {
+		calls++
+		return []PopulatedReference{{FromType: opts.FromType, ToType: opts.NodeType}}, nil
+	})
+
+	for _, opts := range []PopulatedReferenceOptions{
+		{Project: "P1", Mode: TraversalModeStorage, FromType: "Patient"},
+		{Project: "P1", Mode: TraversalModeStorage, FromType: "Observation"},
+		{Project: "P1", Mode: TraversalModeBuilder, NodeType: "Patient"},
+		{Project: "P1", Mode: TraversalModeBuilder, NodeType: "Observation"},
+	} {
+		if _, err := discover(context.Background(), opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 4 {
+		t.Fatalf("calls = %d, want one cache entry per active filter", calls)
+	}
+}
+
 func TestCacheSeparatesRestrictedEmptyScopeFromUnrestrictedScope(t *testing.T) {
 	cache := NewCache()
 	calls := 0

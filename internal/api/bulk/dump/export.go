@@ -8,8 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	publication "github.com/calypr/loom/internal/publication"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -24,7 +23,6 @@ type RawDumpRequest struct {
 	Generation   string
 	ResourceType string
 	Limit        int
-	Legacy       bool
 }
 
 type QueryRowsClient interface {
@@ -79,15 +77,12 @@ func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generat
 
 func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpRequest, scope authscope.ReadScope, out io.Writer) error {
 	generation := req.Generation
-	resourceTypes := fhirschema.ResourceTypes()
-	if !req.Legacy {
-		manifest, err := e.resolveManifest(ctx, req.Project, req.Generation)
-		if err != nil {
-			return err
-		}
-		generation = manifest.Dataset.Generation
-		resourceTypes = manifest.SchemaIdentity.GeneratedResourceTypes
+	manifest, err := e.resolveManifest(ctx, req.Project, req.Generation)
+	if err != nil {
+		return err
 	}
+	generation = manifest.Dataset.Generation
+	resourceTypes := manifest.SchemaIdentity.GeneratedResourceTypes
 	if req.ResourceType != "" {
 		found := false
 		for _, resourceType := range resourceTypes {
@@ -114,10 +109,7 @@ func (e ArangoRawExporter) ExportRawFiltered(ctx context.Context, req RawDumpReq
 			continue
 		}
 		query := "FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND (@auth_resource_paths_unrestricted == true OR doc.auth_resource_path IN @auth_resource_paths) SORT doc._key RETURN doc.payload"
-		bindVars := map[string]interface{}{"@collection": collection, "project": req.Project, "generation": nil, "auth_resource_paths_unrestricted": scope.Unrestricted(), "auth_resource_paths": scope.AuthResourcePaths}
-		if !req.Legacy {
-			bindVars["generation"] = generation
-		}
+		bindVars := map[string]interface{}{"@collection": collection, "project": req.Project, "generation": generation, "auth_resource_paths_unrestricted": scope.Unrestricted(), "auth_resource_paths": scope.AuthResourcePaths}
 		if remaining > 0 {
 			query = "FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND (@auth_resource_paths_unrestricted == true OR doc.auth_resource_path IN @auth_resource_paths) SORT doc._key LIMIT @limit RETURN doc.payload"
 			bindVars["limit"] = remaining

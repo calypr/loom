@@ -20,19 +20,19 @@ func TestPreflightFilesSelectsGeneratedAndGenericModesFromActiveSchema(t *testin
 	}
 	dir := t.TempDir()
 	patient := writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient"}`+"\n")
-	diagnosticReport := writePreflightFixture(t, dir, "DiagnosticReport.ndjson", `{"resourceType":"DiagnosticReport"}`+"\n")
+	resource := writePreflightFixture(t, dir, "Resource.ndjson", `{"resourceType":"Resource"}`+"\n")
 
-	report, err := PreflightFiles([]string{patient, diagnosticReport}, schema, 1)
+	report, err := PreflightFiles([]string{patient, resource}, schema, 1)
 	if err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if !report.Valid() || len(report.Resources) != 2 {
 		t.Fatalf("unexpected report: %+v", report)
 	}
-	if got := report.Resources[0]; got.ResourceType != "DiagnosticReport" || got.Mode != IngestionModeGeneric || !got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
+	if got := report.Resources[0]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
 		t.Fatalf("unexpected generic resource report: %+v", got)
 	}
-	if got := report.Resources[1]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
+	if got := report.Resources[1]; got.ResourceType != "Resource" || got.Mode != IngestionModeGeneric || !got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
 		t.Fatalf("unexpected generated resource report: %+v", got)
 	}
 }

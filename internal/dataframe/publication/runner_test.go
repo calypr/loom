@@ -8,7 +8,6 @@ import (
 
 type fakeTx struct {
 	batches    [][]map[string]any
-	validated  bool
 	committed  bool
 	rolledBack bool
 }
@@ -17,7 +16,6 @@ func (t *fakeTx) WriteBatch(_ context.Context, _ string, rows []map[string]any) 
 	t.batches = append(t.batches, rows)
 	return nil
 }
-func (t *fakeTx) Validate(context.Context) error { t.validated = true; return nil }
 func (t *fakeTx) Commit(context.Context) ([]PublishedOutput, error) {
 	t.committed = true
 	return []PublishedOutput{{Name: "patients", PhysicalName: "staged_patients"}}, nil
@@ -37,7 +35,7 @@ func (t *fakeTarget) Begin(_ context.Context, _ PublicationIdentity, schemas []O
 
 func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	target := &fakeTarget{}
-	result, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", AuthResourcePaths: []string{"/programs/p1"}}, []OutputStream{{
+	result, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "HTAN_INT-BForePC", AuthResourcePaths: []string{"/programs/p1"}}, []OutputStream{{
 		Name:    "patients",
 		Columns: []LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}, {Name: "id", Kind: "string"}},
 		Stream: func(_ context.Context, visit func(map[string]any) error) error {
@@ -52,7 +50,7 @@ func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !target.tx.validated || !target.tx.committed || target.tx.rolledBack || len(target.tx.batches) != 2 {
+	if !target.tx.committed || target.tx.rolledBack || len(target.tx.batches) != 2 {
 		t.Fatalf("unexpected transaction lifecycle: %#v", target.tx)
 	}
 	if result.Outputs[0].RowCount != 3 || result.Outputs[0].PhysicalName != "staged_patients" {
@@ -61,8 +59,49 @@ func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	if len(target.schemas) != 1 || target.schemas[0].Columns[0].Name != "auth_resource_path" {
 		t.Fatalf("reserved auth column missing: %#v", target.schemas)
 	}
+	if len(target.schemas[0].Columns) < 2 || target.schemas[0].Columns[1].Name != "project_id" {
+		t.Fatalf("reserved project column missing: %#v", target.schemas)
+	}
 	if got := target.tx.batches[0][0]["auth_resource_path"]; got != "/programs/p1" {
 		t.Fatalf("auth resource path = %#v", got)
+	}
+	if got := target.tx.batches[0][0]["project_id"]; got != "HTAN_INT-BForePC" {
+		t.Fatalf("project_id = %#v", got)
+	}
+}
+
+func TestPublishProjectIDIsTrustedAndDeduplicated(t *testing.T) {
+	target := &fakeTarget{}
+	_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "trusted"}, []OutputStream{{
+		Name:    "patients",
+		Columns: []LogicalColumn{{Name: "project_id", Kind: "string"}},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			return visit(map[string]any{"project_id": "untrusted"})
+		},
+	}}, Limits{})
+	if err != nil {
+		t.Fatalf("project_id source column should be normalized: %v", err)
+	}
+	if len(target.schemas) != 1 || len(target.schemas[0].Columns) != 2 || target.schemas[0].Columns[1].Name != "project_id" {
+		t.Fatalf("project_id was not deduplicated: %#v", target.schemas)
+	}
+	if got := target.tx.batches[0][0]["project_id"]; got != "trusted" {
+		t.Fatalf("project_id was not trusted: %#v", got)
+	}
+
+	target = &fakeTarget{}
+	_, err = Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "trusted"}, []OutputStream{{
+		Name:    "patients",
+		Columns: []LogicalColumn{{Name: "id", Kind: "string"}},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			return visit(map[string]any{"id": "p1", "project_id": "untrusted"})
+		},
+	}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := target.tx.batches[0][0]["project_id"]; got != "trusted" {
+		t.Fatalf("project_id was not trusted: %#v", got)
 	}
 }
 

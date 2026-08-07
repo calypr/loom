@@ -3,14 +3,19 @@ package graphqlapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/99designs/gqlgen/graphql"
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/calypr/loom/generated/graphql/graph/executor"
-	"github.com/calypr/loom/generated/graphql/graph/resolver"
+	graphqlerrors "github.com/calypr/loom/internal/api/graphql"
+	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/gofiber/fiber/v3"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -29,16 +34,38 @@ func RegisterRoutes(router fiber.Router, cfg RouteConfig) {
 		h := fiberadaptor.HTTPHandlerWithContext(cfg.Handler)
 		router.Post("/graphql/graph", h)
 		router.Post("/graphql/dataframe", h)
+		// Keep the historical flat URL as a compatibility alias. It uses the
+		// same executable schema and resolver, so the alias adds no duplicate
+		// transport or generated code.
+		router.Post("/graphql/flat", h)
 	}
 }
 
-func NewHandler(root *resolver.Resolver) http.Handler {
+func NewHandler(root *resolver.Resolver, loggers ...*slog.Logger) http.Handler {
+	logger := slog.Default()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
 	server := gqlhandler.NewDefaultServer(executor.NewExecutableSchema(executor.Config{
 		Resolvers: root,
 	}))
 	server.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
-		requestID, _ := ctx.Value(graphqlRequestIDContextKey).(string)
-		return PresentGraphQLError(err, requestID)
+		requestID := httpapi.RequestIDFromContext(ctx)
+		presented := graphqlerrors.PresentGraphQLError(err, requestID)
+		if presented != nil {
+			code, _ := presented.Extensions["code"].(string)
+			cause := presented.Err
+			if cause == nil {
+				cause = err
+			}
+			logger.Error("graphql operation failed",
+				"request_id", requestID,
+				"code", code,
+				"message", presented.Message,
+				"cause", errorChain(cause),
+			)
+		}
+		return presented
 	})
 	server.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
 		return next(root.WithOperationContext(ctx))
@@ -47,15 +74,24 @@ func NewHandler(root *resolver.Resolver) http.Handler {
 		if ctx, ok := fiberadaptor.LocalContextFromHTTPRequest(r); ok {
 			r = r.WithContext(ctx)
 		}
-		if requestID, _ := r.Context().Value(graphqlRequestIDContextKey).(string); r.Header.Get("X-Request-ID") == "" && requestID != "" {
+		if requestID := httpapi.RequestIDFromContext(r.Context()); r.Header.Get("X-Request-ID") == "" && requestID != "" {
 			r.Header.Set("X-Request-ID", requestID)
 		}
-		r = r.WithContext(context.WithValue(r.Context(), graphqlRequestIDContextKey, r.Header.Get("X-Request-ID")))
+		r = r.WithContext(httpapi.ContextWithRequestID(r.Context(), r.Header.Get("X-Request-ID")))
 		server.ServeHTTP(w, r)
 	})
 }
 
-const graphqlRequestIDContextKey = "loom.graphql.request_id"
+func errorChain(err error) string {
+	if err == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		parts = append(parts, current.Error())
+	}
+	return strings.Join(parts, " <- ")
+}
 
 func NewPlaygroundHandler(endpoint string) http.Handler {
 	return playground.Handler("FHIR GraphQL Playground", endpoint)

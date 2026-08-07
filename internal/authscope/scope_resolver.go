@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type ResourceAccessClient interface {
@@ -16,14 +15,12 @@ type ResourceAccessClient interface {
 }
 
 type ScopeResolverConfig struct {
-	ConnectionOptions             arangostore.ConnectionOptions
 	ResourceAccess                ResourceAccessClient
 	ListExistingAuthResourcePaths func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)
 	CacheTTL                      time.Duration
 }
 
 type ScopeResolver struct {
-	connOpts       arangostore.ConnectionOptions
 	resourceAccess ResourceAccessClient
 	listExisting   func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)
 	cacheTTL       time.Duration
@@ -105,9 +102,6 @@ func (a BearerTokenAuthenticator) Authenticate(ctx context.Context, headers map[
 }
 
 func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
-	if cfg.ListExistingAuthResourcePaths == nil {
-		cfg.ListExistingAuthResourcePaths = catalog.DiscoverExistingAuthResourcePaths
-	}
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 30 * time.Second
 	}
@@ -115,7 +109,6 @@ func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
 		cfg.ResourceAccess = NewFenceUserAccessClient(nil)
 	}
 	return &ScopeResolver{
-		connOpts:       cfg.ConnectionOptions,
 		resourceAccess: cfg.ResourceAccess,
 		listExisting:   cfg.ListExistingAuthResourcePaths,
 		cacheTTL:       cfg.CacheTTL,
@@ -125,7 +118,7 @@ func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {
 
 func (a ScopeAuthorizer) AuthorizeWrite(ctx context.Context, principal *Principal, project, authResourcePath string) error {
 	if a.Resolver == nil {
-		return nil
+		return fmt.Errorf("%w: scope resolver is required", ErrForbidden)
 	}
 	return a.Resolver.AuthorizeWrite(ctx, principal, project, authResourcePath)
 }
@@ -293,8 +286,10 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 	if ok && now.Before(entry.expiresAt) {
 		return cloneStrings(entry.paths), nil
 	}
+	if r.listExisting == nil {
+		return nil, ErrAuthorizationBackendUnavailable
+	}
 	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
-		ConnectionOptions: r.connOpts,
 		Project:           project,
 		DatasetGeneration: datasetGeneration,
 	})

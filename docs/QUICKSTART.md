@@ -49,7 +49,6 @@ Load it into the default local database:
 
 ```bash
 ./bin/arango-fhir-proto load \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --meta-dir META \
@@ -76,7 +75,6 @@ For local work, run with `--no-auth`:
 ./bin/arango-fhir-server \
   --listen :8080 \
   --no-auth \
-  --backend arango \
   --url http://127.0.0.1:8529 \
   --database fhir_proto \
   --dataframer-recipe /path/to/dataframer.json
@@ -87,8 +85,10 @@ Useful endpoints:
 - Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
 - GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
 - FHIR dataframe endpoint: [http://127.0.0.1:8080/graphql/dataframe](http://127.0.0.1:8080/graphql/dataframe)
-- Flat dataframe endpoint: [http://127.0.0.1:8080/graphql/flat](http://127.0.0.1:8080/graphql/flat)
-- Health check: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
+- Published dataframe fields: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
+- Health summary: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
+- Process liveness: [http://127.0.0.1:8080/livez](http://127.0.0.1:8080/livez)
+- Dependency readiness: [http://127.0.0.1:8080/readyz](http://127.0.0.1:8080/readyz)
 
 On macOS you can jump straight to Apollo with:
 

@@ -44,6 +44,7 @@ const (
 	CodeUnauthenticated             ErrorCode = "UNAUTHENTICATED"
 	CodeForbidden                   ErrorCode = "FORBIDDEN"
 	CodeRecipeNotFound              ErrorCode = "RECIPE_NOT_FOUND"
+	CodeRecipeResolutionFailed      ErrorCode = "RECIPE_RESOLUTION_FAILED"
 	CodeRecipeExecutionNotFound     ErrorCode = "RECIPE_EXECUTION_NOT_FOUND"
 	CodeExportLimitExceeded         ErrorCode = "EXPORT_LIMIT_EXCEEDED"
 	CodeIngestPreflightFailed       ErrorCode = "INGEST_PREFLIGHT_FAILED"
@@ -54,56 +55,13 @@ const (
 	CodePublicationInProgress       ErrorCode = "PUBLICATION_IN_PROGRESS"
 	CodePublicationConflict         ErrorCode = "PUBLICATION_CONFLICT"
 	CodePublicationLeaseLost        ErrorCode = "PUBLICATION_LEASE_LOST"
+	CodePublicationFailed           ErrorCode = "PUBLICATION_FAILED"
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
+	CodeDynamicSchemaDrift          ErrorCode = "DYNAMIC_SCHEMA_DRIFT"
+	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
+	CodeFederationIncompatible      ErrorCode = "FEDERATION_INCOMPATIBLE"
+	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
 )
-
-// AllErrorCodes is the compatibility registry. Keep its order stable when
-// adding a code: it is used by contract tests and generated documentation.
-var AllErrorCodes = []ErrorCode{
-	CodeProjectRequired,
-	CodeRootResourceTypeRequired,
-	CodeUnauthorizedProject,
-	CodeUnknownField,
-	CodeFieldNotPopulated,
-	CodeInvalidTraversal,
-	CodeUnsafeTraversalRoute,
-	CodeInvalidFilter,
-	CodeUnboundedPivot,
-	CodeInvalidPivotColumn,
-	CodeInvalidSlice,
-	CodePlanTooExpensive,
-	CodeInvalidCursor,
-	CodeStaleCursor,
-	CodeDatasetGenerationChanged,
-	CodeUnsupportedExportFormat,
-	CodeClientCanceled,
-	CodeBackendUnavailable,
-	CodeDatasetNotFound,
-	CodeSchemaConflict,
-	CodeInternalError,
-	CodeInvalidResourceType,
-	CodeInvalidLimit,
-	CodeNoActiveGeneration,
-	CodeResourceDecodeFailed,
-	CodeReferenceNotResolved,
-	CodeQueryDepthExceeded,
-	CodeInvalidRequest,
-	CodeInvalidData,
-	CodeUnauthenticated,
-	CodeForbidden,
-	CodeRecipeNotFound,
-	CodeRecipeExecutionNotFound,
-	CodeExportLimitExceeded,
-	CodeIngestPreflightFailed,
-	CodeGenerationLoadIncomplete,
-	CodeGenerationActivationUnknown,
-	CodeInvalidGenerationFile,
-	CodeDuplicateGenerationFile,
-	CodePublicationInProgress,
-	CodePublicationConflict,
-	CodePublicationLeaseLost,
-	CodeOutputEncodingFailed,
-}
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
 // export adapters. Details are intentionally a safe, copied view.
@@ -272,6 +230,9 @@ func PublicMessage(err error) string {
 	if userErr == nil {
 		return "internal server error"
 	}
+	if userErr.Code() == string(CodeRecipeResolutionFailed) {
+		return userErr.Error()
+	}
 	return defaultMessage(ErrorCode(userErr.Code()))
 }
 
@@ -287,44 +248,8 @@ func SanitizePersistedFailure(raw string) (message, code string, retryable bool)
 	return PublicMessage(normalized), normalized.Code(), normalized.Retryable()
 }
 
-// IsUserCorrectable identifies failures for which the frontend should guide
-// the user back to the request editor. Runtime Retryable on an Error remains
-// the authoritative value for a specific occurrence.
-func IsUserCorrectable(code ErrorCode) bool {
-	switch code {
-	case CodeProjectRequired,
-		CodeRootResourceTypeRequired,
-		CodeUnauthorizedProject,
-		CodeUnknownField,
-		CodeFieldNotPopulated,
-		CodeInvalidTraversal,
-		CodeUnsafeTraversalRoute,
-		CodeInvalidFilter,
-		CodeUnboundedPivot,
-		CodeInvalidPivotColumn,
-		CodeInvalidSlice,
-		CodePlanTooExpensive,
-		CodeInvalidCursor,
-		CodeStaleCursor,
-		CodeUnsupportedExportFormat:
-		return true
-	case CodeInvalidResourceType, CodeInvalidLimit,
-		CodeInvalidRequest, CodeInvalidData, CodeRecipeNotFound,
-		CodeRecipeExecutionNotFound, CodeExportLimitExceeded,
-		CodeIngestPreflightFailed, CodeGenerationLoadIncomplete,
-		CodeInvalidGenerationFile, CodeDuplicateGenerationFile:
-		return true
-	default:
-		return false
-	}
-}
-
 func IsRetryableCode(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost
-}
-
-func IsOperatorFailure(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodeInternalError || code == CodePublicationLeaseLost
+	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost || code == CodePublicationFailed
 }
 
 func defaultMessage(code ErrorCode) string {
@@ -391,6 +316,8 @@ func defaultMessage(code ErrorCode) string {
 		return "the caller is not permitted to perform this operation"
 	case CodeRecipeNotFound:
 		return "the requested recipe was not found"
+	case CodeRecipeResolutionFailed:
+		return "recipe resolution failed"
 	case CodeRecipeExecutionNotFound:
 		return "the requested recipe execution was not found"
 	case CodeExportLimitExceeded:
@@ -411,8 +338,18 @@ func defaultMessage(code ErrorCode) string {
 		return "the publication changed while it was being committed"
 	case CodePublicationLeaseLost:
 		return "publication ownership was lost"
+	case CodePublicationFailed:
+		return "dataframe publication failed"
 	case CodeOutputEncodingFailed:
 		return "the response data could not be encoded"
+	case CodeDynamicSchemaDrift:
+		return "runtime dataframe fields could not be reconciled"
+	case CodeRecipeContractViolation:
+		return "the published output violates its recipe contract"
+	case CodeFederationIncompatible:
+		return "published sources cannot share a logical schema"
+	case CodeInvalidSelector:
+		return "exactly one dataframe selector or legacy dataType is required"
 	default:
 		return "internal server error"
 	}

@@ -17,6 +17,15 @@ import (
 	"github.com/calypr/loom/internal/store/arango"
 )
 
+func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled runtime.CompiledQuery) (arango.ExplainResult, error) {
+	client, err := arango.Open(ctx, opts.URL, opts.Database)
+	if err != nil {
+		return arango.ExplainResult{}, err
+	}
+	defer client.Close(ctx)
+	return client.Explain(ctx, arango.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+}
+
 // TestGDCOptimizationPolicyAblationAgainstArango is opt-in because it reads
 // the local development database and profiles four complete GDC executions.
 // It proves that independent policy switches preserve the same dataframe
@@ -66,7 +75,11 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	opts := arango.ConnectionOptions{URL: url, Database: database}
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	var expectedHash string
 	var expectedRows []map[string]any
 	for _, candidate := range policies {
@@ -77,7 +90,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+			err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -109,16 +122,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				}
 				t.Fatalf("result hash = %s, want %s", resultHash, expectedHash)
 			}
-			profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
-			if err != nil {
-				t.Fatal(err)
-			}
-			summary := arango.SummarizeProfile(profile)
-			topNodes := summary.Nodes
-			if len(topNodes) > 5 {
-				topNodes = topNodes[:5]
-			}
-			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d top_nodes=%#v rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, topNodes, compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
+			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
 		})
 	}
 }
@@ -151,9 +155,13 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	if project == "" {
 		project = "ARANGODB_PROTO"
 	}
-	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -179,7 +187,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -217,16 +225,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				} else if resultHash != expectedHash {
 					t.Fatalf("%s result hash = %s, want %s", candidate.name, resultHash, expectedHash)
 				}
-				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
-				if err != nil {
-					t.Fatal(err)
-				}
-				summary := arango.SummarizeProfile(profile)
-				topNodes := summary.Nodes
-				if len(topNodes) > 10 {
-					topNodes = topNodes[:10]
-				}
-				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d top_nodes=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), warmMedian, warm[0], executeSeconds, summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, topNodes, compiled.PlanDiagnostics.SharedTraversalCount)
+				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), warmMedian, warm[0], executeSeconds, compiled.PlanDiagnostics.SharedTraversalCount)
 			}
 		})
 	}
@@ -264,6 +263,11 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-observation-pivot", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -290,7 +294,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -319,22 +323,13 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
-				if err != nil {
-					t.Fatal(err)
-				}
-				summary := arango.SummarizeProfile(profile)
-				topNodes := summary.Nodes
-				if len(topNodes) > 10 {
-					topNodes = topNodes[:10]
-				}
-				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
 				assessment := arango.AssessExplainResult(explain)
 				preparedFields := strings.Count(compiled.Query, "__loom_prepared_")
-				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d indexes=%#v top_nodes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(compiled.Query)), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, assessment.Indexes, topNodes)
+				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v indexes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(compiled.Query)), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, assessment.Indexes)
 			}
 		})
 	}
@@ -373,6 +368,11 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -391,7 +391,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+				err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -415,21 +415,12 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			}
 			warm := append([]float64(nil), executeSeconds[1:]...)
 			sort.Float64s(warm)
-			profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
-			if err != nil {
-				t.Fatal(err)
-			}
-			summary := arango.SummarizeProfile(profile)
-			topNodes := summary.Nodes
-			if len(topNodes) > 10 {
-				topNodes = topNodes[:10]
-			}
-			explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+			explain, err := explainCompiledQuery(ctx, opts, compiled)
 			if err != nil {
 				t.Fatal(err)
 			}
 			assessment := arango.AssessExplainResult(explain)
-			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d indexes=%#v top_nodes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(compiled.Query, "FOR "), summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, assessment.Indexes, topNodes)
+			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d indexes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(compiled.Query, "FOR "), assessment.Indexes)
 		})
 	}
 }
@@ -464,6 +455,11 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	client, err := arango.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-specimen-file", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -495,7 +491,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = runtime.ExecuteQueryRows(ctx, runtime.ExecuteQueryOptions{ConnectionOptions: opts, BatchSize: 1000}, compiled.Query, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -524,17 +520,12 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				profile, err := runtime.ProfileCompiledQuery(ctx, opts, compiled, 2)
-				if err != nil {
-					t.Fatal(err)
-				}
-				summary := arango.SummarizeProfile(profile)
-				explain, err := runtime.ExplainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, opts, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
 				assessment := arango.AssessExplainResult(explain)
-				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v profile_runtime=%0.6fs scanned_full=%d scanned_index=%d lookups=%d peak_memory=%d indexes=%#v compact_rule=%t", candidate.name, len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, summary.RuntimeSeconds, summary.ScannedFull, summary.ScannedIndex, profile.Extra.Stats.DocumentLookups, summary.PeakMemory, assessment.Indexes, candidate.policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection))
+				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s indexes=%#v compact_rule=%t", candidate.name, len(rows), responseBytes, resultHash, assessment.Indexes, candidate.policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection))
 			}
 		})
 	}

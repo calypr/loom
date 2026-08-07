@@ -67,6 +67,14 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// Ping verifies that the configured ClickHouse connection is reachable.
+func (c *Client) Ping(ctx context.Context) error {
+	if c == nil || c.conn == nil {
+		return fmt.Errorf("ClickHouse connection is not configured")
+	}
+	return c.conn.Ping(ctx)
+}
+
 func (c *Client) CreateTable(ctx context.Context, table string, columns []Column) error {
 	if err := validateIdentifier(table); err != nil {
 		return err
@@ -122,6 +130,53 @@ func (c *Client) DropTable(ctx context.Context, table string) error {
 		return err
 	}
 	return c.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
+}
+
+// VerifyOutput confirms that a staged publication table is readable, has the
+// expected physical columns, and contains exactly the rows acknowledged by
+// the publisher before any visibility pointer is advanced.
+func (c *Client) VerifyOutput(ctx context.Context, table string, columns []Column, expectedRows int64) error {
+	if err := validateIdentifier(table); err != nil {
+		return err
+	}
+	rows, err := c.QueryRowsArgs(ctx, fmt.Sprintf("SELECT count() AS row_count FROM `%s`", table), []string{"row_count"})
+	if err != nil {
+		return fmt.Errorf("read staged output %q: %w", table, err)
+	}
+	if len(rows) != 1 {
+		return fmt.Errorf("staged output %q returned %d count rows", table, len(rows))
+	}
+	count, ok := integerValue(rows[0]["row_count"])
+	if !ok || count != expectedRows {
+		return fmt.Errorf("staged output %q row count = %v, want %d", table, rows[0]["row_count"], expectedRows)
+	}
+	columnRows, err := c.QueryRowsArgs(ctx, "SELECT name, type FROM system.columns WHERE database = currentDatabase() AND table = ? ORDER BY position", []string{"name", "type"}, table)
+	if err != nil {
+		return fmt.Errorf("inspect staged output %q: %w", table, err)
+	}
+	if len(columnRows) != len(columns) {
+		return fmt.Errorf("staged output %q has %d columns, want %d", table, len(columnRows), len(columns))
+	}
+	for i, column := range columns {
+		if columnRows[i]["name"] != column.Name || columnRows[i]["type"] != column.Type {
+			return fmt.Errorf("staged output %q column %d = %v %v, want %s %s", table, i, columnRows[i]["name"], columnRows[i]["type"], column.Name, column.Type)
+		}
+	}
+	return nil
+}
+
+func integerValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case uint64:
+		if typed <= uint64(^uint64(0)>>1) {
+			return int64(typed), true
+		}
+	}
+	return 0, false
 }
 
 func (c *Client) InsertRows(ctx context.Context, table string, columns []Column, rows []map[string]any) error {

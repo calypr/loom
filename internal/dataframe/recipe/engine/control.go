@@ -9,11 +9,9 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/control"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 // Control adapts the production recipe engine to the backend-neutral
@@ -22,32 +20,32 @@ import (
 // physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
 	Engine            *Engine
-	ExplainConnection *arangostore.ConnectionOptions
+	ExplainConnection func(context.Context, runtime.CompiledQuery) (ExplainAssessment, error)
 }
 
-func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (control.Validation, error) {
+func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Validation, error) {
 	if c.Engine == nil {
-		return control.Validation{}, fmt.Errorf("recipe engine is required")
+		return Validation{}, fmt.Errorf("recipe engine is required")
 	}
 	entry, err := c.Engine.registry.LoadRecipe(ctx, name)
 	if err != nil {
-		return control.Validation{}, recipeControlBackend(err)
+		return Validation{}, recipeControlBackend(err)
 	}
 	bundle := entry.Bundle
 	if c.Engine.resolveBundle != nil {
 		bundle, err = c.Engine.resolveBundle(ctx, bundle, bindings)
 		if err != nil {
-			return control.Validation{}, fmt.Errorf("resolve recipe schema: %w", err)
+			return Validation{}, fmt.Errorf("resolve recipe schema: %w", err)
 		}
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return control.Validation{}, err
+		return Validation{}, err
 	}
 	if digest, digestErr := entry.Bundle.Digest(); digestErr == nil {
 		plan.RecipeDigest = digest
 	}
-	return control.Validation{Entry: entry, Plan: plan}, nil
+	return Validation{Entry: entry, Plan: plan}, nil
 }
 
 func (c Control) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
@@ -62,38 +60,37 @@ func (c Control) Explain(ctx context.Context, name string, bindings recipe.Runti
 // Preview and Materialize. The compiler-only path is always available; live
 // Arango assessment is opt-in and requires ExplainConnection. No AQL or bind
 // values cross the recipe control boundary.
-func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (control.PhysicalExplanation, error) {
+func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
-		return control.PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
+		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
 	}
 	resolved, err := c.Engine.Resolve(ctx, name, bindings)
 	if err != nil {
-		return control.PhysicalExplanation{}, err
+		return PhysicalExplanation{}, err
 	}
 	limit := bindings.PreviewLimit
 	if limit <= 0 {
 		limit = 25
 	}
-	result := control.PhysicalExplanation{Outputs: make([]control.PhysicalOutputExplanation, 0, len(resolved.Compiled.Outputs))}
+	result := PhysicalExplanation{Outputs: make([]PhysicalOutputExplanation, 0, len(resolved.Compiled.Outputs))}
 	for _, output := range resolved.Compiled.Outputs {
 		compiled, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
-			return control.PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
+			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
-		item := control.PhysicalOutputExplanation{
+		item := PhysicalOutputExplanation{
 			Name: output.Name, PlanFingerprint: runtime.CompiledQueryFingerprint(compiled),
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {
 			if c.ExplainConnection == nil {
-				return control.PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
+				return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
 			}
-			assessment, err := runtime.ExplainCompiledQueryAssessment(ctx, *c.ExplainConnection, compiled)
+			assessment, err := c.ExplainConnection(ctx, compiled)
 			if err != nil {
-				return control.PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
+				return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
 			}
-			converted := control.AssessmentFromArango(assessment)
-			item.Live = &converted
+			item.Live = &assessment
 		}
 		result.Outputs = append(result.Outputs, item)
 	}
@@ -111,45 +108,45 @@ func (c Control) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return resolved.Semantic, nil
 }
 
-func (c Control) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings) (control.Preview, error) {
+func (c Control) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Preview, error) {
 	if c.Engine == nil {
-		return control.Preview{}, fmt.Errorf("recipe engine is required")
+		return Preview{}, fmt.Errorf("recipe engine is required")
 	}
 	full, err := c.Engine.Resolve(ctx, name, bindings)
 	if err != nil {
-		return control.Preview{}, err
+		return Preview{}, err
 	}
 	resolved := full.Semantic
 	rows, err := c.Engine.Preview(ctx, full, bindings.PreviewLimit)
 	if err != nil {
-		return control.Preview{}, recipeControlBackend(err)
+		return Preview{}, recipeControlBackend(err)
 	}
-	return control.Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
+	return Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
 }
 
 // Run executes the complete resolved recipe without a preview limit. It is an
 // explicit, bounded-by-the-caller's-memory transport operation; production
 // bulk workflows should use Materialize instead.
-func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (control.Preview, error) {
+func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Preview, error) {
 	if c.Engine == nil {
-		return control.Preview{}, fmt.Errorf("recipe engine is required")
+		return Preview{}, fmt.Errorf("recipe engine is required")
 	}
 	full, err := c.Engine.Resolve(ctx, name, bindings)
 	if err != nil {
-		return control.Preview{}, err
+		return Preview{}, err
 	}
 	rows, err := c.Engine.Run(ctx, full)
 	if err != nil {
-		return control.Preview{}, recipeControlBackend(err)
+		return Preview{}, recipeControlBackend(err)
 	}
-	return control.Preview{Plan: full.Semantic, Outputs: outputRows(full, rows)}, nil
+	return Preview{Plan: full.Semantic, Outputs: outputRows(full, rows)}, nil
 }
 
-func outputRows(resolved Resolved, rows map[string][]map[string]any) []control.OutputRows {
-	outputs := make([]control.OutputRows, 0, len(resolved.Compiled.Outputs))
+func outputRows(resolved Resolved, rows map[string][]map[string]any) []OutputRows {
+	outputs := make([]OutputRows, 0, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {
 		outputRows := rows[output.Name]
-		outputs = append(outputs, control.OutputRows{
+		outputs = append(outputs, OutputRows{
 			Name: output.Name, Columns: compiler.PublicOutputColumns(output.OutputSchema),
 			Rows: outputRows,
 		})
@@ -158,11 +155,11 @@ func outputRows(resolved Resolved, rows map[string][]map[string]any) []control.O
 }
 
 var _ interface {
-	Validate(context.Context, string, recipe.RuntimeBindings) (control.Validation, error)
+	Validate(context.Context, string, recipe.RuntimeBindings) (Validation, error)
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
-	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (control.PhysicalExplanation, error)
+	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (PhysicalExplanation, error)
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
-	Preview(context.Context, string, recipe.RuntimeBindings) (control.Preview, error)
+	Preview(context.Context, string, recipe.RuntimeBindings) (Preview, error)
 } = Control{}
 
 func recipeControlBackend(err error) error {

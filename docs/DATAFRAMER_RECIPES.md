@@ -1,5 +1,15 @@
 # Authoring a default dataframer recipe
 
+This is the practical introduction.  For the complete field-by-field language
+reference, safe editing/runbook, dynamic-column semantics, default replacement
+behavior, and a lossless `DocumentReference` attachment mapping, read the
+[Dataframer recipe reference and operating manual](DATAFRAMER_RECIPE_REFERENCE.md).
+
+If you are changing the shipped default, use that reference's safe editing
+loop before deploying.  In particular, do not use wildcard scalar catalog
+discovery to model FHIR extension URL/value pairs: define a targeted dynamic
+key/value family instead.
+
 A dataframer recipe tells Loom how to turn an authorized FHIR graph into one
 or more flat ClickHouse datasets. It defines roots, outbound traversals,
 selected fields, and bounded column discovery. It does not contain project
@@ -36,6 +46,79 @@ helm/loom/files/default-dataframer.json
 
 That file is a working multi-output example and is the best starting point for
 a related deployment.
+
+## Migrating the Gen3 Tracker `meta dataframe` contract
+
+Do not use a wildcard scalar catalog projection as the compatibility layer for
+the legacy tracker output. The tracker flattened a `DocumentReference`
+attachment into the public columns `contentType`, `url`, `size`, `hash`, and
+`title`, and named attachment-extension columns from the final segment of
+their URL (for example, `source_path` and `sha256`). A wildcard projection
+instead exposes FHIR storage paths such as
+`content_attachment_extension_valueUrl`; it also cannot preserve the legacy
+extension key names.
+
+Use explicit attachment fields and normalized dynamic keys. `columnPrefix: ""`
+is intentional: it publishes a dynamic key directly rather than prepending
+the dynamic-family name. Include the whole FHIR resource as an object column
+when the migration must retain every source value, including repeated values
+that the legacy flat dataframe could only overwrite.
+
+```json
+{
+  "name": "DocumentReference",
+  "rootResourceType": "DocumentReference",
+  "rowGrain": "file",
+  "collisionPolicy": "overwrite",
+  "fields": [
+    {"name": "resource", "expr": {"document": {"context": "root"}}},
+    {"name": "contentType", "expr": {"select": "root.content[].attachment.contentType"}, "valueMode": "FIRST"},
+    {"name": "url", "expr": {"select": "root.content[].attachment.url"}, "valueMode": "FIRST"},
+    {"name": "size", "expr": {"select": "root.content[].attachment.size"}, "valueMode": "FIRST"},
+    {"name": "hash", "expr": {"select": "root.content[].attachment.hash"}, "valueMode": "FIRST"},
+    {"name": "title", "expr": {"select": "root.content[].attachment.title"}, "valueMode": "FIRST"}
+  ],
+  "dynamicColumns": [
+    {
+      "name": "legacy_identifier_keys",
+      "columnPrefix": "",
+      "source": {"select": "root.identifier[]"},
+      "key": {"call": "last_segment", "args": [{"select": "item.system"}]},
+      "value": {"select": "item.value"},
+      "maxColumns": 64
+    },
+    {
+      "name": "legacy_category_keys",
+      "columnPrefix": "",
+      "source": {"select": "root.category[].coding[]"},
+      "key": {"call": "last_segment", "args": [{"select": "item.system"}]},
+      "value": {"select": "item.display"},
+      "maxColumns": 256
+    },
+    {
+      "name": "attachment_extension_keys",
+      "columnPrefix": "",
+      "source": {"select": "root.content[].attachment.extension[]"},
+      "key": {"call": "last_segment", "args": [{"select": "item.url"}]},
+      "value": {
+        "call": "coalesce_string",
+        "args": [
+          {"select": "item.valueString"}, {"select": "item.valueUrl"},
+          {"select": "item.valueCode"}, {"select": "item.valueInteger"},
+          {"select": "item.valueDecimal"}, {"select": "item.valueBoolean"},
+          {"select": "item.valueDate"}, {"select": "item.valueDateTime"}
+        ]
+      },
+      "maxColumns": 128
+    }
+  ]
+}
+```
+
+The catalog freezes the normalized dynamic keys in the same scope as the
+materialization. Thus an extension URL ending in `source_path` is frozen and
+looked up as `source_path`, rather than as its full URL. Keep
+`translationVersion` distinct from the previous non-compatible recipe.
 
 ## Step 1: define the public output contract
 

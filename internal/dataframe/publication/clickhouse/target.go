@@ -6,26 +6,38 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/calypr/loom/internal/dataframe/materialization"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	store "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type Target struct {
-	Store materialization.IdentityBundleStore
+	Store       IdentityBundleStore
+	ExecutionID string
+	OwnerID     string
 }
 
-func New(store materialization.IdentityBundleStore) (*Target, error) {
-	if store == nil {
+func New(bundleStore IdentityBundleStore) (*Target, error) {
+	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
 	}
-	return &Target{Store: store}, nil
+	return &Target{Store: bundleStore}, nil
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := materialization.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
-	tx, err := t.Store.BeginBundleFor(ctx, bundleIdentity)
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	var tx publication.AtomicBundleTx
+	var err error
+	if t.ExecutionID != "" {
+		claimed, ok := t.Store.(ClaimedIdentityBundleStore)
+		if !ok {
+			return nil, fmt.Errorf("ClickHouse bundle store cannot resume durable executions")
+		}
+		tx, err = claimed.BeginClaimedBundleFor(ctx, t.ExecutionID, t.OwnerID, bundleIdentity)
+	} else {
+		tx, err = t.Store.BeginBundleFor(ctx, bundleIdentity)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -33,11 +45,15 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 	for _, schema := range schemas {
 		columns, err := toColumns(schema.Columns)
 		if err != nil {
-			_ = tx.Abort(context.Background(), fmt.Errorf("output %q schema: %w", schema.Name, err))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q schema: %w", schema.Name, err))
+			cancel()
 			return nil, fmt.Errorf("output %q schema: %w", schema.Name, err)
 		}
 		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
-			_ = tx.Abort(context.Background(), fmt.Errorf("output %q create: %w", schema.Name, err))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q create: %w", schema.Name, err))
+			cancel()
 			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
 		}
 		result.columns[schema.Name] = columns
@@ -45,8 +61,15 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 	return result, nil
 }
 
+func NewClaimed(store ClaimedIdentityBundleStore, executionID, ownerID string) (*Target, error) {
+	if store == nil || strings.TrimSpace(executionID) == "" || strings.TrimSpace(ownerID) == "" {
+		return nil, fmt.Errorf("claimed ClickHouse target requires store, execution ID, and owner ID")
+	}
+	return &Target{Store: store, ExecutionID: executionID, OwnerID: ownerID}, nil
+}
+
 type transaction struct {
-	tx      materialization.AtomicBundleTx
+	tx      publication.AtomicBundleTx
 	columns map[string][]store.Column
 	closed  bool
 }
@@ -60,13 +83,6 @@ func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[
 		return fmt.Errorf("output %q was not declared", output)
 	}
 	return t.tx.InsertRows(ctx, output, columns, rows)
-}
-
-func (t *transaction) Validate(context.Context) error {
-	if t.closed {
-		return fmt.Errorf("ClickHouse publication transaction is closed")
-	}
-	return nil
 }
 
 func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {

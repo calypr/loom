@@ -10,13 +10,6 @@ import (
 	fhir "github.com/calypr/loom/generated/fhir"
 )
 
-var generatedLoadTypes = map[string]struct{}{
-	"BodyStructure": {}, "Condition": {}, "DocumentReference": {}, "Group": {},
-	"ImagingStudy": {}, "Medication": {}, "MedicationAdministration": {},
-	"Observation": {}, "Organization": {}, "Patient": {}, "Practitioner": {},
-	"ResearchStudy": {}, "ResearchSubject": {}, "Specimen": {},
-}
-
 type generatedLoadResource interface {
 	fhir.ConcreteResource
 	Validate() error
@@ -24,7 +17,11 @@ type generatedLoadResource interface {
 }
 
 func supportsGeneratedLoad(resourceType string) bool {
-	_, ok := generatedLoadTypes[resourceType]
+	resource, ok := fhir.NewConcreteResource(resourceType)
+	if !ok {
+		return false
+	}
+	_, ok = resource.(generatedLoadResource)
 	return ok
 }
 
@@ -73,7 +70,21 @@ func loadRowGenerated(resourceType string, line []byte, project string, stageSec
 		Key:          SanitizeKey(objectID),
 		ID:           objectID,
 		Project:      project,
+		ProjectID:    project,
 		ResourceType: resourceType,
-		Payload:      json.RawMessage(line),
+		Payload:      withProjectID(line, project),
 	}, edges, "", nil
+}
+
+func withProjectID(line []byte, project string) json.RawMessage {
+	var payload map[string]any
+	if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
+		return json.RawMessage(line)
+	}
+	payload["project_id"] = project
+	encoded, err := sonic.ConfigFastest.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(line)
+	}
+	return json.RawMessage(encoded)
 }

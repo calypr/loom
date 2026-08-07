@@ -204,6 +204,17 @@ type RowIdentity struct {
 	Fields []string
 }
 
+// Clone returns an independent row-identity value for transport between
+// compiler stages.
+func (i *RowIdentity) Clone() *RowIdentity {
+	if i == nil {
+		return nil
+	}
+	out := *i
+	out.Fields = append([]string(nil), i.Fields...)
+	return &out
+}
+
 func (i RowIdentity) Validate() error {
 	if err := i.Grain.Validate(); err != nil {
 		return err

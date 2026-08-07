@@ -8,20 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	graphresolver "github.com/calypr/loom/generated/graphql/graph/resolver"
 	graph "github.com/calypr/loom/internal/api/graphql/graph"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/runtime"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 func TestGraphQLIntrospectionEndpoint(t *testing.T) {
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 				return []catalog.PopulatedReference{
 					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
@@ -159,12 +159,21 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 	if payload.Data.Schema.QueryType.Name != "Query" || payload.Data.Schema.MutationType.Name != "Mutation" {
 		t.Fatalf("unexpected schema payload: %#v", payload.Data.Schema)
 	}
+	aliasReq := httptest.NewRequest(http.MethodPost, "/graphql/flat", strings.NewReader(queryBody))
+	aliasReq.Header.Set("Content-Type", "application/json")
+	aliasResp, err := server.App().Test(aliasReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer aliasResp.Body.Close()
+	if aliasResp.StatusCode != http.StatusOK {
+		t.Fatalf("flat compatibility alias status = %d", aliasResp.StatusCode)
+	}
 }
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
-		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -173,7 +182,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":
@@ -253,8 +262,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
-		ConnectionOptions: arangostore.ConnectionOptions{},
-		ExecuteRows: func(ctx context.Context, opts runtime.ExecuteQueryOptions, query string, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -268,7 +276,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			ConnectionOptions: arangostore.ConnectionOptions{},
+			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
 				case "Patient":
@@ -343,10 +351,28 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 }
 
 func newGraphServer(root *graphresolver.Resolver, auth authscope.Authenticator) (*api.HTTPServer, error) {
-	server, err := api.NewHTTPServer(api.HTTPConfig{Authenticator: auth})
+	server, err := api.NewHTTPServer(api.HTTPConfig{Authenticator: auth, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		return nil, err
 	}
 	graph.RegisterRoutes(server.App(), graph.RouteConfig{Handler: graph.NewHandler(root), Playground: graph.NewPlaygroundHandler("/graphql/graph"), Sandbox: graph.NewApolloSandboxHandler("/graphql/graph")})
 	return server, nil
+}
+
+type testActiveManifestResolver struct{}
+
+func (testActiveManifestResolver) ResolveActiveManifest(_ context.Context, project string) (publication.Manifest, error) {
+	schema, err := publication.NewSchemaSnapshot("urn:loom:graphql-test", "", strings.Repeat("a", 64), []string{"Patient", "Specimen"})
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	ref, err := publication.NewRef(project, "generation-1")
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	manifest, err := publication.NewManifest(ref, schema)
+	if err != nil {
+		return publication.Manifest{}, err
+	}
+	return manifest.Transition(publication.StateReady)
 }

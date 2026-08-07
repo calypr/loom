@@ -33,6 +33,7 @@ type OutputStream struct {
 
 type PublicationIdentity struct {
 	Name               string
+	TranslationVersion string
 	Project            string
 	DatasetGeneration  string
 	RecipeDigest       string
@@ -40,6 +41,7 @@ type PublicationIdentity struct {
 	ScopeDigest        string
 	EngineVersion      string
 	TargetConfigDigest string
+	AuthScopeMode      string
 	AuthResourcePaths  []string
 }
 
@@ -56,7 +58,6 @@ type Target interface {
 
 type Transaction interface {
 	WriteBatch(context.Context, string, []map[string]any) error
-	Validate(context.Context) error
 	Commit(context.Context) ([]PublishedOutput, error)
 	Rollback(context.Context) error
 }

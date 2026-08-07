@@ -1,28 +1,23 @@
 package dump
 
 import (
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/gofiber/fiber/v3"
 )
 
-type apiError = httpapi.Error
-
 type Handler struct {
-	rawExporter                  RawExporter
-	dataframeExporter            DataframeExporter
-	scopeResolver                *authscope.ScopeResolver
-	disableSingleResourceImports bool
+	rawExporter       RawExporter
+	dataframeExporter DataframeExporter
+	scopeResolver     *authscope.ScopeResolver
 }
 type Config struct {
-	RawExporter                  RawExporter
-	DataframeExporter            DataframeExporter
-	ScopeResolver                *authscope.ScopeResolver
-	DisableSingleResourceImports bool
+	RawExporter       RawExporter
+	DataframeExporter DataframeExporter
+	ScopeResolver     *authscope.ScopeResolver
 }
 
 func NewHandler(cfg Config) *Handler {
-	return &Handler{rawExporter: cfg.RawExporter, dataframeExporter: cfg.DataframeExporter, scopeResolver: cfg.ScopeResolver, disableSingleResourceImports: cfg.DisableSingleResourceImports}
+	return &Handler{rawExporter: cfg.RawExporter, dataframeExporter: cfg.DataframeExporter, scopeResolver: cfg.ScopeResolver}
 }
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	if h.rawExporter != nil {

@@ -13,10 +13,6 @@ const OptimizerRuleTraversalSharing = "share_identical_traversals"
 // the conservative structural cost policy. An unshared plan is always
 // available as the correctness oracle, and the local policy switch can be used
 // to compare the two physical shapes without changing request semantics.
-func OptimizePhysicalPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
-	return OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
-}
-
 // OptimizePhysicalPlanWithPolicy is the explicit form used by tests and
 // benchmarking tools. The policy decides only whether an optional rewrite is
 // enabled; it never relaxes physical-plan validation.

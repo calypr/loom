@@ -63,12 +63,12 @@ func TestRenderPhysicalPlanRejectsUnnestAfterRootWindow(t *testing.T) {
 
 func genericUnnestPlan(t *testing.T, mode ir.PhysicalUnnestJoinMode, ordinality string) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.SemanticPlan{
 		Version:           1,
 		Project:           "project-1",
 		AuthResourcePaths: []string{"/programs/p1"},
 		Root:              semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
-	})
+	}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,98 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-	"time"
 )
-
-func emit(event string, fields map[string]any) {
-	payload := map[string]any{"event": event}
-	for key, value := range fields {
-		payload[key] = value
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-	fmt.Fprintln(os.Stdout, string(data))
-}
-
-func secondsSince(start time.Time) float64 {
-	return time.Since(start).Seconds()
-}
-
-func cloneStrings(in []string) []string {
-	if in == nil {
-		return nil
-	}
-	out := make([]string, len(in))
-	copy(out, in)
-	return out
-}
 
 func stringValue(value any) string {
 	if s, ok := value.(string); ok {
 		return s
 	}
 	return ""
-}
-
-func int64Value(value any) (int64, error) {
-	switch v := value.(type) {
-	case int64:
-		return v, nil
-	case int32:
-		return int64(v), nil
-	case int:
-		return int64(v), nil
-	case float64:
-		return int64(v), nil
-	case float32:
-		return int64(v), nil
-	default:
-		return 0, fmt.Errorf("unsupported numeric type %T", value)
-	}
-}
-
-func int64Must(value any) int64 {
-	switch typed := value.(type) {
-	case int64:
-		return typed
-	case int32:
-		return int64(typed)
-	case int:
-		return int64(typed)
-	case float64:
-		return int64(typed)
-	case float32:
-		return int64(typed)
-	default:
-		return 0
-	}
-}
-
-func boolValue(value any) bool {
-	v, _ := value.(bool)
-	return v
-}
-
-func stringSliceValue(value any) []string {
-	items, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if text, ok := item.(string); ok {
-			out = append(out, text)
-		}
-	}
-	return out
 }
 
 func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {

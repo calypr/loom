@@ -24,7 +24,7 @@ func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
 			}},
 		},
 	}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic)
+	plan, err := buildGenericPhysicalPlan(semantic)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
 }
 
 func TestBuildGenericPhysicalPlanEmptyAuthScopeIsExplicit(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Observation"}})
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Observation"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestBuildGenericPhysicalPlanEmptyAuthScopeIsExplicit(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testing.T) {
 	wantID := "file-1"
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
 			Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient",
 			Fields:  []semantic.SemanticField{{Name: "file_id", FieldRef: "DocumentReference.id", Selector: spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}, ValueMode: "FIRST"}},
@@ -111,7 +111,7 @@ func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testi
 
 func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *testing.T) {
 	id := "file-1"
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Children: []semantic.SemanticNode{{
@@ -159,7 +159,7 @@ func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *t
 
 func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Aggregates: []semantic.SemanticAggregate{
@@ -192,7 +192,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
 	title := spec.Selector{Steps: []spec.SelectorStep{{Field: "content", Iterate: true}, {Field: "attachment"}, {Field: "title"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Slices:   []semantic.SemanticSlice{{Name: "representative", Limit: 2, Predicate: &gender, PredicateEquals: "female", Fields: []semantic.SemanticField{{Name: "gender", Selector: gender, ValueMode: "FIRST"}}}},
@@ -222,7 +222,7 @@ func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
 			Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &gender, PredicateEquals: "female"}},
@@ -379,7 +379,7 @@ func TestPreparedSelectorsPreserveFallbackExtraction(t *testing.T) {
 func TestBuildAndRenderGenericPhysicalPlanPivots(t *testing.T) {
 	key := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "coding", Iterate: true}, {Field: "display"}}}
 	value := spec.Selector{Steps: []spec.SelectorStep{{Field: "text"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Condition", Pivots: []semantic.SemanticPivot{{Name: "lab_values", ColumnSelector: key, ValueSelector: value, Columns: []string{"female", "male"}}}},
 	})
 	if err != nil {
@@ -406,7 +406,7 @@ func TestBuildAndRenderGenericPhysicalPlanPivots(t *testing.T) {
 
 func TestChildPivotRetainsPayloadForDeferredEvaluation(t *testing.T) {
 	code := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "coding", Iterate: true}, {Field: "display"}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1,
 		Project: "p",
 		Root: semantic.SemanticNode{
@@ -458,7 +458,7 @@ func TestRenderGenericPivotFlattensRepeatedItemSource(t *testing.T) {
 	codeText := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "text"}}}
 	valueString := spec.Selector{Steps: []spec.SelectorStep{{Field: "valueString"}}}
 	componentItems := spec.Selector{Steps: []spec.SelectorStep{{Field: "component", Iterate: true}}}
-	plan, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
 			Name: "component_values", ColumnSelector: codeText, ValueSelector: valueString,
 			ItemSource: componentItems, ItemResourceType: "ObservationComponent", Columns: []string{"Component"},
@@ -488,7 +488,7 @@ func TestBuildGenericPhysicalPlanRejectsUnsupportedSemanticFeatures(t *testing.T
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := lower.BuildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: test.root})
+			_, err := buildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: test.root})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v; want substring %q", err, test.want)
 			}

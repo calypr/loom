@@ -4,14 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
-	plan, err := lower.BuildPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
 			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
@@ -48,7 +47,7 @@ func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
-	plan, err := lower.BuildPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1",
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "ResearchSubject", Children: []semantic.SemanticNode{{
 			Alias: "study", ResourceType: "ResearchStudy", EdgeLabel: "study", MatchMode: spec.TraversalMatchRequired,
@@ -74,7 +73,7 @@ func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
 }
 
 func TestBuildPhysicalPlanRequiredTraversalWithFilterUsesTypedPredicate(t *testing.T) {
-	plan, err := lower.BuildPhysicalPlan(semantic.SemanticPlan{
+	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
 		Version: 1, Project: "project-1",
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
 			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,

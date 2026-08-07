@@ -13,6 +13,7 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 	var gotFieldOpts []catalog.PopulatedFieldOptions
 
 	service := NewService(Config{
+		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			gotRefOpts = opts
 			return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 7}}, nil

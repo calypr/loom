@@ -1,0 +1,14 @@
+# Container-local graph-only config. The host gateway lets the Loom container
+# reach the ArangoDB container published on the developer machine.
+server:
+  listen: ":8080"
+  url: http://host.docker.internal:8529
+  database: fhir_proto
+  schema: schemas/graph-fhir.json
+  clickhouse:
+    enabled: false
+  allow_unauthenticated: true
+
+auth:
+  mode: basic
+  allow_unauthenticated: true

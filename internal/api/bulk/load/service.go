@@ -5,9 +5,18 @@ import (
 	"errors"
 	"log/slog"
 
+	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
-	publication "github.com/calypr/loom/internal/publication"
 )
+
+type GenerationLoadRequest struct {
+	Project          string
+	Generation       string
+	AuthResourcePath string
+	StagedDir        string
+	SubmittedBy      string
+	StageOnly        bool
+}
 
 type ImportRequest struct {
 	Project          string `json:"project"`
@@ -29,14 +38,6 @@ type ImportResult struct {
 	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
 }
 
-type GenerationLoadRequest struct {
-	Project          string
-	Generation       string
-	AuthResourcePath string
-	StagedDir        string
-	SubmittedBy      string
-}
-
 type GenerationLoadResult struct {
 	Project          string              `json:"project"`
 	Generation       string              `json:"generation"`
@@ -45,16 +46,12 @@ type GenerationLoadResult struct {
 	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
 }
 
-type Runner interface {
-	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
-
 type GenerationRunner interface {
 	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
 }
 
-type BundleRunner interface {
-	RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
+type Runner interface {
+	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
 }
 
 type IngestRunner struct {
@@ -83,21 +80,12 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.Dataset = &ref
 	opts.Truncate = false
 	opts.EventSink = sink
-	return ingest.Load(ctx, opts)
-}
-
-func (r IngestRunner) RunBundle(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	opts := r.BaseOptions
-	opts.Project = req.Project
-	opts.AuthResourcePath = req.AuthResourcePath
-	opts.MetaDir = req.StagedDir
-	opts.EventSink = sink
+	opts.StageOnly = req.StageOnly
 	return ingest.Load(ctx, opts)
 }
 
 type ServiceConfig struct {
 	Runner           Runner
-	BundleRunner     BundleRunner
 	GenerationRunner GenerationRunner
 	Logger           *slog.Logger
 	OnSuccess        func(project string)
@@ -105,43 +93,58 @@ type ServiceConfig struct {
 
 type Service struct {
 	runner           Runner
-	bundleRunner     BundleRunner
 	generationRunner GenerationRunner
 	logger           *slog.Logger
 	onSuccess        func(project string)
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
-	if cfg.Runner == nil {
-		return nil, errors.New("runner is required")
+	if cfg.Runner == nil && cfg.GenerationRunner == nil {
+		return nil, errors.New("load runner is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
 		runner:           cfg.Runner,
-		bundleRunner:     cfg.BundleRunner,
 		generationRunner: cfg.GenerationRunner,
 		logger:           cfg.Logger,
 		onSuccess:        cfg.OnSuccess,
 	}, nil
 }
 
-func (s *Service) RunBundle(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
-	if s.bundleRunner == nil {
-		return nil, errors.New("bundle runner is not configured")
+func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
+	if s.runner == nil {
+		return nil, errors.New("resource runner is not configured")
 	}
-	if req.Project == "" || req.StagedDir == "" {
-		return nil, errors.New("project and staged directory are required")
+	if req.Project == "" {
+		return nil, errors.New("project is required")
 	}
-	summary, err := s.bundleRunner.RunBundle(ctx, req, nil)
+	if req.ResourceType == "" {
+		return nil, errors.New("resource_type is required")
+	}
+	if req.StagedFilePath == "" {
+		return nil, errors.New("staged file path is required")
+	}
+
+	summary, err := s.runner.Run(ctx, req, nil)
 	if err != nil {
+		s.logger.Error("resource load failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
 		return nil, err
 	}
 	if s.onSuccess != nil {
 		s.onSuccess(req.Project)
 	}
-	return &GenerationLoadResult{Project: req.Project, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary}, nil
+	s.logger.Info("resource load succeeded", "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
+	summaryCopy := summary
+	return &ImportResult{
+		Project:          req.Project,
+		ResourceType:     req.ResourceType,
+		AuthResourcePath: req.AuthResourcePath,
+		OriginalFilename: req.OriginalFilename,
+		SubmittedBy:      req.SubmittedBy,
+		Summary:          &summaryCopy,
+	}, nil
 }
 
 func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
@@ -161,35 +164,4 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 	}
 	s.logger.Info("generation load succeeded", "project", req.Project, "generation", req.Generation, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
 	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary}, nil
-}
-
-func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
-	if req.Project == "" {
-		return nil, errors.New("project is required")
-	}
-	if req.ResourceType == "" {
-		return nil, errors.New("resource_type is required")
-	}
-	if req.StagedFilePath == "" {
-		return nil, errors.New("staged file path is required")
-	}
-
-	summary, err := s.runner.Run(ctx, req, nil)
-	if err != nil {
-		s.logger.Error("import failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
-		return nil, err
-	}
-	if s.onSuccess != nil {
-		s.onSuccess(req.Project)
-	}
-	s.logger.Info("import succeeded", "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	summaryCopy := summary
-	return &ImportResult{
-		Project:          req.Project,
-		ResourceType:     req.ResourceType,
-		AuthResourcePath: req.AuthResourcePath,
-		OriginalFilename: req.OriginalFilename,
-		SubmittedBy:      req.SubmittedBy,
-		Summary:          &summaryCopy,
-	}, nil
 }

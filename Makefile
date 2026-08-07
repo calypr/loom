@@ -29,15 +29,8 @@ build-server:
 
 generate-graphql:
 	mkdir -p $(GOCACHE_DIR)
-	@status=0; fix_status=0; \
-	for config in gqlgen.yml gqlgen.clickhouse.yml; do \
-		GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config $$config || status=$$?; \
-	done; \
-	for generated in generated/graphql/graph/executor/schema.generated.go generated/graphql/flat/executor/generated.go; do \
-		GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix $$generated || fix_status=$$?; \
-	done; \
-	test $$fix_status -eq 0; \
-	test $$status -eq 0
+	GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config gqlgen.yml
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix generated/graphql/graph/executor/schema.generated.go
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
