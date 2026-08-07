@@ -230,14 +230,18 @@ query ExplorerRows($input: DataframeRowsInput!) {
 }
 ```
 
-The public reader input contains a logical `dataType`, not a project,
-generation, materialization ID, or physical table. Loom derives the authorized
-project set from the principal, finds each project’s current READY publication,
-and federates compatible outputs. Every row exposes `project_id`, derived from
-the publication project identity (for example, `HTAN_INT-BForePC`), and it is
-filterable and sortable like other scalar columns. Rows remain permissive JSON;
-columns and capabilities are discovered at runtime so a new publication does
-not require a GraphQL regeneration or server restart.
+The preferred reader input is the exact selector `(recipe,
+translationVersion, output)`. The deprecated `dataType` form remains
+available through the configured default recipe and translation version. Loom
+derives the authorized project set from the principal, selects each project's
+active pointer-backed publication, reconciles compatible outputs, and
+federates them into one logical dataframe. Every row exposes `project_id`,
+derived from the publication project identity (for example,
+`HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
+columns. Rows remain permissive JSON; columns and capabilities are discovered
+at runtime so a new publication does not require a GraphQL regeneration or
+server restart. See [`docs/DATAFRAME_FEDERATION.md`](docs/DATAFRAME_FEDERATION.md)
+for the source-selection, authorization, schema, and operational contract.
 
 ## Authorization and tenancy
 
