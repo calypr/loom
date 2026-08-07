@@ -387,7 +387,9 @@ func executionTranslationVersion(execution bundlepublication.BundleExecution, le
 	value := reflect.ValueOf(execution)
 	field := value.FieldByName("TranslationVersion")
 	if field.IsValid() && field.Kind() == reflect.String {
-		return strings.TrimSpace(field.String())
+		if version := strings.TrimSpace(field.String()); version != "" {
+			return version
+		}
 	}
 	return strings.TrimSpace(legacyDefault)
 }
