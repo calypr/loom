@@ -117,8 +117,12 @@ func (o BundleOutputRecord) Queryable() bool {
 }
 
 type PhysicalColumn struct {
-	Name       string `json:"name"`
-	ClickHouse string `json:"clickhouseType"`
+	Name         string `json:"name"`
+	SemanticPath string `json:"semanticPath,omitempty"`
+	ClickHouse   string `json:"clickhouseType"`
+	LogicalType  string `json:"logicalType,omitempty"`
+	Nullable     bool   `json:"nullable,omitempty"`
+	Repeated     bool   `json:"repeated,omitempty"`
 }
 
 type BundleExecution struct {

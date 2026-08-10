@@ -5,11 +5,14 @@ type Query {
 
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
+  projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
   dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
+  dataframeRecipeRevision(projectId: String!, name: String!, digest: String!): DataframeRecipeRevision
+  dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -30,6 +33,7 @@ type Mutation {
   startDataframeMaterialization(input: StartDataframeMaterializationInput!): DataframeRecipeExecution!
   activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
   promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
+	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
 }
 
 input StartDataframeMaterializationInput {
@@ -65,8 +69,25 @@ type DataframeContract {
   promotedAt: String!
 }
 
+input RegisterDataframeRecipeRevisionInput {
+  projectId: String!
+  name: String!
+  parentDigest: String
+  recipe: JSON!
+}
+
+type DataframeRecipeRevision {
+  projectId: String!
+  name: String!
+  digest: String!
+  parentDigest: String
+  recipe: JSON!
+  createdAt: String!
+}
+
 input DataframeRecipeBindingsInput {
   project: String!
+  recipeDigest: String
   datasetGeneration: String
   authResourcePaths: [String!]
   previewLimit: Int = 25
@@ -314,6 +335,7 @@ type DataframeRecipeExecutionOutput {
   name: String!
   state: DataframeRecipeExecutionState!
   rowCount: Int
+  columns: [DataframeColumn!]!
   error: String
   errorCode: String
   errorRetryable: Boolean
@@ -329,6 +351,7 @@ enum DataframeMaterializationState {
 }
 
 type DataframeColumn {
+  semanticPath: String!
   name: String!
   clickhouseType: String!
   logicalType: String!
@@ -343,6 +366,8 @@ type DataframeMaterialization {
   id: ID!
   name: String!
   revision: String!
+  projectId: String!
+  datasetGeneration: String!
   state: DataframeMaterializationState!
   columns: [DataframeColumn!]!
   rowCount: Int

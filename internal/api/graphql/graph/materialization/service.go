@@ -129,6 +129,46 @@ func (s *Service) Datasets(ctx context.Context) ([]dfmaterialization.Materializa
 	return result, nil
 }
 
+// ProjectDatasets exposes the exact active-generation schemas for one
+// authorized project. It intentionally does not federate across projects.
+func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfmaterialization.Materialization, error) {
+	if s.reader == nil {
+		return nil, readerUnavailable()
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	principal, err := s.principal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(principal.Projects) > 0 && !containsProject(principal.Projects, projectID) {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeUnauthorizedProject, "")
+	}
+	values, err := s.reader.CurrentProjectDatasets(ctx, projectID)
+	if err != nil {
+		return nil, mapReaderError(err)
+	}
+	for _, value := range values {
+		if s.scopeResolver != nil {
+			if _, scopeErr := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, value.Project, value.DatasetGeneration, nil); scopeErr != nil {
+				return nil, mapReaderError(scopeErr)
+			}
+		}
+	}
+	return values, nil
+}
+
+func containsProject(projects []string, project string) bool {
+	for _, value := range projects {
+		if strings.TrimSpace(value) == project {
+			return true
+		}
+	}
+	return false
+}
+
 // Get preserves the legacy published-materialization lookup by ID.
 func (s *Service) Get(ctx context.Context, id string) (*dfmaterialization.Materialization, error) {
 	if s.reader == nil {

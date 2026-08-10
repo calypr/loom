@@ -231,6 +231,36 @@ func decodeStrings(value any) ([]string, error) {
 	}
 }
 
+func decodeExtensionValues(value any) ([]catalog.ExtensionValueObservation, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		if typed, ok := value.([]map[string]any); ok {
+			items = make([]any, len(typed))
+			for i := range typed {
+				items[i] = typed[i]
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported extension observation slice type %T", value)
+		}
+	}
+	result := make([]catalog.ExtensionValueObservation, 0, len(items))
+	for i, item := range items {
+		row, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("unsupported extension observation type %T at index %d", item, i)
+		}
+		urlPath, err := decodeStrings(row["url_path"])
+		if err != nil {
+			return nil, fmt.Errorf("extension observation URL path: %w", err)
+		}
+		result = append(result, catalog.ExtensionValueObservation{URL: stringValue(row["url"]), SourcePath: stringValue(row["source_path"]), ValuePath: stringValue(row["value_path"]), ValueType: stringValue(row["value_type"]), URLPath: urlPath})
+	}
+	return result, nil
+}
+
 func decode(row map[string]any, out *catalog.PopulatedField) error {
 	out.Project = stringValue(row["project"])
 	out.DatasetGeneration = stringValue(row["dataset_generation"])
@@ -262,6 +292,9 @@ func decode(row map[string]any, out *catalog.PopulatedField) error {
 	if out.PivotValueSelectors, err = decodeStrings(row["pivot_value_selectors"]); err != nil {
 		return fmt.Errorf("decode field row %s/%s pivot_value_selectors: %w", out.ResourceType, out.Path, err)
 	}
+	if out.ExtensionValues, err = decodeExtensionValues(row["extension_values"]); err != nil {
+		return fmt.Errorf("decode field row %s/%s extension_values: %w", out.ResourceType, out.Path, err)
+	}
 	out.PivotKind = stringValue(row["pivot_kind"])
 	out.PivotFamily = stringValue(row["pivot_family"])
 	out.PivotColumnSelect = stringValue(row["pivot_column_selector"])
@@ -290,6 +323,7 @@ FOR d IN fhir_field_catalog
     sample_count: d.sample_count,
     distinct_values: d.distinct_values,
     distinct_truncated: d.distinct_truncated,
+    extension_values: d.extension_values,
     pivot_candidate: d.pivot_candidate,
     pivot_kind: d.pivot_kind,
     pivot_columns: d.pivot_columns,

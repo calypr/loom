@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
@@ -50,6 +51,7 @@ type RecipeExecutionOutput struct {
 	Name           string
 	State          string
 	RowCount       *int
+	Columns        []publication.PhysicalColumn
 	Error          string
 	ErrorCode      string
 	ErrorRetryable bool
@@ -89,6 +91,7 @@ type Resolver struct {
 	projectReleaseActivator     ProjectReleaseActivator
 	dataframeContractPromoter   DataframeContractPromoter
 	dataframeContractAuthorizer DataframeContractAuthorizer
+	recipeRevisions             recipe.RevisionStore
 }
 
 type ResolverConfig struct {
@@ -107,6 +110,7 @@ type ResolverConfig struct {
 	DataframeContractPromoter   DataframeContractPromoter
 	DataframeContractAuthorizer DataframeContractAuthorizer
 	CandidateProjects           func(context.Context) ([]string, error)
+	RecipeRevisions             recipe.RevisionStore
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
@@ -135,6 +139,7 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		projectReleaseActivator:     cfg.ProjectReleaseActivator,
 		dataframeContractPromoter:   cfg.DataframeContractPromoter,
 		dataframeContractAuthorizer: cfg.DataframeContractAuthorizer,
+		recipeRevisions:             cfg.RecipeRevisions,
 	}
 }
 
@@ -158,7 +163,7 @@ func recipeBindings(input model.DataframeRecipeBindingsInput) recipe.RuntimeBind
 		limit = *input.PreviewLimit
 	}
 	return recipe.RuntimeBindings{
-		Project: input.Project, DatasetGeneration: valueOrEmpty(input.DatasetGeneration),
+		Project: input.Project, RecipeDigest: valueOrEmpty(input.RecipeDigest), DatasetGeneration: valueOrEmpty(input.DatasetGeneration),
 		AuthResourcePaths: append([]string(nil), input.AuthResourcePaths...), PreviewLimit: limit,
 	}
 }

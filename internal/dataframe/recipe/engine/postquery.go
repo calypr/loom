@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -15,6 +16,22 @@ const (
 	postQueryArgsKey      = "__loom_postquery_args"
 	postQueryTargetKey    = "__loom_postquery_target"
 )
+
+// DynamicDriftError means a runtime key was not part of the dynamic-column
+// schema frozen from the field catalog. It carries schema metadata only, so
+// transport adapters can report the mismatch without exposing row values.
+type DynamicDriftError struct {
+	DynamicName    string
+	Key            string
+	FrozenKeyCount int
+}
+
+func (e *DynamicDriftError) Error() string {
+	if e == nil {
+		return "dynamic column schema drift"
+	}
+	return fmt.Sprintf("dynamic map %q emitted unexpected key %q", e.DynamicName, e.Key)
+}
 
 func materializePostQueryRowWithChecks(row map[string]any, checks map[string]map[string]DynamicColumnCheck) (map[string]any, error) {
 	value, err := materializePostQueryValue(row)
@@ -50,7 +67,10 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 			key := fmt.Sprint(value)
 			column, ok := allowed[key]
 			if !ok {
-				return fmt.Errorf("dynamic map %q emitted unexpected key %q", dynamicName, key)
+				if dynamicFamilyAllowsUnknownKeys(allowed) {
+					continue
+				}
+				return &DynamicDriftError{DynamicName: dynamicName, Key: key, FrozenKeyCount: len(allowed)}
 			}
 			if actual, exists := row[column.ColumnName]; exists && !dynamicValueMatches(actual, column.ValueType) {
 				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
@@ -58,6 +78,15 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 		}
 	}
 	return nil
+}
+
+func dynamicFamilyAllowsUnknownKeys(checks map[string]DynamicColumnCheck) bool {
+	for _, check := range checks {
+		if check.AllowUnknownKeys {
+			return true
+		}
+	}
+	return false
 }
 
 func dynamicRuntimeKeys(value any) ([]any, error) {
@@ -179,6 +208,15 @@ func evaluatePostQueryCall(operation, target string, args []any) (any, error) {
 	}
 	isNull := func(value any) bool { return value == nil }
 	switch operation {
+	case "canonical_json":
+		if len(args) != 1 {
+			return nil, fmt.Errorf("canonical_json requires one argument")
+		}
+		encoded, err := json.Marshal(args[0])
+		if err != nil {
+			return nil, fmt.Errorf("canonical_json: %w", err)
+		}
+		return string(encoded), nil
 	case "coalesce", "fallback":
 		for _, value := range args {
 			if !isNull(value) {

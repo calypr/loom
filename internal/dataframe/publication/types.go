@@ -11,11 +11,14 @@ import "context"
 // boolean, or object. Object values are rejected by the generic MVP runner
 // unless a target explicitly opts into a serialization policy.
 type LogicalColumn struct {
-	Name       string
-	Kind       string
-	Repeated   bool
-	Nullable   bool
-	IsIdentity bool
+	Name string
+	// SemanticPath is the stable FHIR/provenance identity. It is persisted
+	// alongside the physical schema but never used to name ClickHouse columns.
+	SemanticPath string
+	Kind         string
+	Repeated     bool
+	Nullable     bool
+	IsIdentity   bool
 }
 
 type OutputSchema struct {

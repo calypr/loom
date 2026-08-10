@@ -23,11 +23,15 @@ type Scope struct {
 }
 
 type FieldCandidate struct {
-	ResourceType          string
-	Path                  string
-	Kind                  string
-	DistinctValues        []string
-	DistinctTruncated     bool
+	ResourceType      string
+	Path              string
+	Kind              string
+	DistinctValues    []string
+	DistinctTruncated bool
+	// ExtensionValues is optional profile-level correlation metadata. When
+	// present it preserves the URL/value[x] pairing that a flattened field
+	// catalog cannot represent with independent distinct-value lists.
+	ExtensionValues       []ExtensionValueObservation
 	PivotCandidate        bool
 	PivotFamily           string
 	PivotColumns          []string
@@ -36,6 +40,14 @@ type FieldCandidate struct {
 	PivotItemSource       string
 	PivotItemResourceType string
 	PivotValueSelectors   []string
+}
+
+type ExtensionValueObservation struct {
+	URL        string
+	SourcePath string
+	ValuePath  string
+	ValueType  string
+	URLPath    []string
 }
 
 // Discovery is the only backend-facing seam needed by recipe resolution. The
@@ -163,6 +175,10 @@ func cloneCandidates(in []FieldCandidate) []FieldCandidate {
 	for i := range in {
 		out[i] = in[i]
 		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
+		out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
+		for j := range out[i].ExtensionValues {
+			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
+		}
 		out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
 	}
 	return out
@@ -180,6 +196,9 @@ func resolveOutput(ctx context.Context, output *recipe.Output, scope Scope, disc
 	}
 	if err := resolveDynamicColumns(ctx, scope, discovery, output.RootResourceType, "root", output.DynamicColumns); err != nil {
 		return fmt.Errorf("dynamic columns: %w", err)
+	}
+	if err := resolveExtensionColumns(ctx, scope, discovery, output.RootResourceType, "root", output.ExtensionColumns); err != nil {
+		return fmt.Errorf("extension columns: %w", err)
 	}
 	for index := range output.Traversals {
 		if err := resolveTraversal(ctx, &output.Traversals[index], scope, discovery); err != nil {
@@ -205,6 +224,9 @@ func resolveTraversal(ctx context.Context, traversal *recipe.Traversal, scope Sc
 	}
 	if err := resolveDynamicColumns(ctx, scope, discovery, traversal.ToResourceType, alias, traversal.DynamicColumns); err != nil {
 		return fmt.Errorf("traversal %q dynamic columns: %w", traversal.Name, err)
+	}
+	if err := resolveExtensionColumns(ctx, scope, discovery, traversal.ToResourceType, alias, traversal.ExtensionColumns); err != nil {
+		return fmt.Errorf("traversal %q extension columns: %w", traversal.Name, err)
 	}
 	for index := range traversal.Traversals {
 		if err := resolveTraversal(ctx, &traversal.Traversals[index], scope, discovery); err != nil {

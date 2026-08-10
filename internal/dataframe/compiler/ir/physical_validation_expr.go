@@ -235,7 +235,8 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 	}
 	known := map[string]bool{
 		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true,
-		"concat": true, "join": true, "cast": true, "reference_id": true,
+		"canonical_json": true,
+		"concat":         true, "join": true, "cast": true, "reference_id": true,
 		"path_segment": true, "basename": true, "last_segment": true,
 		"sanitize_name": true, "sanitize_graphql_name": true, "uuid3": true, "uuid5": true,
 		"if": true, "case": true, "not": true, "and": true, "or": true,

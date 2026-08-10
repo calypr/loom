@@ -18,6 +18,7 @@ var (
 	ErrInvalidSchemaIdentity   = errors.New("invalid schema identity")
 	ErrInvalidManifest         = errors.New("invalid dataset manifest")
 	ErrInvalidTransition       = errors.New("invalid dataset manifest transition")
+	ErrManifestNotFound        = errors.New("generation manifest was not found")
 	ErrGenerationNotReady      = errors.New("dataset generation is not ready")
 	ErrInvalidActiveGeneration = errors.New("invalid active dataset generation")
 	ErrNoActiveGeneration      = errors.New("no active dataset generation")

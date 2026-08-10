@@ -36,6 +36,7 @@ type QueryRows func(context.Context, string, int, map[string]any, func(map[strin
 
 type Config struct {
 	Registry      Registry
+	Revisions     recipe.RevisionStore
 	ResolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows     QueryRows
 	ScopeDigest   func(recipe.RuntimeBindings) string
@@ -44,6 +45,7 @@ type Config struct {
 
 type Engine struct {
 	registry      Registry
+	revisions     recipe.RevisionStore
 	resolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows     QueryRows
 	scopeDigest   func(recipe.RuntimeBindings) string
@@ -90,8 +92,9 @@ type OutputStream struct {
 }
 
 type DynamicColumnCheck struct {
-	ColumnName string
-	ValueType  string
+	ColumnName       string
+	ValueType        string
+	AllowUnknownKeys bool
 }
 
 type StreamResult struct {
@@ -111,13 +114,26 @@ func New(cfg Config) (*Engine, error) {
 	if batch <= 0 {
 		batch = 1000
 	}
-	return &Engine{registry: cfg.Registry, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch}, nil
+	return &Engine{registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch}, nil
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	entry, err := e.registry.LoadRecipe(ctx, name)
-	if err != nil {
-		return Resolved{}, err
+	if strings.TrimSpace(bindings.Project) == "" {
+		return Resolved{}, fmt.Errorf("recipe project is required")
+	}
+	var entry exec.Entry
+	var err error
+	if bindings.RecipeDigest != "" && e.revisions != nil {
+		revision, revisionErr := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
+		if revisionErr != nil {
+			return Resolved{}, revisionErr
+		}
+		entry = exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}
+	} else {
+		entry, err = e.registry.LoadRecipe(ctx, name)
+		if err != nil {
+			return Resolved{}, err
+		}
 	}
 	return e.resolveEntry(ctx, entry, bindings)
 }
@@ -413,7 +429,7 @@ func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string
 		if checks[column.DynamicName] == nil {
 			checks[column.DynamicName] = map[string]DynamicColumnCheck{}
 		}
-		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType}
+		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, AllowUnknownKeys: column.AllowUnknownKeys}
 	}
 	return checks
 }

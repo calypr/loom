@@ -73,6 +73,11 @@ func qualifyTraversalLocals(input recipe.Traversal, alias string, visible map[st
 			copy.DynamicColumns[index].Value = &value
 		}
 	}
+	copy.ExtensionColumns = append([]recipe.ExtensionColumn(nil), input.ExtensionColumns...)
+	for index := range copy.ExtensionColumns {
+		copy.ExtensionColumns[index].Source = qualifyRecipeExpression(copy.ExtensionColumns[index].Source, alias, visible)
+		copy.ExtensionColumns[index].Columns = append([]recipe.ExtensionColumnMapping(nil), input.ExtensionColumns[index].Columns...)
+	}
 	return copy
 }
 

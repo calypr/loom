@@ -95,6 +95,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, dataframeContractBootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap dataframe contract registry", err)
 	}
+	if err := lifecycleClient.Bootstrap(ctx, recipearango.RevisionBootstrapSpec()); err != nil {
+		degradation = recordDegradation(logger, degradation, "bootstrap recipe revision registry", err)
+	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
@@ -179,8 +182,13 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
+	recipeRevisions, err := recipearango.NewRevisionRegistry(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create recipe revision registry: %w", err)
+	}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
+		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
@@ -313,6 +321,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
 		RecipeAuthorizer:            recipeAuthorization{resolver: scopeResolver},
+		RecipeRevisions:             recipeRevisions,
 		RecipeExecutions:            graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,
@@ -327,8 +336,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		Schema:            serverConfig.Server.Schema,
 	}}
 	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{
-		Runner: ingestRunner, GenerationRunner: ingestRunner,
-		Logger: logger,
+		Runner:              ingestRunner,
+		GenerationRunner:    ingestRunner,
+		GenerationActivator: lifecycleStore,
+		DataframeReleases:   publishedRegistry,
+		Logger:              logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
 			if scopeResolver != nil {
@@ -366,7 +378,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver); err != nil {
+	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if publicationWorker != nil {

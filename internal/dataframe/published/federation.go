@@ -522,6 +522,37 @@ func (r *Reader) CurrentFederatedSelectors(ctx context.Context, projects []strin
 	return result, nil
 }
 
+// CurrentProjectDatasets returns the current output materializations for one
+// project without merging them with other projects.
+func (r *Reader) CurrentProjectDatasets(ctx context.Context, project string) ([]Materialization, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	selectors, err := r.CurrentFederatedSelectors(ctx, []string{project})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Materialization, 0, len(selectors))
+	for _, selector := range selectors {
+		sources, sourceErr := r.CurrentFederatedSources(ctx, []string{project}, selector)
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		result = append(result, sources...)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name != result[j].Name {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].ID < result[j].ID
+	})
+	if len(result) == 0 {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	return result, nil
+}
+
 func ReconcileFederatedDataset(selector DataframeSelector, expectedProjects []string, sources []Materialization) (FederatedDataset, error) {
 	if len(sources) == 0 {
 		statuses := make([]ProjectStatus, 0, len(expectedProjects))

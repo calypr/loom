@@ -15,8 +15,12 @@ const projectIDColumn = "project_id"
 const StateReady State = "READY"
 
 type Column struct {
-	Name       string `json:"name"`
-	ClickHouse string `json:"clickhouseType"`
+	Name         string `json:"name"`
+	SemanticPath string `json:"semanticPath,omitempty"`
+	ClickHouse   string `json:"clickhouseType"`
+	LogicalType  string `json:"logicalType,omitempty"`
+	Nullable     bool   `json:"nullable,omitempty"`
+	Repeated     bool   `json:"repeated,omitempty"`
 }
 
 type DataframeSelector = dataset.DataframeSelector
@@ -70,7 +74,7 @@ func publishedMaterialization(execution publication.BundleExecution, output publ
 func publishedColumns(columns []publication.PhysicalColumn) []Column {
 	result := make([]Column, len(columns))
 	for index, column := range columns {
-		result[index] = Column{Name: column.Name, ClickHouse: column.ClickHouse}
+		result[index] = Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated}
 	}
 	return result
 }

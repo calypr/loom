@@ -65,7 +65,7 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 			}
 			rowCount := int(output.RowCount)
 			result.Outputs = append(result.Outputs, RecipeExecutionOutput{
-				Name: output.Name, State: outputState, RowCount: &rowCount, Error: execution.Error,
+				Name: output.Name, State: outputState, RowCount: &rowCount, Columns: append([]materialization.PhysicalColumn(nil), output.Columns...), Error: execution.Error,
 				ErrorCode: output.FailureCode, ErrorRetryable: output.FailureRetryable,
 				Selector: output.Selector, Phase: output.FailurePhase,
 			})

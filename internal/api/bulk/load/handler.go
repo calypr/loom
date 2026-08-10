@@ -32,7 +32,9 @@ func NewHandler(cfg Config) (*Handler, error) {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
+	h.RegisterResourceRoute(router)
 	router.Post("/api/v1/datasets/:project/generations/:generation", h.createGeneration)
+	router.Post("/api/v1/datasets/:project/generations/:generation/activate", h.activateGeneration)
 	router.Put("/api/v1/raw", h.loadRaw)
 	h.RegisterSnapshotRoutes(router)
 }

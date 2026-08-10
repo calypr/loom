@@ -79,6 +79,7 @@ type DataframeBuilderIntrospectionInput struct {
 }
 
 type DataframeColumn struct {
+	SemanticPath   string `json:"semanticPath"`
 	Name           string `json:"name"`
 	ClickhouseType string `json:"clickhouseType"`
 	LogicalType    string `json:"logicalType"`
@@ -153,6 +154,8 @@ type DataframeMaterialization struct {
 	ID                    string                        `json:"id"`
 	Name                  string                        `json:"name"`
 	Revision              string                        `json:"revision"`
+	ProjectID             string                        `json:"projectId"`
+	DatasetGeneration     string                        `json:"datasetGeneration"`
 	State                 DataframeMaterializationState `json:"state"`
 	Columns               []*DataframeColumn            `json:"columns"`
 	RowCount              *int                          `json:"rowCount,omitempty"`
@@ -224,6 +227,7 @@ type DataframeRecipeArangoAssessment struct {
 
 type DataframeRecipeBindingsInput struct {
 	Project           string   `json:"project"`
+	RecipeDigest      *string  `json:"recipeDigest,omitempty"`
 	DatasetGeneration *string  `json:"datasetGeneration,omitempty"`
 	AuthResourcePaths []string `json:"authResourcePaths,omitempty"`
 	PreviewLimit      *int     `json:"previewLimit,omitempty"`
@@ -258,6 +262,7 @@ type DataframeRecipeExecutionOutput struct {
 	Name           string                        `json:"name"`
 	State          DataframeRecipeExecutionState `json:"state"`
 	RowCount       *int                          `json:"rowCount,omitempty"`
+	Columns        []*DataframeColumn            `json:"columns"`
 	Error          *string                       `json:"error,omitempty"`
 	ErrorCode      *string                       `json:"errorCode,omitempty"`
 	ErrorRetryable *bool                         `json:"errorRetryable,omitempty"`
@@ -417,6 +422,15 @@ type DataframeRecipeResultOutput struct {
 	Rows     json.RawMessage `json:"rows"`
 	CSV      *string         `json:"csv,omitempty"`
 	RowCount int             `json:"rowCount"`
+}
+
+type DataframeRecipeRevision struct {
+	ProjectID    string          `json:"projectId"`
+	Name         string          `json:"name"`
+	Digest       string          `json:"digest"`
+	ParentDigest *string         `json:"parentDigest,omitempty"`
+	Recipe       json.RawMessage `json:"recipe"`
+	CreatedAt    string          `json:"createdAt"`
 }
 
 type DataframeRecipeValidation struct {
@@ -720,6 +734,13 @@ type PromoteDataframeContractInput struct {
 }
 
 type Query struct {
+}
+
+type RegisterDataframeRecipeRevisionInput struct {
+	ProjectID    string          `json:"projectId"`
+	Name         string          `json:"name"`
+	ParentDigest *string         `json:"parentDigest,omitempty"`
+	Recipe       json.RawMessage `json:"recipe"`
 }
 
 type RunDataframeRecipeInput struct {

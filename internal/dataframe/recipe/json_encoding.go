@@ -40,6 +40,7 @@ type OutputExplanation struct {
 	TraversalNames     []string `json:"traversalNames,omitempty"`
 	Expanded           bool     `json:"expanded,omitempty"`
 	DynamicColumns     []string `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []string `json:"extensionColumns,omitempty"`
 	CatalogProjections []string `json:"catalogProjections,omitempty"`
 }
 

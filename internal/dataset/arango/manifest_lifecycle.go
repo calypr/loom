@@ -17,7 +17,7 @@ const (
 var (
 	ErrNilQueryClient             = errors.New("generation store query client is required")
 	ErrManifestAlreadyExists      = errors.New("generation manifest already exists")
-	ErrManifestNotFound           = errors.New("generation manifest was not found")
+	ErrManifestNotFound           = publication.ErrManifestNotFound
 	ErrManifestTransitionConflict = errors.New("generation manifest transition conflict")
 	ErrActivationConflict         = errors.New("generation activation conflict")
 	ErrUnexpectedStoreResult      = errors.New("unexpected generation store result")
@@ -54,6 +54,10 @@ func (s *Store) CreateManifest(ctx context.Context, manifest publication.Manifes
 		return publication.Manifest{}, err
 	}
 	bindVars := lifecycleBindVars(manifest.Dataset.Project)
+	// Arango rejects undeclared bind parameters. The create query derives the
+	// project and active record from the immutable documents themselves.
+	delete(bindVars, "project")
+	delete(bindVars, "active_record_type")
 	bindVars["manifest"] = document
 	bindVars["active_placeholder"] = activePlaceholderDocument(manifest.Dataset.Project)
 	bindVars["active_release_placeholder"] = activeReleasePlaceholderDocument(manifest.Dataset.Project)
@@ -108,6 +112,7 @@ func (s *Store) ReadManifest(ctx context.Context, ref publication.Ref) (publicat
 		return publication.Manifest{}, err
 	}
 	bindVars := lifecycleBindVars(ref.Project)
+	delete(bindVars, "active_record_type")
 	bindVars["manifest_key"] = manifestDocumentKey(ref)
 	bindVars["generation"] = ref.Generation
 	rows, err := s.manifestRows(ctx, readManifestAQL, bindVars)
@@ -136,6 +141,7 @@ func (s *Store) TransitionManifest(ctx context.Context, manifest publication.Man
 		return publication.Manifest{}, err
 	}
 	bindVars := lifecycleBindVars(manifest.Dataset.Project)
+	delete(bindVars, "active_record_type")
 	bindVars["manifest_key"] = manifestDocumentKey(manifest.Dataset)
 	bindVars["generation"] = manifest.Dataset.Generation
 	bindVars["expected_state"] = string(manifest.State)

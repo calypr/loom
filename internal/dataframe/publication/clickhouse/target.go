@@ -56,6 +56,16 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 			cancel()
 			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
 		}
+		if metadata, ok := tx.(interface {
+			SetOutputMetadata(string, []publication.LogicalColumn) error
+		}); ok {
+			if err := metadata.SetOutputMetadata(schema.Name, schema.Columns); err != nil {
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q metadata: %w", schema.Name, err))
+				cancel()
+				return nil, fmt.Errorf("output %q metadata: %w", schema.Name, err)
+			}
+		}
 		result.columns[schema.Name] = columns
 	}
 	return result, nil

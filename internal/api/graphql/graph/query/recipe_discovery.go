@@ -46,6 +46,13 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 			DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, PivotCandidate: field.PivotCandidate,
 			PivotFamily: field.PivotFamily, PivotColumns: append([]string(nil), field.PivotColumns...),
 			PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect,
+			ExtensionValues: func() []schema.ExtensionValueObservation {
+				values := make([]schema.ExtensionValueObservation, len(field.ExtensionValues))
+				for i, value := range field.ExtensionValues {
+					values[i] = schema.ExtensionValueObservation{URL: value.URL, SourcePath: value.SourcePath, ValuePath: value.ValuePath, ValueType: value.ValueType, URLPath: append([]string(nil), value.URLPath...)}
+				}
+				return values
+			}(),
 		})
 	}
 	return result, nil

@@ -18,7 +18,7 @@ func TestKeysetCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if predicate == "" || len(args) != 3 || predicate == "toUInt64(`__loom_row_id`) > toUInt64(\"42\")" {
+	if predicate == "" || len(args) != 3 || predicate != "(`name` > ? OR (`name` = ? AND toString(`__loom_row_id`) > ?))" {
 		t.Fatalf("unexpected sort predicate %q", predicate)
 	}
 }

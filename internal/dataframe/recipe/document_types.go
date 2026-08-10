@@ -43,6 +43,7 @@ type Output struct {
 	Expand             *Expansion            `json:"expand,omitempty"`
 	Identity           *Identity             `json:"identity,omitempty"`
 	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
 	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
 	CollisionPolicy    string                `json:"collisionPolicy,omitempty"`
 }
@@ -298,6 +299,7 @@ type Traversal struct {
 	Slices             []RepresentativeSlice `json:"slices,omitempty"`
 	Traversals         []Traversal           `json:"traversals,omitempty"`
 	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
 	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
 }
 
@@ -327,6 +329,37 @@ type DynamicColumn struct {
 	Value        *Expression `json:"value,omitempty"`
 	Columns      []string    `json:"columns,omitempty"`
 	MaxColumns   int         `json:"maxColumns,omitempty"`
+	// ColumnTypes carries resolver-observed logical types for frozen keys. It
+	// is optional for legacy dynamicColumns and is populated for typed
+	// extensionColumns.
+	ColumnTypes map[string]string `json:"columnTypes,omitempty"`
+	// ColumnSourceKeys decouples a public frozen column name from the runtime
+	// keyed-map lookup key. Extension columns use this for parent__child names
+	// while matching the leaf Extension.url segment inside its scoped source.
+	ColumnSourceKeys map[string]string `json:"-"`
+}
+
+// ExtensionColumn is a bounded, URL-keyed projection of FHIR Extension
+// values. Unlike dynamicColumns, its resolver understands nested Extension
+// arrays and freezes both the URL mapping and the value representation.
+type ExtensionColumn struct {
+	Name         string                   `json:"name"`
+	Source       Expression               `json:"source"`
+	ColumnPrefix *string                  `json:"columnPrefix,omitempty"`
+	MaxColumns   int                      `json:"maxColumns"`
+	Columns      []ExtensionColumnMapping `json:"columns,omitempty"`
+}
+
+// ExtensionColumnMapping is immutable schema-discovery output. Name is the
+// normalized public key, URL is the raw Extension.url, and ValuePath is the
+// relative item selector for a single primitive value[x]. Empty ValuePath
+// means the extension object is represented by canonical JSON.
+type ExtensionColumnMapping struct {
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	SourcePath string `json:"sourcePath,omitempty"`
+	ValuePath  string `json:"valuePath,omitempty"`
+	ValueType  string `json:"valueType"`
 }
 
 // CatalogProjection describes a bounded family of populated FHIR paths. It
@@ -352,7 +385,10 @@ const (
 // RuntimeBindings are request-scoped and deliberately not part of a stored
 // recipe digest.
 type RuntimeBindings struct {
-	Project           string
+	Project string
+	// RecipeDigest selects an immutable project-scoped revision when supplied.
+	// Empty preserves the server-owned name lookup used by legacy callers.
+	RecipeDigest      string
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode

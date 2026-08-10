@@ -331,6 +331,32 @@ traversals attach context without changing the root output identity.
 
 ## Dynamic columns: controlled key/value flattening
 
+### `extensionColumns`: typed URL-keyed Extension values
+
+For recipes that need a stable, loss-aware mapping of FHIR `Extension`
+values, use `extensionColumns` on either an output or a traversal. `source`
+must be a schema-valid repeated `Extension` selector and `maxColumns` is
+required. Discovery walks nested `extension[]` arrays and freezes each URL's
+normalized final segment (for example `source_path` and `sha256`). An explicit
+empty `columnPrefix` publishes those names without a family prefix.
+
+When discovery observes one primitive `value[x]` kind for a URL, the resulting
+column retains that nullable logical type. URLs with mixed or complex values
+are represented as canonical JSON strings. The frozen URL, source path, value
+selector, and logical type are included in the resolved schema digest.
+
+```json
+{
+  "name": "attachment",
+  "columnPrefix": "",
+  "source": {"select": "root.content[].attachment.extension[]"},
+  "maxColumns": 16
+}
+```
+
+`dynamicColumns` remains available for general key/value arrays and retains
+its existing behavior.
+
 Use a dynamic column family when FHIR represents repeated key/value metadata
 and each known key should become its own column.  This is the correct tool for
 identifiers, category coding, and attachment extensions.  It is **not** a

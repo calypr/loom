@@ -44,6 +44,9 @@ func (b Bundle) Explain() (Explanation, error) {
 		for _, d := range out.DynamicColumns {
 			e.DynamicColumns = append(e.DynamicColumns, d.Name)
 		}
+		for _, d := range out.ExtensionColumns {
+			e.ExtensionColumns = append(e.ExtensionColumns, d.Name)
+		}
 		for _, projection := range out.CatalogProjections {
 			e.CatalogProjections = append(e.CatalogProjections, projection.Name)
 		}

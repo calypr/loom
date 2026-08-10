@@ -456,6 +456,13 @@ each traversal that needs it.
 
 ### Key/value families
 
+Use `dynamicColumns` for identifiers and general key/value arrays. For
+schema-aware FHIR extensions, prefer `extensionColumns` on an output or
+traversal: it recursively discovers nested `Extension` URLs, freezes
+URL-to-value mappings and logical types, and emits canonical JSON strings for
+mixed or complex values. `maxColumns` is required; an explicit empty
+`columnPrefix` preserves bare names such as `source_path` and `sha256`.
+
 Use `dynamicColumns` for identifiers, extensions, and similar arrays whose key
 becomes part of the column name:
 

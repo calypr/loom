@@ -60,19 +60,25 @@ type CompiledRecipeOutput struct {
 // Cardinality are logical, backend-neutral values; Internal projections are
 // never exposed by dataframe transports.
 type CompiledOutputColumn struct {
-	Name        string
-	Kind        string
-	Cardinality string
-	Nullable    bool
-	Internal    bool
-	Identity    bool
+	Name string
+	// SemanticPath is the stable FHIR/provenance identity for this column.
+	// Physical names are deliberately excluded so storage renames do not
+	// invalidate Explorer configuration.
+	SemanticPath string
+	Kind         string
+	Cardinality  string
+	Nullable     bool
+	Internal     bool
+	Identity     bool
 }
 
 type DynamicColumnMetadata struct {
-	Name        string
-	DynamicName string
-	SourceKey   string
-	ValueType   string
+	Name             string
+	SemanticPath     string
+	DynamicName      string
+	SourceKey        string
+	ValueType        string
+	AllowUnknownKeys bool
 }
 
 // CompileResolvedRecipePlan lowers every resolved recipe output into the
@@ -157,7 +163,10 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := physical.Validate(); err != nil {
 		return CompiledRecipeOutput{}, fmt.Errorf("validate canonical physical plan: %w", err)
 	}
-	outputSchema := recipeOutputSchema(physical, output)
+	outputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata)
+	if err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
 		RowGrain: output.RowGrain, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,

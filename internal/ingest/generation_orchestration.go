@@ -288,7 +288,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}
 	manifest = stagedManifest
 	manifestStaged = true
-	if !opts.StageOnly {
+	if !opts.StageOnly && !opts.DeferActivation {
 		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
 			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 		}

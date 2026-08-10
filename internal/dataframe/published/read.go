@@ -280,9 +280,12 @@ func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materializ
 		if req.Sort.Desc {
 			direction = "DESC"
 		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_row_id` ASC", req.Sort.Column, direction)
+		query += fmt.Sprintf(" ORDER BY `%s` %s, toString(`__loom_row_id`) ASC", req.Sort.Column, direction)
 	} else {
-		query += " ORDER BY toUInt64(`__loom_row_id`) ASC"
+		// Published recipe identities are deterministic strings, while legacy
+		// tables may use UInt64. Ordering through the shared string
+		// representation keeps keyset pagination valid for both schemas.
+		query += " ORDER BY toString(`__loom_row_id`) ASC"
 	}
 	query += fmt.Sprintf(" LIMIT %d", first+1)
 	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, whereArgs...)
@@ -426,7 +429,7 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 }
 
 func cursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
-	row := "toUInt64(`__loom_row_id`) > toUInt64(?)"
+	row := "toString(`__loom_row_id`) > ?"
 	if sort == nil {
 		return row, []any{cursor.RowID}, nil
 	}

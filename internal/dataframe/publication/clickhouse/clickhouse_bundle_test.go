@@ -400,3 +400,149 @@ func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 		t.Fatal("transaction cleanup did not cancel lease renewal")
 	}
 }
+
+func TestPlanReadyCleanupRetainsActiveAndPriorRelease(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for i, generation := range []string{"g1", "g2", "g3"} {
+		readyAt := now.Add(-time.Duration(3-i) * time.Hour)
+		execution := publication.BundleExecution{
+			ID:             "execution-" + generation,
+			BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: generation, Name: "Observation"},
+			State:          publication.BundleReady, ReadyAt: &readyAt, CreatedAt: readyAt, UpdatedAt: readyAt,
+			Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_bundle_" + generation + "_Observation", State: publication.BundleReady}},
+		}
+		catalog.executions[execution.ID] = execution
+		client.tables[execution.Outputs[0].PhysicalTable] = nil
+	}
+	// Every generation has its own dataframe pointer. Only g3 is the active
+	// project generation; g1/g2 pointers represent rollback metadata.
+	for _, id := range []string{"execution-g1", "execution-g2", "execution-g3"} {
+		execution := catalog.executions[id]
+		catalog.pointers[execution.PointerName()] = publication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
+	}
+
+	plan, err := store.PlanReadyCleanupForActiveGenerations(context.Background(), map[string]string{"project-a": "g3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan) != 1 || plan[0].ExecutionID != "execution-g1" {
+		t.Fatalf("cleanup plan = %#v, want only execution-g1", plan)
+	}
+	if plan[0].PhysicalTable != "loom_bundle_g1_Observation" {
+		t.Fatalf("planned table = %q", plan[0].PhysicalTable)
+	}
+	if len(client.tables) != 3 {
+		t.Fatalf("planner changed physical tables: %#v", client.tables)
+	}
+}
+
+func TestPlanReadyCleanupNeverPlansReferencedRollbackOrForeignTable(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	store, err := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyAt := time.Now().UTC().Add(-time.Hour)
+	execution := publication.BundleExecution{
+		ID: "rollback", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "rollback", Name: "Observation"},
+		State: publication.BundleReady, ReadyAt: &readyAt, CreatedAt: readyAt, UpdatedAt: readyAt,
+		Outputs: []publication.BundleOutputRecord{
+			{Name: "Observation", PhysicalTable: "loom_bundle_rollback_Observation", State: publication.BundleReady},
+			{Name: "bad", PhysicalTable: "other_table", State: publication.BundleReady},
+		},
+	}
+	catalog.executions[execution.ID] = execution
+	catalog.pointers[execution.PointerName()] = publication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
+	plan, err := store.PlanReadyCleanup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan) != 0 {
+		t.Fatalf("cleanup plan = %#v, referenced/foreign tables must be protected", plan)
+	}
+}
+
+func TestClickHouseBundleCandidateIsInvisibleUntilReadyPointerCAS(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g1", Name: "Observation"}
+	tx, err := store.BeginBundleFor(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.GetPointer(context.Background(), identity.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
+		t.Fatalf("candidate became visible before commit: %v", err)
+	}
+	if err := tx.InsertRows(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.GetPointer(context.Background(), identity.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
+		t.Fatalf("candidate became visible before CAS: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	pointer, err := catalog.GetPointer(context.Background(), identity.PointerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer.ExecutionID == "" {
+		t.Fatal("successful CAS published an empty execution ID")
+	}
+	execution, err := catalog.GetExecution(context.Background(), pointer.ExecutionID)
+	if err != nil || !execution.State.Successful() {
+		t.Fatalf("published execution = %#v, err = %v", execution, err)
+	}
+}
+
+func TestClickHouseBundleFailedCandidatePreservesOldPointer(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := publication.BundleExecution{
+		ID: "old", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g1", Name: "Observation"},
+		State: publication.BundleReady, UpdatedAt: time.Now().UTC(),
+		Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_bundle_old_Observation", State: publication.BundleReady}},
+	}
+	catalog.executions[old.ID] = old
+	catalog.pointers[old.PointerName()] = publication.BundlePointer{Name: old.PointerName(), ExecutionID: old.ID}
+	client.tables[old.Outputs[0].PhysicalTable] = nil
+
+	client.failInsert = true
+	candidateIdentity := old.BundleIdentity
+	candidateIdentity.RecipeDigest = "new-recipe"
+	tx, err := store.BeginBundleFor(context.Background(), candidateIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.InsertRows(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); err == nil {
+		t.Fatal("failed candidate insert unexpectedly succeeded")
+	}
+	_ = tx.Abort(context.Background(), errors.New("candidate failed"))
+	pointer, err := catalog.GetPointer(context.Background(), old.PointerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer.ExecutionID != old.ID {
+		t.Fatalf("failed candidate changed visible pointer to %q", pointer.ExecutionID)
+	}
+}

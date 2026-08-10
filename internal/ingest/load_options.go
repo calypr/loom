@@ -30,6 +30,9 @@ type LoadOptions struct {
 	// StageOnly leaves a successfully loaded immutable generation STAGED. It is
 	// selected for reads only after project-release activation succeeds.
 	StageOnly bool
+	// DeferActivation is the compatibility spelling used by the generation-load
+	// HTTP API. Like StageOnly, it leaves the generation STAGED and inactive.
+	DeferActivation bool
 	// PreflightSampleRows bounds the number of payloads inspected from every
 	// staged file before Loom opens or mutates Arango. Zero uses the safe
 	// default; full row validation still happens in the loader.

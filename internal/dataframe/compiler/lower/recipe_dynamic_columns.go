@@ -38,7 +38,6 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		projectionIndexes[projection.Name] = index
 	}
 	metadata := make([]DynamicColumnMetadata, 0)
-	metadataIndexes := map[string]int{}
 	runtimeKeyFields := make([]ir.PhysicalExpressionProjection, 0, len(dynamics))
 	setVariables := recipeSetVariables(*plan)
 	for _, dynamic := range dynamics {
@@ -104,7 +103,17 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			matchBindKey := nextDynamicBindKey(plan.BindVars, projectionPrefix+dynamic.Name, index)
 			plan.BindVars[matchBindKey] = column.Column.SourceKey
 			lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: value.Cardinality, NullBehavior: value.NullBehavior, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: matchBindKey}}
-			entry := DynamicColumnMetadata{Name: outputName, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType}
+			semanticPath := strings.TrimSpace(dynamic.ResourceType)
+			if semanticPath == "" {
+				semanticPath = output.RootResourceType
+			}
+			if source := strings.Trim(strings.TrimSpace(dynamic.Source.SourcePath), "."); source != "" {
+				semanticPath += "." + source
+			}
+			if column.Column.SourceKey != "" {
+				semanticPath += "[" + column.Column.SourceKey + "]"
+			}
+			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, AllowUnknownKeys: dynamic.AllowUnknownKeys}
 			if projectionIndex, exists := projectionIndexes[outputName]; exists {
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)
@@ -113,17 +122,15 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 				// order. Preserve that contract for an explicit overwrite policy
 				// instead of rejecting a category/identifier or extension collision.
 				plan.Operations[returnOp].Return.Projections[projectionIndex] = ir.PhysicalProjection{Name: outputName, Expression: &lookup}
-				if metadataIndex, dynamicExists := metadataIndexes[outputName]; dynamicExists {
-					metadata[metadataIndex] = entry
-				} else {
-					metadataIndexes[outputName] = len(metadata)
-					metadata = append(metadata, entry)
-				}
+				// Keep validation metadata for every family sharing this public
+				// compatibility column. The physical projection is intentionally
+				// overwritten in declaration order, but runtime-key validation must
+				// still accept keys frozen for the earlier family.
+				metadata = append(metadata, entry)
 				continue
 			}
 			projectionIndexes[outputName] = len(plan.Operations[returnOp].Return.Projections)
 			plan.Operations[returnOp].Return.Projections = append(plan.Operations[returnOp].Return.Projections, ir.PhysicalProjection{Name: outputName, Expression: &lookup})
-			metadataIndexes[outputName] = len(metadata)
 			metadata = append(metadata, entry)
 		}
 	}
@@ -204,6 +211,9 @@ func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[
 // resource type carried by the dynamic map. Re-validating it against the
 // parent schema would reject valid generic choice fields.
 func lowerDynamicItemAST(input expression.Expression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
+	if input.Document != nil && strings.EqualFold(strings.TrimSpace(input.Document.Context), "item") {
+		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "dynamic_item"}}, nil
+	}
 	if input.Selector != nil && strings.EqualFold(strings.TrimSpace(input.Selector.Context), "item") {
 		selector, err := spec.ParseSelector(input.Selector.Path)
 		if err != nil {

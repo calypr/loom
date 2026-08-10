@@ -68,6 +68,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 		}
 	}
 	p.observeObservationCodePivot(payload)
+	p.observeExtensionValues(payload)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 
@@ -136,6 +137,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 				pivotValueSelectors:   append([]string(nil), otherStat.pivotValueSelectors...),
 				distinctSet:           make(map[string]struct{}),
 				pivotColumnSet:        make(map[string]struct{}),
+				extensionValueSet:     make(map[string]struct{}),
 			}
 			p.stats[path] = stat
 		}
@@ -148,6 +150,9 @@ func (p *Profiler) Merge(other *Profiler) error {
 		}
 		for _, value := range otherStat.pivotColumns {
 			stat.addPivotColumn(value)
+		}
+		for _, observation := range otherStat.extensionValues {
+			stat.addExtensionValue(observation)
 		}
 	}
 	return nil
@@ -165,8 +170,21 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		stat := p.stats[path]
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
+		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
+		sort.Slice(extensionValues, func(i, j int) bool {
+			if extensionValues[i].URL != extensionValues[j].URL {
+				return extensionValues[i].URL < extensionValues[j].URL
+			}
+			if strings.Join(extensionValues[i].URLPath, "\x00") != strings.Join(extensionValues[j].URLPath, "\x00") {
+				return strings.Join(extensionValues[i].URLPath, "\x00") < strings.Join(extensionValues[j].URLPath, "\x00")
+			}
+			if extensionValues[i].SourcePath != extensionValues[j].SourcePath {
+				return extensionValues[i].SourcePath < extensionValues[j].SourcePath
+			}
+			return extensionValues[i].ValuePath < extensionValues[j].ValuePath
+		})
 		out = append(out, FieldCatalogDocument{
 			Key:                   fieldCatalogKeyForGeneration(p.project, datasetGeneration, p.authResourcePath, p.resourceType, stat.path),
 			Project:               p.project,
@@ -188,6 +206,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotItemSource:       stat.pivotItemSource,
 			PivotItemResourceType: stat.pivotItemResourceType,
 			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
+			ExtensionValues:       extensionValues,
 		})
 	}
 	return out
@@ -198,12 +217,13 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		return stat
 	}
 	stat := &fieldCatalogStats{
-		path:           field.Path,
-		kind:           field.Kind,
-		pivotCandidate: field.PivotCandidate,
-		pivotKind:      field.PivotKind,
-		distinctSet:    make(map[string]struct{}),
-		pivotColumnSet: make(map[string]struct{}),
+		path:              field.Path,
+		kind:              field.Kind,
+		pivotCandidate:    field.PivotCandidate,
+		pivotKind:         field.PivotKind,
+		distinctSet:       make(map[string]struct{}),
+		pivotColumnSet:    make(map[string]struct{}),
+		extensionValueSet: make(map[string]struct{}),
 	}
 	if field.PivotCandidate {
 		if spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
@@ -241,6 +261,109 @@ func (s *fieldCatalogStats) addPivotColumn(value string) {
 	}
 	s.pivotColumnSet[value] = struct{}{}
 	s.pivotColumns = append(s.pivotColumns, value)
+}
+
+func (s *fieldCatalogStats) addExtensionValue(observation ExtensionValueObservation) {
+	observation.URL = strings.TrimSpace(observation.URL)
+	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
+	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
+	observation.ValueType = strings.TrimSpace(observation.ValueType)
+	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
+		return
+	}
+	if s.extensionValueSet == nil {
+		s.extensionValueSet = make(map[string]struct{})
+	}
+	key := observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
+	if _, ok := s.extensionValueSet[key]; ok {
+		return
+	}
+	s.extensionValueSet[key] = struct{}{}
+	s.extensionValues = append(s.extensionValues, observation)
+}
+
+func (p *Profiler) observeExtensionValues(payload map[string]any) {
+	walkExtensionValues(payload, "", p)
+}
+
+func walkExtensionValues(value any, path string, profiler *Profiler) {
+	walkExtensionValuesWithAncestors(value, path, profiler, nil)
+}
+
+func walkExtensionValuesWithAncestors(value any, path string, profiler *Profiler, ancestors []string) {
+	switch typed := value.(type) {
+	case map[string]any:
+		isExtension := strings.HasSuffix(path, "extension[]")
+		if url, ok := typed["url"].(string); ok && strings.TrimSpace(url) != "" && isExtension {
+			stat := profiler.ensureExtensionURLStat(path + ".url")
+			for key, raw := range typed {
+				if !strings.HasPrefix(key, "value") || len(key) == len("value") || raw == nil {
+					continue
+				}
+				valuePath, valueType := extensionValueMapping(key, raw)
+				stat.addExtensionValue(ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)})
+			}
+		}
+		for _, key := range sortedKeys(typed) {
+			child := typed[key]
+			if child == nil {
+				continue
+			}
+			childPath := appendPath(path, key, false)
+			if _, ok := child.([]any); ok {
+				childPath = appendPath(path, key, true)
+			}
+			nextAncestors := ancestors
+			if key == "extension" && isExtension {
+				if url, ok := typed["url"].(string); ok && strings.TrimSpace(url) != "" {
+					nextAncestors = append(append([]string(nil), ancestors...), strings.TrimSpace(url))
+				}
+			}
+			walkExtensionValuesWithAncestors(child, childPath, profiler, nextAncestors)
+		}
+	case []any:
+		for _, item := range typed {
+			if item != nil {
+				walkExtensionValuesWithAncestors(item, path, profiler, ancestors)
+			}
+		}
+	}
+}
+
+func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
+	if stat, ok := p.stats[path]; ok {
+		return stat
+	}
+	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{})}
+	p.stats[path] = stat
+	return stat
+}
+
+func extensionValueMapping(path string, value any) (string, string) {
+	// FHIR complex value[x] payloads and arrays require lossless JSON fallback;
+	// an empty value path is the resolver's explicit canonical-JSON marker.
+	switch value.(type) {
+	case map[string]any, []any:
+		return "", "string"
+	}
+	suffix := strings.TrimPrefix(path, "value")
+	switch suffix {
+	case "Integer", "PositiveInt", "UnsignedInt", "Integer64":
+		return path, "integer"
+	case "Decimal":
+		return path, "decimal"
+	case "Boolean":
+		return path, "boolean"
+	case "Date":
+		return path, "date"
+	case "DateTime":
+		return path, "date_time"
+	default:
+		if _, ok := scalarStringValue(value); ok {
+			return path, "string"
+		}
+		return "", "string"
+	}
 }
 
 func (s *fieldCatalogStats) setPivotDefaults(family string, columnSelector string, valueSelector string) {

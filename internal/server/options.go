@@ -119,6 +119,14 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if err != nil {
 			return Config{}, err
 		}
+		// --no-auth is an explicit local-development override. Keep the
+		// configuration file authoritative for normal server settings, but honor
+		// this flag even when the server is started with --config (as the Helm
+		// local-development path does).
+		if noAuth {
+			cfg.Server.AllowUnauthenticated = true
+			cfg.Auth.AllowUnauthenticated = true
+		}
 		if err := cfg.Validate(); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
 		}
