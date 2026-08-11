@@ -113,7 +113,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(ctx, defaultBundle); err != nil {
+		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
 		if initialRecipe == "" && initialVersion == "" {

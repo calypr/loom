@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,6 +134,24 @@ func (c *Client) DropTable(ctx context.Context, table string) error {
 	return c.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
 }
 
+// DropColumns removes validated staging columns in one ALTER TABLE operation.
+func (c *Client) DropColumns(ctx context.Context, table string, columns []string) error {
+	if err := validateIdentifier(table); err != nil {
+		return err
+	}
+	if len(columns) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		if err := validateIdentifier(column); err != nil {
+			return err
+		}
+		parts = append(parts, fmt.Sprintf("DROP COLUMN IF EXISTS `%s`", column))
+	}
+	return c.conn.Exec(ctx, fmt.Sprintf("ALTER TABLE `%s` %s", table, strings.Join(parts, ", ")))
+}
+
 // VerifyOutput confirms that a staged publication table is readable, has the
 // expected physical columns, and contains exactly the rows acknowledged by
 // the publisher before any visibility pointer is advanced.
@@ -174,6 +194,20 @@ func integerValue(value any) (int64, bool) {
 	case uint64:
 		if typed <= uint64(^uint64(0)>>1) {
 			return int64(typed), true
+		}
+	case float64:
+		if typed == math.Trunc(typed) && typed >= math.MinInt64 && typed <= math.MaxInt64 {
+			return int64(typed), true
+		}
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed, true
+		}
+	case string:
+		parsed, err := strconv.ParseInt(typed, 10, 64)
+		if err == nil {
+			return parsed, true
 		}
 	}
 	return 0, false

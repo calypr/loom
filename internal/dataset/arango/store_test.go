@@ -62,12 +62,17 @@ func TestTransitionAndResolveManifest(t *testing.T) {
 
 func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
-	fake := &fakeQueryClient{responses: [][]map[string]any{{{"dataset": jsonObject(t, ready.Dataset)}}}}
+	// The first query is the idempotency read. An empty result means there is
+	// no active manifest, so activation proceeds to the compare-and-swap query.
+	fake := &fakeQueryClient{responses: [][]map[string]any{{}, {{"dataset": jsonObject(t, ready.Dataset)}}}}
 	store := mustStore(t, fake)
 	if err := store.Activate(context.Background(), ready); err != nil {
 		t.Fatal(err)
 	}
-	call := fake.onlyCall(t)
+	if len(fake.calls) != 2 {
+		t.Fatalf("activation calls = %d, want 2", len(fake.calls))
+	}
+	call := fake.calls[1]
 	for _, required := range []string{"manifest.state == @ready_state", "manifest.schemaIdentity == @schema_identity", "UPDATE active WITH", "ignoreRevs: false", "manifestKey: candidate._key"} {
 		if !strings.Contains(call.query, required) {
 			t.Fatalf("activation query missing %q:\n%s", required, call.query)
@@ -77,6 +82,22 @@ func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 		if strings.Contains(strings.ToLower(call.query), strings.ToLower(forbidden)) {
 			t.Fatalf("activation query contains %q:\n%s", forbidden, call.query)
 		}
+	}
+}
+
+func TestActivateIsIdempotentWhenCandidateIsAlreadyActive(t *testing.T) {
+	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
+	fake := &fakeQueryClient{responses: [][]map[string]any{{{
+		"dataset":        jsonObject(t, ready.Dataset),
+		"state":          string(publication.StateReady),
+		"schemaIdentity": jsonObject(t, ready.SchemaIdentity),
+	}}}}
+	store := mustStore(t, fake)
+	if err := store.Activate(context.Background(), ready); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("activation calls = %d, want only idempotency read", len(fake.calls))
 	}
 }
 
@@ -200,6 +221,33 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
 	if _, err := store.CompareAndSwapActivateRelease(context.Background(), release, 2); !errors.Is(err, publication.ErrReleaseActivationConflict) {
 		t.Fatalf("activation conflict = %v", err)
+	}
+}
+
+func TestListRetentionGenerationsPassesOnlyDeclaredBindVariables(t *testing.T) {
+	fake := &fakeQueryClient{}
+	store := mustStore(t, fake)
+	if _, err := store.ListRetentionGenerations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertOnlyDeclaredBindVariables(t, fake.onlyCall(t))
+}
+
+func TestReadActiveReleasePassesOnlyDeclaredBindVariables(t *testing.T) {
+	fake := &fakeQueryClient{}
+	store := mustStore(t, fake)
+	if _, err := store.ReadActiveRelease(context.Background(), "project-a"); !errors.Is(err, publication.ErrNoActiveRelease) {
+		t.Fatalf("ReadActiveRelease() error = %v, want no active release", err)
+	}
+	assertOnlyDeclaredBindVariables(t, fake.onlyCall(t))
+}
+
+func assertOnlyDeclaredBindVariables(t *testing.T, call queryCall) {
+	t.Helper()
+	for name := range call.bindVars {
+		if !strings.Contains(call.query, "@"+name) {
+			t.Errorf("bind variable %q is not declared in query", name)
+		}
 	}
 }
 

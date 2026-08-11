@@ -163,6 +163,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			ItemResourceType: itemResourceType,
 			Columns:          columns,
 			Family:           pivotSpec.Family,
+			Discovered:       input.Discovered,
 		})
 	}
 	return out, nil

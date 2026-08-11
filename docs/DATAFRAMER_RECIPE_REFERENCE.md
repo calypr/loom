@@ -357,6 +357,22 @@ selector, and logical type are included in the resolved schema digest.
 `dynamicColumns` remains available for general key/value arrays and retains
 its existing behavior.
 
+### Published schema finalization
+
+Preflight and preview report the conservative candidate schema produced by
+catalog discovery. During publication, discovered columns that are missing or
+null in every staged row are removed (empty repeated arrays are also empty);
+`false`, zero, and empty strings count as populated. Authored and Loom-owned
+columns are always retained. The published execution metadata, ClickHouse
+table, Explorer schema, and API responses all use this retained schema.
+
+Published `schemaDigest` values use the versioned final-schema algorithm over
+the recipe digest, scope digest, dataset generation, output order, and ordered
+logical column contracts. Physical table names and discovery provenance are
+excluded. Newly materialized outputs therefore may have a different digest
+from their preflight candidate, and an existing publication changes only after
+normal rematerialization.
+
 Use a dynamic column family when FHIR represents repeated key/value metadata
 and each known key should become its own column.  This is the correct tool for
 identifiers, category coding, and attachment extensions.  It is **not** a

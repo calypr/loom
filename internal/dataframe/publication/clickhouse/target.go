@@ -84,6 +84,31 @@ type transaction struct {
 	closed  bool
 }
 
+func (t *transaction) SetOutputMetadata(name string, columns []publication.LogicalColumn) error {
+	metadata, ok := t.tx.(interface {
+		SetOutputMetadata(string, []publication.LogicalColumn) error
+	})
+	if !ok {
+		return nil
+	}
+	return metadata.SetOutputMetadata(name, columns)
+}
+
+func (t *transaction) Idempotent() bool {
+	status, ok := t.tx.(interface{ Idempotent() bool })
+	return ok && status.Idempotent()
+}
+
+func (t *transaction) ExistingPublishedOutputs() []publication.PublishedOutput {
+	status, ok := t.tx.(interface {
+		ExistingPublishedOutputs() []publication.PublishedOutput
+	})
+	if !ok {
+		return nil
+	}
+	return status.ExistingPublishedOutputs()
+}
+
 func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[string]any) error {
 	if t.closed {
 		return fmt.Errorf("ClickHouse publication transaction is closed")
@@ -93,6 +118,31 @@ func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[
 		return fmt.Errorf("output %q was not declared", output)
 	}
 	return t.tx.InsertRows(ctx, output, columns, rows)
+}
+
+func (t *transaction) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	if finalizer, ok := t.tx.(interface {
+		FinalizeSchema(context.Context, []publication.OutputSchema) error
+	}); ok {
+		return finalizer.FinalizeSchema(ctx, schemas)
+	}
+	for _, schema := range schemas {
+		columns, ok := t.columns[schema.Name]
+		if !ok || len(columns) != len(schema.Columns) {
+			return fmt.Errorf("ClickHouse transaction cannot finalize output %q schema", schema.Name)
+		}
+	}
+	return nil
+}
+
+func (t *transaction) SetFinalSchemaDigest(digest string) error {
+	if setter, ok := t.tx.(interface{ SetFinalSchemaDigest(string) error }); ok {
+		return setter.SetFinalSchemaDigest(digest)
+	}
+	return nil
 }
 
 func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {

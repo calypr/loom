@@ -49,10 +49,21 @@ func RegisterRecipeExecutionRoute(app *fiber.App, catalog publication.BundleCata
 				}
 				columns = append(columns, fiber.Map{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
 			}
-			outputs = append(outputs, fiber.Map{"name": output.Name, "dataType": output.Name, "state": string(output.State), "rowCount": output.RowCount, "columns": columns})
+			outputs = append(outputs, fiber.Map{"name": output.Name, "dataType": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
 		}
-		return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": string(execution.State), "outputs": outputs})
+		return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs})
 	})
+}
+
+// recipeExecutionHTTPState preserves the READY spelling used by the legacy
+// Explorer integration. Internally, a successfully committed bundle is
+// PUBLISHED; the HTTP execution contract historically exposed that same
+// successful state as READY and Gecko still validates that spelling.
+func recipeExecutionHTTPState(state publication.BundleState) string {
+	if state == publication.BundlePublished {
+		return string(publication.BundleReady)
+	}
+	return string(state)
 }
 
 func columnCapabilities(clickHouseType string) (logical string, nullable, repeated, filterable, sortable, aggregatable bool) {

@@ -70,6 +70,7 @@ type CompiledOutputColumn struct {
 	Nullable     bool
 	Internal     bool
 	Identity     bool
+	Discovered   bool
 }
 
 type DynamicColumnMetadata struct {
@@ -79,6 +80,7 @@ type DynamicColumnMetadata struct {
 	SourceKey        string
 	ValueType        string
 	AllowUnknownKeys bool
+	Discovered       bool
 }
 
 // CompileResolvedRecipePlan lowers every resolved recipe output into the

@@ -35,6 +35,12 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
+	if noop, ok := tx.(interface {
+		Idempotent() bool
+		ExistingPublishedOutputs() []PublishedOutput
+	}); ok && noop.Idempotent() {
+		return Result{Outputs: noop.ExistingPublishedOutputs()}, nil
+	}
 	fail := func(cause error) (Result, error) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -49,10 +55,12 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, errors.Join(cause, abortErr)
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
+	populated := make(map[string]map[string]bool, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
 		stat := PublishedOutput{Name: output.Name}
 		batch := make([]map[string]any, 0, limits.BatchRows)
 		batchBytes := 0
+		populated[output.Name] = make(map[string]bool)
 		flush := func() error {
 			if len(batch) == 0 {
 				return nil
@@ -70,6 +78,15 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 			if err := validateRow(output.Columns, row); err != nil {
 				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
+			}
+			for _, column := range output.Columns {
+				if column.Provenance != ColumnDiscovered || column.LoomOwned || column.IsIdentity {
+					continue
+				}
+				value, ok := row[column.Name]
+				if ok && populatedValue(column, value) {
+					populated[output.Name][column.Name] = true
+				}
 			}
 			encoded, err := json.Marshal(row)
 			if err != nil {
@@ -94,6 +111,36 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			return fail(fmt.Errorf("output %q final batch: %w", output.Name, err))
 		}
 		stats[output.Name] = stat
+	}
+	retained := make([]OutputSchema, 0, len(normalizedOutputs))
+	for _, output := range normalizedOutputs {
+		schema := OutputSchema{Name: output.Name}
+		for _, column := range output.Columns {
+			if column.Provenance == ColumnDiscovered && !column.LoomOwned && !column.IsIdentity && !populated[output.Name][column.Name] {
+				continue
+			}
+			schema.Columns = append(schema.Columns, column)
+		}
+		retained = append(retained, schema)
+	}
+	finalDigest := FinalSchemaDigest(identity, retained)
+	if finalizer, ok := tx.(interface {
+		FinalizeSchema(context.Context, []OutputSchema) error
+	}); ok {
+		if err := finalizer.FinalizeSchema(ctx, retained); err != nil {
+			return fail(fmt.Errorf("publication schema finalization: %w", err))
+		}
+	} else {
+		for index := range retained {
+			if len(retained[index].Columns) != len(normalizedOutputs[index].Columns) {
+				return fail(fmt.Errorf("publication target cannot finalize pruned schema for output %q", retained[index].Name))
+			}
+		}
+	}
+	if setter, ok := tx.(interface{ SetFinalSchemaDigest(string) error }); ok {
+		if err := setter.SetFinalSchemaDigest(finalDigest); err != nil {
+			return fail(fmt.Errorf("publication schema digest: %w", err))
+		}
 	}
 	published, err := tx.Commit(ctx)
 	if err != nil {
@@ -129,8 +176,8 @@ func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStr
 		}
 		copyOutput := output
 		copyOutput.Columns = append([]LogicalColumn{
-			{Name: "auth_resource_path", Kind: "string", Nullable: true},
-			{Name: "project_id", Kind: "string"},
+			{Name: "auth_resource_path", Kind: "string", Nullable: true, Provenance: ColumnExplicit, LoomOwned: true},
+			{Name: "project_id", Kind: "string", Provenance: ColumnExplicit, LoomOwned: true},
 		}, columns...)
 		originalStream := output.Stream
 		copyOutput.Stream = func(ctx context.Context, visit func(map[string]any) error) error {
@@ -204,6 +251,9 @@ func validateRow(columns []LogicalColumn, row map[string]any) error {
 		known[column.Name] = column
 		value, ok := row[column.Name]
 		if !ok || value == nil {
+			if column.Provenance == ColumnDiscovered {
+				continue
+			}
 			if !column.Nullable {
 				return fmt.Errorf("required column %q is missing", column.Name)
 			}
@@ -219,6 +269,19 @@ func validateRow(columns []LogicalColumn, row map[string]any) error {
 		}
 	}
 	return nil
+}
+
+func populatedValue(column LogicalColumn, value any) bool {
+	if value == nil {
+		return false
+	}
+	if column.Repeated {
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Array || v.Kind() == reflect.Slice {
+			return v.Len() > 0
+		}
+	}
+	return true
 }
 
 func validateValue(column LogicalColumn, value any) error {

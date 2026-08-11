@@ -362,11 +362,19 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 				continue
 			}
 		}
+		// Output absence is a normal selector miss, not a catalog failure. In
+		// particular, a newer recipe version may replace Patient with
+		// ResearchSubject while both executions remain in publication history.
+		// Do not ask version-aware catalogs to resolve metadata for an output the
+		// execution never published.
+		if !hasOutputResourceType(execution, selector.Output) {
+			continue
+		}
 		executionSelector, selectorErr := r.selectorForExecution(ctx, execution, selector.Output)
 		if selectorErr != nil {
 			return nil, selectorErr
 		}
-		if executionSelector != selector || !hasOutputResourceType(execution, selector.Output) {
+		if executionSelector != selector {
 			continue
 		}
 		if current, ok := selected[execution.Project]; ok && current.ID != execution.ID {

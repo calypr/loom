@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +49,18 @@ type BundleClickHouseStore interface {
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
 	VerifyOutput(context.Context, string, []clickhouse.Column, int64) error
 	DropTable(context.Context, string) error
+}
+
+type bundleColumnDropper interface {
+	DropColumns(context.Context, string, []string) error
+}
+
+// BundleClickHouseColumnStore is the schema-aware extension implemented by
+// production ClickHouse clients. The base store remains compatible with
+// lightweight readers/fakes that never request column pruning.
+type BundleClickHouseColumnStore interface {
+	BundleClickHouseStore
+	DropColumns(context.Context, string, []string) error
 }
 
 func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
@@ -164,6 +176,16 @@ type clickHouseBundleTx struct {
 	leaseMu         sync.RWMutex
 	leaseStopOnce   sync.Once
 	leaseStopErr    error
+}
+
+func (t *clickHouseBundleTx) Idempotent() bool { return t.idempotent }
+
+func (t *clickHouseBundleTx) ExistingPublishedOutputs() []publication.PublishedOutput {
+	result := make([]publication.PublishedOutput, 0, len(t.execution.Outputs))
+	for _, output := range t.execution.Outputs {
+		result = append(result, publication.PublishedOutput{Name: output.Name, PhysicalName: output.PhysicalTable, RowCount: output.RowCount, ByteCount: output.ByteCount})
+	}
+	return result
 }
 
 const bundleCleanupTimeout = 10 * time.Second
@@ -325,9 +347,87 @@ func (t *clickHouseBundleTx) SetOutputMetadata(name string, columns []publicatio
 			column.LogicalType = logical.Kind
 			column.Nullable = logical.Nullable
 			column.Repeated = logical.Repeated
+			column.Provenance = logical.Provenance
+			column.LoomOwned = logical.LoomOwned || logical.IsIdentity || column.Name == "__loom_row_id" || column.Name == "auth_resource_path" || column.Name == "project_id"
 		}
 	}
 	return t.save(context.Background())
+}
+
+// FinalizeSchema removes discovered columns that were never populated and
+// persists the retained logical/physical schema before verification.
+func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	for _, schema := range schemas {
+		idx := t.outputIndex(schema.Name)
+		if idx < 0 {
+			return fmt.Errorf("bundle output %q was not created", schema.Name)
+		}
+		record := &t.execution.Outputs[idx]
+		retained := make(map[string]publication.LogicalColumn, len(schema.Columns))
+		for _, column := range schema.Columns {
+			retained[column.Name] = column
+		}
+		var dropped []string
+		seen := make(map[string]bool, len(record.Columns))
+		kept := make([]publication.PhysicalColumn, 0, len(record.Columns))
+		for _, column := range record.Columns {
+			logical, ok := retained[column.Name]
+			if !ok {
+				if column.Name == "__loom_row_id" || column.Name == "auth_resource_path" || column.Name == "project_id" || strings.HasPrefix(column.Name, "__loom_") {
+					seen[column.Name] = true
+					kept = append(kept, column)
+				} else if column.Provenance != publication.ColumnDiscovered {
+					return fmt.Errorf("output %q attempted to remove explicit column %q", schema.Name, column.Name)
+				} else {
+					dropped = append(dropped, column.Name)
+				}
+				continue
+			}
+			seen[column.Name] = true
+			column.SemanticPath, column.LogicalType = logical.SemanticPath, logical.Kind
+			column.Nullable, column.Repeated = logical.Nullable, logical.Repeated
+			column.Provenance, column.LoomOwned = logical.Provenance, logical.LoomOwned || logical.IsIdentity || strings.HasPrefix(column.Name, "__loom_") || column.Name == "auth_resource_path" || column.Name == "project_id"
+			kept = append(kept, column)
+		}
+		if len(dropped) > 0 {
+			dropper, ok := t.store.clickHouse.(bundleColumnDropper)
+			if !ok {
+				return fmt.Errorf("ClickHouse store cannot drop staging columns for output %q", schema.Name)
+			}
+			if err := dropper.DropColumns(ctx, record.PhysicalTable, dropped); err != nil {
+				return err
+			}
+		}
+		record.Columns = kept
+		for name := range retained {
+			if !seen[name] {
+				return fmt.Errorf("output %q retained unknown schema column %q", schema.Name, name)
+			}
+		}
+	}
+	identity := publication.PublicationIdentity{Name: t.execution.Name, TranslationVersion: t.execution.TranslationVersion, Project: t.execution.Project, DatasetGeneration: t.execution.DatasetGeneration, RecipeDigest: t.execution.RecipeDigest, ScopeDigest: t.execution.ScopeDigest, EngineVersion: t.execution.EngineVersion, AuthScopeMode: t.execution.AuthScopeMode, AuthResourcePaths: append([]string(nil), t.execution.AuthResourcePaths...)}
+	t.execution.SchemaDigest = publication.FinalSchemaDigest(identity, schemas)
+	return t.save(ctx)
+}
+
+func (t *clickHouseBundleTx) SetFinalSchemaDigest(digest string) error {
+	if t.idempotent {
+		return nil
+	}
+	if strings.TrimSpace(digest) == "" {
+		return fmt.Errorf("final schema digest is required")
+	}
+	t.execution.SchemaDigest = digest
+	return nil
 }
 
 func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, columns []clickhouse.Column, rows []map[string]any) error {
@@ -553,6 +653,7 @@ func (t *clickHouseBundleTx) fail(ctx context.Context, err error) error {
 }
 
 func (t *clickHouseBundleTx) failPhase(ctx context.Context, phase, output string, err error) error {
+	slog.Error("dataframe bundle publication failed", "phase", phase, "output", output, "error", err)
 	normalized := dataframeerrors.Normalize(err)
 	t.execution.State, t.execution.Error = publication.BundleFailed, err.Error()
 	t.execution.PublishedAt = nil
@@ -645,132 +746,4 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 		}
 	}
 	return nil
-}
-
-// RetentionCandidate describes a physical table that is eligible for cleanup.
-// The planner is deliberately non-destructive: callers must perform the
-// actual backend operation after applying their own cleanup scheduling and
-// retry policy. Candidates are always derived from READY executions only.
-type RetentionCandidate struct {
-	ExecutionID   string
-	PointerName   string
-	PhysicalTable string
-}
-
-// PlanReadyCleanup returns old, unreferenced READY publication tables using
-// pointer references as a conservative fallback. For generation-aware
-// cleanup, use PlanReadyCleanupForActiveGenerations.
-//
-// No execution, pointer, lease, or physical table is changed by this method.
-// Backend/catalog failures are retryable and return no partial plan.
-func (s *ClickHouseBundleStore) PlanReadyCleanup(ctx context.Context) ([]RetentionCandidate, error) {
-	return s.planReadyCleanup(ctx, nil)
-}
-
-// PlanReadyCleanupForActiveGenerations is the generation-aware retention
-// planner. activeGenerations maps each project to the generation selected by
-// the project-level release pointer. Because dataframe pointers are
-// generation-scoped, callers must provide this map when historical generation
-// pointers remain in the catalog; those historical pointers are rollback
-// metadata, not currently visible releases.
-func (s *ClickHouseBundleStore) PlanReadyCleanupForActiveGenerations(ctx context.Context, activeGenerations map[string]string) ([]RetentionCandidate, error) {
-	return s.planReadyCleanup(ctx, activeGenerations)
-}
-
-func (s *ClickHouseBundleStore) planReadyCleanup(ctx context.Context, activeGenerations map[string]string) ([]RetentionCandidate, error) {
-	before := time.Now().UTC().Add(time.Second)
-	executions, err := s.catalog.ListExecutions(ctx, publication.BundleReady, before)
-	if err != nil {
-		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	protected := make(map[string]struct{}, len(executions))
-	for _, execution := range executions {
-		if activeGenerations != nil {
-			activeGeneration, ok := activeGenerations[execution.Project]
-			if !ok || execution.DatasetGeneration != activeGeneration {
-				continue
-			}
-		}
-		pointer, pointerErr := s.catalog.GetPointer(ctx, execution.PointerName())
-		if pointerErr == nil {
-			if pointer.ExecutionID == execution.ID {
-				protected[execution.ID] = struct{}{}
-			}
-			continue
-		}
-		if !errors.Is(pointerErr, publication.ErrBundleNotFound) {
-			return nil, dataframeerrors.Wrap(pointerErr, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-		}
-	}
-
-	groups := make(map[string][]publication.BundleExecution)
-	for _, execution := range executions {
-		if activeGenerations != nil {
-			if _, ok := activeGenerations[execution.Project]; !ok {
-				// A partial map is intentionally safe for per-project cleanup:
-				// projects whose active release was not resolved are out of scope.
-				protected[execution.ID] = struct{}{}
-				continue
-			}
-		}
-		key := execution.Project + "\x00" + execution.Name
-		groups[key] = append(groups[key], execution)
-	}
-	for _, group := range groups {
-		sort.SliceStable(group, func(i, j int) bool {
-			return bundleCompletionTime(group[i]).After(bundleCompletionTime(group[j]))
-		})
-		priorRetained := false
-		for _, execution := range group {
-			if activeGenerations != nil && execution.DatasetGeneration == activeGenerations[execution.Project] {
-				continue
-			}
-			if !completeBundleExecution(execution) || priorRetained {
-				continue
-			}
-			protected[execution.ID] = struct{}{}
-			priorRetained = true
-		}
-	}
-
-	result := make([]RetentionCandidate, 0)
-	for _, execution := range executions {
-		if _, keep := protected[execution.ID]; keep {
-			continue
-		}
-		for _, output := range execution.Outputs {
-			// This is a hard guard against turning retention into a general
-			// purpose table deletion mechanism.
-			if strings.TrimSpace(output.PhysicalTable) == "" || !strings.HasPrefix(output.PhysicalTable, s.prefix+"_") {
-				continue
-			}
-			result = append(result, RetentionCandidate{ExecutionID: execution.ID, PointerName: execution.PointerName(), PhysicalTable: output.PhysicalTable})
-		}
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].ExecutionID != result[j].ExecutionID {
-			return result[i].ExecutionID < result[j].ExecutionID
-		}
-		return result[i].PhysicalTable < result[j].PhysicalTable
-	})
-	return result, nil
-}
-
-func completeBundleExecution(execution publication.BundleExecution) bool {
-	if execution.State != publication.BundleReady || len(execution.Outputs) == 0 {
-		return false
-	}
-	for _, output := range execution.Outputs {
-		if output.State != publication.BundleReady {
-			return false
-		}
-	}
-	return true
-}
-
-func bundleCompletionTime(execution publication.BundleExecution) time.Time {
-	if execution.ReadyAt != nil {
-		return *execution.ReadyAt
-	}
-	return execution.UpdatedAt
 }

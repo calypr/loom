@@ -50,11 +50,12 @@ type Output struct {
 
 // Field projects one named semantic value into an output row.
 type Field struct {
-	Name      string       `json:"name"`
-	FieldRef  string       `json:"fieldRef,omitempty"`
-	Expr      Expression   `json:"expr"`
-	Fallbacks []Expression `json:"fallbacks,omitempty"`
-	ValueMode ValueMode    `json:"valueMode,omitempty"`
+	Name       string       `json:"name"`
+	FieldRef   string       `json:"fieldRef,omitempty"`
+	Expr       Expression   `json:"expr"`
+	Fallbacks  []Expression `json:"fallbacks,omitempty"`
+	ValueMode  ValueMode    `json:"valueMode,omitempty"`
+	Discovered bool         `json:"-"`
 }
 
 // ValueMode controls how a checked selector contributes values to one row.
@@ -178,6 +179,7 @@ type Pivot struct {
 	ItemResourceType string          `json:"itemResourceType,omitempty"`
 	Columns          []string        `json:"columns"`
 	Discovery        *PivotDiscovery `json:"discovery,omitempty"`
+	Discovered       bool            `json:"-"`
 }
 
 // MarshalJSON permits catalog-backed pivots to omit selectors in their stored
@@ -337,6 +339,7 @@ type DynamicColumn struct {
 	// keyed-map lookup key. Extension columns use this for parent__child names
 	// while matching the leaf Extension.url segment inside its scoped source.
 	ColumnSourceKeys map[string]string `json:"-"`
+	Discovered       bool              `json:"-"`
 }
 
 // ExtensionColumn is a bounded, URL-keyed projection of FHIR Extension
@@ -348,6 +351,7 @@ type ExtensionColumn struct {
 	ColumnPrefix *string                  `json:"columnPrefix,omitempty"`
 	MaxColumns   int                      `json:"maxColumns"`
 	Columns      []ExtensionColumnMapping `json:"columns,omitempty"`
+	Discovered   bool                     `json:"-"`
 }
 
 // ExtensionColumnMapping is immutable schema-discovery output. Name is the

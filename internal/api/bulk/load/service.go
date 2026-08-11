@@ -183,7 +183,7 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 		}
 		manifest, err := s.generationActivator.ReadManifest(ctx, ref)
 		switch {
-		case err == nil && manifest.IsReady():
+		case err == nil && manifest.IsStaged():
 			s.logger.Info("reusing ready generation", "project", req.Project, "generation", req.Generation)
 			return &GenerationLoadResult{
 				Project: req.Project, Generation: req.Generation,
@@ -209,44 +209,50 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 }
 
 // ActivateGeneration performs the release switch only after the exact
-// dataframe bundle supplied by the caller is durably READY and remains the
-// active pointer for its recipe/generation namespace.
+// dataframe bundle supplied by the caller is durably successful and remains
+// the active pointer for its recipe/generation namespace.
 func (s *Service) ActivateGeneration(ctx context.Context, project, generation, executionID string) error {
+	fail := func(err error) error {
+		if err != nil {
+			s.logger.Error("generation release activation failed", "project", project, "generation", generation, "dataframe_execution_id", executionID, "error", err)
+		}
+		return err
+	}
 	if s.generationActivator == nil || s.dataframeReleases == nil {
-		return errors.New("generation release activation is not configured")
+		return fail(errors.New("generation release activation is not configured"))
 	}
 	ref, err := publication.NewRef(project, generation)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	execution, err := s.dataframeReleases.GetExecution(ctx, executionID)
 	if err != nil {
-		return fmt.Errorf("load dataframe release %q: %w", executionID, err)
+		return fail(fmt.Errorf("load dataframe release %q: %w", executionID, err))
 	}
-	if execution.Project != project || execution.DatasetGeneration != generation || execution.State != dataframepublication.BundleReady || len(execution.Outputs) == 0 {
-		return fmt.Errorf("dataframe release %q is not a READY bundle for %s/%s", executionID, project, generation)
+	if execution.Project != project || execution.DatasetGeneration != generation || !execution.State.Successful() || len(execution.Outputs) == 0 {
+		return fail(fmt.Errorf("dataframe release %q is not a published bundle for %s/%s", executionID, project, generation))
 	}
 	for _, output := range execution.Outputs {
-		if output.State != dataframepublication.BundleReady {
-			return fmt.Errorf("dataframe release %q output %q is not READY", executionID, output.Name)
+		if !output.State.Successful() {
+			return fail(fmt.Errorf("dataframe release %q output %q is not published", executionID, output.Name))
 		}
 	}
 	pointer, err := s.dataframeReleases.GetPointer(ctx, execution.PointerName())
 	if err != nil {
-		return fmt.Errorf("resolve dataframe release pointer: %w", err)
+		return fail(fmt.Errorf("resolve dataframe release pointer: %w", err))
 	}
 	if pointer.ExecutionID != execution.ID {
-		return fmt.Errorf("dataframe release %q is no longer active", executionID)
+		return fail(fmt.Errorf("dataframe release %q is no longer active", executionID))
 	}
 	manifest, err := s.generationActivator.ReadManifest(ctx, ref)
 	if err != nil {
-		return fmt.Errorf("read generation release: %w", err)
+		return fail(fmt.Errorf("read generation release: %w", err))
 	}
-	if !manifest.IsReady() {
-		return fmt.Errorf("generation %s/%s is not READY", project, generation)
+	if !manifest.IsStaged() {
+		return fail(fmt.Errorf("generation %s/%s is not READY", project, generation))
 	}
 	if err := s.generationActivator.Activate(ctx, manifest); err != nil {
-		return fmt.Errorf("activate generation release: %w", err)
+		return fail(fmt.Errorf("activate generation release: %w", err))
 	}
 	if s.onSuccess != nil {
 		s.onSuccess(project)

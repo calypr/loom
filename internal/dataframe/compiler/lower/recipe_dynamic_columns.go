@@ -113,7 +113,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			if column.Column.SourceKey != "" {
 				semanticPath += "[" + column.Column.SourceKey + "]"
 			}
-			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, AllowUnknownKeys: dynamic.AllowUnknownKeys}
+			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
 			if projectionIndex, exists := projectionIndexes[outputName]; exists {
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)

@@ -152,10 +152,10 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 	readyManifest := activationManifest(t, "project-a", "generation-a")
 	base := dataframepublication.BundleExecution{
 		ID: "release-1", BundleIdentity: dataframepublication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-a", Name: "all"},
-		State: dataframepublication.BundleReady, UpdatedAt: time.Now().UTC(),
+		State: dataframepublication.BundlePublished, UpdatedAt: time.Now().UTC(),
 		Outputs: []dataframepublication.BundleOutputRecord{
-			{Name: "Patient", State: dataframepublication.BundleReady},
-			{Name: "Observation", State: dataframepublication.BundleReady},
+			{Name: "Patient", State: dataframepublication.BundlePublished},
+			{Name: "Observation", State: dataframepublication.BundlePublished},
 		},
 	}
 	tests := []struct {
@@ -200,14 +200,14 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 	}
 }
 
-func TestActivateGenerationActivatesReadyAllOutputBundle(t *testing.T) {
+func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	manifest := activationManifest(t, "project-a", "generation-a")
 	execution := dataframepublication.BundleExecution{
 		ID: "release-1", BundleIdentity: dataframepublication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-a", Name: "all"},
-		State: dataframepublication.BundleReady, UpdatedAt: time.Now().UTC(),
+		State: dataframepublication.BundlePublished, UpdatedAt: time.Now().UTC(),
 		Outputs: []dataframepublication.BundleOutputRecord{
-			{Name: "Patient", State: dataframepublication.BundleReady},
-			{Name: "Observation", State: dataframepublication.BundleReady},
+			{Name: "Patient", State: dataframepublication.BundlePublished},
+			{Name: "Observation", State: dataframepublication.BundlePublished},
 		},
 	}
 	activator := &activationManifestStore{manifest: manifest}
@@ -227,7 +227,7 @@ func TestActivateGenerationActivatesReadyAllOutputBundle(t *testing.T) {
 	if activator.readCalls != 1 || activator.activateCalls != 1 || !calledSuccess {
 		t.Fatalf("activation calls = read %d activate %d success %v", activator.readCalls, activator.activateCalls, calledSuccess)
 	}
-	if activator.activated.Dataset != manifest.Dataset || !activator.activated.IsReady() {
+	if activator.activated.Dataset != manifest.Dataset || !activator.activated.IsStaged() {
 		t.Fatalf("activated manifest = %#v", activator.activated)
 	}
 }

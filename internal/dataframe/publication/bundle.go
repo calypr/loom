@@ -23,6 +23,15 @@ type AtomicBundleTx interface {
 	Rollback(context.Context) error
 }
 
+// AtomicBundleSchemaFinalizer is the schema-aware publication extension used
+// by targets that can physically drop unpopulated discovered columns before
+// verification and pointer activation.
+type AtomicBundleSchemaFinalizer interface {
+	AtomicBundleTx
+	FinalizeSchema(context.Context, []OutputSchema) error
+	SetFinalSchemaDigest(string) error
+}
+
 // BundleState is the durable lifecycle of a multi-output publication. The
 // physical ClickHouse tables are never reader-visible until the logical
 // pointer and PUBLISHED execution are committed atomically.
@@ -117,12 +126,14 @@ func (o BundleOutputRecord) Queryable() bool {
 }
 
 type PhysicalColumn struct {
-	Name         string `json:"name"`
-	SemanticPath string `json:"semanticPath,omitempty"`
-	ClickHouse   string `json:"clickhouseType"`
-	LogicalType  string `json:"logicalType,omitempty"`
-	Nullable     bool   `json:"nullable,omitempty"`
-	Repeated     bool   `json:"repeated,omitempty"`
+	Name         string           `json:"name"`
+	SemanticPath string           `json:"semanticPath,omitempty"`
+	ClickHouse   string           `json:"clickhouseType"`
+	LogicalType  string           `json:"logicalType,omitempty"`
+	Nullable     bool             `json:"nullable,omitempty"`
+	Repeated     bool             `json:"repeated,omitempty"`
+	Provenance   ColumnProvenance `json:"provenance,omitempty"`
+	LoomOwned    bool             `json:"loomOwned,omitempty"`
 }
 
 type BundleExecution struct {

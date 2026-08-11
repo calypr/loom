@@ -178,14 +178,14 @@ func (s *Store) ResolveActiveManifest(ctx context.Context, project string) (publ
 	if len(rows) == 0 {
 		return publication.Manifest{}, fmt.Errorf("%w: %s", publication.ErrNoActiveGeneration, project)
 	}
-	if rows[0].Dataset.Project != project || !rows[0].IsReady() {
+	if rows[0].Dataset.Project != project || !rows[0].IsStaged() {
 		return publication.Manifest{}, fmt.Errorf("%w: active pointer and staged manifest are inconsistent", ErrUnexpectedStoreResult)
 	}
 	return rows[0], nil
 }
 
 func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) error {
-	if !candidate.IsReady() {
+	if !candidate.IsStaged() {
 		if err := candidate.Validate(); err != nil {
 			return fmt.Errorf("activate generation: %w", err)
 		}
@@ -193,6 +193,18 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 	}
 	if err := s.validate(); err != nil {
 		return err
+	}
+	// Activation is intentionally idempotent. Gecko may retry a publish after
+	// the active-generation pointer was already switched; doing another
+	// compare-and-swap update in that case creates an unnecessary revision race
+	// and can surface PUBLICATION_CONFLICT even though the requested generation
+	// is already active.
+	if active, err := s.ResolveActiveManifest(ctx, candidate.Dataset.Project); err == nil {
+		if manifestIdentityEqual(active, candidate) {
+			return nil
+		}
+	} else if !errors.Is(err, publication.ErrNoActiveGeneration) {
+		return fmt.Errorf("inspect active generation before activation: %w", err)
 	}
 	schemaIdentity, err := schemaIdentityBindValue(candidate.SchemaIdentity)
 	if err != nil {

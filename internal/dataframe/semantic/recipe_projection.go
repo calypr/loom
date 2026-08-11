@@ -72,7 +72,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		fieldSemantic := SemanticField{
 			Name: field.Name, FieldRef: field.FieldRef, Selector: selector,
 			Fallbacks: fallbackSelectors, ValueMode: string(field.ValueMode),
-			Expr: &primary.Expression, ExprType: primary.Type, SourcePath: primary.SourcePath,
+			Expr: &primary.Expression, ExprType: primary.Type, SourcePath: primary.SourcePath, Discovered: field.Discovered,
 		}
 		if err := validateRecipeProjectionTypes(primary.Type, fallbacks); err != nil {
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
@@ -101,7 +101,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		}
 		fieldSemantic.ExprType = projected.Type
 		return normalizedRecipeProjection{projection: SemanticProjection{
-			Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected,
+			Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected, Discovered: field.Discovered,
 		}, field: fieldSemantic}, nil
 	}
 
@@ -113,7 +113,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return normalizedRecipeProjection{projection: SemanticProjection{Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected}, field: SemanticField{
-		Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: &projected.Expression, ExprType: projected.Type, SourcePath: projected.SourcePath,
+		Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: &projected.Expression, ExprType: projected.Type, SourcePath: projected.SourcePath, Discovered: field.Discovered,
 	}}, nil
 }
 

@@ -55,12 +55,12 @@ func TestPersistentRegistryRetainsVersions(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
-	first, err := registry.RegisterDefault(context.Background(), bundle)
+	first, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bundle.TranslationVersion = "changed"
-	second, err := registry.RegisterDefault(context.Background(), bundle)
+	second, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
 	}

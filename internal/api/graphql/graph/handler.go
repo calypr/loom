@@ -1,6 +1,7 @@
 package graphqlapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -78,8 +79,83 @@ func NewHandler(root *resolver.Resolver, loggers ...*slog.Logger) http.Handler {
 			r.Header.Set("X-Request-ID", requestID)
 		}
 		r = r.WithContext(httpapi.ContextWithRequestID(r.Context(), r.Header.Get("X-Request-ID")))
-		server.ServeHTTP(w, r)
+		serveGraphQLResponse(w, r, server)
 	})
+}
+
+type bufferedGraphQLResponse struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (w *bufferedGraphQLResponse) Header() http.Header { return w.header }
+
+func (w *bufferedGraphQLResponse) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *bufferedGraphQLResponse) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(body)
+}
+
+func (w *bufferedGraphQLResponse) Flush() {}
+
+func serveGraphQLResponse(destination http.ResponseWriter, request *http.Request, next http.Handler) {
+	captured := &bufferedGraphQLResponse{header: make(http.Header)}
+	next.ServeHTTP(captured, request)
+	status := captured.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if status < http.StatusBadRequest {
+		if failureStatus := graphqlFailureStatus(captured.body.Bytes()); failureStatus != 0 {
+			status = failureStatus
+		}
+	}
+	for key, values := range captured.header {
+		for _, value := range values {
+			destination.Header().Add(key, value)
+		}
+	}
+	destination.WriteHeader(status)
+	_, _ = destination.Write(captured.body.Bytes())
+}
+
+func graphqlFailureStatus(body []byte) int {
+	var payload struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Extensions map[string]any `json:"extensions"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(body, &payload) != nil || len(payload.Errors) == 0 {
+		return 0
+	}
+	data := bytes.TrimSpace(payload.Data)
+	if len(data) > 0 && !bytes.Equal(data, []byte("null")) {
+		// GraphQL can legitimately return useful partial data alongside field
+		// errors. Keep HTTP 200 for that case; only failed operations are lifted
+		// into the HTTP error contract.
+		return 0
+	}
+	status := http.StatusBadRequest
+	for _, graphErr := range payload.Errors {
+		code, _ := graphErr.Extensions["code"].(string)
+		candidate := httpapi.StatusForErrorCode(code)
+		if candidate >= http.StatusInternalServerError {
+			return candidate
+		}
+		if candidate > status {
+			status = candidate
+		}
+	}
+	return status
 }
 
 func errorChain(err error) string {

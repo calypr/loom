@@ -40,13 +40,13 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 		identityAdded := false
 		for _, column := range output.OutputSchema {
 			if column.Identity && column.Name == "__loom_row_id" {
-				columns = append(columns, publication.LogicalColumn{Name: column.Name, SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true})
+				columns = append(columns, publication.LogicalColumn{Name: column.Name, SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
 				identityAdded = true
 				break
 			}
 		}
 		if !identityAdded {
-			columns = append(columns, publication.LogicalColumn{Name: "__loom_row_id", SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true})
+			columns = append(columns, publication.LogicalColumn{Name: "__loom_row_id", SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
 		}
 		for _, column := range output.OutputSchema {
 			if column.Internal {
@@ -63,7 +63,11 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 			if semanticPath == "" {
 				semanticPath = output.RootResourceType + "." + column.Name
 			}
-			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
+			provenance := publication.ColumnExplicit
+			if column.Discovered {
+				provenance = publication.ColumnDiscovered
+			}
+			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
 		}
 		return columns
 	}
@@ -190,7 +194,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 				Columns: append([]publication.PhysicalColumn(nil), output.Columns...),
 			})
 		}
-		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
+		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest, SourceGeneration: published.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
 	}
 }
 

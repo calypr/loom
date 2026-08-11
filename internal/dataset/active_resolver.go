@@ -30,7 +30,7 @@ func ResolveActive(ctx context.Context, resolver ActiveResolver, project string)
 	if manifest.Dataset.Project != project {
 		return Manifest{}, fmt.Errorf("%w: resolver returned project %q for requested project %q", ErrInvalidActiveGeneration, manifest.Dataset.Project, project)
 	}
-	if !manifest.IsReady() {
+	if !manifest.IsStaged() {
 		return Manifest{}, fmt.Errorf("%w: %s is %s", ErrGenerationNotReady, manifest.Dataset.Generation, manifest.State)
 	}
 	return manifest, nil

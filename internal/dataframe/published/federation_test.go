@@ -123,6 +123,35 @@ func TestRecipeVersionsRemainIndependentlyQueryable(t *testing.T) {
 	}
 }
 
+func TestVersionedExecutionWithoutRequestedOutputIsSkipped(t *testing.T) {
+	now := time.Now().UTC()
+	execution := bundlepublication.BundleExecution{
+		ID: "research-subject", BundleIdentity: bundlepublication.BundleIdentity{
+			Name: "calypr-meta-default", TranslationVersion: "v2", Project: "p", DatasetGeneration: "g",
+		},
+		State: bundlepublication.BundlePublished, UpdatedAt: now,
+		Outputs: []bundlepublication.BundleOutputRecord{{Name: "ResearchSubject", PhysicalTable: "research_subject"}},
+	}
+	catalog := &missingOutputSelectorCatalog{federationCatalog: &federationCatalog{
+		executions: []bundlepublication.BundleExecution{execution},
+		pointers:   map[string]bundlepublication.BundlePointer{execution.PointerName(): {ExecutionID: execution.ID}},
+	}}
+	reader := Reader{Catalog: catalog}
+
+	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, DataframeSelector{
+		Recipe: "calypr-meta-default", TranslationVersion: "v2", Output: "Patient",
+	})
+	if err != nil {
+		t.Fatalf("CurrentFederatedSources() error = %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("sources = %#v, want no Patient publication", sources)
+	}
+	if catalog.selectorCalls != 0 {
+		t.Fatalf("selector resolver called %d times for absent output", catalog.selectorCalls)
+	}
+}
+
 func TestFederatedUnionSynthesizesProjectIDForLegacySource(t *testing.T) {
 	dataset := FederatedDataset{
 		Columns: []Column{{Name: "id", ClickHouse: "String"}, {Name: projectIDColumn, ClickHouse: "String"}},
@@ -156,6 +185,16 @@ type federationCatalog struct {
 type versionedFederationCatalog struct {
 	*federationCatalog
 	selectors map[string]DataframeSelector
+}
+
+type missingOutputSelectorCatalog struct {
+	*federationCatalog
+	selectorCalls int
+}
+
+func (c *missingOutputSelectorCatalog) DataframeSelectorForExecution(context.Context, string, string) (DataframeSelector, error) {
+	c.selectorCalls++
+	return DataframeSelector{}, bundlepublication.ErrBundleNotFound
 }
 
 type releaseExecutionFixture map[string]string

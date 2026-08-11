@@ -57,10 +57,11 @@ type SemanticExpression struct {
 }
 
 type SemanticProjection struct {
-	Name      string
-	FieldRef  string
-	ValueMode string
-	Expr      SemanticExpression
+	Name       string
+	FieldRef   string
+	ValueMode  string
+	Expr       SemanticExpression
+	Discovered bool
 }
 
 // UnnestJoinMode makes null/empty collection behavior explicit at the
@@ -134,6 +135,7 @@ type SemanticDynamicMap struct {
 	// siblings, not schema drift; frozen matching keys still receive type checks.
 	AllowUnknownKeys bool
 	MaxColumns       int
+	Discovered       bool
 }
 
 // RecipePlanExplanation is stable diagnostic output and contains only logical

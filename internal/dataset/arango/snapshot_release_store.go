@@ -21,7 +21,7 @@ func (s *Store) CreateOrResumeSnapshot(ctx context.Context, candidate dataset.Sn
 	document["_key"] = snapshotDocumentKey(candidate.Dataset)
 	document["recordType"] = snapshotRecordType
 	document["project"] = candidate.Dataset.Project
-	binds := lifecycleBindVars(candidate.Dataset.Project)
+	binds := lifecycleCollectionBindVars()
 	binds["key"], binds["candidate"] = document["_key"], document
 	rows, err := s.snapshotRows(ctx, createOrResumeSnapshotAQL, binds)
 	if err != nil {
@@ -37,7 +37,8 @@ func (s *Store) ReadSnapshot(ctx context.Context, ref dataset.Ref) (dataset.Snap
 	if err := ref.Validate(); err != nil {
 		return dataset.SnapshotGeneration{}, err
 	}
-	binds := lifecycleBindVars(ref.Project)
+	binds := lifecycleCollectionBindVars()
+	binds["project"] = ref.Project
 	binds["key"], binds["generation"] = snapshotDocumentKey(ref), ref.Generation
 	rows, err := s.snapshotRows(ctx, readSnapshotAQL, binds)
 	if err != nil {
@@ -50,7 +51,8 @@ func (s *Store) ReadSnapshot(ctx context.Context, ref dataset.Ref) (dataset.Snap
 }
 
 func (s *Store) RecordSnapshotUpload(ctx context.Context, ref dataset.Ref, upload dataset.ResourceUpload) (dataset.SnapshotGeneration, error) {
-	binds := lifecycleBindVars(ref.Project)
+	binds := lifecycleCollectionBindVars()
+	binds["project"] = ref.Project
 	binds["key"], binds["generation"], binds["upload"] = snapshotDocumentKey(ref), ref.Generation, upload
 	binds["loading_state"] = string(dataset.StateLoading)
 	rows, err := s.snapshotRows(ctx, recordSnapshotUploadAQL, binds)
@@ -71,7 +73,8 @@ func (s *Store) RecordSnapshotUpload(ctx context.Context, ref dataset.Ref, uploa
 }
 
 func (s *Store) TransitionSnapshot(ctx context.Context, ref dataset.Ref, expected, next dataset.State, now time.Time) (dataset.SnapshotGeneration, error) {
-	binds := lifecycleBindVars(ref.Project)
+	binds := lifecycleCollectionBindVars()
+	binds["project"] = ref.Project
 	binds["key"], binds["generation"] = snapshotDocumentKey(ref), ref.Generation
 	binds["expected"], binds["next"], binds["updated_at"] = string(expected), string(next), now.UTC()
 	rows, err := s.snapshotRows(ctx, transitionSnapshotAQL, binds)
@@ -99,7 +102,7 @@ func (s *Store) SaveRelease(ctx context.Context, release dataset.ProjectRelease)
 	}
 	document["_key"] = releaseDocumentKey(release.ID)
 	document["recordType"] = releaseRecordType
-	binds := lifecycleBindVars(release.Project)
+	binds := lifecycleCollectionBindVars()
 	binds["key"], binds["candidate"] = document["_key"], document
 	binds["active_release_key"] = activeReleaseDocumentKey(release.Project)
 	binds["active_release_placeholder"] = activeReleasePlaceholderDocument(release.Project)
@@ -122,7 +125,8 @@ func (s *Store) SaveRelease(ctx context.Context, release dataset.ProjectRelease)
 }
 
 func (s *Store) ReadRelease(ctx context.Context, project, releaseID string) (dataset.ProjectRelease, error) {
-	binds := lifecycleBindVars(project)
+	binds := lifecycleCollectionBindVars()
+	binds["project"] = project
 	binds["key"], binds["release_id"] = releaseDocumentKey(releaseID), releaseID
 	var release *dataset.ProjectRelease
 	err := s.client.QueryRows(ctx, readReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
@@ -143,7 +147,7 @@ func (s *Store) ReadRelease(ctx context.Context, project, releaseID string) (dat
 }
 
 func (s *Store) ReadActiveRelease(ctx context.Context, project string) (dataset.ActiveRelease, error) {
-	binds := lifecycleBindVars(project)
+	binds := lifecycleCollectionBindVars()
 	binds["key"] = activeReleaseDocumentKey(project)
 	var active *dataset.ActiveRelease
 	err := s.client.QueryRows(ctx, readActiveReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
@@ -170,7 +174,8 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	}
 	releaseDocument["_key"] = releaseDocumentKey(release.ID)
 	releaseDocument["recordType"] = releaseRecordType
-	binds := lifecycleBindVars(release.Project)
+	binds := lifecycleCollectionBindVars()
+	binds["project"] = release.Project
 	binds["release"] = releaseDocument
 	binds["release_key"] = releaseDocument["_key"]
 	binds["release_id"] = release.ID
@@ -212,7 +217,6 @@ func (s *Store) ListRetentionGenerations(ctx context.Context) ([]dataset.Retenti
 		"snapshot_record_type":       snapshotRecordType,
 		"active_record_type":         activeRecordType,
 		"active_release_record_type": activeReleaseRecordType,
-		"release_record_type":        releaseRecordType,
 		"in_flight_states":           []string{"QUEUED", "RUNNING", "VALIDATING", "PENDING", "PREFLIGHT", "LOADING"},
 	}
 	err := s.client.QueryRows(ctx, listRetentionGenerationsAQL, metadataBatchSize, binds, func(row map[string]any) error {

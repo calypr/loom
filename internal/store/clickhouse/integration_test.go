@@ -57,11 +57,30 @@ func TestClickHouseNativeRoundTrip(t *testing.T) {
 	}, []map[string]any{{"__loom_row_id": uint64(1), "name": "alice", "score": 2.5, "tags": []string{"a", "b"}}}); err != nil {
 		t.Fatal(err)
 	}
+	columns := []Column{
+		{Name: "__loom_row_id", Type: "UInt64"},
+		{Name: "name", Type: "Nullable(String)"},
+		{Name: "score", Type: "Nullable(Float64)"},
+		{Name: "tags", Type: "Array(String)"},
+	}
 	rows, err := client.QueryRowsArgs(ctx, "SELECT `name`, `score`, `tags` FROM `"+table+"`", []string{"name", "score", "tags"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 1 || rows[0]["name"] != "alice" {
 		t.Fatalf("round-trip rows = %#v", rows)
+	}
+	if err := client.VerifyOutput(ctx, table, columns, 1); err != nil {
+		t.Fatalf("verify before pruning: %v", err)
+	}
+	if err := client.DropColumns(ctx, table, []string{"score"}); err != nil {
+		t.Fatalf("drop discovered column: %v", err)
+	}
+	if err := client.VerifyOutput(ctx, table, []Column{
+		{Name: "__loom_row_id", Type: "UInt64"},
+		{Name: "name", Type: "Nullable(String)"},
+		{Name: "tags", Type: "Array(String)"},
+	}, 1); err != nil {
+		t.Fatalf("verify after pruning: %v", err)
 	}
 }

@@ -45,7 +45,7 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 			} else {
 				selectPath = "root." + selectPath
 			}
-			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}})
+			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true})
 		}
 	}
 	return fields, nil
@@ -162,6 +162,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 			}
 			pivot.ValueExpr = recipe.Expression{Select: qualifyDiscoveredSelector(alias, valueSelect)}
 		}
+		pivot.Discovered = true
 		pivot.Discovery = nil
 		resolved = append(resolved, *pivot)
 	}
@@ -189,6 +190,7 @@ func relativePivotPath(itemSource, selector string) string {
 func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
+		wasUnresolved := len(dynamic.Columns) == 0
 		if len(dynamic.Columns) > 0 {
 			continue
 		}
@@ -229,6 +231,9 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 			return fmt.Errorf("dynamic column %q discovery found %d columns, exceeding maxColumns %d", dynamic.Name, len(values), dynamic.MaxColumns)
 		}
 		dynamic.Columns = sortedValues(values)
+		if wasUnresolved {
+			dynamic.Discovered = true
+		}
 		// A keyed family is optional: a valid FHIR dataset may have no values
 		// for an extension/identifier family at all. Keep the declaration with
 		// an empty frozen column set so resolution remains schema-stable and the

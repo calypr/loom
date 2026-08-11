@@ -17,6 +17,7 @@ import (
 func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, items []recipe.ExtensionColumn) error {
 	for index := range items {
 		item := &items[index]
+		item.Discovered = true
 		selector := strings.TrimSpace(item.Source.Select)
 		if selector == "" {
 			return fmt.Errorf("extension column %q source must be a selector", item.Name)

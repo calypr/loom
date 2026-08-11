@@ -260,6 +260,7 @@ func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, 
 				Name: item.Name + "__" + mapping.Name, ColumnPrefix: item.ColumnPrefix,
 				Source: sourceExpr, Key: &key, Value: &value, Columns: []string{mapping.Name}, MaxColumns: item.MaxColumns,
 				ColumnTypes: map[string]string{mapping.Name: mapping.ValueType}, ColumnSourceKeys: map[string]string{mapping.Name: sourceKey},
+				Discovered: true,
 			}
 			maps, err := buildRecipeDynamicMaps([]recipe.DynamicColumn{dynamic}, scope, path, scopeAlias, resourceType)
 			if err != nil {
@@ -286,7 +287,7 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
-		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys}
+		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, Discovered: dynamic.Discovered}
 		if dynamic.ColumnPrefix != nil {
 			prefix := *dynamic.ColumnPrefix
 			item.ColumnPrefix = &prefix

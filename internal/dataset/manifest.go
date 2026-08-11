@@ -57,6 +57,3 @@ func (m Manifest) Transition(next State) (Manifest, error) {
 func (m Manifest) IsStaged() bool {
 	return m.Validate() == nil && (m.State == StateStaged || m.State == StateReady)
 }
-
-// IsReady remains as a compatibility alias for existing readers.
-func (m Manifest) IsReady() bool { return m.IsStaged() }

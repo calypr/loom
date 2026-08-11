@@ -52,6 +52,10 @@ func lifecycleBindVars(project string) map[string]any {
 	}
 }
 
+func lifecycleCollectionBindVars() map[string]any {
+	return map[string]any{"@lifecycle_collection": LifecycleCollection}
+}
+
 func validateProject(project string) error {
 	_, err := publication.NewRef(project, "generation-project-validation")
 	return err

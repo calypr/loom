@@ -277,7 +277,15 @@ func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.Datafra
 
 // ProjectDataframeDatasets is the resolver for the projectDataframeDatasets field.
 func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error) {
-	panic(fmt.Errorf("not implemented: ProjectDataframeDatasets - projectDataframeDatasets"))
+	values, err := r.materializations.ProjectDatasets(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*model.DataframeMaterialization, 0, len(values))
+	for _, value := range values {
+		result = append(result, materializationapi.Model(value))
+	}
+	return result, nil
 }
 
 // DataframeDataset is the resolver for the dataframeDataset field.

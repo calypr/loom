@@ -171,6 +171,42 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 	}
 }
 
+func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
+	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{})
+	server, err := newGraphServer(graphResolver, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(`{"query":"query { projectDataframeDatasets(projectId: \"P1\") { id } }"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+	var payload struct {
+		Errors []struct {
+			Message    string `json:"message"`
+			Extensions struct {
+				Code string `json:"code"`
+			} `json:"extensions"`
+		} `json:"errors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Errors) != 1 || payload.Errors[0].Extensions.Code != "BACKEND_UNAVAILABLE" {
+		t.Fatalf("errors = %#v", payload.Errors)
+	}
+	if strings.Contains(payload.Errors[0].Message, "not implemented") {
+		t.Fatalf("resolver is not wired: %s", payload.Errors[0].Message)
+	}
+}
+
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := runtime.NewService(runtime.ServiceConfig{
 		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {

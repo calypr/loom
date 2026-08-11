@@ -56,7 +56,7 @@ func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generat
 		if err != nil {
 			return publication.Manifest{}, classifyRawExportError(err)
 		}
-		if !manifest.IsReady() {
+		if !manifest.IsStaged() {
 			return publication.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 		}
 		return manifest, nil
@@ -69,7 +69,7 @@ func (e ArangoRawExporter) resolveManifest(ctx context.Context, project, generat
 	if err != nil {
 		return publication.Manifest{}, classifyRawExportError(err)
 	}
-	if !manifest.IsReady() {
+	if !manifest.IsStaged() {
 		return publication.Manifest{}, dataframeerrors.NewError(dataframeerrors.CodeNoActiveGeneration, "")
 	}
 	return manifest, nil
