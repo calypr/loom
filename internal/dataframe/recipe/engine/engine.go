@@ -187,6 +187,8 @@ func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	if len(bindings.OutputNames) > 1 {
 		return Preview{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "preview accepts exactly one selected output")
 	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
 	if err != nil {
 		return Preview{}, err

@@ -79,13 +79,18 @@ func recipeGraphQLError(err error) error {
 		var resolution *engine.ResolutionError
 		switch {
 		case errors.As(err, &resolution):
-			return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeResolutionFailed, resolution.Error())
+			// Resolution causes may contain driver diagnostics (AQL, collection,
+			// or physical-table details). Keep the stable code while redacting the
+			// underlying message from the client-facing error.
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeResolutionFailed, "")
 		case errors.As(err, &validation):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
 		case errors.Is(err, recipeexec.ErrRecipeNotFound):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
 		case errors.Is(err, recipe.ErrDraftConflict):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeDraftConflict, "", dataframeerrors.WithDetails(map[string]any{"conflict": true}))
+		case errors.Is(err, recipe.ErrManagedRecipeIdentity):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 		case errors.Is(err, authscope.ErrUnauthenticated):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
 		case errors.Is(err, authscope.ErrForbidden):
@@ -97,6 +102,9 @@ func recipeGraphQLError(err error) error {
 		case errors.Is(err, context.DeadlineExceeded):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
+	}
+	if _, ok := dataframeerrors.AsUserError(err); !ok {
+		return dataframeerrors.Normalize(err)
 	}
 	return err
 }

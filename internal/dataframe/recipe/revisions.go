@@ -72,6 +72,7 @@ type RecipeDraft struct {
 }
 
 var ErrDraftConflict = errors.New("recipe draft compare-and-swap conflict")
+var ErrManagedRecipeIdentity = errors.New("recipe draft managed identity cannot be edited")
 
 type DraftConflictError struct {
 	Current RecipeDraft
@@ -114,11 +115,10 @@ func (s *MemoryDraftStore) SaveDraft(_ context.Context, draft RecipeDraft, expec
 	if strings.TrimSpace(draft.Project) == "" {
 		return RecipeDraft{}, fmt.Errorf("project is required")
 	}
-	if draft.Document.Name == "" {
-		draft.Document.Name = ProjectRecipeName(draft.Project)
-	}
-	if draft.Document.TranslationVersion == "" {
-		draft.Document.TranslationVersion = "draft"
+	var err error
+	draft.Document, err = enforceDraftManagedIdentity(draft.Project, draft.Document)
+	if err != nil {
+		return RecipeDraft{}, err
 	}
 	if err := draft.Document.Validate(); err != nil {
 		return RecipeDraft{}, err
@@ -139,6 +139,26 @@ func (s *MemoryDraftStore) SaveDraft(_ context.Context, draft RecipeDraft, expec
 	draft.DraftVersion = expectedVersion + 1
 	s.drafts[draft.Project] = cloneDraft(draft)
 	return cloneDraft(draft), nil
+}
+
+func enforceDraftManagedIdentity(project string, bundle Bundle) (Bundle, error) {
+	managedName := ProjectRecipeName(project)
+	if bundle.Name != "" && bundle.Name != managedName {
+		return Bundle{}, fmt.Errorf("%w: name", ErrManagedRecipeIdentity)
+	}
+	if bundle.TranslationVersion != "" && bundle.TranslationVersion != "draft" {
+		return Bundle{}, fmt.Errorf("%w: translationVersion", ErrManagedRecipeIdentity)
+	}
+	bundle.Name = managedName
+	bundle.TranslationVersion = "draft"
+	return bundle, nil
+}
+
+// EnforceDraftManagedIdentity validates and applies the fields owned by Loom
+// for a project draft. Authoring callers may change every other document
+// field, but cannot redirect a draft to a different recipe/version address.
+func EnforceDraftManagedIdentity(project string, bundle Bundle) (Bundle, error) {
+	return enforceDraftManagedIdentity(project, bundle)
 }
 
 func (s *MemoryDraftStore) DeleteProject(_ context.Context, project string) error {
@@ -383,6 +403,19 @@ func (s *MemoryRevisionStore) UpdateProjectRevision(_ context.Context, revision 
 		return ErrRecipeRevisionNotFound
 	}
 	s.project[key] = revision
+	return nil
+}
+
+// DeleteProject removes authoring revisions while leaving the legacy
+// digest-addressed history in values untouched.
+func (s *MemoryRevisionStore) DeleteProject(_ context.Context, project string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, revision := range s.project {
+		if revision.Project == project {
+			delete(s.project, key)
+		}
+	}
 	return nil
 }
 

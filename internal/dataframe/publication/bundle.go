@@ -107,7 +107,7 @@ func (i BundleIdentity) Key() string {
 		ScopeProject                     string   `json:"ScopeProject,omitempty"`
 		ProjectRevisionID                string   `json:"ProjectRevisionID,omitempty"`
 		SelectedOutputs                  []string `json:"SelectedOutputs,omitempty"`
-	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths, i.ScopeProject, i.ProjectRevisionID, sortedStrings(i.SelectedOutputs)})
+	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, sortedStrings(i.AuthResourcePaths), i.ScopeProject, i.ProjectRevisionID, sortedStrings(i.SelectedOutputs)})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

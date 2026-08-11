@@ -2,10 +2,13 @@ package resolver
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
@@ -140,6 +143,17 @@ func TestRecipeControlPreflightDoesNotExposePhysicalDetails(t *testing.T) {
 	}
 	if result.ResolvedSchemaDigest != "schema" || result.SourceGeneration != "g" || result.ScopeDigest != "scope" {
 		t.Fatalf("unexpected preflight result: %#v", result)
+	}
+}
+
+func TestRecipeGraphQLErrorRedactsResolutionDriverDetails(t *testing.T) {
+	err := recipeGraphQLError(&engine.ResolutionError{Err: errors.New("AQL FOR doc IN Patient collection=Patient physicalTable=secret")})
+	if err == nil || strings.Contains(err.Error(), "AQL") || strings.Contains(err.Error(), "physicalTable") {
+		t.Fatalf("resolution details leaked: %v", err)
+	}
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeRecipeResolutionFailed) {
+		t.Fatalf("resolution error contract = %#v", err)
 	}
 }
 

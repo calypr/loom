@@ -47,6 +47,20 @@ func TestProjectRecipeNameAndDraftCAS(t *testing.T) {
 	}
 }
 
+func TestDraftRejectsManagedIdentityEdits(t *testing.T) {
+	store := NewMemoryDraftStore()
+	bundle := Bundle{RecipeSchemaVersion: CurrentSchemaVersion, Name: "different", TranslationVersion: "r000001_external", Outputs: []Output{{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient"}}}
+	if _, err := store.SaveDraft(context.Background(), RecipeDraft{Project: "project-a", Document: bundle}, 0); !errors.Is(err, ErrManagedRecipeIdentity) {
+		t.Fatalf("managed identity edit error = %v", err)
+	}
+	accepted := bundle
+	accepted.Name = ""
+	accepted.TranslationVersion = ""
+	if _, err := store.SaveDraft(context.Background(), RecipeDraft{Project: "project-a", Document: accepted}, 0); err != nil {
+		t.Fatalf("empty managed fields should be assigned: %v", err)
+	}
+}
+
 func TestNormalizeProjectBundleUsesNonPersistedManagedIdentity(t *testing.T) {
 	defaultBundle := Bundle{RecipeSchemaVersion: CurrentSchemaVersion, Name: "default", TranslationVersion: "v1", Outputs: []Output{{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient"}}}
 	draft, err := NormalizeProjectBundle("acme/cancer-study", defaultBundle)
