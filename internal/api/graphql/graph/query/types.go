@@ -20,11 +20,34 @@ type IntrospectionResponse struct {
 	PivotFields       []FieldHint
 }
 
+// ProjectMapRequest discovers every populated, caller-visible resource and
+// relationship in one active project generation. Unlike IntrospectionRequest,
+// it deliberately has no root resource: the builder uses this response to let
+// the user choose a root from facts that are actually present.
+type ProjectMapRequest struct {
+	Project                string
+	AuthResourcePaths      []string
+	IncludePivotOnlyFields bool
+}
+
+type ProjectMapResponse struct {
+	Project          string
+	SourceGeneration string
+	Resources        []ResourceHints
+	Relationships    []catalog.PopulatedReference
+}
+
 type ResourceHints struct {
 	ResourceType string
-	Fields       []FieldHint
-	PivotFields  []FieldHint
-	Traversals   []catalog.PopulatedReference
+	// DocumentCount is the largest authorized field document count observed for
+	// this resource type. Catalog rows are field-scoped (there is no separate
+	// resource-count row), so this is the strongest non-overcounting resource
+	// count derivable from the populated facts. Counts are aggregated across
+	// authorized auth-resource partitions before this value is computed.
+	DocumentCount int64
+	Fields        []FieldHint
+	PivotFields   []FieldHint
+	Traversals    []catalog.PopulatedReference
 }
 
 type RelatedResourceHints struct {

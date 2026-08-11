@@ -593,6 +593,13 @@ type ComplexityRoot struct {
 		Traversals        func(childComplexity int) int
 	}
 
+	DataframeBuilderProjectMap struct {
+		Project          func(childComplexity int) int
+		Relationships    func(childComplexity int) int
+		Resources        func(childComplexity int) int
+		SourceGeneration func(childComplexity int) int
+	}
+
 	DataframeColumn struct {
 		Aggregatable   func(childComplexity int) int
 		ClickhouseType func(childComplexity int) int
@@ -966,10 +973,11 @@ type ComplexityRoot struct {
 	}
 
 	DataframeResourceHints struct {
-		Fields       func(childComplexity int) int
-		PivotFields  func(childComplexity int) int
-		ResourceType func(childComplexity int) int
-		Traversals   func(childComplexity int) int
+		DocumentCount func(childComplexity int) int
+		Fields        func(childComplexity int) int
+		PivotFields   func(childComplexity int) int
+		ResourceType  func(childComplexity int) int
+		Traversals    func(childComplexity int) int
 	}
 
 	DataframeRichSourceReuse struct {
@@ -2458,6 +2466,7 @@ type ComplexityRoot struct {
 		DataframeAggregate              func(childComplexity int, input model.DataframeAggregateInput) int
 		DataframeAggregations           func(childComplexity int, input model.DataframeAggregationsInput) int
 		DataframeBuilderIntrospection   func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
+		DataframeBuilderProjectMap      func(childComplexity int, input model.DataframeBuilderProjectMapInput) int
 		DataframeDataset                func(childComplexity int, input model.DataframeDatasetInput) int
 		DataframeDatasets               func(childComplexity int) int
 		DataframeMaterialization        func(childComplexity int, id string) int
@@ -5590,6 +5599,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeBuilderIntrospection.Traversals(childComplexity), true
 
+	case "DataframeBuilderProjectMap.project":
+		if e.ComplexityRoot.DataframeBuilderProjectMap.Project == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeBuilderProjectMap.Project(childComplexity), true
+	case "DataframeBuilderProjectMap.relationships":
+		if e.ComplexityRoot.DataframeBuilderProjectMap.Relationships == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeBuilderProjectMap.Relationships(childComplexity), true
+	case "DataframeBuilderProjectMap.resources":
+		if e.ComplexityRoot.DataframeBuilderProjectMap.Resources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeBuilderProjectMap.Resources(childComplexity), true
+	case "DataframeBuilderProjectMap.sourceGeneration":
+		if e.ComplexityRoot.DataframeBuilderProjectMap.SourceGeneration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeBuilderProjectMap.SourceGeneration(childComplexity), true
+
 	case "DataframeColumn.aggregatable":
 		if e.ComplexityRoot.DataframeColumn.Aggregatable == nil {
 			break
@@ -7125,6 +7159,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeRelatedResourceHints.ViaLabel(childComplexity), true
 
+	case "DataframeResourceHints.documentCount":
+		if e.ComplexityRoot.DataframeResourceHints.DocumentCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeResourceHints.DocumentCount(childComplexity), true
 	case "DataframeResourceHints.fields":
 		if e.ComplexityRoot.DataframeResourceHints.Fields == nil {
 			break
@@ -14824,6 +14864,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeBuilderIntrospection(childComplexity, args["input"].(model.DataframeBuilderIntrospectionInput)), true
+	case "Query.dataframeBuilderProjectMap":
+		if e.ComplexityRoot.Query.DataframeBuilderProjectMap == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeBuilderProjectMap_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeBuilderProjectMap(childComplexity, args["input"].(model.DataframeBuilderProjectMapInput)), true
 	case "Query.dataframeDataset":
 		if e.ComplexityRoot.Query.DataframeDataset == nil {
 			break
@@ -20375,6 +20426,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeAggregationSpecInput,
 		ec.unmarshalInputDataframeAggregationsInput,
 		ec.unmarshalInputDataframeBuilderIntrospectionInput,
+		ec.unmarshalInputDataframeBuilderProjectMapInput,
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
@@ -20484,6 +20536,10 @@ func newExecutionContext(
 
 var sources = []*ast.Source{
 	{Name: "../../../../internal/api/graphql/graph/schema/schema.graphqls", Input: `type Query {
+  dataframeBuilderProjectMap(
+    input: DataframeBuilderProjectMapInput!
+  ): DataframeBuilderProjectMap!
+
   dataframeBuilderIntrospection(
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
@@ -21052,6 +21108,19 @@ input DataframeBuilderIntrospectionInput {
   includePivotOnlyFields: Boolean = true
 }
 
+input DataframeBuilderProjectMapInput {
+  project: String!
+  authResourcePaths: [String!]
+  includePivotOnlyFields: Boolean = false
+}
+
+type DataframeBuilderProjectMap {
+  project: String!
+  sourceGeneration: String!
+  resources: [DataframeResourceHints!]!
+  relationships: [DataframeTraversalHint!]!
+}
+
 type DataframeBuilderIntrospection {
   project: String!
   rootResourceType: String!
@@ -21065,6 +21134,7 @@ type DataframeBuilderIntrospection {
 
 type DataframeResourceHints {
   resourceType: String!
+  documentCount: Int!
   fields: [DataframeFieldHint!]!
   pivotFields: [DataframeFieldHint!]!
   traversals: [DataframeTraversalHint!]!
@@ -25127,6 +25197,20 @@ func (ec *executionContext) childFields_DataframeBuilderIntrospection(ctx contex
 	return nil, fmt.Errorf("no field named %q was found under type DataframeBuilderIntrospection", field.Name)
 }
 
+func (ec *executionContext) childFields_DataframeBuilderProjectMap(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "project":
+		return ec.fieldContext_DataframeBuilderProjectMap_project(ctx, field)
+	case "sourceGeneration":
+		return ec.fieldContext_DataframeBuilderProjectMap_sourceGeneration(ctx, field)
+	case "resources":
+		return ec.fieldContext_DataframeBuilderProjectMap_resources(ctx, field)
+	case "relationships":
+		return ec.fieldContext_DataframeBuilderProjectMap_relationships(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeBuilderProjectMap", field.Name)
+}
+
 func (ec *executionContext) childFields_DataframeColumn(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "semanticPath":
@@ -25875,6 +25959,8 @@ func (ec *executionContext) childFields_DataframeResourceHints(ctx context.Conte
 	switch field.Name {
 	case "resourceType":
 		return ec.fieldContext_DataframeResourceHints_resourceType(ctx, field)
+	case "documentCount":
+		return ec.fieldContext_DataframeResourceHints_documentCount(ctx, field)
 	case "fields":
 		return ec.fieldContext_DataframeResourceHints_fields(ctx, field)
 	case "pivotFields":

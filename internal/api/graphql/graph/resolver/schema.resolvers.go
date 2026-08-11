@@ -318,6 +318,32 @@ func (r *mutationResolver) PublishProjectDataframeRecipe(ctx context.Context, in
 	return recipeRevisionModel(revision), nil
 }
 
+// DataframeBuilderProjectMap is the resolver for the dataframeBuilderProjectMap field.
+func (r *queryResolver) DataframeBuilderProjectMap(ctx context.Context, input model.DataframeBuilderProjectMapInput) (*model.DataframeBuilderProjectMap, error) {
+	includePivotOnlyFields := false
+	if input.IncludePivotOnlyFields != nil {
+		includePivotOnlyFields = *input.IncludePivotOnlyFields
+	}
+	resp, err := r.query.ProjectMap(ctx, queryapi.ProjectMapRequest{
+		Project:                input.Project,
+		AuthResourcePaths:      input.AuthResourcePaths,
+		IncludePivotOnlyFields: includePivotOnlyFields,
+	})
+	if err != nil {
+		return nil, err
+	}
+	resources := make([]*model.DataframeResourceHints, 0, len(resp.Resources))
+	for _, resource := range resp.Resources {
+		resources = append(resources, resourceHints(resource))
+	}
+	return &model.DataframeBuilderProjectMap{
+		Project:          resp.Project,
+		SourceGeneration: resp.SourceGeneration,
+		Resources:        resources,
+		Relationships:    traversalHints(resp.Relationships),
+	}, nil
+}
+
 // DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.
 func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error) {
 	includePivotOnlyFields := true

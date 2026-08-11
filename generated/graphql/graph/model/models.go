@@ -78,6 +78,19 @@ type DataframeBuilderIntrospectionInput struct {
 	IncludePivotOnlyFields *bool    `json:"includePivotOnlyFields,omitempty"`
 }
 
+type DataframeBuilderProjectMap struct {
+	Project          string                    `json:"project"`
+	SourceGeneration string                    `json:"sourceGeneration"`
+	Resources        []*DataframeResourceHints `json:"resources"`
+	Relationships    []*DataframeTraversalHint `json:"relationships"`
+}
+
+type DataframeBuilderProjectMapInput struct {
+	Project                string   `json:"project"`
+	AuthResourcePaths      []string `json:"authResourcePaths,omitempty"`
+	IncludePivotOnlyFields *bool    `json:"includePivotOnlyFields,omitempty"`
+}
+
 type DataframeColumn struct {
 	SemanticPath   string `json:"semanticPath"`
 	Name           string `json:"name"`
@@ -480,10 +493,11 @@ type DataframeRelatedResourceHints struct {
 }
 
 type DataframeResourceHints struct {
-	ResourceType string                    `json:"resourceType"`
-	Fields       []*DataframeFieldHint     `json:"fields"`
-	PivotFields  []*DataframeFieldHint     `json:"pivotFields"`
-	Traversals   []*DataframeTraversalHint `json:"traversals"`
+	ResourceType  string                    `json:"resourceType"`
+	DocumentCount int                       `json:"documentCount"`
+	Fields        []*DataframeFieldHint     `json:"fields"`
+	PivotFields   []*DataframeFieldHint     `json:"pivotFields"`
+	Traversals    []*DataframeTraversalHint `json:"traversals"`
 }
 
 type DataframeRichSourceReuse struct {

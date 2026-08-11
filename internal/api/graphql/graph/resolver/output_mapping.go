@@ -81,10 +81,11 @@ func fieldHints(in []queryapi.FieldHint) []*model.DataframeFieldHint {
 
 func resourceHints(in queryapi.ResourceHints) *model.DataframeResourceHints {
 	return &model.DataframeResourceHints{
-		ResourceType: in.ResourceType,
-		Fields:       fieldHints(in.Fields),
-		PivotFields:  fieldHints(in.PivotFields),
-		Traversals:   traversalHints(in.Traversals),
+		ResourceType:  in.ResourceType,
+		DocumentCount: int(in.DocumentCount),
+		Fields:        fieldHints(in.Fields),
+		PivotFields:   fieldHints(in.PivotFields),
+		Traversals:    traversalHints(in.Traversals),
 	}
 }
 
