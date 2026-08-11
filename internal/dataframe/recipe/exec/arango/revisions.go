@@ -188,11 +188,10 @@ func (r *RevisionRegistry) SaveDraft(ctx context.Context, draft recipe.RecipeDra
 	if strings.TrimSpace(draft.Project) == "" {
 		return recipe.RecipeDraft{}, fmt.Errorf("project is required")
 	}
-	if draft.Document.Name == "" {
-		draft.Document.Name = recipe.ProjectRecipeName(draft.Project)
-	}
-	if draft.Document.TranslationVersion == "" {
-		draft.Document.TranslationVersion = "draft"
+	var err error
+	draft.Document, err = recipe.EnforceDraftManagedIdentity(draft.Project, draft.Document)
+	if err != nil {
+		return recipe.RecipeDraft{}, err
 	}
 	if err := draft.Document.Validate(); err != nil {
 		return recipe.RecipeDraft{}, err

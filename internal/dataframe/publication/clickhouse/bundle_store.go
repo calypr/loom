@@ -318,7 +318,10 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	for i, c := range columns {
 		converted[i] = publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}
 	}
-	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, MaterializationID: t.execution.ID + "/" + name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
+	// The immutable materialization address is deliberately derived from the
+	// durable execution ID and output name. Reader.publishedByID validates this
+	// exact shape and never resolves the mutable logical pointer.
+	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, MaterializationID: t.execution.ID + ":" + name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
 	return t.save(ctx)
 }
 

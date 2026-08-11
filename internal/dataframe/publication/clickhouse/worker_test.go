@@ -73,6 +73,18 @@ func TestWorkerIdentityIncludesRestrictedEmptyScope(t *testing.T) {
 	}
 }
 
+func TestWorkerIdentityTreatsSetLikeInputsAsCanonical(t *testing.T) {
+	left := workerIdentity()
+	left.AuthResourcePaths = []string{"/programs/b", "/programs/a"}
+	left.SelectedOutputs = []string{"Observations", "Patients"}
+	right := left
+	right.AuthResourcePaths = []string{"/programs/a", "/programs/b"}
+	right.SelectedOutputs = []string{"Patients", "Observations"}
+	if left.Key() != right.Key() {
+		t.Fatalf("set-like identity inputs changed idempotency key: %s != %s", left.Key(), right.Key())
+	}
+}
+
 func TestWorkerRetriesTypedRetryableFailure(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()

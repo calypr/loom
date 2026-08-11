@@ -255,6 +255,9 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 	}
 	for _, output := range execution.Outputs {
 		if output.Name == parts[1] {
+			if !output.Queryable() {
+				return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+			}
 			return publishedMaterialization(execution, output, output.Name), nil
 		}
 	}
