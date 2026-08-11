@@ -15,6 +15,7 @@ type Query {
   dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
   projectDataframeRecipeDraft(project: String!): DataframeProjectRecipeDraft!
   projectDataframeRecipeRevisions(project: String!): [DataframeRecipeRevision!]!
+  projectDataframeRecipeRevision(project: String!, id: ID!): DataframeRecipeRevision
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -39,6 +40,7 @@ type Mutation {
 	validateDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipeValidation!
 	previewDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipePreview!
 	saveProjectDataframeRecipeDraft(input: SaveProjectDataframeRecipeDraftInput!): DataframeProjectRecipeDraft!
+	publishProjectDataframeRecipe(input: PublishProjectDataframeRecipeInput!): DataframeRecipeRevision!
 }
 
 input StartDataframeMaterializationInput {
@@ -82,12 +84,32 @@ input RegisterDataframeRecipeRevisionInput {
 }
 
 type DataframeRecipeRevision {
+  id: ID
   projectId: String!
   name: String!
   digest: String!
   parentDigest: String
   recipe: JSON!
   createdAt: String!
+  revisionNumber: Int
+  status: String
+  recipeName: String
+  translationVersion: String
+  executionId: ID
+  sourceGeneration: String
+  outputs: [DataframeRecipeRevisionOutput!]!
+}
+
+type DataframeRecipeRevisionOutput {
+  output: String!
+  materializationId: ID
+}
+
+input PublishProjectDataframeRecipeInput {
+  project: String!
+  expectedDraftVersion: Int = -1
+  datasetGeneration: String!
+  outputs: [String!]
 }
 
 type DataframeProjectRecipeDraft {
@@ -456,6 +478,7 @@ type DataframeProjectStatus {
 }
 
 input DataframeDatasetInput {
+  materializationId: ID
   selector: DataframeSelectorInput
   dataType: String @deprecated(reason: "Use selector")
 }

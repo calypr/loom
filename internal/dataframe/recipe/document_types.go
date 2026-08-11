@@ -405,6 +405,10 @@ type RuntimeBindings struct {
 	// empty list preserves the bundle's all-output behavior and is not part of
 	// recipe or schema identity.
 	OutputNames []string
+	// ScopeProject selects the project-scoped exact registry. Empty preserves
+	// the legacy global registry even when Project is populated.
+	ScopeProject      string
+	ProjectRevisionID string
 }
 
 // Clone returns request-scoped bindings with independent authorization paths.

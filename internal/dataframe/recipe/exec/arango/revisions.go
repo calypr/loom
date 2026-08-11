@@ -347,4 +347,33 @@ func (r *RevisionRegistry) ListProjectRevisions(ctx context.Context, project str
 	return result, nil
 }
 
+func (r *RevisionRegistry) UpdateProjectRevision(ctx context.Context, revision recipe.RecipeRevision) error {
+	data, err := json.Marshal(revision)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	doc["_key"] = revision.ID
+	updated := false
+	err = r.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+FILTER existing != null AND existing.project == @project
+UPDATE @document IN @@collection
+RETURN NEW`, r.batchSize, map[string]any{"@collection": ProjectRevisionCollection, "key": revision.ID, "project": revision.Project, "document": doc}, func(map[string]any) error {
+		updated = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return recipe.ErrRecipeRevisionNotFound
+	}
+	return nil
+}
+
+var _ recipe.ProjectRevisionStore = (*RevisionRegistry)(nil)
+
 func mustJSON(value any) json.RawMessage { data, _ := json.Marshal(value); return data }

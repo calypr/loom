@@ -34,6 +34,11 @@ type VersionedRegistry interface {
 	LoadRecipeVersion(context.Context, string, string) (exec.Entry, error)
 }
 
+type ScopedVersionedRegistry interface {
+	VersionedRegistry
+	LoadRecipeVersionForProject(context.Context, string, string, string) (exec.Entry, error)
+}
+
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
 type Config struct {
@@ -179,6 +184,9 @@ func (e *Engine) ExplainBundle(ctx context.Context, bundle recipe.Bundle, bindin
 }
 
 func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Preview, error) {
+	if len(bindings.OutputNames) > 1 {
+		return Preview{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "preview accepts exactly one selected output")
+	}
 	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
 	if err != nil {
 		return Preview{}, err
@@ -193,6 +201,9 @@ func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindin
 // ResolveVersion loads an exact immutable recipe version. New publication
 // workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	if strings.TrimSpace(bindings.ScopeProject) != "" {
+		return e.ResolveVersionForProject(ctx, bindings.ScopeProject, name, translationVersion, bindings)
+	}
 	registry, ok := e.registry.(VersionedRegistry)
 	if !ok {
 		return Resolved{}, fmt.Errorf("recipe registry does not support exact versions")
@@ -201,6 +212,21 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 	if err != nil {
 		return Resolved{}, err
 	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+// ResolveVersionForProject loads only the immutable version registered under
+// the requested project. It never falls back to the global registry.
+func (e *Engine) ResolveVersionForProject(ctx context.Context, project, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	registry, ok := e.registry.(ScopedVersionedRegistry)
+	if !ok {
+		return Resolved{}, fmt.Errorf("recipe registry does not support scoped exact versions")
+	}
+	entry, err := registry.LoadRecipeVersionForProject(ctx, project, name, translationVersion)
+	if err != nil {
+		return Resolved{}, err
+	}
+	bindings.ScopeProject = project
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
@@ -301,6 +327,19 @@ func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.R
 
 func (e *Engine) MaterializeVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.ResolveVersion(ctx, name, translationVersion, bindings)
+	if err != nil {
+		return Resolved{}, &ResolutionError{Err: err}
+	}
+	if publish != nil {
+		if err := publish(ctx, resolved); err != nil {
+			return Resolved{}, err
+		}
+	}
+	return resolved, nil
+}
+
+func (e *Engine) MaterializeVersionForProject(ctx context.Context, project, name, translationVersion string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
+	resolved, err := e.ResolveVersionForProject(ctx, project, name, translationVersion, bindings)
 	if err != nil {
 		return Resolved{}, &ResolutionError{Err: err}
 	}

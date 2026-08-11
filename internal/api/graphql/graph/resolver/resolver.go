@@ -90,6 +90,10 @@ type DataframeContract struct{ Recipe, TranslationVersion, PromotedAt string }
 type DataframeContractPromoter func(context.Context, string, string) (DataframeContract, error)
 type DataframeContractAuthorizer func(context.Context) error
 
+type ProjectRecipePublisher interface {
+	Publish(context.Context, string, int64, string, []string) (recipe.RecipeRevision, error)
+}
+
 // RecipeAuthorizer resolves request bindings against the caller's project
 // grants. GraphQL operation type is intentionally irrelevant: preview/run are
 // reads even though they are mutations, while publication is a write.
@@ -113,6 +117,7 @@ type Resolver struct {
 	recipeBundleControl         RecipeBundleControl
 	projectRecipeDrafts         recipe.DraftStore
 	defaultRecipeBundle         func() (recipe.Bundle, error)
+	projectRecipePublisher      ProjectRecipePublisher
 }
 
 type ResolverConfig struct {
@@ -135,6 +140,7 @@ type ResolverConfig struct {
 	RecipeBundleControl         RecipeBundleControl
 	ProjectRecipeDrafts         recipe.DraftStore
 	DefaultRecipeBundle         func() (recipe.Bundle, error)
+	ProjectRecipePublisher      ProjectRecipePublisher
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
@@ -167,6 +173,7 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		recipeBundleControl:         cfg.RecipeBundleControl,
 		projectRecipeDrafts:         cfg.ProjectRecipeDrafts,
 		defaultRecipeBundle:         cfg.DefaultRecipeBundle,
+		projectRecipePublisher:      cfg.ProjectRecipePublisher,
 	}
 }
 

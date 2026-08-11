@@ -318,7 +318,7 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	for i, c := range columns {
 		converted[i] = publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}
 	}
-	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
+	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, MaterializationID: t.execution.ID + "/" + name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
 	return t.save(ctx)
 }
 

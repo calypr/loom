@@ -95,6 +95,9 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1",
 		AuthScopeMode:     string(bindings.AuthScopeMode),
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		ScopeProject:      bindings.ScopeProject,
+		ProjectRevisionID: bindings.ProjectRevisionID,
+		SelectedOutputs:   append([]string(nil), bindings.OutputNames...),
 	}
 	streamInputs := make([]publication.OutputStream, 0, len(streams))
 	for _, stream := range streams {
@@ -122,6 +125,9 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 		ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
 		AuthScopeMode:     identity.AuthScopeMode,
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		ScopeProject:      identity.ScopeProject,
+		ProjectRevisionID: identity.ProjectRevisionID,
+		SelectedOutputs:   append([]string(nil), identity.SelectedOutputs...),
 	}
 	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{BatchRows: batchRows, BatchBytes: batchBytes})
 	return identity, err
@@ -211,8 +217,17 @@ func recipePublicationProcessor(recipeEngine *engine.Engine, logger *slog.Logger
 			Project: execution.Project, DatasetGeneration: execution.DatasetGeneration,
 			AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...),
 			AuthScopeMode:     mode, IncludeAuthResourcePath: true,
+			ScopeProject:      execution.ScopeProject,
+			ProjectRevisionID: execution.ProjectRevisionID,
+			OutputNames:       append([]string(nil), execution.SelectedOutputs...),
 		}
-		_, err := recipeEngine.MaterializeVersion(ctx, execution.Name, execution.TranslationVersion, bindings, func(ctx context.Context, full engine.Resolved) error {
+		materialize := recipeEngine.MaterializeVersion
+		if execution.ScopeProject != "" {
+			materialize = func(ctx context.Context, name, version string, bindings recipe.RuntimeBindings, publish func(context.Context, engine.Resolved) error) (engine.Resolved, error) {
+				return recipeEngine.MaterializeVersionForProject(ctx, execution.ScopeProject, name, version, bindings, publish)
+			}
+		}
+		_, err := materialize(ctx, execution.Name, execution.TranslationVersion, bindings, func(ctx context.Context, full engine.Resolved) error {
 			_, publishErr := publishResolvedRecipe(ctx, recipeEngine, target, execution.Name, bindings, full, batchRows, batchBytes)
 			return publishErr
 		})

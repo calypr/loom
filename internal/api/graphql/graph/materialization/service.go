@@ -192,6 +192,16 @@ func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput
 	if err != nil {
 		return nil, err
 	}
+	if input.MaterializationID != nil && strings.TrimSpace(*input.MaterializationID) != "" {
+		value, getErr := s.reader.DatasetByPublishedID(ctx, strings.TrimSpace(*input.MaterializationID))
+		if getErr != nil {
+			return nil, mapReaderError(getErr)
+		}
+		if authErr := s.authorizePublished(ctx, value); authErr != nil {
+			return nil, authErr
+		}
+		return &value, nil
+	}
 	selector, err := s.resolveSelector(input.Selector, input.DataType)
 	if err != nil {
 		return nil, err

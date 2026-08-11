@@ -109,8 +109,9 @@ type DataframeContract struct {
 }
 
 type DataframeDatasetInput struct {
-	Selector *DataframeSelectorInput `json:"selector,omitempty"`
-	DataType *string                 `json:"dataType,omitempty"`
+	MaterializationID *string                 `json:"materializationId,omitempty"`
+	Selector          *DataframeSelectorInput `json:"selector,omitempty"`
+	DataType          *string                 `json:"dataType,omitempty"`
 }
 
 type DataframeFieldHint struct {
@@ -444,12 +445,25 @@ type DataframeRecipeResultOutput struct {
 }
 
 type DataframeRecipeRevision struct {
-	ProjectID    string          `json:"projectId"`
-	Name         string          `json:"name"`
-	Digest       string          `json:"digest"`
-	ParentDigest *string         `json:"parentDigest,omitempty"`
-	Recipe       json.RawMessage `json:"recipe"`
-	CreatedAt    string          `json:"createdAt"`
+	ID                 *string                          `json:"id,omitempty"`
+	ProjectID          string                           `json:"projectId"`
+	Name               string                           `json:"name"`
+	Digest             string                           `json:"digest"`
+	ParentDigest       *string                          `json:"parentDigest,omitempty"`
+	Recipe             json.RawMessage                  `json:"recipe"`
+	CreatedAt          string                           `json:"createdAt"`
+	RevisionNumber     *int                             `json:"revisionNumber,omitempty"`
+	Status             *string                          `json:"status,omitempty"`
+	RecipeName         *string                          `json:"recipeName,omitempty"`
+	TranslationVersion *string                          `json:"translationVersion,omitempty"`
+	ExecutionID        *string                          `json:"executionId,omitempty"`
+	SourceGeneration   *string                          `json:"sourceGeneration,omitempty"`
+	Outputs            []*DataframeRecipeRevisionOutput `json:"outputs"`
+}
+
+type DataframeRecipeRevisionOutput struct {
+	Output            string  `json:"output"`
+	MaterializationID *string `json:"materializationId,omitempty"`
 }
 
 type DataframeRecipeValidation struct {
@@ -750,6 +764,13 @@ type ProjectRelease struct {
 type PromoteDataframeContractInput struct {
 	Recipe             string `json:"recipe"`
 	TranslationVersion string `json:"translationVersion"`
+}
+
+type PublishProjectDataframeRecipeInput struct {
+	Project              string   `json:"project"`
+	ExpectedDraftVersion *int     `json:"expectedDraftVersion,omitempty"`
+	DatasetGeneration    string   `json:"datasetGeneration"`
+	Outputs              []string `json:"outputs,omitempty"`
 }
 
 type Query struct {
