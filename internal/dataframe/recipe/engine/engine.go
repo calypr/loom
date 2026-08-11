@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -51,6 +53,14 @@ type Engine struct {
 	scopeDigest   func(recipe.RuntimeBindings) string
 	batchSize     int
 }
+
+const (
+	DefaultPreviewLimit     = 25
+	MaxPreviewLimit         = 100
+	MaxPreviewColumns       = 512
+	MaxRecipeRequestBytes   = 1 << 20
+	MaxPreviewResponseBytes = 5 << 20
+)
 
 // Resolved contains semantic discovery provenance and canonical physical plans
 // per output. It deliberately contains no recipe-specific physical model.
@@ -138,6 +148,48 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
+// ResolveBundle validates, schema-resolves, and compiles an inline bundle.
+// It is intentionally independent of the registry so unsaved authoring
+// previews never create or mutate a durable recipe record.
+func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
+	if strings.TrimSpace(bindings.Project) == "" {
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+	}
+	entry, err := canonicalInlineEntry(bundle)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return e.resolveEntry(ctx, entry, bindings)
+}
+
+func (e *Engine) ValidateBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.RecipePlan, error) {
+	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
+	if err != nil {
+		return semantic.RecipePlan{}, err
+	}
+	return resolved.Semantic.SemanticPlan, nil
+}
+
+func (e *Engine) ExplainBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
+	plan, err := e.ValidateBundle(ctx, bundle, bindings)
+	if err != nil {
+		return semantic.RecipePlanExplanation{}, err
+	}
+	return plan.Explain(), nil
+}
+
+func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Preview, error) {
+	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
+	if err != nil {
+		return Preview{}, err
+	}
+	rows, err := e.Preview(ctx, resolved, bindings.PreviewLimit)
+	if err != nil {
+		return Preview{}, err
+	}
+	return Preview{Plan: resolved.Semantic, Outputs: outputRows(resolved, rows)}, nil
+}
+
 // ResolveVersion loads an exact immutable recipe version. New publication
 // workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -157,9 +209,17 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 		return Resolved{}, fmt.Errorf("recipe project is required")
 	}
 	bundle := entry.Bundle
-	storedRecipeDigest, err := bundle.Digest()
+	var err error
+	storedRecipeDigest := entry.Digest
+	if strings.TrimSpace(storedRecipeDigest) == "" {
+		storedRecipeDigest, err = bundle.Digest()
+		if err != nil {
+			return Resolved{}, fmt.Errorf("digest stored recipe: %w", err)
+		}
+	}
+	bundle, err = selectedBundle(bundle, bindings.OutputNames)
 	if err != nil {
-		return Resolved{}, fmt.Errorf("digest stored recipe: %w", err)
+		return Resolved{}, err
 	}
 	if e.resolveBundle != nil {
 		bundle, err = e.resolveBundle(ctx, bundle, bindings)
@@ -295,6 +355,9 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
+		if len(query.PublicColumns) > MaxPreviewColumns {
+			return nil, dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "")
+		}
 		streams = append(streams, OutputStream{
 			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(), Query: query.Query,
 			BindVars: query.BindVars, DynamicChecks: dynamicChecks(output.DynamicColumns), stream: e.queryRows, batchSize: e.batchSize,
@@ -320,9 +383,14 @@ func selectedOutputNames(names []string, outputs []lower.CompiledRecipeOutput) m
 }
 
 func (e *Engine) Preview(ctx context.Context, resolved Resolved, limit int) (map[string][]map[string]any, error) {
-	if limit <= 0 {
-		limit = 25
+	if limit == 0 {
+		limit = DefaultPreviewLimit
 	}
+	if !validPreviewLimit(limit) {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	streams, err := e.streamsWithLimit(ctx, resolved, limit)
 	if err != nil {
 		return nil, err
@@ -348,7 +416,72 @@ func (e *Engine) Preview(ctx context.Context, resolved Resolved, limit int) (map
 		}
 		result[stream.Name] = rows
 	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
+	}
+	if len(encoded) > MaxPreviewResponseBytes {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "")
+	}
 	return result, nil
+}
+
+func validPreviewLimit(limit int) bool {
+	return limit == 10 || limit == 25 || limit == 50 || limit == 100
+}
+
+func selectedBundle(bundle recipe.Bundle, names []string) (recipe.Bundle, error) {
+	if len(names) == 0 {
+		return bundle, nil
+	}
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
+			return recipe.Bundle{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+		wanted[name] = struct{}{}
+	}
+	selected := make([]recipe.Output, 0, len(wanted))
+	for _, output := range bundle.Outputs {
+		if _, ok := wanted[output.Name]; ok {
+			selected = append(selected, output)
+			delete(wanted, output.Name)
+		}
+	}
+	if len(wanted) != 0 {
+		return recipe.Bundle{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	bundle.Outputs = selected
+	return bundle, nil
+}
+
+func canonicalInlineEntry(bundle recipe.Bundle) (exec.Entry, error) {
+	if bundle.Fragments != nil {
+		expanded, err := bundle.ExpandFragments()
+		if err != nil {
+			return exec.Entry{}, err
+		}
+		bundle = expanded
+	}
+	if err := bundle.Validate(); err != nil {
+		return exec.Entry{}, err
+	}
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		return exec.Entry{}, err
+	}
+	if len(canonical) > MaxRecipeRequestBytes {
+		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "")
+	}
+	var immutable recipe.Bundle
+	if err := json.Unmarshal(canonical, &immutable); err != nil {
+		return exec.Entry{}, err
+	}
+	digest, err := immutable.Digest()
+	if err != nil {
+		return exec.Entry{}, err
+	}
+	return exec.Entry{Bundle: immutable, Digest: digest}, nil
 }
 
 var errPreviewLimit = fmt.Errorf("preview limit reached")

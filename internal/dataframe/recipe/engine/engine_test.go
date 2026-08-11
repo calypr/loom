@@ -40,3 +40,45 @@ func TestMaterializeMarksResolutionFailures(t *testing.T) {
 		t.Fatalf("error = %v, want ResolutionError", err)
 	}
 }
+
+func TestResolveBundleDoesNotPersistAndSupportsSelectedOutputs(t *testing.T) {
+	queries := 0
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			queries++
+			return visit(map[string]any{"id": "p-1", "__loom_row_id": "row-1"})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "inline", TranslationVersion: "draft", Outputs: []recipe.Output{
+		{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}},
+		{Name: "Observations", RootResourceType: "Observation", RowGrain: "observation", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}},
+	}}
+	resolved, err := engine.ResolveBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", OutputNames: []string{"Patients"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Compiled.Outputs) != 1 || resolved.Compiled.Outputs[0].Name != "Patients" {
+		t.Fatalf("compiled outputs = %#v", resolved.Compiled.Outputs)
+	}
+	rows, err := engine.Preview(context.Background(), resolved, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows["Patients"]) != 1 || queries != 1 {
+		t.Fatalf("rows=%#v queries=%d", rows, queries)
+	}
+}
+
+func TestPreviewRejectsUnsupportedLimit(t *testing.T) {
+	engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Preview(context.Background(), Resolved{}, 7); err == nil {
+		t.Fatal("Preview accepted unsupported limit")
+	}
+}

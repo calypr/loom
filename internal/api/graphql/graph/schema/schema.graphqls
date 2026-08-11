@@ -13,6 +13,8 @@ type Query {
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
   dataframeRecipeRevision(projectId: String!, name: String!, digest: String!): DataframeRecipeRevision
   dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
+  projectDataframeRecipeDraft(project: String!): DataframeProjectRecipeDraft!
+  projectDataframeRecipeRevisions(project: String!): [DataframeRecipeRevision!]!
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -34,6 +36,9 @@ type Mutation {
   activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
   promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
 	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
+	validateDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipeValidation!
+	previewDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipePreview!
+	saveProjectDataframeRecipeDraft(input: SaveProjectDataframeRecipeDraftInput!): DataframeProjectRecipeDraft!
 }
 
 input StartDataframeMaterializationInput {
@@ -83,6 +88,33 @@ type DataframeRecipeRevision {
   parentDigest: String
   recipe: JSON!
   createdAt: String!
+}
+
+type DataframeProjectRecipeDraft {
+  project: String!
+  draftVersion: Int!
+  document: JSON!
+  authoringDigest: String!
+  baseRevisionId: ID
+  updatedBy: String
+  updatedAt: String!
+}
+
+input DataframeRecipeBundleInput {
+  project: String!
+  recipe: JSON!
+  datasetGeneration: String
+  authResourcePaths: [String!]
+  previewLimit: Int = 25
+  outputs: [String!]
+}
+
+input SaveProjectDataframeRecipeDraftInput {
+  project: String!
+  recipe: JSON!
+  expectedVersion: Int!
+  baseRevisionId: ID
+  updatedBy: String
 }
 
 input DataframeRecipeBindingsInput {

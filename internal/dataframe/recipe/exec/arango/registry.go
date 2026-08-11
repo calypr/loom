@@ -33,14 +33,26 @@ func New(client Client) (*Registry, error) {
 }
 
 func BootstrapSpec() arangostore.BootstrapSpec {
-	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: Collection, Indexes: [][]string{{"name"}, {"name", "translationVersion"}, {"digest"}}}}}
+	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: Collection, Indexes: [][]string{{"name"}, {"scopeProject", "name"}, {"scopeProject", "name", "translationVersion"}, {"digest"}}}}}
 }
 
 func (r *Registry) SaveRecipe(ctx context.Context, entry exec.Entry) error {
-	return r.saveRecipe(ctx, entry)
+	return r.saveRecipe(ctx, "", entry)
+}
+
+func (r *Registry) SaveRecipeForProject(ctx context.Context, project string, entry exec.Entry) error {
+	return r.saveRecipe(ctx, project, entry)
 }
 
 func (r *Registry) ReplaceRecipeVersion(ctx context.Context, entry exec.Entry) error {
+	return r.replaceRecipeVersion(ctx, "", entry)
+}
+
+func (r *Registry) ReplaceRecipeVersionForProject(ctx context.Context, project string, entry exec.Entry) error {
+	return r.replaceRecipeVersion(ctx, project, entry)
+}
+
+func (r *Registry) replaceRecipeVersion(ctx context.Context, project string, entry exec.Entry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -49,7 +61,10 @@ func (r *Registry) ReplaceRecipeVersion(ctx context.Context, entry exec.Entry) e
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	doc["name"], doc["translationVersion"], doc["digest"] = entry.Bundle.Name, entry.Bundle.TranslationVersion, entry.Digest
+	doc["name"], doc["translationVersion"], doc["digest"], doc["scopeProject"] = entry.Bundle.Name, entry.Bundle.TranslationVersion, entry.Digest, project
+	if project == "" {
+		delete(doc, "scopeProject")
+	}
 	replaced := false
 	err = r.client.QueryRows(ctx, `LET used = FIRST(FOR execution IN @@executions
   FILTER (execution.name == @name OR execution.Name == @name)
@@ -59,8 +74,8 @@ FILTER used == null
 REPLACE {_key: @key} WITH @document IN @@recipes
 RETURN {replaced: true}`, r.batchSize, map[string]interface{}{
 		"@executions": "loom_dataframe_bundle_executions", "@recipes": Collection,
-		"name": entry.Bundle.Name, "translationVersion": entry.Bundle.TranslationVersion,
-		"key": recipeDocumentKey(entry.Bundle.Name, entry.Bundle.TranslationVersion), "document": doc,
+		"name": entry.Bundle.Name, "translationVersion": entry.Bundle.TranslationVersion, "scopeProject": project,
+		"key": recipeDocumentKey(project, entry.Bundle.Name, entry.Bundle.TranslationVersion), "document": doc,
 	}, func(map[string]any) error { replaced = true; return nil })
 	if err != nil {
 		return err
@@ -71,7 +86,7 @@ RETURN {replaced: true}`, r.batchSize, map[string]interface{}{
 	return nil
 }
 
-func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry) error {
+func (r *Registry) saveRecipe(ctx context.Context, project string, entry exec.Entry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -83,7 +98,11 @@ func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry) error {
 	doc["name"] = entry.Bundle.Name
 	doc["translationVersion"] = entry.Bundle.TranslationVersion
 	doc["digest"] = entry.Digest
-	doc["_key"] = recipeDocumentKey(entry.Bundle.Name, entry.Bundle.TranslationVersion)
+	doc["scopeProject"] = project
+	if project == "" {
+		delete(doc, "scopeProject")
+	}
+	doc["_key"] = recipeDocumentKey(project, entry.Bundle.Name, entry.Bundle.TranslationVersion)
 	data, err = json.Marshal(doc)
 	if err != nil {
 		return err
@@ -92,11 +111,19 @@ func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry) error {
 }
 
 func (r *Registry) LoadRecipe(ctx context.Context, name string) (exec.Entry, error) {
-	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name SORT doc.translationVersion DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name})
+	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name AND (doc.scopeProject == null OR doc.scopeProject == "") SORT doc.translationVersion DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name})
 }
 
 func (r *Registry) LoadRecipeVersion(ctx context.Context, name, translationVersion string) (exec.Entry, error) {
-	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name AND doc.translationVersion == @translationVersion LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name, "translationVersion": translationVersion})
+	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name AND doc.translationVersion == @translationVersion AND (doc.scopeProject == null OR doc.scopeProject == "") LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name, "translationVersion": translationVersion})
+}
+
+func (r *Registry) LoadRecipeForProject(ctx context.Context, project, name string) (exec.Entry, error) {
+	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.scopeProject == @scopeProject AND doc.name == @name SORT doc.translationVersion DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "scopeProject": project, "name": name})
+}
+
+func (r *Registry) LoadRecipeVersionForProject(ctx context.Context, project, name, translationVersion string) (exec.Entry, error) {
+	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.scopeProject == @scopeProject AND doc.name == @name AND doc.translationVersion == @translationVersion LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "scopeProject": project, "name": name, "translationVersion": translationVersion})
 }
 
 func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string]interface{}) (exec.Entry, error) {
@@ -123,17 +150,30 @@ func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string
 }
 
 func (r *Registry) RecipeVersionUsed(ctx context.Context, name, translationVersion string) (bool, error) {
+	return r.recipeVersionUsed(ctx, "", name, translationVersion)
+}
+
+func (r *Registry) RecipeVersionUsedForProject(ctx context.Context, project, name, translationVersion string) (bool, error) {
+	return r.recipeVersionUsed(ctx, project, name, translationVersion)
+}
+
+func (r *Registry) recipeVersionUsed(ctx context.Context, project, name, translationVersion string) (bool, error) {
 	used := false
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER (doc.name == @name OR doc.Name == @name) AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion) LIMIT 1 RETURN {used: true}`, r.batchSize, map[string]interface{}{"@collection": "loom_dataframe_bundle_executions", "name": name, "translationVersion": translationVersion}, func(map[string]any) error {
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER (doc.name == @name OR doc.Name == @name) AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion) AND (@scopeProject == "" OR doc.project == @scopeProject OR doc.Project == @scopeProject) LIMIT 1 RETURN {used: true}`, r.batchSize, map[string]interface{}{"@collection": "loom_dataframe_bundle_executions", "name": name, "translationVersion": translationVersion, "scopeProject": project}, func(map[string]any) error {
 		used = true
 		return nil
 	})
 	return used, err
 }
 
-func recipeDocumentKey(name, translationVersion string) string {
-	sum := sha256.Sum256([]byte(name + "\x00" + translationVersion))
+func recipeDocumentKey(project, name, translationVersion string) string {
+	if project == "" {
+		sum := sha256.Sum256([]byte(name + "\x00" + translationVersion))
+		return hex.EncodeToString(sum[:])
+	}
+	sum := sha256.Sum256([]byte(project + "\x00" + name + "\x00" + translationVersion))
 	return hex.EncodeToString(sum[:])
 }
 
 var _ exec.VersionedStore = (*Registry)(nil)
+var _ exec.ScopedStore = (*Registry)(nil)

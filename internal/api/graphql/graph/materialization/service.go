@@ -208,9 +208,13 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 	if s.reader == nil {
 		return dfmaterialization.Page{}, readerUnavailable()
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
-	if err != nil {
-		return dfmaterialization.Page{}, err
+	selector := dfmaterialization.DataframeSelector{}
+	var err error
+	if input.MaterializationID == nil || strings.TrimSpace(*input.MaterializationID) == "" {
+		selector, err = s.resolveSelector(input.Selector, input.DataType)
+		if err != nil {
+			return dfmaterialization.Page{}, err
+		}
 	}
 	if input.MaterializationID != nil && *input.MaterializationID != "" {
 		s.logger.Debug("dataframe rows start", "path", "published", "materialization_id", *input.MaterializationID)
@@ -257,9 +261,13 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	if s.reader == nil {
 		return dfmaterialization.AggregateResult{}, readerUnavailable()
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
-	if err != nil {
-		return dfmaterialization.AggregateResult{}, err
+	selector := dfmaterialization.DataframeSelector{}
+	var err error
+	if input.MaterializationID == nil || strings.TrimSpace(*input.MaterializationID) == "" {
+		selector, err = s.resolveSelector(input.Selector, input.DataType)
+		if err != nil {
+			return dfmaterialization.AggregateResult{}, err
+		}
 	}
 	if input.MaterializationID != nil && *input.MaterializationID != "" {
 		s.logger.Debug("dataframe aggregate start", "path", "published", "materialization_id", *input.MaterializationID, "operation", input.Operation, "group_by", input.GroupBy)

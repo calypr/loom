@@ -8,6 +8,7 @@ package resolver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -226,6 +227,77 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	return recipeRevisionModel(value), nil
 }
 
+// ValidateDataframeRecipeBundle is the resolver for the validateDataframeRecipeBundle field.
+func (r *mutationResolver) ValidateDataframeRecipeBundle(ctx context.Context, input model.DataframeRecipeBundleInput) (*model.DataframeRecipeValidation, error) {
+	if r.recipeBundleControl == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	bundle, bindings, err := inlineBundleInput(input)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	bindings, err = r.authorizeRecipeRead(ctx, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	plan, err := r.recipeBundleControl.ValidateBundle(ctx, bundle, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	outputs := make([]*model.DataframeRecipeOutputValidation, 0, len(plan.Outputs))
+	for _, output := range plan.Outputs {
+		outputs = append(outputs, outputValidation(output))
+	}
+	return &model.DataframeRecipeValidation{Name: bundle.Name, RecipeDigest: plan.RecipeDigest, TranslationVersion: plan.TranslationVersion, Outputs: outputs}, nil
+}
+
+// PreviewDataframeRecipeBundle is the resolver for the previewDataframeRecipeBundle field.
+func (r *mutationResolver) PreviewDataframeRecipeBundle(ctx context.Context, input model.DataframeRecipeBundleInput) (*model.DataframeRecipePreview, error) {
+	if r.recipeBundleControl == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	bundle, bindings, err := inlineBundleInput(input)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	bindings, err = r.authorizeRecipeRead(ctx, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	preview, err := r.recipeBundleControl.PreviewBundle(ctx, bundle, bindings)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return previewResult(recipePreviewView{plan: preview.Plan, outputs: preview.Outputs}, bundle.Name)
+}
+
+// SaveProjectDataframeRecipeDraft is the resolver for the saveProjectDataframeRecipeDraft field.
+func (r *mutationResolver) SaveProjectDataframeRecipeDraft(ctx context.Context, input model.SaveProjectDataframeRecipeDraftInput) (*model.DataframeProjectRecipeDraft, error) {
+	if r.projectRecipeDrafts == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
+	}
+	bundle, err := bundleFromJSON(input.Recipe)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.Project})
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	draft := recipe.RecipeDraft{Project: bindings.Project, Document: bundle}
+	if input.BaseRevisionID != nil {
+		draft.BaseRevisionID = *input.BaseRevisionID
+	}
+	if input.UpdatedBy != nil {
+		draft.UpdatedBy = *input.UpdatedBy
+	}
+	saved, err := r.projectRecipeDrafts.SaveDraft(ctx, draft, int64(input.ExpectedVersion))
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return projectRecipeDraftModel(saved), nil
+}
+
 // DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.
 func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error) {
 	includePivotOnlyFields := true
@@ -384,6 +456,55 @@ func (r *queryResolver) DataframeRecipeRevisions(ctx context.Context, projectID 
 		return nil, recipeGraphQLError(err)
 	}
 	values, err := r.recipeRevisions.List(ctx, projectID, name)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	result := make([]*model.DataframeRecipeRevision, 0, len(values))
+	for _, value := range values {
+		result = append(result, recipeRevisionModel(value))
+	}
+	return result, nil
+}
+
+// ProjectDataframeRecipeDraft is the resolver for the projectDataframeRecipeDraft field.
+func (r *queryResolver) ProjectDataframeRecipeDraft(ctx context.Context, project string) (*model.DataframeProjectRecipeDraft, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, ""))
+	}
+	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: project}); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	if r.projectRecipeDrafts != nil {
+		if value, err := r.projectRecipeDrafts.GetDraft(ctx, project); err == nil {
+			return projectRecipeDraftModel(value), nil
+		} else if !errors.Is(err, recipe.ErrDraftNotFound) {
+			return nil, recipeGraphQLError(err)
+		}
+	}
+	if r.defaultRecipeBundle == nil {
+		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeRecipeNotFound, ""))
+	}
+	bundle, err := r.defaultRecipeBundle()
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	value, err := recipe.NormalizeProjectBundle(project, bundle)
+	if err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	return projectRecipeDraftModel(value), nil
+}
+
+// ProjectDataframeRecipeRevisions is the resolver for the projectDataframeRecipeRevisions field.
+func (r *queryResolver) ProjectDataframeRecipeRevisions(ctx context.Context, project string) ([]*model.DataframeRecipeRevision, error) {
+	if r.recipeRevisions == nil {
+		return []*model.DataframeRecipeRevision{}, nil
+	}
+	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: project}); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	values, err := r.recipeRevisions.List(ctx, project, recipe.ProjectRecipeName(project))
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}

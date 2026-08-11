@@ -29,6 +29,9 @@ type MutationResolver interface {
 	ActivateProjectRelease(ctx context.Context, input model.ActivateProjectReleaseInput) (*model.ProjectRelease, error)
 	PromoteDataframeContract(ctx context.Context, input model.PromoteDataframeContractInput) (*model.DataframeContract, error)
 	RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error)
+	ValidateDataframeRecipeBundle(ctx context.Context, input model.DataframeRecipeBundleInput) (*model.DataframeRecipeValidation, error)
+	PreviewDataframeRecipeBundle(ctx context.Context, input model.DataframeRecipeBundleInput) (*model.DataframeRecipePreview, error)
+	SaveProjectDataframeRecipeDraft(ctx context.Context, input model.SaveProjectDataframeRecipeDraftInput) (*model.DataframeProjectRecipeDraft, error)
 }
 type QueryResolver interface {
 	DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error)
@@ -42,6 +45,8 @@ type QueryResolver interface {
 	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
 	DataframeRecipeRevision(ctx context.Context, projectID string, name string, digest string) (*model.DataframeRecipeRevision, error)
 	DataframeRecipeRevisions(ctx context.Context, projectID string, name string) ([]*model.DataframeRecipeRevision, error)
+	ProjectDataframeRecipeDraft(ctx context.Context, project string) (*model.DataframeProjectRecipeDraft, error)
+	ProjectDataframeRecipeRevisions(ctx context.Context, project string) ([]*model.DataframeRecipeRevision, error)
 	ExplainDataframeRecipe(ctx context.Context, input model.ExplainDataframeRecipeInput) (*model.DataframeRecipeExplanation, error)
 	PreflightDataframeRecipe(ctx context.Context, input model.PreflightDataframeRecipeInput) (*model.DataframeRecipePreflight, error)
 	FhirGraph(ctx context.Context, input model.FhirGraphQueryInput) (*model.FhirGraphQueryResult, error)
@@ -95,6 +100,20 @@ func (ec *executionContext) field_Mutation_materializeDataframeRecipeBundle_args
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.MaterializeDataframeRecipeInput, error) {
 			return ec.unmarshalNMaterializeDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐMaterializeDataframeRecipeInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_previewDataframeRecipeBundle_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.DataframeRecipeBundleInput, error) {
+			return ec.unmarshalNDataframeRecipeBundleInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeBundleInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -181,12 +200,40 @@ func (ec *executionContext) field_Mutation_runFhirDataframe_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_saveProjectDataframeRecipeDraft_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.SaveProjectDataframeRecipeDraftInput, error) {
+			return ec.unmarshalNSaveProjectDataframeRecipeDraftInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐSaveProjectDataframeRecipeDraftInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_startDataframeMaterialization_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.StartDataframeMaterializationInput, error) {
 			return ec.unmarshalNStartDataframeMaterializationInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐStartDataframeMaterializationInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_validateDataframeRecipeBundle_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.DataframeRecipeBundleInput, error) {
+			return ec.unmarshalNDataframeRecipeBundleInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeBundleInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -1138,6 +1185,34 @@ func (ec *executionContext) field_Query_projectDataframeDatasets_args(ctx contex
 		return nil, err
 	}
 	args["projectId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_projectDataframeRecipeDraft_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "project",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["project"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_projectDataframeRecipeRevisions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "project",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["project"] = arg0
 	return args, nil
 }
 
@@ -3343,6 +3418,167 @@ func (ec *executionContext) _DataframePageInfo_endCursor(ctx context.Context, fi
 }
 func (ec *executionContext) fieldContext_DataframePageInfo_endCursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframePageInfo", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_project(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_project(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Project, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_project(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_draftVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_draftVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DraftVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_draftVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_document(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_document(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Document, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+			return ec.marshalNJSON2encodingᚋjsonᚐRawMessage(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_document(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type JSON does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_authoringDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_authoringDigest(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AuthoringDigest, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_authoringDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_baseRevisionId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_baseRevisionId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BaseRevisionID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOID2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_baseRevisionId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_updatedBy(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_updatedBy(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedBy, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_updatedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft_updatedAt(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectRecipeDraft) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeProjectRecipeDraft_updatedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeProjectRecipeDraft_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeProjectRecipeDraft", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeProjectStatus_project(ctx context.Context, field graphql.CollectedField, obj *model.DataframeProjectStatus) (ret graphql.Marshaler) {
@@ -8780,6 +9016,138 @@ func (ec *executionContext) fieldContext_Mutation_registerDataframeRecipeRevisio
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_validateDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_validateDataframeRecipeBundle(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ValidateDataframeRecipeBundle(ctx, fc.Args["input"].(model.DataframeRecipeBundleInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRecipeValidation) graphql.Marshaler {
+			return ec.marshalNDataframeRecipeValidation2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeValidation(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_validateDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeRecipeValidation(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_validateDataframeRecipeBundle_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_previewDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_previewDataframeRecipeBundle(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().PreviewDataframeRecipeBundle(ctx, fc.Args["input"].(model.DataframeRecipeBundleInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRecipePreview) graphql.Marshaler {
+			return ec.marshalNDataframeRecipePreview2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipePreview(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_previewDataframeRecipeBundle(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeRecipePreview(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_previewDataframeRecipeBundle_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_saveProjectDataframeRecipeDraft(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_saveProjectDataframeRecipeDraft(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SaveProjectDataframeRecipeDraft(ctx, fc.Args["input"].(model.SaveProjectDataframeRecipeDraftInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeProjectRecipeDraft) graphql.Marshaler {
+			return ec.marshalNDataframeProjectRecipeDraft2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeProjectRecipeDraft(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_saveProjectDataframeRecipeDraft(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeProjectRecipeDraft(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_saveProjectDataframeRecipeDraft_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ProjectRelease_id(ctx context.Context, field graphql.CollectedField, obj *model.ProjectRelease) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -9361,6 +9729,94 @@ func (ec *executionContext) fieldContext_Query_dataframeRecipeRevisions(ctx cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeRecipeRevisions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_projectDataframeRecipeDraft(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_projectDataframeRecipeDraft(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ProjectDataframeRecipeDraft(ctx, fc.Args["project"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeProjectRecipeDraft) graphql.Marshaler {
+			return ec.marshalNDataframeProjectRecipeDraft2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeProjectRecipeDraft(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_projectDataframeRecipeDraft(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeProjectRecipeDraft(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_projectDataframeRecipeDraft_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_projectDataframeRecipeRevisions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_projectDataframeRecipeRevisions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ProjectDataframeRecipeRevisions(ctx, fc.Args["project"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeRecipeRevision) graphql.Marshaler {
+			return ec.marshalNDataframeRecipeRevision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevisionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_projectDataframeRecipeRevisions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeRecipeRevision(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_projectDataframeRecipeRevisions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -11076,6 +11532,75 @@ func (ec *executionContext) unmarshalInputDataframeRecipeBindingsInput(ctx conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputDataframeRecipeBundleInput(ctx context.Context, obj any) (model.DataframeRecipeBundleInput, error) {
+	var it model.DataframeRecipeBundleInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["previewLimit"]; !present {
+		asMap["previewLimit"] = 25
+	}
+
+	fieldsInOrder := [...]string{"project", "recipe", "datasetGeneration", "authResourcePaths", "previewLimit", "outputs"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "project":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("project"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Project = data
+		case "recipe":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("recipe"))
+			data, err := ec.unmarshalNJSON2encodingᚋjsonᚐRawMessage(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Recipe = data
+		case "datasetGeneration":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("datasetGeneration"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DatasetGeneration = data
+		case "authResourcePaths":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authResourcePaths"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AuthResourcePaths = data
+		case "previewLimit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("previewLimit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PreviewLimit = data
+		case "outputs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("outputs"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Outputs = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context, obj any) (model.DataframeRowsInput, error) {
 	var it model.DataframeRowsInput
 	if obj == nil {
@@ -12661,6 +13186,64 @@ func (ec *executionContext) unmarshalInputRunDataframeRecipeInput(ctx context.Co
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputSaveProjectDataframeRecipeDraftInput(ctx context.Context, obj any) (model.SaveProjectDataframeRecipeDraftInput, error) {
+	var it model.SaveProjectDataframeRecipeDraftInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"project", "recipe", "expectedVersion", "baseRevisionId", "updatedBy"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "project":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("project"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Project = data
+		case "recipe":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("recipe"))
+			data, err := ec.unmarshalNJSON2encodingᚋjsonᚐRawMessage(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Recipe = data
+		case "expectedVersion":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expectedVersion"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpectedVersion = data
+		case "baseRevisionId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("baseRevisionId"))
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BaseRevisionID = data
+		case "updatedBy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedBy"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedBy = data
+		}
+	}
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputStartDataframeMaterializationInput(ctx context.Context, obj any) (model.StartDataframeMaterializationInput, error) {
 	var it model.StartDataframeMaterializationInput
 	if obj == nil {
@@ -13601,6 +14184,74 @@ func (ec *executionContext) _DataframePageInfo(ctx context.Context, sel ast.Sele
 		case "endCursor":
 			out.Values[i] = ec._DataframePageInfo_endCursor(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeProjectRecipeDraftImplementors = []string{"DataframeProjectRecipeDraft"}
+
+func (ec *executionContext) _DataframeProjectRecipeDraft(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeProjectRecipeDraft) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeProjectRecipeDraftImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeProjectRecipeDraft")
+		case "project":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_project(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "draftVersion":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_draftVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "document":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_document(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "authoringDigest":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_authoringDigest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "baseRevisionId":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_baseRevisionId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "updatedBy":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_updatedBy(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "updatedAt":
+			out.Values[i] = ec._DataframeProjectRecipeDraft_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		default:
@@ -16085,6 +16736,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "validateDataframeRecipeBundle":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_validateDataframeRecipeBundle(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "previewDataframeRecipeBundle":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_previewDataframeRecipeBundle(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "saveProjectDataframeRecipeDraft":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_saveProjectDataframeRecipeDraft(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -16414,6 +17086,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_dataframeRecipeRevisions(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "projectDataframeRecipeDraft":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_projectDataframeRecipeDraft(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "projectDataframeRecipeRevisions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_projectDataframeRecipeRevisions(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -17318,6 +18034,20 @@ func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalypr�
 	return ec._DataframePageInfo(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNDataframeProjectRecipeDraft2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeProjectRecipeDraft(ctx context.Context, sel ast.SelectionSet, v model.DataframeProjectRecipeDraft) graphql.Marshaler {
+	return ec._DataframeProjectRecipeDraft(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeProjectRecipeDraft2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeProjectRecipeDraft(ctx context.Context, sel ast.SelectionSet, v *model.DataframeProjectRecipeDraft) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeProjectRecipeDraft(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNDataframeProjectState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeProjectState(ctx context.Context, v any) (model.DataframeProjectState, error) {
 	var res model.DataframeProjectState
 	err := res.UnmarshalGQL(v)
@@ -17367,6 +18097,11 @@ func (ec *executionContext) marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋ
 func (ec *executionContext) unmarshalNDataframeRecipeBindingsInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeBindingsInput(ctx context.Context, v any) (*model.DataframeRecipeBindingsInput, error) {
 	res, err := ec.unmarshalInputDataframeRecipeBindingsInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNDataframeRecipeBundleInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeBundleInput(ctx context.Context, v any) (model.DataframeRecipeBundleInput, error) {
+	res, err := ec.unmarshalInputDataframeRecipeBundleInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNDataframeRecipeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeColumn) graphql.Marshaler {
@@ -18406,6 +19141,11 @@ func (ec *executionContext) unmarshalNRegisterDataframeRecipeRevisionInput2githu
 
 func (ec *executionContext) unmarshalNRunDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐRunDataframeRecipeInput(ctx context.Context, v any) (model.RunDataframeRecipeInput, error) {
 	res, err := ec.unmarshalInputRunDataframeRecipeInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNSaveProjectDataframeRecipeDraftInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐSaveProjectDataframeRecipeDraftInput(ctx context.Context, v any) (model.SaveProjectDataframeRecipeDraftInput, error) {
+	res, err := ec.unmarshalInputSaveProjectDataframeRecipeDraftInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

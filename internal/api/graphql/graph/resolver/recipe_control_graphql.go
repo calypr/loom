@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
@@ -19,6 +20,48 @@ import (
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
+
+func bundleFromJSON(raw json.RawMessage) (recipe.Bundle, error) {
+	if len(raw) == 0 {
+		return recipe.Bundle{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	var bundle recipe.Bundle
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		return recipe.Bundle{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
+	}
+	if err := bundle.Validate(); err != nil {
+		return recipe.Bundle{}, recipeGraphQLError(err)
+	}
+	return bundle, nil
+}
+
+func inlineBundleInput(input model.DataframeRecipeBundleInput) (recipe.Bundle, recipe.RuntimeBindings, error) {
+	bundle, err := bundleFromJSON(input.Recipe)
+	if err != nil {
+		return recipe.Bundle{}, recipe.RuntimeBindings{}, err
+	}
+	limit := 25
+	if input.PreviewLimit != nil {
+		limit = *input.PreviewLimit
+	}
+	if limit < 0 {
+		return recipe.Bundle{}, recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "")
+	}
+	return bundle, recipe.RuntimeBindings{Project: input.Project, DatasetGeneration: valueOrEmpty(input.DatasetGeneration), AuthResourcePaths: append([]string(nil), input.AuthResourcePaths...), PreviewLimit: limit, OutputNames: append([]string(nil), input.Outputs...)}, nil
+}
+
+func projectRecipeDraftModel(value recipe.RecipeDraft) *model.DataframeProjectRecipeDraft {
+	document, _ := json.Marshal(value.Document)
+	updated := value.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	result := &model.DataframeProjectRecipeDraft{Project: value.Project, DraftVersion: int(value.DraftVersion), Document: document, AuthoringDigest: value.AuthoringDigest, UpdatedAt: updated}
+	if value.BaseRevisionID != "" {
+		result.BaseRevisionID = &value.BaseRevisionID
+	}
+	if value.UpdatedBy != "" {
+		result.UpdatedBy = &value.UpdatedBy
+	}
+	return result
+}
 
 func requireRecipeControl(control RecipeControl) error {
 	if control == nil {
@@ -41,6 +84,8 @@ func recipeGraphQLError(err error) error {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
 		case errors.Is(err, recipeexec.ErrRecipeNotFound):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
+		case errors.Is(err, recipe.ErrDraftConflict):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeDraftConflict, "", dataframeerrors.WithDetails(map[string]any{"conflict": true}))
 		case errors.Is(err, authscope.ErrUnauthenticated):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
 		case errors.Is(err, authscope.ErrForbidden):

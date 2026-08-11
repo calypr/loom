@@ -162,6 +162,85 @@ func (r *Reader) DatasetByPublishedID(ctx context.Context, id string) (Materiali
 	return r.publishedByID(ctx, id)
 }
 
+// StreamPublishedID reads one immutable published materialization directly by
+// ID. It intentionally does not consult the mutable logical pointer, so a
+// share URL remains readable after a newer publication replaces the current
+// pointer.
+func (r *Reader) StreamPublishedID(ctx context.Context, id string, req FederatedStreamRequest, visit func(map[string]any) error) error {
+	if r == nil || r.ClickHouse == nil || visit == nil {
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	m, err := r.publishedByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if m.State != StateReady {
+		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	allowed := make(map[string]struct{}, len(m.Columns))
+	for _, column := range m.Columns {
+		allowed[column.Name] = struct{}{}
+	}
+	columns := append([]string(nil), req.Columns...)
+	if len(columns) == 0 {
+		for _, column := range m.Columns {
+			if column.Name != "__loom_row_id" {
+				columns = append(columns, column.Name)
+			}
+		}
+	}
+	for _, column := range columns {
+		if column == "__loom_row_id" {
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+		if _, ok := allowed[column]; !ok {
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+	}
+	if req.Sort != nil {
+		if _, ok := allowed[req.Sort.Column]; !ok || req.Sort.Column == "__loom_row_id" {
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+	}
+	where, args, err := buildWhere(req.Filters, allowed)
+	if err != nil {
+		return err
+	}
+	queryColumns := append([]string(nil), columns...)
+	if req.Sort != nil && !contains(queryColumns, req.Sort.Column) {
+		queryColumns = append(queryColumns, req.Sort.Column)
+	}
+	queryColumns = append(queryColumns, "__loom_row_id")
+	selects := make([]string, len(queryColumns))
+	for i, column := range queryColumns {
+		selects[i] = fmt.Sprintf("`%s`", column)
+	}
+	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), m.PhysicalTable)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	if req.Sort != nil {
+		direction := "ASC"
+		if req.Sort.Desc {
+			direction = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY `%s` %s, toString(`__loom_row_id`) ASC", req.Sort.Column, direction)
+	} else {
+		query += " ORDER BY toString(`__loom_row_id`) ASC"
+	}
+	err = r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
+		delete(row, "__loom_row_id")
+		if req.Sort != nil && !contains(columns, req.Sort.Column) {
+			delete(row, req.Sort.Column)
+		}
+		return visit(row)
+	}, args...)
+	if err != nil {
+		return backendCallError(err)
+	}
+	return nil
+}
+
 func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization, error) {
 	parts := strings.SplitN(id, ":", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -172,13 +251,6 @@ func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization,
 		return Materialization{}, err
 	}
 	if !execution.State.Successful() {
-		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
-	if err != nil {
-		return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", err)
-	}
-	if pointer.ExecutionID != execution.ID {
 		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	for _, output := range execution.Outputs {

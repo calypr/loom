@@ -100,8 +100,12 @@ func (w *Worker) Enqueue(ctx context.Context, identity publication.BundleIdentit
 		return publication.BundleExecution{}, err
 	}
 	now := time.Now().UTC()
+	idValue, err := uuid.NewV7()
+	if err != nil {
+		return publication.BundleExecution{}, fmt.Errorf("create publication UUIDv7: %w", err)
+	}
 	execution := publication.BundleExecution{
-		ID: uuid.NewString(), Key: key, BundleIdentity: identity, State: publication.BundleQueued,
+		ID: idValue.String(), Key: key, BundleIdentity: identity, State: publication.BundleQueued,
 		CreatedAt: now, UpdatedAt: now, MaxAttempts: w.maxAttempts,
 	}
 	if err := w.store.catalog.SaveExecution(ctx, execution); err != nil {

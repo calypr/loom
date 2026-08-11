@@ -12,13 +12,14 @@ const (
 )
 
 type ExportRequest struct {
-	Selector *DataframeSelector `json:"selector,omitempty"`
-	DataType string             `json:"dataType,omitempty"`
-	Columns  []string
-	Filters  []Filter
-	Sort     *Sort
-	Format   ExportFormat
-	Filename string
+	MaterializationID string             `json:"materializationId,omitempty"`
+	Selector          *DataframeSelector `json:"selector,omitempty"`
+	DataType          string             `json:"dataType,omitempty"`
+	Columns           []string
+	Filters           []Filter
+	Sort              *Sort
+	Format            ExportFormat
+	Filename          string
 }
 
 func (f ExportFormat) Normalize() ExportFormat {

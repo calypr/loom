@@ -38,17 +38,18 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	for _, request := range []struct {
 		method string
 		path   string
+		want   int
 	}{
-		{http.MethodGet, "/api/v1/datasets/project/generations/generation/export"},
-		{http.MethodPost, "/loom/api/v1/dataframe/export"},
+		{http.MethodGet, "/api/v1/datasets/project/generations/generation/export", http.StatusNotFound},
+		{http.MethodPost, "/loom/api/v1/dataframe/export", http.StatusBadRequest},
 	} {
 		resp, err := server.App().Test(httptest.NewRequest(request.method, request.path, nil))
 		if err != nil {
 			t.Fatalf("request %s %s: %v", request.method, request.path, err)
 		}
 		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusNotFound {
-			t.Fatalf("route %s %s status = %d, want %d", request.method, request.path, resp.StatusCode, http.StatusNotFound)
+		if resp.StatusCode != request.want {
+			t.Fatalf("route %s %s status = %d, want %d", request.method, request.path, resp.StatusCode, request.want)
 		}
 	}
 	for _, request := range []struct {
