@@ -60,6 +60,9 @@ type PublicationIdentity struct {
 	TargetConfigDigest string
 	AuthScopeMode      string
 	AuthResourcePaths  []string
+	ScopeProject       string
+	ProjectRevisionID  string
+	SelectedOutputs    []string
 }
 
 type PublishedOutput struct {

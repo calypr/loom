@@ -104,12 +104,13 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	initialRecipe := strings.TrimSpace(serverConfig.Server.DefaultRecipe)
 	initialVersion := strings.TrimSpace(serverConfig.Server.DefaultTranslationVersion)
+	var defaultBundle recipe.Bundle
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
 			return fmt.Errorf("read dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
-		defaultBundle, err := recipe.Parse(data)
+		defaultBundle, err = recipe.Parse(data)
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
@@ -211,6 +212,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	var bundleTarget publication.Target
 	var publicationWorker *publicationclickhouse.Worker
+	var projectRecipePublisher *recipe.ProjectRecipePublisher
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
 		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, publishedRegistry)
 		if err != nil {
@@ -229,6 +231,14 @@ func run(ctx context.Context, serverConfig Config) error {
 			if err != nil {
 				return fmt.Errorf("create dataframe publication worker: %w", err)
 			}
+			projectRecipePublisher = &recipe.ProjectRecipePublisher{
+				Drafts: recipeRevisions, Revisions: recipeRevisions, Enqueuer: publicationWorker, Default: defaultBundle,
+				Registry: recipe.ProjectRecipeRegistryFunc(func(ctx context.Context, project string, bundle recipe.Bundle) (string, error) {
+					entry, registerErr := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersionForProject(ctx, project, bundle)
+					return entry.Digest, registerErr
+				}),
+			}
+			publicationWorker.SetCompletionHook(projectRecipePublisher.ObserveExecution)
 		}
 	}
 	verificationStore := publicationVerificationStore{executions: publishedRegistry, query: lifecycleClient}
@@ -331,6 +341,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipe.Parse(data)
 		},
+		ProjectRecipePublisher:      projectRecipePublisher,
 		RecipeExecutions:            graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,

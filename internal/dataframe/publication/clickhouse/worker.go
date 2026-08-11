@@ -19,6 +19,10 @@ type WorkerConfig struct {
 	MaxAttempts int
 	RetryDelay  time.Duration
 	WorkerID    string
+	// OnExecutionComplete is invoked after each durable success/failure state
+	// transition. It lets project recipe revisions mirror execution status
+	// without coupling the durable worker to recipe persistence.
+	OnExecutionComplete func(context.Context, publication.BundleExecution) error
 }
 
 // Worker leases durable QUEUED commands and retries only typed retryable
@@ -30,6 +34,7 @@ type Worker struct {
 	maxAttempts int
 	retryDelay  time.Duration
 	workerID    string
+	onComplete  func(context.Context, publication.BundleExecution) error
 }
 
 // Run continuously drains durable work until ctx is canceled. Individual
@@ -69,7 +74,11 @@ func NewWorker(store *ClickHouseBundleStore, processor ExecutionProcessor, cfg W
 	if strings.TrimSpace(cfg.WorkerID) == "" {
 		cfg.WorkerID = "publication-worker-" + uuid.NewString()
 	}
-	return &Worker{store: store, processor: processor, maxAttempts: cfg.MaxAttempts, retryDelay: cfg.RetryDelay, workerID: cfg.WorkerID}, nil
+	return &Worker{store: store, processor: processor, maxAttempts: cfg.MaxAttempts, retryDelay: cfg.RetryDelay, workerID: cfg.WorkerID, onComplete: cfg.OnExecutionComplete}, nil
+}
+
+func (w *Worker) SetCompletionHook(hook func(context.Context, publication.BundleExecution) error) {
+	w.onComplete = hook
 }
 
 // Enqueue is idempotent by the complete BundleIdentity, which includes the
@@ -179,9 +188,23 @@ func (w *Worker) runExecution(ctx context.Context, execution publication.BundleE
 			releaseErr := w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
 			return errors.Join(err, releaseErr)
 		}
-		return w.recordFailure(ctx, execution.ID, owner, err)
+		failureErr := w.recordFailure(ctx, execution.ID, owner, err)
+		if w.onComplete != nil {
+			if final, loadErr := w.store.catalog.GetExecution(ctx, execution.ID); loadErr == nil {
+				failureErr = errors.Join(failureErr, w.onComplete(ctx, final.CanonicalizeLegacy()))
+			}
+		}
+		return failureErr
 	}
-	return w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
+	releaseErr := w.store.catalog.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, owner)
+	if w.onComplete != nil {
+		if final, loadErr := w.store.catalog.GetExecution(ctx, execution.ID); loadErr == nil {
+			releaseErr = errors.Join(releaseErr, w.onComplete(ctx, final.CanonicalizeLegacy()))
+		} else {
+			releaseErr = errors.Join(releaseErr, loadErr)
+		}
+	}
+	return releaseErr
 }
 
 func allOutputsQueryable(outputs []publication.BundleOutputRecord) bool {

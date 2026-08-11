@@ -23,6 +23,7 @@ type RecipeRevision struct {
 	Project            string                 `json:"project"`
 	Name               string                 `json:"name"`
 	Digest             string                 `json:"digest"`
+	AuthoringDigest    string                 `json:"authoringDigest,omitempty"`
 	Parent             string                 `json:"parentDigest,omitempty"`
 	Bundle             Bundle                 `json:"bundle"`
 	RevisionNumber     int64                  `json:"revisionNumber,omitempty"`
@@ -207,6 +208,16 @@ type RevisionStore interface {
 	List(context.Context, string, string) ([]RecipeRevision, error)
 }
 
+// ProjectRevisionStore is the rich immutable lifecycle used by authoring
+// publication. It is separate from RevisionStore so legacy digest-addressed
+// callers and fakes remain source-compatible.
+type ProjectRevisionStore interface {
+	RegisterProjectRevision(context.Context, string, Bundle, string, int64) (RecipeRevision, error)
+	GetProjectRevision(context.Context, string, string) (RecipeRevision, error)
+	ListProjectRevisions(context.Context, string) ([]RecipeRevision, error)
+	UpdateProjectRevision(context.Context, RecipeRevision) error
+}
+
 // MemoryRevisionStore is the default process-local implementation. Production
 // deployments can replace it with a durable project registry without changing
 // compiler or GraphQL contracts.
@@ -214,10 +225,11 @@ type MemoryRevisionStore struct {
 	mu      sync.RWMutex
 	values  map[string]RecipeRevision
 	current map[string]string
+	project map[string]RecipeRevision
 }
 
 func NewMemoryRevisionStore() *MemoryRevisionStore {
-	return &MemoryRevisionStore{values: make(map[string]RecipeRevision), current: make(map[string]string)}
+	return &MemoryRevisionStore{values: make(map[string]RecipeRevision), current: make(map[string]string), project: make(map[string]RecipeRevision)}
 }
 
 func revisionKey(project, name, digest string) string {
@@ -312,6 +324,66 @@ func (s *MemoryRevisionStore) List(_ context.Context, project, name string) ([]R
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result, nil
+}
+
+func (s *MemoryRevisionStore) RegisterProjectRevision(_ context.Context, project string, bundle Bundle, parent string, revisionNumber int64) (RecipeRevision, error) {
+	if strings.TrimSpace(project) == "" {
+		return RecipeRevision{}, fmt.Errorf("project is required")
+	}
+	bundle.Name = ProjectRecipeName(project)
+	id, err := uuid.NewV7()
+	if err != nil {
+		return RecipeRevision{}, err
+	}
+	bundle.TranslationVersion = ProjectRecipeTranslationVersion(revisionNumber, id.String())
+	bundle = canonicalBundle(bundle)
+	if err := bundle.Validate(); err != nil {
+		return RecipeRevision{}, err
+	}
+	digest, err := bundle.Digest()
+	if err != nil {
+		return RecipeRevision{}, err
+	}
+	revision := RecipeRevision{ID: id.String(), Project: project, Name: bundle.Name, RecipeName: bundle.Name, Digest: digest, Parent: parent, Bundle: bundle, RevisionNumber: revisionNumber, Status: RecipeRevisionValidating, TranslationVersion: bundle.TranslationVersion, CreatedAt: time.Now().UTC()}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := project + "\x00" + revision.ID
+	s.project[key] = revision
+	return revision, nil
+}
+
+func (s *MemoryRevisionStore) GetProjectRevision(_ context.Context, project, id string) (RecipeRevision, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	revision, ok := s.project[project+"\x00"+id]
+	if !ok {
+		return RecipeRevision{}, ErrRecipeRevisionNotFound
+	}
+	return revision, nil
+}
+
+func (s *MemoryRevisionStore) ListProjectRevisions(_ context.Context, project string) ([]RecipeRevision, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]RecipeRevision, 0)
+	for _, revision := range s.project {
+		if revision.Project == project {
+			result = append(result, revision)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].RevisionNumber > result[j].RevisionNumber })
+	return result, nil
+}
+
+func (s *MemoryRevisionStore) UpdateProjectRevision(_ context.Context, revision RecipeRevision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := revision.Project + "\x00" + revision.ID
+	if _, ok := s.project[key]; !ok {
+		return ErrRecipeRevisionNotFound
+	}
+	s.project[key] = revision
+	return nil
 }
 
 // unmarshalJSON is a tiny indirection kept here to avoid exposing the

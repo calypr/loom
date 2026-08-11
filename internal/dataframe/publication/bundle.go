@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -77,6 +78,12 @@ type BundleIdentity struct {
 	EngineVersion      string   `json:"engineVersion"`
 	AuthScopeMode      string   `json:"authScopeMode,omitempty"`
 	AuthResourcePaths  []string `json:"authResourcePaths,omitempty"`
+	// ScopeProject distinguishes project-authoring versions from the legacy
+	// global registry. It is intentionally separate from Project, which is the
+	// caller/data tenant for both workflows.
+	ScopeProject      string   `json:"scopeProject,omitempty"`
+	ProjectRevisionID string   `json:"projectRevisionId,omitempty"`
+	SelectedOutputs   []string `json:"selectedOutputs,omitempty"`
 }
 
 // PointerName is the visibility namespace for a published logical dataset.
@@ -97,24 +104,34 @@ func (i BundleIdentity) Key() string {
 		ScopeDigest, EngineVersion       string
 		AuthScopeMode                    string   `json:"AuthScopeMode,omitempty"`
 		AuthResourcePaths                []string `json:"AuthResourcePaths,omitempty"`
-	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
+		ScopeProject                     string   `json:"ScopeProject,omitempty"`
+		ProjectRevisionID                string   `json:"ProjectRevisionID,omitempty"`
+		SelectedOutputs                  []string `json:"SelectedOutputs,omitempty"`
+	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths, i.ScopeProject, i.ProjectRevisionID, sortedStrings(i.SelectedOutputs)})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
+func sortedStrings(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
+}
+
 type BundleOutputRecord struct {
-	Name             string            `json:"name"`
-	PhysicalTable    string            `json:"physicalTable"`
-	Selector         DataframeSelector `json:"selector"`
-	Columns          []PhysicalColumn  `json:"columns,omitempty"`
-	RowCount         int64             `json:"rowCount"`
-	ByteCount        int64             `json:"byteCount"`
-	State            BundleState       `json:"state"`
-	FailureCode      string            `json:"failureCode,omitempty"`
-	FailureRetryable bool              `json:"failureRetryable,omitempty"`
-	VerifiedAt       *time.Time        `json:"verifiedAt,omitempty"`
-	FailurePhase     string            `json:"failurePhase,omitempty"`
-	FailureDetails   string            `json:"failureDetails,omitempty"`
+	Name              string            `json:"name"`
+	MaterializationID string            `json:"materializationId,omitempty"`
+	PhysicalTable     string            `json:"physicalTable"`
+	Selector          DataframeSelector `json:"selector"`
+	Columns           []PhysicalColumn  `json:"columns,omitempty"`
+	RowCount          int64             `json:"rowCount"`
+	ByteCount         int64             `json:"byteCount"`
+	State             BundleState       `json:"state"`
+	FailureCode       string            `json:"failureCode,omitempty"`
+	FailureRetryable  bool              `json:"failureRetryable,omitempty"`
+	VerifiedAt        *time.Time        `json:"verifiedAt,omitempty"`
+	FailurePhase      string            `json:"failurePhase,omitempty"`
+	FailureDetails    string            `json:"failureDetails,omitempty"`
 }
 
 func (e BundleExecution) Selector(output string) DataframeSelector {
