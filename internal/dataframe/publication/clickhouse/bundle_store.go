@@ -91,7 +91,11 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	} else if !errors.Is(err, publication.ErrBundleNotFound) {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	id := uuid.NewString()
+	idValue, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("create publication UUIDv7: %w", err)
+	}
+	id := idValue.String()
 	now := time.Now().UTC()
 	leaseUntil := now.Add(s.leaseTTL)
 	expectedPointer, err := s.pointer(ctx, identity.PointerName())

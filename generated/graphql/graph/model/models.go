@@ -195,6 +195,16 @@ type DataframePageInfo struct {
 	EndCursor   *string `json:"endCursor,omitempty"`
 }
 
+type DataframeProjectRecipeDraft struct {
+	Project         string          `json:"project"`
+	DraftVersion    int             `json:"draftVersion"`
+	Document        json.RawMessage `json:"document"`
+	AuthoringDigest string          `json:"authoringDigest"`
+	BaseRevisionID  *string         `json:"baseRevisionId,omitempty"`
+	UpdatedBy       *string         `json:"updatedBy,omitempty"`
+	UpdatedAt       string          `json:"updatedAt"`
+}
+
 type DataframeProjectStatus struct {
 	Project     string                `json:"project"`
 	State       DataframeProjectState `json:"state"`
@@ -231,6 +241,15 @@ type DataframeRecipeBindingsInput struct {
 	DatasetGeneration *string  `json:"datasetGeneration,omitempty"`
 	AuthResourcePaths []string `json:"authResourcePaths,omitempty"`
 	PreviewLimit      *int     `json:"previewLimit,omitempty"`
+}
+
+type DataframeRecipeBundleInput struct {
+	Project           string          `json:"project"`
+	Recipe            json.RawMessage `json:"recipe"`
+	DatasetGeneration *string         `json:"datasetGeneration,omitempty"`
+	AuthResourcePaths []string        `json:"authResourcePaths,omitempty"`
+	PreviewLimit      *int            `json:"previewLimit,omitempty"`
+	Outputs           []string        `json:"outputs,omitempty"`
 }
 
 type DataframeRecipeColumn struct {
@@ -747,6 +766,14 @@ type RunDataframeRecipeInput struct {
 	Name     string                        `json:"name"`
 	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 	Outputs  []string                      `json:"outputs,omitempty"`
+}
+
+type SaveProjectDataframeRecipeDraftInput struct {
+	Project         string          `json:"project"`
+	Recipe          json.RawMessage `json:"recipe"`
+	ExpectedVersion int             `json:"expectedVersion"`
+	BaseRevisionID  *string         `json:"baseRevisionId,omitempty"`
+	UpdatedBy       *string         `json:"updatedBy,omitempty"`
 }
 
 type StartDataframeMaterializationInput struct {

@@ -320,8 +320,17 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeControl: engine.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) (engine.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
-		RecipeAuthorizer:            recipeAuthorization{resolver: scopeResolver},
-		RecipeRevisions:             recipeRevisions,
+		RecipeAuthorizer:    recipeAuthorization{resolver: scopeResolver},
+		RecipeRevisions:     recipeRevisions,
+		RecipeBundleControl: recipeEngine,
+		ProjectRecipeDrafts: recipeRevisions,
+		DefaultRecipeBundle: func() (recipe.Bundle, error) {
+			data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
+			if err != nil {
+				return recipe.Bundle{}, err
+			}
+			return recipe.Parse(data)
+		},
 		RecipeExecutions:            graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,

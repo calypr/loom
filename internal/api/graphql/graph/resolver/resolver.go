@@ -2,12 +2,14 @@ package resolver
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -26,6 +28,22 @@ type RecipeControl interface {
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
 	Preview(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
 	Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
+}
+
+// RecipeBundleControl is the inline authoring seam. It is optional so legacy
+// server configurations can continue exposing only registered recipes.
+type RecipeBundleControl interface {
+	ValidateBundle(context.Context, recipe.Bundle, recipe.RuntimeBindings) (semantic.RecipePlan, error)
+	PreviewBundle(context.Context, recipe.Bundle, recipe.RuntimeBindings) (engine.Preview, error)
+}
+
+// ExportDataframe exposes the same authenticated materialization service used
+// by GraphQL rows and aggregates to the HTTP export adapter.
+func (r *Resolver) ExportDataframe(ctx context.Context, request materialization.ExportRequest, out io.Writer) error {
+	if r == nil || r.materializations == nil {
+		return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	}
+	return r.materializations.ExportDataframe(ctx, request, out)
 }
 
 // RecipeExecution is the stable logical execution record exposed by GraphQL.
@@ -92,6 +110,9 @@ type Resolver struct {
 	dataframeContractPromoter   DataframeContractPromoter
 	dataframeContractAuthorizer DataframeContractAuthorizer
 	recipeRevisions             recipe.RevisionStore
+	recipeBundleControl         RecipeBundleControl
+	projectRecipeDrafts         recipe.DraftStore
+	defaultRecipeBundle         func() (recipe.Bundle, error)
 }
 
 type ResolverConfig struct {
@@ -111,6 +132,9 @@ type ResolverConfig struct {
 	DataframeContractAuthorizer DataframeContractAuthorizer
 	CandidateProjects           func(context.Context) ([]string, error)
 	RecipeRevisions             recipe.RevisionStore
+	RecipeBundleControl         RecipeBundleControl
+	ProjectRecipeDrafts         recipe.DraftStore
+	DefaultRecipeBundle         func() (recipe.Bundle, error)
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
@@ -140,6 +164,9 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		dataframeContractPromoter:   cfg.DataframeContractPromoter,
 		dataframeContractAuthorizer: cfg.DataframeContractAuthorizer,
 		recipeRevisions:             cfg.RecipeRevisions,
+		recipeBundleControl:         cfg.RecipeBundleControl,
+		projectRecipeDrafts:         cfg.ProjectRecipeDrafts,
+		defaultRecipeBundle:         cfg.DefaultRecipeBundle,
 	}
 }
 

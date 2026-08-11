@@ -699,6 +699,16 @@ type ComplexityRoot struct {
 		HasNextPage func(childComplexity int) int
 	}
 
+	DataframeProjectRecipeDraft struct {
+		AuthoringDigest func(childComplexity int) int
+		BaseRevisionID  func(childComplexity int) int
+		Document        func(childComplexity int) int
+		DraftVersion    func(childComplexity int) int
+		Project         func(childComplexity int) int
+		UpdatedAt       func(childComplexity int) int
+		UpdatedBy       func(childComplexity int) int
+	}
+
 	DataframeProjectStatus struct {
 		CreatedAt   func(childComplexity int) int
 		ErrorCode   func(childComplexity int) int
@@ -1940,12 +1950,15 @@ type ComplexityRoot struct {
 		ActivateProjectRelease           func(childComplexity int, input model.ActivateProjectReleaseInput) int
 		MaterializeDataframeRecipeBundle func(childComplexity int, input model.MaterializeDataframeRecipeInput) int
 		PreviewDataframeRecipe           func(childComplexity int, input model.PreviewDataframeRecipeInput) int
+		PreviewDataframeRecipeBundle     func(childComplexity int, input model.DataframeRecipeBundleInput) int
 		PromoteDataframeContract         func(childComplexity int, input model.PromoteDataframeContractInput) int
 		RegisterDataframeRecipeRevision  func(childComplexity int, input model.RegisterDataframeRecipeRevisionInput) int
 		RunDataframeRecipe               func(childComplexity int, input model.RunDataframeRecipeInput) int
 		RunFhirDataframe                 func(childComplexity int, input model.FhirDataframeInput, limit *int) int
+		SaveProjectDataframeRecipeDraft  func(childComplexity int, input model.SaveProjectDataframeRecipeDraftInput) int
 		StartDataframeMaterialization    func(childComplexity int, input model.StartDataframeMaterializationInput) int
 		ValidateDataframeRecipe          func(childComplexity int, input model.ValidateDataframeRecipeInput) int
+		ValidateDataframeRecipeBundle    func(childComplexity int, input model.DataframeRecipeBundleInput) int
 	}
 
 	Narrative struct {
@@ -2426,44 +2439,46 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		BodyStructure                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Condition                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		DataframeAggregate            func(childComplexity int, input model.DataframeAggregateInput) int
-		DataframeAggregations         func(childComplexity int, input model.DataframeAggregationsInput) int
-		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
-		DataframeDataset              func(childComplexity int, input model.DataframeDatasetInput) int
-		DataframeDatasets             func(childComplexity int) int
-		DataframeMaterialization      func(childComplexity int, id string) int
-		DataframeRecipeExecution      func(childComplexity int, id string) int
-		DataframeRecipeRevision       func(childComplexity int, projectID string, name string, digest string) int
-		DataframeRecipeRevisions      func(childComplexity int, projectID string, name string) int
-		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
-		DiagnosticReport              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		DocumentReference             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ExplainDataframeRecipe        func(childComplexity int, input model.ExplainDataframeRecipeInput) int
-		ExplainFhirGraph              func(childComplexity int, input model.FhirGraphQueryInput, live *bool) int
-		FamilyMemberHistory           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		FhirGraph                     func(childComplexity int, input model.FhirGraphQueryInput) int
-		Group                         func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ImagingStudy                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Medication                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationAdministration      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationRequest             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationStatement           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Observation                   func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Organization                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Patient                       func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Practitioner                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		PractitionerRole              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		PreflightDataframeRecipe      func(childComplexity int, input model.PreflightDataframeRecipeInput) int
-		Procedure                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ProjectDataframeDatasets      func(childComplexity int, projectID string) int
-		ResearchStudy                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ResearchSubject               func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Specimen                      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Substance                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		SubstanceDefinition           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Task                          func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		BodyStructure                   func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Condition                       func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		DataframeAggregate              func(childComplexity int, input model.DataframeAggregateInput) int
+		DataframeAggregations           func(childComplexity int, input model.DataframeAggregationsInput) int
+		DataframeBuilderIntrospection   func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
+		DataframeDataset                func(childComplexity int, input model.DataframeDatasetInput) int
+		DataframeDatasets               func(childComplexity int) int
+		DataframeMaterialization        func(childComplexity int, id string) int
+		DataframeRecipeExecution        func(childComplexity int, id string) int
+		DataframeRecipeRevision         func(childComplexity int, projectID string, name string, digest string) int
+		DataframeRecipeRevisions        func(childComplexity int, projectID string, name string) int
+		DataframeRows                   func(childComplexity int, input model.DataframeRowsInput) int
+		DiagnosticReport                func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		DocumentReference               func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ExplainDataframeRecipe          func(childComplexity int, input model.ExplainDataframeRecipeInput) int
+		ExplainFhirGraph                func(childComplexity int, input model.FhirGraphQueryInput, live *bool) int
+		FamilyMemberHistory             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		FhirGraph                       func(childComplexity int, input model.FhirGraphQueryInput) int
+		Group                           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ImagingStudy                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Medication                      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationAdministration        func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationRequest               func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationStatement             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Observation                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Organization                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Patient                         func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Practitioner                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		PractitionerRole                func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		PreflightDataframeRecipe        func(childComplexity int, input model.PreflightDataframeRecipeInput) int
+		Procedure                       func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ProjectDataframeDatasets        func(childComplexity int, projectID string) int
+		ProjectDataframeRecipeDraft     func(childComplexity int, project string) int
+		ProjectDataframeRecipeRevisions func(childComplexity int, project string) int
+		ResearchStudy                   func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ResearchSubject                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Specimen                        func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Substance                       func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		SubstanceDefinition             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Task                            func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
 	}
 
 	Range struct {
@@ -6025,6 +6040,49 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframePageInfo.HasNextPage(childComplexity), true
+
+	case "DataframeProjectRecipeDraft.authoringDigest":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.AuthoringDigest == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.AuthoringDigest(childComplexity), true
+	case "DataframeProjectRecipeDraft.baseRevisionId":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.BaseRevisionID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.BaseRevisionID(childComplexity), true
+	case "DataframeProjectRecipeDraft.document":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.Document == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.Document(childComplexity), true
+	case "DataframeProjectRecipeDraft.draftVersion":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.DraftVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.DraftVersion(childComplexity), true
+	case "DataframeProjectRecipeDraft.project":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.Project == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.Project(childComplexity), true
+	case "DataframeProjectRecipeDraft.updatedAt":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.UpdatedAt(childComplexity), true
+	case "DataframeProjectRecipeDraft.updatedBy":
+		if e.ComplexityRoot.DataframeProjectRecipeDraft.UpdatedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeProjectRecipeDraft.UpdatedBy(childComplexity), true
 
 	case "DataframeProjectStatus.createdAt":
 		if e.ComplexityRoot.DataframeProjectStatus.CreatedAt == nil {
@@ -12036,6 +12094,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PreviewDataframeRecipe(childComplexity, args["input"].(model.PreviewDataframeRecipeInput)), true
+	case "Mutation.previewDataframeRecipeBundle":
+		if e.ComplexityRoot.Mutation.PreviewDataframeRecipeBundle == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_previewDataframeRecipeBundle_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.PreviewDataframeRecipeBundle(childComplexity, args["input"].(model.DataframeRecipeBundleInput)), true
 	case "Mutation.promoteDataframeContract":
 		if e.ComplexityRoot.Mutation.PromoteDataframeContract == nil {
 			break
@@ -12080,6 +12149,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RunFhirDataframe(childComplexity, args["input"].(model.FhirDataframeInput), args["limit"].(*int)), true
+	case "Mutation.saveProjectDataframeRecipeDraft":
+		if e.ComplexityRoot.Mutation.SaveProjectDataframeRecipeDraft == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_saveProjectDataframeRecipeDraft_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SaveProjectDataframeRecipeDraft(childComplexity, args["input"].(model.SaveProjectDataframeRecipeDraftInput)), true
 	case "Mutation.startDataframeMaterialization":
 		if e.ComplexityRoot.Mutation.StartDataframeMaterialization == nil {
 			break
@@ -12102,6 +12182,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ValidateDataframeRecipe(childComplexity, args["input"].(model.ValidateDataframeRecipeInput)), true
+	case "Mutation.validateDataframeRecipeBundle":
+		if e.ComplexityRoot.Mutation.ValidateDataframeRecipeBundle == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_validateDataframeRecipeBundle_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ValidateDataframeRecipeBundle(childComplexity, args["input"].(model.DataframeRecipeBundleInput)), true
 
 	case "Narrative.div":
 		if e.ComplexityRoot.Narrative.Div == nil {
@@ -14939,6 +15030,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ProjectDataframeDatasets(childComplexity, args["projectId"].(string)), true
+	case "Query.projectDataframeRecipeDraft":
+		if e.ComplexityRoot.Query.ProjectDataframeRecipeDraft == nil {
+			break
+		}
+
+		args, err := ec.field_Query_projectDataframeRecipeDraft_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ProjectDataframeRecipeDraft(childComplexity, args["project"].(string)), true
+	case "Query.projectDataframeRecipeRevisions":
+		if e.ComplexityRoot.Query.ProjectDataframeRecipeRevisions == nil {
+			break
+		}
+
+		args, err := ec.field_Query_projectDataframeRecipeRevisions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ProjectDataframeRecipeRevisions(childComplexity, args["project"].(string)), true
 	case "Query.ResearchStudy":
 		if e.ComplexityRoot.Query.ResearchStudy == nil {
 			break
@@ -20167,6 +20280,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
+		ec.unmarshalInputDataframeRecipeBundleInput,
 		ec.unmarshalInputDataframeRowsInput,
 		ec.unmarshalInputDataframeSelectorInput,
 		ec.unmarshalInputDataframeSortInput,
@@ -20192,6 +20306,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputPromoteDataframeContractInput,
 		ec.unmarshalInputRegisterDataframeRecipeRevisionInput,
 		ec.unmarshalInputRunDataframeRecipeInput,
+		ec.unmarshalInputSaveProjectDataframeRecipeDraftInput,
 		ec.unmarshalInputStartDataframeMaterializationInput,
 		ec.unmarshalInputValidateDataframeRecipeInput,
 	)
@@ -20284,6 +20399,8 @@ var sources = []*ast.Source{
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
   dataframeRecipeRevision(projectId: String!, name: String!, digest: String!): DataframeRecipeRevision
   dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
+  projectDataframeRecipeDraft(project: String!): DataframeProjectRecipeDraft!
+  projectDataframeRecipeRevisions(project: String!): [DataframeRecipeRevision!]!
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -20305,6 +20422,9 @@ type Mutation {
   activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
   promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
 	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
+	validateDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipeValidation!
+	previewDataframeRecipeBundle(input: DataframeRecipeBundleInput!): DataframeRecipePreview!
+	saveProjectDataframeRecipeDraft(input: SaveProjectDataframeRecipeDraftInput!): DataframeProjectRecipeDraft!
 }
 
 input StartDataframeMaterializationInput {
@@ -20354,6 +20474,33 @@ type DataframeRecipeRevision {
   parentDigest: String
   recipe: JSON!
   createdAt: String!
+}
+
+type DataframeProjectRecipeDraft {
+  project: String!
+  draftVersion: Int!
+  document: JSON!
+  authoringDigest: String!
+  baseRevisionId: ID
+  updatedBy: String
+  updatedAt: String!
+}
+
+input DataframeRecipeBundleInput {
+  project: String!
+  recipe: JSON!
+  datasetGeneration: String
+  authResourcePaths: [String!]
+  previewLimit: Int = 25
+  outputs: [String!]
+}
+
+input SaveProjectDataframeRecipeDraftInput {
+  project: String!
+  recipe: JSON!
+  expectedVersion: Int!
+  baseRevisionId: ID
+  updatedBy: String
 }
 
 input DataframeRecipeBindingsInput {
@@ -25068,6 +25215,26 @@ func (ec *executionContext) childFields_DataframePageInfo(ctx context.Context, f
 		return ec.fieldContext_DataframePageInfo_endCursor(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframePageInfo", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeProjectRecipeDraft(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "project":
+		return ec.fieldContext_DataframeProjectRecipeDraft_project(ctx, field)
+	case "draftVersion":
+		return ec.fieldContext_DataframeProjectRecipeDraft_draftVersion(ctx, field)
+	case "document":
+		return ec.fieldContext_DataframeProjectRecipeDraft_document(ctx, field)
+	case "authoringDigest":
+		return ec.fieldContext_DataframeProjectRecipeDraft_authoringDigest(ctx, field)
+	case "baseRevisionId":
+		return ec.fieldContext_DataframeProjectRecipeDraft_baseRevisionId(ctx, field)
+	case "updatedBy":
+		return ec.fieldContext_DataframeProjectRecipeDraft_updatedBy(ctx, field)
+	case "updatedAt":
+		return ec.fieldContext_DataframeProjectRecipeDraft_updatedAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeProjectRecipeDraft", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeProjectStatus(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {

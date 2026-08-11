@@ -61,6 +61,8 @@ const (
 	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
 	CodeFederationIncompatible      ErrorCode = "FEDERATION_INCOMPATIBLE"
 	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
+	CodeDraftConflict               ErrorCode = "DRAFT_CONFLICT"
+	CodeActivationConflict          ErrorCode = "ACTIVATION_CONFLICT"
 )
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -292,6 +294,10 @@ func defaultMessage(code ErrorCode) string {
 		return "the requested resource type is invalid"
 	case CodeInvalidLimit:
 		return "the requested limit is invalid"
+	case CodeDraftConflict:
+		return "the draft changed before it could be saved"
+	case CodeActivationConflict:
+		return "the active release changed before activation"
 	case CodeNoActiveGeneration:
 		return "the project has no active dataset generation"
 	case CodeResourceDecodeFailed:

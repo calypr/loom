@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	dumpapi "github.com/calypr/loom/internal/api/bulk/dump"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -28,6 +29,7 @@ func registerRoutes(server *api.HTTPServer, resourceService *loadapi.Service, sn
 			scopes = typed
 		}
 	}
+	dumpapi.NewHandler(dumpapi.Config{DataframeExporter: graphResolver, ScopeResolver: scopes}).RegisterRoutes(server.App())
 	api.RegisterRecipeExecutionRoute(server.App(), releases, scopes)
 	graphapi.RegisterRoutes(server.App(), graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver, server.Logger()), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")})
 	return nil

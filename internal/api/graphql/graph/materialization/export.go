@@ -24,6 +24,36 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err != nil {
 		return err
 	}
+	if request.MaterializationID != "" {
+		value, err := s.reader.DatasetByPublishedID(ctx, request.MaterializationID)
+		if err != nil {
+			return mapReaderError(err)
+		}
+		if err := s.authorizePublished(ctx, value); err != nil {
+			return err
+		}
+		format := request.Format.Normalize()
+		if format != dfmaterialization.ExportCSV && format != dfmaterialization.ExportTSV && format != dfmaterialization.ExportJSON && format != dfmaterialization.ExportJSONL {
+			return dataframeerrors.NewError(dataframeerrors.CodeUnsupportedExportFormat, "")
+		}
+		columns := append([]string(nil), request.Columns...)
+		if len(columns) == 0 {
+			for _, column := range value.Columns {
+				if column.Name != "auth_resource_path" && column.Name != "__loom_row_id" {
+					columns = append(columns, column.Name)
+				}
+			}
+		}
+		writer := &exportCountingWriter{out: out, maxRows: s.maxExportRows, maxBytes: s.maxExportBytes}
+		state := &exportWriter{format: format, columns: columns, out: writer}
+		if err := state.begin(); err != nil {
+			return err
+		}
+		if err := s.reader.StreamPublishedID(ctx, value.ID, dfmaterialization.FederatedStreamRequest{Columns: columns, Filters: request.Filters, Sort: request.Sort}, state.visit); err != nil {
+			return err
+		}
+		return state.end()
+	}
 	selector, err := s.resolvePublishedSelector(request.Selector, request.DataType)
 	if err != nil {
 		return err
