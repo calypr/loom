@@ -87,7 +87,7 @@ func (p ProjectRecipePublisher) Publish(ctx context.Context, project string, exp
 	}
 	identity := publication.BundleIdentity{
 		Name: revision.RecipeName, TranslationVersion: revision.TranslationVersion,
-		Project: project, DatasetGeneration: sourceGeneration, RecipeDigest: digest,
+		Project: ProjectDataName(project), DatasetGeneration: sourceGeneration, RecipeDigest: digest,
 		EngineVersion: "loom-recipe-v1", ScopeProject: project,
 		ProjectRevisionID: revision.ID, SelectedOutputs: append([]string(nil), selectedOutputs...),
 	}

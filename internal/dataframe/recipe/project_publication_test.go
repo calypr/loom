@@ -61,6 +61,9 @@ func TestProjectRecipePublisherEnqueuesImmutableSelectedOutputsAndReusesRetry(t 
 	if enqueuer.identities[0].ScopeProject != "org/project" || enqueuer.identities[0].ProjectRevisionID != revision.ID {
 		t.Fatalf("identity = %#v", enqueuer.identities[0])
 	}
+	if enqueuer.identities[0].Project != "org-project" {
+		t.Fatalf("physical project = %q", enqueuer.identities[0].Project)
+	}
 	// A retry of the same immutable authoring input returns the original
 	// revision/execution and does not enqueue another materialization.
 	retry, err := publisher.Publish(ctx, "org/project", draft.DraftVersion, "generation-1", []string{"Observations"})

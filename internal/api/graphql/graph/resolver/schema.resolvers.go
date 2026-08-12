@@ -236,6 +236,8 @@ func (r *mutationResolver) ValidateDataframeRecipeBundle(ctx context.Context, in
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
+	bindings.ScopeProject = bindings.Project
+	bindings.Project = recipe.ProjectDataName(bindings.Project)
 	bindings, err = r.authorizeRecipeRead(ctx, bindings)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
@@ -260,6 +262,8 @@ func (r *mutationResolver) PreviewDataframeRecipeBundle(ctx context.Context, inp
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
+	bindings.ScopeProject = bindings.Project
+	bindings.Project = recipe.ProjectDataName(bindings.Project)
 	bindings, err = r.authorizeRecipeRead(ctx, bindings)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
@@ -280,11 +284,11 @@ func (r *mutationResolver) SaveProjectDataframeRecipeDraft(ctx context.Context, 
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
-	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.Project})
+	_, err = r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: recipe.ProjectDataName(input.Project), ScopeProject: input.Project})
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
-	draft := recipe.RecipeDraft{Project: bindings.Project, Document: bundle}
+	draft := recipe.RecipeDraft{Project: input.Project, Document: bundle}
 	if input.BaseRevisionID != nil {
 		draft.BaseRevisionID = *input.BaseRevisionID
 	}
@@ -303,7 +307,7 @@ func (r *mutationResolver) PublishProjectDataframeRecipe(ctx context.Context, in
 	if r.projectRecipePublisher == nil {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
 	}
-	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.Project})
+	_, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: recipe.ProjectDataName(input.Project), ScopeProject: input.Project})
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -311,7 +315,7 @@ func (r *mutationResolver) PublishProjectDataframeRecipe(ctx context.Context, in
 	if input.ExpectedDraftVersion != nil {
 		expected = int64(*input.ExpectedDraftVersion)
 	}
-	revision, err := r.projectRecipePublisher.Publish(ctx, bindings.Project, expected, input.DatasetGeneration, input.Outputs)
+	revision, err := r.projectRecipePublisher.Publish(ctx, input.Project, expected, input.DatasetGeneration, input.Outputs)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -518,7 +522,7 @@ func (r *queryResolver) ProjectDataframeRecipeDraft(ctx context.Context, project
 	if project == "" {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, ""))
 	}
-	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: project}); err != nil {
+	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: recipe.ProjectDataName(project), ScopeProject: project}); err != nil {
 		return nil, recipeGraphQLError(err)
 	}
 	if r.projectRecipeDrafts != nil {
@@ -547,7 +551,7 @@ func (r *queryResolver) ProjectDataframeRecipeRevisions(ctx context.Context, pro
 	if r.recipeRevisions == nil {
 		return []*model.DataframeRecipeRevision{}, nil
 	}
-	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: project}); err != nil {
+	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: recipe.ProjectDataName(project), ScopeProject: project}); err != nil {
 		return nil, recipeGraphQLError(err)
 	}
 	var values []recipe.RecipeRevision
@@ -572,7 +576,7 @@ func (r *queryResolver) ProjectDataframeRecipeRevision(ctx context.Context, proj
 	if r.recipeRevisions == nil {
 		return nil, nil
 	}
-	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: project}); err != nil {
+	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: recipe.ProjectDataName(project), ScopeProject: project}); err != nil {
 		return nil, recipeGraphQLError(err)
 	}
 	store, ok := r.recipeRevisions.(recipe.ProjectRevisionStore)

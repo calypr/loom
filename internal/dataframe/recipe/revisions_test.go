@@ -47,6 +47,15 @@ func TestProjectRecipeNameAndDraftCAS(t *testing.T) {
 	}
 }
 
+func TestProjectDataName(t *testing.T) {
+	if got := ProjectDataName(" acme/cancer-study "); got != "acme-cancer-study" {
+		t.Fatalf("ProjectDataName = %q", got)
+	}
+	if got := ProjectDataName("acme-cancer-study"); got != "acme-cancer-study" {
+		t.Fatalf("physical ProjectDataName = %q", got)
+	}
+}
+
 func TestDraftRejectsManagedIdentityEdits(t *testing.T) {
 	store := NewMemoryDraftStore()
 	bundle := Bundle{RecipeSchemaVersion: CurrentSchemaVersion, Name: "different", TranslationVersion: "r000001_external", Outputs: []Output{{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient"}}}

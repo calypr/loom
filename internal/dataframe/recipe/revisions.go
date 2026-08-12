@@ -154,6 +154,18 @@ func enforceDraftManagedIdentity(project string, bundle Bundle) (Bundle, error) 
 	return bundle, nil
 }
 
+// ProjectDataName converts the authoring scope key used by Gecko (org/project)
+// to the physical project key stored on FHIR resources (org-project). Already
+// physical project keys are returned unchanged.
+func ProjectDataName(project string) string {
+	project = strings.TrimSpace(project)
+	parts := strings.Split(project, "/")
+	if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+		return strings.TrimSpace(parts[0]) + "-" + strings.TrimSpace(parts[1])
+	}
+	return project
+}
+
 // EnforceDraftManagedIdentity validates and applies the fields owned by Loom
 // for a project draft. Authoring callers may change every other document
 // field, but cannot redirect a draft to a different recipe/version address.
