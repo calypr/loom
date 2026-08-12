@@ -158,6 +158,26 @@ func TestResolveExtensionColumnsPreservesPrimitiveMapping(t *testing.T) {
 	}
 }
 
+func TestResolveOmitsExtensionFamilyThatDoesNotApplyToSelectedRoot(t *testing.T) {
+	prefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "project", TranslationVersion: "draft", Outputs: []recipe.Output{{
+		Name: "Practitioner_Overview", RootResourceType: "Practitioner", RowGrain: "resource",
+		Fields:           []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		ExtensionColumns: []recipe.ExtensionColumn{{Name: "attachment_extension_keys", Source: recipe.Expression{Select: "root.content[].attachment.extension[]"}, ColumnPrefix: &prefix, MaxColumns: 128}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := resolved.Bundle.Outputs[0].ExtensionColumns[0].Columns
+	if columns == nil || len(columns) != 0 {
+		t.Fatalf("non-applicable extension family = %#v", columns)
+	}
+	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"}); err != nil {
+		t.Fatalf("non-applicable extension family did not compile away: %v", err)
+	}
+}
+
 func stringPointer(value string) *string { return &value }
 
 func TestResolveOmitsPivotWithNoDiscoveredColumns(t *testing.T) {

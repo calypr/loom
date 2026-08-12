@@ -252,12 +252,18 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 	if e.resolveBundle != nil {
 		bundle, err = e.resolveBundle(ctx, bundle, bindings)
 		if err != nil {
-			return Resolved{}, fmt.Errorf("resolve recipe schema: %w", err)
+			if _, typed := dataframeerrors.AsUserError(err); typed {
+				return Resolved{}, err
+			}
+			return Resolved{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 		}
 	}
 	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
-		return Resolved{}, err
+		if _, typed := dataframeerrors.AsUserError(err); typed {
+			return Resolved{}, err
+		}
+		return Resolved{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	// The public recipe identity is the registered document digest. The
 	// resolved schema digest below captures catalog-derived fields and scope so

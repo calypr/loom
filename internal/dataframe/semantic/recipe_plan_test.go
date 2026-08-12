@@ -64,6 +64,21 @@ func TestBuilderResourceNameGrainNormalizesInSemanticPlan(t *testing.T) {
 	}
 }
 
+func TestEmptyDiscoveredDynamicFamilyDoesNotTypeCheckAbsentSource(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "project", TranslationVersion: "draft", Outputs: []recipe.Output{{
+		Name: "Practitioner_Overview", RootResourceType: "Practitioner", RowGrain: "resource",
+		Fields:         []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		DynamicColumns: []recipe.DynamicColumn{{Name: "legacy_category_keys", Source: recipe.Expression{Select: "root.category[].coding[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.display"}, Columns: []string{}, MaxColumns: 256, Discovered: true}},
+	}}}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Outputs[0].DynamicMaps) != 0 {
+		t.Fatalf("dynamic maps = %#v", plan.Outputs[0].DynamicMaps)
+	}
+}
+
 func TestRecipeRejectsUndefinedAndShadowedAliases(t *testing.T) {
 	base := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"id","expr":{"select":"missing.id"}}]}]}`
 	bundle, err := recipe.Parse([]byte(base))

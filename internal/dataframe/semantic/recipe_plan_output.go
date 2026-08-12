@@ -282,6 +282,11 @@ func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, 
 func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path, scopeAlias, resourceType string) ([]SemanticDynamicMap, error) {
 	result := make([]SemanticDynamicMap, 0, len(items))
 	for index, dynamic := range items {
+		if dynamic.Discovered && dynamic.Columns != nil && len(dynamic.Columns) == 0 {
+			// An optional catalog-backed family that discovered no applicable
+			// keys contributes no expressions or columns to this output.
+			continue
+		}
 		columns := []string(nil)
 		if dynamic.Columns != nil {
 			// Preserve non-nil empty slices: the resolver uses that distinction

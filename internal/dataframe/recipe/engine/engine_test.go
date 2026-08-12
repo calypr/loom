@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
@@ -70,6 +72,25 @@ func TestResolveBundleDoesNotPersistAndSupportsSelectedOutputs(t *testing.T) {
 	}
 	if len(rows["Patients"]) != 1 || queries != 1 {
 		t.Fatalf("rows=%#v queries=%d", rows, queries)
+	}
+}
+
+func TestResolveBundleClassifiesRecipeCompatibilityFailureAsInvalidRequest(t *testing.T) {
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{},
+		ResolveBundle: func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
+			return recipe.Bundle{}, fmt.Errorf("selected extension family does not apply")
+		},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "inline", TranslationVersion: "draft", Outputs: []recipe.Output{{Name: "Rows", RootResourceType: "Practitioner", RowGrain: "resource", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}}}
+	_, err = engine.ResolveBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "p", OutputNames: []string{"Rows"}})
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeInvalidRequest) || userErr.Retryable() {
+		t.Fatalf("error = %#v, want non-retryable INVALID_REQUEST", err)
 	}
 }
 

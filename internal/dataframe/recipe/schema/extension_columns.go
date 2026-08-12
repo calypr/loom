@@ -30,7 +30,13 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 		}
 		resolved, ok := fhirschema.ResolvePath(resourceType, selector)
 		if !ok || resolved.PropertyRef != "Extension" {
-			return fmt.Errorf("extension column %q source %q is not a schema-valid repeated Extension selector", item.Name, selector)
+			// Generated/default recipes may carry optional extension families for
+			// several FHIR roots. When a selected root does not expose that path,
+			// freeze the family to an empty set. This is equivalent to discovery
+			// finding no populated extension keys and keeps otherwise valid fields
+			// previewable without inventing a selector for the resource.
+			item.Columns = []recipe.ExtensionColumnMapping{}
+			continue
 		}
 		candidates, err := discovery.Fields(ctx, scope, resourceType)
 		if err != nil {
