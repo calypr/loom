@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 2,
+  "catalog": {
+    "project": {"organization": "acme", "project": "cancer-study"},
+    "catalogId": "catalog-generation-42",
+    "source": {"system": "loom", "version": "2026.08", "generation": "generation-42"},
+    "completeness": {
+      "state": "partial",
+      "resourceLimit": 50,
+      "conceptLimitPerResource": 200,
+      "returnedResourceCount": 2,
+      "returnedConceptCount": 4
+    },
+    "resources": [
+      {
+        "resourceType": "Patient",
+        "label": "People",
+        "documentCount": 1200,
+        "families": [
+          {
+            "id": "demographics",
+            "label": "Demographics",
+            "concepts": [
+              {
+                "id": "patient.birth-date",
+                "label": "Birth date",
+                "family": "demographics",
+                "ruleId": "direct.leaf.v1",
+                "source": {
+                  "system": "FHIR",
+                  "standardVersion": "R4",
+                  "kind": "resource",
+                  "resourceType": "Patient",
+                  "keyPaths": ["birthDate"],
+                  "valuePaths": ["birthDate"]
+                },
+                "selector": {"sourcePath": "Patient", "valuePath": "birthDate"},
+                "column": {
+                  "name": "birth_date",
+                  "logicalType": "date",
+                  "nullable": true,
+                  "repeated": false,
+                  "filterable": true,
+                  "sortable": true,
+                  "aggregatable": false
+                },
+                "population": {"recordCount": 1180, "fraction": 0.9833},
+                "examples": {"values": ["1984-03-12", "1971-09-04"]}
+              },
+              {
+                "id": "patient.preferred-language",
+                "label": "Preferred language",
+                "family": "demographics",
+                "ruleId": "coded.codeable-concept.v2",
+                "source": {
+                  "system": "FHIR",
+                  "standardVersion": "R4",
+                  "kind": "coded",
+                  "resourceType": "Patient",
+                  "keyPaths": ["communication.language.coding"],
+                  "valuePaths": ["communication.language.coding.display", "communication.language.coding.code"],
+                  "terminology": {
+                    "system": "urn:ietf:bcp:47",
+                    "version": "2024",
+                    "code": "en-US",
+                    "display": "English (United States)"
+                  }
+                },
+                "selector": {"sourcePath": "Patient.communication.language", "valuePath": "coding"},
+                "column": {
+                  "name": "preferred_language",
+                  "logicalType": "string",
+                  "nullable": true,
+                  "repeated": false,
+                  "filterable": true,
+                  "sortable": true,
+                  "aggregatable": true
+                },
+                "population": {"recordCount": 740, "fraction": 0.6167},
+                "examples": {"values": ["English (United States)", "Spanish"]}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "resourceType": "ObservationLike",
+        "label": "Measurements and findings",
+        "documentCount": 9000,
+        "families": [
+          {
+            "id": "future-clinical-domain-v9",
+            "label": "Clinical measurements",
+            "concepts": [
+              {
+                "id": "observation.future-score",
+                "label": "Future clinical score",
+                "family": "future-clinical-domain-v9",
+                "ruleId": "future.source.rule.v8",
+                "source": {
+                  "system": "FutureClinicalSource",
+                  "standardVersion": "v9",
+                  "kind": "future-value-family",
+                  "resourceType": "ObservationLike",
+                  "keyPaths": ["measure.identifier"],
+                  "valuePaths": ["measure.value"],
+                  "logicalType": "futureDecimal128"
+                },
+                "selector": {"sourcePath": "ObservationLike.measure", "valuePath": "value"},
+                "column": {
+                  "name": "future_clinical_score",
+                  "logicalType": "futureDecimal128",
+                  "nullable": true,
+                  "repeated": false,
+                  "filterable": false,
+                  "sortable": false,
+                  "aggregatable": false
+                },
+                "population": {"recordCount": 12, "fraction": 0.0013},
+                "examples": {"suppressed": true, "reason": "low-frequency-values"}
+              },
+              {
+                "id": "observation.anatomical-sites",
+                "label": "Anatomical sites",
+                "family": "future-clinical-domain-v9",
+                "ruleId": "observation.component.array.v2",
+                "source": {
+                  "system": "FHIR",
+                  "standardVersion": "R4",
+                  "kind": "observation-component",
+                  "resourceType": "Observation",
+                  "keyPaths": ["component.code.coding"],
+                  "valuePaths": ["component.valueCodeableConcept.coding.display"],
+                  "terminology": {
+                    "system": "http://snomed.info/sct",
+                    "version": "2025-01",
+                    "code": "123037004",
+                    "display": "Body structure"
+                  }
+                },
+                "selector": {"sourcePath": "Observation.component", "valuePath": "valueCodeableConcept.coding.display"},
+                "column": {
+                  "name": "anatomical_sites",
+                  "logicalType": "string",
+                  "nullable": true,
+                  "repeated": true,
+                  "filterable": true,
+                  "sortable": false,
+                  "aggregatable": false
+                },
+                "repetition": {"shape": "array", "rowExpansion": "none", "maxItemsObserved": 3},
+                "population": {"recordCount": 210, "fraction": 0.0233},
+                "examples": {"values": ["Lung", "Liver"]}
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "diagnostics": [
+      {
+        "severity": "warning",
+        "code": "CONCEPT_LIMIT_REACHED",
+        "message": "Some low-ranked concepts were omitted after the per-resource limit.",
+        "retryable": false,
+        "details": {"resourceType": "ObservationLike", "omittedConceptCount": 17, "limit": 200}
+      },
+      {
+        "severity": "warning",
+        "code": "DISCOVERY_PARTIAL",
+        "message": "The catalog is complete for returned resources but not for the source generation.",
+        "retryable": true,
+        "details": {"sourceGeneration": "generation-42", "resumeToken": "opaque-resume-token-1"}
+      }
+    ]
+  }
+}
