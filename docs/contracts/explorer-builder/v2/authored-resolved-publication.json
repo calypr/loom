@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "authored": {
+    "project": "acme/cancer-study",
+    "recipeName": "project_semantic_concepts",
+    "authoringDigest": "sha256:authoring-semantic-concepts",
+    "outputs": [
+      {
+        "name": "PatientOverview",
+        "resourceType": "Patient",
+        "rowGrain": "patient",
+        "conceptSelections": [
+          {"conceptId": "patient.birth-date", "ruleId": "direct.leaf.v1", "columnName": "birth_date"},
+          {"conceptId": "patient.preferred-language", "ruleId": "coded.codeable-concept.v2", "columnName": "preferred_language"},
+          {"conceptId": "observation.anatomical-sites", "ruleId": "observation.component.array.v2", "columnName": "anatomical_sites"}
+        ]
+      }
+    ]
+  },
+  "resolved": {
+    "recipeDigest": "sha256:resolved-semantic-concepts",
+    "resolvedSchemaDigest": "sha256:resolved-schema",
+    "sourceGeneration": "generation-42",
+    "translationVersion": "r000001_semantic",
+    "outputs": [
+      {
+        "name": "PatientOverview",
+        "rootResourceType": "Patient",
+        "rowGrain": "patient",
+        "columns": [
+          {
+            "name": "birth_date",
+            "conceptId": "patient.birth-date",
+            "ruleId": "direct.leaf.v1",
+            "selector": {"sourcePath": "Patient", "valuePath": "birthDate"},
+            "logicalType": "date",
+            "nullable": true,
+            "repeated": false
+          },
+          {
+            "name": "preferred_language",
+            "conceptId": "patient.preferred-language",
+            "ruleId": "coded.codeable-concept.v2",
+            "selector": {"sourcePath": "Patient.communication.language", "valuePath": "coding"},
+            "logicalType": "string",
+            "nullable": true,
+            "repeated": false
+          },
+          {
+            "name": "anatomical_sites",
+            "conceptId": "observation.anatomical-sites",
+            "ruleId": "observation.component.array.v2",
+            "selector": {"sourcePath": "Observation.component", "valuePath": "valueCodeableConcept.coding.display"},
+            "logicalType": "string",
+            "nullable": true,
+            "repeated": true,
+            "repetition": {"shape": "array", "rowExpansion": "none"}
+          }
+        ],
+        "materialization": {
+          "status": "READY",
+          "materializationId": "materialization-semantic-1",
+          "columnNames": ["birth_date", "preferred_language", "anatomical_sites"]
+        }
+      }
+    ],
+    "diagnostics": []
+  },
+  "publication": {
+    "status": "READY",
+    "recipeRevisionId": "recipe-revision-semantic-1",
+    "publishedAt": "2026-08-12T17:05:00Z"
+  }
+}

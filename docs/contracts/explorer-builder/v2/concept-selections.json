@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "selection": {
+    "project": {"organization": "acme", "project": "cancer-study"},
+    "rowResourceType": "Patient",
+    "concepts": [
+      {"conceptId": "patient.birth-date", "ruleId": "direct.leaf.v1", "columnName": "birth_date", "label": "Birth date"},
+      {"conceptId": "patient.preferred-language", "ruleId": "coded.codeable-concept.v2", "columnName": "preferred_language", "label": "Preferred language"},
+      {"conceptId": "observation.anatomical-sites", "ruleId": "observation.component.array.v2", "columnName": "anatomical_sites", "label": "Anatomical sites"}
+    ],
+    "unselectedConcepts": [{"conceptId": "observation.future-score", "reason": "not_selected"}]
+  }
+}
