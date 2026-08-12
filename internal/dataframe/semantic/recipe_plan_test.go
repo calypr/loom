@@ -53,6 +53,17 @@ func TestDynamicItemExpressionsUseItemScope(t *testing.T) {
 	}
 }
 
+func TestBuilderResourceNameGrainNormalizesInSemanticPlan(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "project", TranslationVersion: "draft", Outputs: []recipe.Output{{Name: "Research_Study_Overview", RootResourceType: "ResearchStudy", RowGrain: "researchstudy", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}}}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "HTAN_INT-BForePC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Outputs) != 1 || plan.Outputs[0].RowGrain != "resource" {
+		t.Fatalf("normalized outputs = %#v", plan.Outputs)
+	}
+}
+
 func TestRecipeRejectsUndefinedAndShadowedAliases(t *testing.T) {
 	base := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"id","expr":{"select":"missing.id"}}]}]}`
 	bundle, err := recipe.Parse([]byte(base))

@@ -64,6 +64,29 @@ func InferRowGrain(resourceType string) (RowGrain, bool) {
 	}
 }
 
+// NormalizeRootGrain accepts canonical product grains and the historical
+// builder spelling that lower-cased the FHIR resource type. Resource-name
+// grains become the appropriate product grain, or the generic resource grain
+// when no product-specific name exists.
+func NormalizeRootGrain(resourceType string, grain RowGrain) (RowGrain, error) {
+	resourceType = strings.TrimSpace(resourceType)
+	grain = RowGrain(strings.TrimSpace(string(grain)))
+	if err := ValidateRootGrain(resourceType, grain); err == nil {
+		return grain, nil
+	}
+	if normalizedGrainToken(string(grain)) == normalizedGrainToken(resourceType) {
+		if inferred, ok := InferRowGrain(resourceType); ok {
+			return inferred, nil
+		}
+	}
+	return "", ValidateRootGrain(resourceType, grain)
+}
+
+func normalizedGrainToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.NewReplacer("_", "", "-", "", " ", "").Replace(value)
+}
+
 // RootResourceForGrain returns the only root resource type currently capable
 // of representing a named product grain without row expansion. The generic
 // resource grain deliberately accepts any generated resource root.

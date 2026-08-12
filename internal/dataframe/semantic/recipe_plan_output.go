@@ -19,15 +19,16 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 	if !fhirschema.HasResource(output.RootResourceType) {
 		return OutputPlan{}, fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType)
 	}
-	grain := spec.RowGrain(output.RowGrain)
-	if err := spec.ValidateRootGrain(output.RootResourceType, grain); err != nil {
+	grain, grainErr := spec.NormalizeRootGrain(output.RootResourceType, spec.RowGrain(output.RowGrain))
+	if grainErr != nil {
 		// Persisted recipes may introduce a product-specific grain when they
 		// also declare the row-shaping operation and an explicit identity. The
 		// GraphQL request contract remains strict and continues to use
 		// ValidateRootGrain above.
 		if output.Expand == nil || output.Identity == nil || !validCustomGrain(string(grain)) {
-			return OutputPlan{}, err
+			return OutputPlan{}, grainErr
 		}
+		grain = spec.RowGrain(output.RowGrain)
 	}
 	scope := newRootScope(output.RootResourceType)
 	if output.Expand != nil {

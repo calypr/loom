@@ -124,6 +124,27 @@ func TestInferRowGrainAndDefaultIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeRootGrainAcceptsBuilderResourceNames(t *testing.T) {
+	for _, test := range []struct {
+		resource string
+		input    spec.RowGrain
+		want     spec.RowGrain
+	}{
+		{resource: "ResearchStudy", input: "researchstudy", want: spec.RowGrainResource},
+		{resource: "MedicationAdministration", input: "medication_administration", want: spec.RowGrainResource},
+		{resource: "ResearchSubject", input: "researchsubject", want: spec.RowGrainStudyEnrollment},
+		{resource: "DocumentReference", input: "documentreference", want: spec.RowGrainFile},
+	} {
+		got, err := spec.NormalizeRootGrain(test.resource, test.input)
+		if err != nil || got != test.want {
+			t.Errorf("NormalizeRootGrain(%q, %q) = %q, %v; want %q", test.resource, test.input, got, err, test.want)
+		}
+	}
+	if _, err := spec.NormalizeRootGrain("ResearchStudy", "patient"); err == nil {
+		t.Fatal("mismatched named grain unexpectedly succeeded")
+	}
+}
+
 func TestValidateRootGrainRejectsImplicitCrossGrainOutput(t *testing.T) {
 	if err := spec.ValidateRootGrain("Specimen", spec.RowGrainSpecimen); err != nil {
 		t.Fatalf("matching named grain: %v", err)
