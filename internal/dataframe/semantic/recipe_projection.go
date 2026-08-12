@@ -73,6 +73,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 			Name: field.Name, FieldRef: field.FieldRef, Selector: selector,
 			Fallbacks: fallbackSelectors, ValueMode: string(field.ValueMode),
 			Expr: &primary.Expression, ExprType: primary.Type, SourcePath: primary.SourcePath, Discovered: field.Discovered,
+			ConceptID: field.ConceptID, RuleID: field.RuleID, Label: field.Label,
 		}
 		if err := validateRecipeProjectionTypes(primary.Type, fallbacks); err != nil {
 			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
@@ -102,6 +103,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		fieldSemantic.ExprType = projected.Type
 		return normalizedRecipeProjection{projection: SemanticProjection{
 			Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected, Discovered: field.Discovered,
+			ConceptID: field.ConceptID, RuleID: field.RuleID, Label: field.Label,
 		}, field: fieldSemantic}, nil
 	}
 
@@ -114,6 +116,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 	}
 	return normalizedRecipeProjection{projection: SemanticProjection{Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected}, field: SemanticField{
 		Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: &projected.Expression, ExprType: projected.Type, SourcePath: projected.SourcePath, Discovered: field.Discovered,
+		ConceptID: field.ConceptID, RuleID: field.RuleID, Label: field.Label,
 	}}, nil
 }
 

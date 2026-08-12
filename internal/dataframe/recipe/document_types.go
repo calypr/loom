@@ -45,7 +45,18 @@ type Output struct {
 	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
 	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
 	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
+	ConceptSelections  []ConceptSelection    `json:"conceptSelections,omitempty"`
 	CollisionPolicy    string                `json:"collisionPolicy,omitempty"`
+}
+
+// ConceptSelection is an authored reference to a catalog concept. ColumnName
+// is a stable output identity; Label is presentation metadata and must never
+// be used to regenerate the column name.
+type ConceptSelection struct {
+	ConceptID  string `json:"conceptId"`
+	RuleID     string `json:"ruleId"`
+	ColumnName string `json:"columnName"`
+	Label      string `json:"label,omitempty"`
 }
 
 // Field projects one named semantic value into an output row.
@@ -56,6 +67,9 @@ type Field struct {
 	Fallbacks  []Expression `json:"fallbacks,omitempty"`
 	ValueMode  ValueMode    `json:"valueMode,omitempty"`
 	Discovered bool         `json:"-"`
+	ConceptID  string       `json:"conceptId,omitempty"`
+	RuleID     string       `json:"ruleId,omitempty"`
+	Label      string       `json:"label,omitempty"`
 }
 
 // ValueMode controls how a checked selector contributes values to one row.

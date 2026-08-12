@@ -44,6 +44,20 @@ type OutputPlan struct {
 	CatalogProjections []string
 	Collision          string
 	DeclaredOrder      []string
+	ConceptColumns     []ConceptColumn
+}
+
+// ConceptColumn is the immutable audit record carried with a lowered output
+// column. It keeps authored identity and producer rule metadata available to
+// validation, resolution, and publication consumers.
+type ConceptColumn struct {
+	Name        string
+	ConceptID   string
+	RuleID      string
+	Label       string
+	Selector    Selection
+	LogicalType string
+	Repeated    bool
 }
 
 // SemanticExpression keeps the checked typed AST together with the logical
@@ -62,6 +76,9 @@ type SemanticProjection struct {
 	ValueMode  string
 	Expr       SemanticExpression
 	Discovered bool
+	ConceptID  string
+	RuleID     string
+	Label      string
 }
 
 // UnnestJoinMode makes null/empty collection behavior explicit at the
