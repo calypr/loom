@@ -463,6 +463,11 @@ URL-to-value mappings and logical types, and emits canonical JSON strings for
 mixed or complex values. `maxColumns` is required; an explicit empty
 `columnPrefix` preserves bare names such as `source_path` and `sha256`.
 
+For interactive authoring, set `columnMode: "SELECTED"` and persist the chosen
+keys in the declaration's native `columns` member. This includes an empty
+selection. Omitted `columnMode` and `DISCOVER` retain the existing automatic
+discovery contract, so older recipes resolve to the same schema as before.
+
 Use `dynamicColumns` for identifiers, extensions, and similar arrays whose key
 becomes part of the column name:
 

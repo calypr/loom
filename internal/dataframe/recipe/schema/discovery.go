@@ -56,6 +56,9 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 	for index := range pivots {
 		pivot := &pivots[index]
 		if pivot.Discovery == nil {
+			if pivot.ColumnMode.Selected() && len(pivot.Columns) == 0 {
+				continue
+			}
 			resolved = append(resolved, *pivot)
 			continue
 		}
@@ -133,7 +136,9 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 		if len(columns) > pivot.Discovery.MaxColumns {
 			return nil, fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
 		}
-		pivot.Columns = sortedValues(columns)
+		if !pivot.ColumnMode.Selected() {
+			pivot.Columns = sortedValues(columns)
+		}
 		if len(pivot.Columns) == 0 {
 			log.Printf("dataframe schema discovery: omit pivot %q for %s: no columns matched", pivot.Name, resourceType)
 			continue
@@ -190,6 +195,13 @@ func relativePivotPath(itemSource, selector string) string {
 func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
+		if dynamic.ColumnMode.Selected() {
+			dynamic.Discovered = true
+			if dynamic.Columns == nil {
+				dynamic.Columns = []string{}
+			}
+			continue
+		}
 		wasUnresolved := len(dynamic.Columns) == 0
 		if len(dynamic.Columns) > 0 {
 			continue

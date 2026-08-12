@@ -755,6 +755,44 @@ type ComplexityRoot struct {
 		Repeated    func(childComplexity int) int
 	}
 
+	DataframeRecipeColumnCandidate struct {
+		Cardinality   func(childComplexity int) int
+		Complete      func(childComplexity int) int
+		Diagnostic    func(childComplexity int) int
+		Examples      func(childComplexity int) int
+		ExtensionURL  func(childComplexity int) int
+		FamilyID      func(childComplexity int) int
+		FamilyKind    func(childComplexity int) int
+		FamilyName    func(childComplexity int) int
+		ID            func(childComplexity int) int
+		Label         func(childComplexity int) int
+		NodePath      func(childComplexity int) int
+		Output        func(childComplexity int) int
+		PatchPath     func(childComplexity int) int
+		Population    func(childComplexity int) int
+		PublicName    func(childComplexity int) int
+		RawCode       func(childComplexity int) int
+		RawKey        func(childComplexity int) int
+		RawSystem     func(childComplexity int) int
+		Selected      func(childComplexity int) int
+		ValueSelector func(childComplexity int) int
+		ValueType     func(childComplexity int) int
+	}
+
+	DataframeRecipeColumnCandidateCompleteness struct {
+		BlockingDiagnosticCount func(childComplexity int) int
+		Complete                func(childComplexity int) int
+		ReturnedCount           func(childComplexity int) int
+		TotalCount              func(childComplexity int) int
+	}
+
+	DataframeRecipeColumnCandidateConnection struct {
+		Completeness func(childComplexity int) int
+		Diagnostics  func(childComplexity int) int
+		Nodes        func(childComplexity int) int
+		PageInfo     func(childComplexity int) int
+	}
+
 	DataframeRecipeExecution struct {
 		Error                func(childComplexity int) int
 		ErrorCode            func(childComplexity int) int
@@ -2585,6 +2623,7 @@ type ComplexityRoot struct {
 		DataframeDataset                func(childComplexity int, input model.DataframeDatasetInput) int
 		DataframeDatasets               func(childComplexity int) int
 		DataframeMaterialization        func(childComplexity int, id string) int
+		DataframeRecipeColumnCandidates func(childComplexity int, input model.DataframeRecipeColumnCandidatesInput) int
 		DataframeRecipeExecution        func(childComplexity int, id string) int
 		DataframeRecipeRevision         func(childComplexity int, projectID string, name string, digest string) int
 		DataframeRecipeRevisions        func(childComplexity int, projectID string, name string) int
@@ -6413,6 +6452,183 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRecipeColumn.Repeated(childComplexity), true
+
+	case "DataframeRecipeColumnCandidate.cardinality":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Cardinality == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Cardinality(childComplexity), true
+	case "DataframeRecipeColumnCandidate.complete":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Complete == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Complete(childComplexity), true
+	case "DataframeRecipeColumnCandidate.diagnostic":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Diagnostic == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Diagnostic(childComplexity), true
+	case "DataframeRecipeColumnCandidate.examples":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Examples == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Examples(childComplexity), true
+	case "DataframeRecipeColumnCandidate.extensionUrl":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ExtensionURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.ExtensionURL(childComplexity), true
+	case "DataframeRecipeColumnCandidate.familyId":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyID(childComplexity), true
+	case "DataframeRecipeColumnCandidate.familyKind":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyKind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyKind(childComplexity), true
+	case "DataframeRecipeColumnCandidate.familyName":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.FamilyName(childComplexity), true
+	case "DataframeRecipeColumnCandidate.id":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.ID(childComplexity), true
+	case "DataframeRecipeColumnCandidate.label":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Label(childComplexity), true
+	case "DataframeRecipeColumnCandidate.nodePath":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.NodePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.NodePath(childComplexity), true
+	case "DataframeRecipeColumnCandidate.output":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Output == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Output(childComplexity), true
+	case "DataframeRecipeColumnCandidate.patchPath":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.PatchPath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.PatchPath(childComplexity), true
+	case "DataframeRecipeColumnCandidate.population":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Population == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Population(childComplexity), true
+	case "DataframeRecipeColumnCandidate.publicName":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.PublicName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.PublicName(childComplexity), true
+	case "DataframeRecipeColumnCandidate.rawCode":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.RawCode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.RawCode(childComplexity), true
+	case "DataframeRecipeColumnCandidate.rawKey":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.RawKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.RawKey(childComplexity), true
+	case "DataframeRecipeColumnCandidate.rawSystem":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.RawSystem == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.RawSystem(childComplexity), true
+	case "DataframeRecipeColumnCandidate.selected":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.Selected == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Selected(childComplexity), true
+	case "DataframeRecipeColumnCandidate.valueSelector":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ValueSelector == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.ValueSelector(childComplexity), true
+	case "DataframeRecipeColumnCandidate.valueType":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ValueType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.ValueType(childComplexity), true
+
+	case "DataframeRecipeColumnCandidateCompleteness.blockingDiagnosticCount":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.BlockingDiagnosticCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.BlockingDiagnosticCount(childComplexity), true
+	case "DataframeRecipeColumnCandidateCompleteness.complete":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.Complete == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.Complete(childComplexity), true
+	case "DataframeRecipeColumnCandidateCompleteness.returnedCount":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.ReturnedCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.ReturnedCount(childComplexity), true
+	case "DataframeRecipeColumnCandidateCompleteness.totalCount":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateCompleteness.TotalCount(childComplexity), true
+
+	case "DataframeRecipeColumnCandidateConnection.completeness":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Completeness == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Completeness(childComplexity), true
+	case "DataframeRecipeColumnCandidateConnection.diagnostics":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Diagnostics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Diagnostics(childComplexity), true
+	case "DataframeRecipeColumnCandidateConnection.nodes":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Nodes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.Nodes(childComplexity), true
+	case "DataframeRecipeColumnCandidateConnection.pageInfo":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidateConnection.PageInfo(childComplexity), true
 
 	case "DataframeRecipeExecution.error":
 		if e.ComplexityRoot.DataframeRecipeExecution.Error == nil {
@@ -15526,6 +15742,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeMaterialization(childComplexity, args["id"].(string)), true
+	case "Query.dataframeRecipeColumnCandidates":
+		if e.ComplexityRoot.Query.DataframeRecipeColumnCandidates == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeRecipeColumnCandidates_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeRecipeColumnCandidates(childComplexity, args["input"].(model.DataframeRecipeColumnCandidatesInput)), true
 	case "Query.dataframeRecipeExecution":
 		if e.ComplexityRoot.Query.DataframeRecipeExecution == nil {
 			break
@@ -21055,6 +21282,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
 		ec.unmarshalInputDataframeRecipeBundleInput,
+		ec.unmarshalInputDataframeRecipeColumnCandidatesInput,
 		ec.unmarshalInputDataframeRowsInput,
 		ec.unmarshalInputDataframeSelectorInput,
 		ec.unmarshalInputDataframeSortInput,
@@ -21171,6 +21399,10 @@ var sources = []*ast.Source{
   dataframeBuilderSemanticCatalog(
     input: DataframeBuilderSemanticCatalogInput!
   ): DataframeSemanticConceptCatalog!
+
+  dataframeRecipeColumnCandidates(
+    input: DataframeRecipeColumnCandidatesInput!
+  ): DataframeRecipeColumnCandidateConnection!
 
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
@@ -21766,6 +21998,55 @@ input DataframeBuilderSemanticCatalogInput {
   authResourcePaths: [String!]
   resourceLimit: Int = 0
   conceptLimitPerResource: Int = 0
+}
+
+input DataframeRecipeColumnCandidatesInput {
+  project: String!
+  recipe: JSON!
+  output: String!
+  nodePath: [String!] = []
+  datasetGeneration: String
+  authResourcePaths: [String!]
+  first: Int = 100
+  after: String
+}
+
+type DataframeRecipeColumnCandidateConnection {
+  nodes: [DataframeRecipeColumnCandidate!]!
+  pageInfo: DataframePageInfo!
+  completeness: DataframeRecipeColumnCandidateCompleteness!
+  diagnostics: [DataframeSemanticDiagnostic!]!
+}
+
+type DataframeRecipeColumnCandidateCompleteness {
+  complete: Boolean!
+  totalCount: Int!
+  returnedCount: Int!
+  blockingDiagnosticCount: Int!
+}
+
+type DataframeRecipeColumnCandidate {
+  id: ID!
+  output: String!
+  nodePath: String!
+  familyId: ID!
+  familyKind: String!
+  familyName: String!
+  patchPath: String!
+  rawKey: String!
+  rawSystem: String!
+  rawCode: String!
+  extensionUrl: String!
+  publicName: String!
+  label: String!
+  valueSelector: String!
+  valueType: String!
+  cardinality: String!
+  population: Int!
+  examples: [String!]!
+  selected: Boolean!
+  complete: Boolean!
+  diagnostic: String!
 }
 
 type DataframeSemanticConceptCatalog {
@@ -26269,6 +26550,82 @@ func (ec *executionContext) childFields_DataframeRecipeColumn(ctx context.Contex
 		return ec.fieldContext_DataframeRecipeColumn_nullable(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumn", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeRecipeColumnCandidate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_id(ctx, field)
+	case "output":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_output(ctx, field)
+	case "nodePath":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_nodePath(ctx, field)
+	case "familyId":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_familyId(ctx, field)
+	case "familyKind":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_familyKind(ctx, field)
+	case "familyName":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_familyName(ctx, field)
+	case "patchPath":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_patchPath(ctx, field)
+	case "rawKey":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_rawKey(ctx, field)
+	case "rawSystem":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_rawSystem(ctx, field)
+	case "rawCode":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_rawCode(ctx, field)
+	case "extensionUrl":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_extensionUrl(ctx, field)
+	case "publicName":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_publicName(ctx, field)
+	case "label":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_label(ctx, field)
+	case "valueSelector":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_valueSelector(ctx, field)
+	case "valueType":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_valueType(ctx, field)
+	case "cardinality":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_cardinality(ctx, field)
+	case "population":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_population(ctx, field)
+	case "examples":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_examples(ctx, field)
+	case "selected":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_selected(ctx, field)
+	case "complete":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_complete(ctx, field)
+	case "diagnostic":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_diagnostic(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumnCandidate", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeRecipeColumnCandidateCompleteness(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "complete":
+		return ec.fieldContext_DataframeRecipeColumnCandidateCompleteness_complete(ctx, field)
+	case "totalCount":
+		return ec.fieldContext_DataframeRecipeColumnCandidateCompleteness_totalCount(ctx, field)
+	case "returnedCount":
+		return ec.fieldContext_DataframeRecipeColumnCandidateCompleteness_returnedCount(ctx, field)
+	case "blockingDiagnosticCount":
+		return ec.fieldContext_DataframeRecipeColumnCandidateCompleteness_blockingDiagnosticCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumnCandidateCompleteness", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeRecipeColumnCandidateConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "nodes":
+		return ec.fieldContext_DataframeRecipeColumnCandidateConnection_nodes(ctx, field)
+	case "pageInfo":
+		return ec.fieldContext_DataframeRecipeColumnCandidateConnection_pageInfo(ctx, field)
+	case "completeness":
+		return ec.fieldContext_DataframeRecipeColumnCandidateConnection_completeness(ctx, field)
+	case "diagnostics":
+		return ec.fieldContext_DataframeRecipeColumnCandidateConnection_diagnostics(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumnCandidateConnection", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeRecipeExecution(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {

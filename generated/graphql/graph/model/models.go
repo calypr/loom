@@ -283,6 +283,55 @@ type DataframeRecipeColumn struct {
 	Nullable    bool   `json:"nullable"`
 }
 
+type DataframeRecipeColumnCandidate struct {
+	ID            string   `json:"id"`
+	Output        string   `json:"output"`
+	NodePath      string   `json:"nodePath"`
+	FamilyID      string   `json:"familyId"`
+	FamilyKind    string   `json:"familyKind"`
+	FamilyName    string   `json:"familyName"`
+	PatchPath     string   `json:"patchPath"`
+	RawKey        string   `json:"rawKey"`
+	RawSystem     string   `json:"rawSystem"`
+	RawCode       string   `json:"rawCode"`
+	ExtensionURL  string   `json:"extensionUrl"`
+	PublicName    string   `json:"publicName"`
+	Label         string   `json:"label"`
+	ValueSelector string   `json:"valueSelector"`
+	ValueType     string   `json:"valueType"`
+	Cardinality   string   `json:"cardinality"`
+	Population    int      `json:"population"`
+	Examples      []string `json:"examples"`
+	Selected      bool     `json:"selected"`
+	Complete      bool     `json:"complete"`
+	Diagnostic    string   `json:"diagnostic"`
+}
+
+type DataframeRecipeColumnCandidateCompleteness struct {
+	Complete                bool `json:"complete"`
+	TotalCount              int  `json:"totalCount"`
+	ReturnedCount           int  `json:"returnedCount"`
+	BlockingDiagnosticCount int  `json:"blockingDiagnosticCount"`
+}
+
+type DataframeRecipeColumnCandidateConnection struct {
+	Nodes        []*DataframeRecipeColumnCandidate           `json:"nodes"`
+	PageInfo     *DataframePageInfo                          `json:"pageInfo"`
+	Completeness *DataframeRecipeColumnCandidateCompleteness `json:"completeness"`
+	Diagnostics  []*DataframeSemanticDiagnostic              `json:"diagnostics"`
+}
+
+type DataframeRecipeColumnCandidatesInput struct {
+	Project           string          `json:"project"`
+	Recipe            json.RawMessage `json:"recipe"`
+	Output            string          `json:"output"`
+	NodePath          []string        `json:"nodePath,omitempty"`
+	DatasetGeneration *string         `json:"datasetGeneration,omitempty"`
+	AuthResourcePaths []string        `json:"authResourcePaths,omitempty"`
+	First             *int            `json:"first,omitempty"`
+	After             *string         `json:"after,omitempty"`
+}
+
 type DataframeRecipeExecution struct {
 	ID                   string                            `json:"id"`
 	Name                 string                            `json:"name"`

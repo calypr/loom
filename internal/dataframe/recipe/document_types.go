@@ -193,6 +193,7 @@ type Pivot struct {
 	ItemResourceType string          `json:"itemResourceType,omitempty"`
 	Columns          []string        `json:"columns"`
 	Discovery        *PivotDiscovery `json:"discovery,omitempty"`
+	ColumnMode       ColumnMode      `json:"columnMode,omitempty"`
 	Discovered       bool            `json:"-"`
 }
 
@@ -212,8 +213,9 @@ func (p Pivot) MarshalJSON() ([]byte, error) {
 		ItemResourceType string          `json:"itemResourceType,omitempty"`
 		Columns          []string        `json:"columns"`
 		Discovery        *PivotDiscovery `json:"discovery,omitempty"`
+		ColumnMode       ColumnMode      `json:"columnMode,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, Discovery: p.Discovery}
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, Discovery: p.Discovery, ColumnMode: p.ColumnMode}
 	if p.Discovery == nil || !p.ColumnExpr.zero() {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
@@ -241,6 +243,23 @@ type PivotDiscovery struct {
 	Path       string `json:"path,omitempty"`
 	MaxColumns int    `json:"maxColumns"`
 }
+
+// ColumnMode controls whether a keyed recipe family discovers all populated
+// keys or materializes only its authored Columns. Empty and DISCOVER preserve
+// the legacy discovery behavior. SELECTED makes Columns authoritative,
+// including a present or omitted empty list.
+type ColumnMode string
+
+const (
+	ColumnModeDiscover ColumnMode = "DISCOVER"
+	ColumnModeSelected ColumnMode = "SELECTED"
+)
+
+func (m ColumnMode) Valid() bool {
+	return m == "" || m == ColumnModeDiscover || m == ColumnModeSelected
+}
+
+func (m ColumnMode) Selected() bool { return m == ColumnModeSelected }
 
 type AggregateOperation string
 
@@ -344,6 +363,7 @@ type DynamicColumn struct {
 	Key          *Expression `json:"key,omitempty"`
 	Value        *Expression `json:"value,omitempty"`
 	Columns      []string    `json:"columns,omitempty"`
+	ColumnMode   ColumnMode  `json:"columnMode,omitempty"`
 	MaxColumns   int         `json:"maxColumns,omitempty"`
 	// ColumnTypes carries resolver-observed logical types for frozen keys. It
 	// is optional for legacy dynamicColumns and is populated for typed
@@ -365,6 +385,7 @@ type ExtensionColumn struct {
 	ColumnPrefix *string                  `json:"columnPrefix,omitempty"`
 	MaxColumns   int                      `json:"maxColumns"`
 	Columns      []ExtensionColumnMapping `json:"columns,omitempty"`
+	ColumnMode   ColumnMode               `json:"columnMode,omitempty"`
 	Discovered   bool                     `json:"-"`
 }
 

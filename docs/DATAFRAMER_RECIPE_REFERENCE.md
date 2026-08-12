@@ -357,6 +357,28 @@ selector, and logical type are included in the resolved schema digest.
 `dynamicColumns` remains available for general key/value arrays and retains
 its existing behavior.
 
+### Author-controlled keyed columns
+
+`dynamicColumns`, `extensionColumns`, and pivots accept an optional
+`columnMode`:
+
+- omitted or `DISCOVER` preserves the legacy behavior and freezes every key
+  found by scoped catalog discovery;
+- `SELECTED` makes `columns` authoritative. An empty or omitted `columns`
+  list therefore emits no columns for that family.
+
+The builder uses `SELECTED` only in project-authored drafts. Server-owned
+legacy/default recipes remain discovery-driven unless explicitly changed.
+Selected families work identically on an output root and on nested traversal
+nodes.
+
+The `dataframeRecipeColumnCandidates` GraphQL query accepts the authored
+recipe, output name, traversal alias path, and optional dataset generation.
+It returns stable, paginated candidates with their raw FHIR identity, public
+column name, native recipe patch path, type/cardinality, population, examples,
+selected state, and blocking completeness diagnostics. Callers must fetch all
+pages and must not publish while `completeness.complete` is false.
+
 ### Published schema finalization
 
 Preflight and preview report the conservative candidate schema produced by

@@ -1,6 +1,10 @@
 package queryapi
 
-import "github.com/calypr/loom/internal/catalog"
+import (
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/schema"
+)
 
 type IntrospectionRequest struct {
 	Project                string
@@ -56,6 +60,21 @@ type SemanticCatalogRequest struct {
 	AuthResourcePaths       []string
 	ResourceLimit           int
 	ConceptLimitPerResource int
+}
+
+type RecipeColumnCandidatesRequest struct {
+	Project, Output, DatasetGeneration, After string
+	Recipe                                    recipe.Bundle
+	NodePath, AuthResourcePaths               []string
+	First                                     int
+}
+
+type RecipeColumnCandidatesResponse struct {
+	Project, SourceGeneration, EndCursor string
+	Candidates                           []schema.ColumnCandidate
+	TotalCount                           int
+	HasNext, Complete                    bool
+	Diagnostics                          []string
 }
 
 type RelatedResourceHints struct {

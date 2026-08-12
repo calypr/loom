@@ -23,11 +23,14 @@ type Scope struct {
 }
 
 type FieldCandidate struct {
-	ResourceType      string
-	Path              string
-	Kind              string
-	DistinctValues    []string
-	DistinctTruncated bool
+	ResourceType         string
+	Path                 string
+	Kind                 string
+	Population           int64
+	Examples             []string
+	SemanticObservations []SemanticObservation
+	DistinctValues       []string
+	DistinctTruncated    bool
 	// ExtensionValues is optional profile-level correlation metadata. When
 	// present it preserves the URL/value[x] pairing that a flattened field
 	// catalog cannot represent with independent distinct-value lists.
@@ -40,6 +43,14 @@ type FieldCandidate struct {
 	PivotItemSource       string
 	PivotItemResourceType string
 	PivotValueSelectors   []string
+}
+
+type SemanticObservation struct {
+	SourcePath, KeySelector, KeySystem, KeyCode, KeyDisplay string
+	ValueSelector, ValueType, Cardinality                   string
+	Population                                              int64
+	Examples                                                []string
+	ExamplesTruncated                                       bool
 }
 
 type ExtensionValueObservation struct {
@@ -175,6 +186,11 @@ func cloneCandidates(in []FieldCandidate) []FieldCandidate {
 	for i := range in {
 		out[i] = in[i]
 		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+		out[i].SemanticObservations = append([]SemanticObservation(nil), in[i].SemanticObservations...)
+		for j := range out[i].SemanticObservations {
+			out[i].SemanticObservations[j].Examples = append([]string(nil), in[i].SemanticObservations[j].Examples...)
+		}
 		out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)

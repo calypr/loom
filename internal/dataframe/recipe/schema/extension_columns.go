@@ -18,6 +18,12 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 	for index := range items {
 		item := &items[index]
 		item.Discovered = true
+		if item.ColumnMode.Selected() {
+			if item.Columns == nil {
+				item.Columns = []recipe.ExtensionColumnMapping{}
+			}
+			continue
+		}
 		selector := strings.TrimSpace(item.Source.Select)
 		if selector == "" {
 			return fmt.Errorf("extension column %q source must be a selector", item.Name)

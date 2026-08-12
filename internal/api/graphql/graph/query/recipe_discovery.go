@@ -39,10 +39,15 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 	if err != nil {
 		return nil, queryBackend(err)
 	}
+	return catalogFieldsToRecipeCandidates(fields), nil
+}
+
+func catalogFieldsToRecipeCandidates(fields []catalog.PopulatedField) []schema.FieldCandidate {
 	result := make([]schema.FieldCandidate, 0, len(fields))
 	for _, field := range fields {
 		result = append(result, schema.FieldCandidate{
 			ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind,
+			Population: field.DocCount, Examples: append([]string(nil), field.DistinctValues...),
 			DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, PivotCandidate: field.PivotCandidate,
 			PivotFamily: field.PivotFamily, PivotColumns: append([]string(nil), field.PivotColumns...),
 			PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect,
@@ -53,7 +58,14 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 				}
 				return values
 			}(),
+			SemanticObservations: func() []schema.SemanticObservation {
+				values := make([]schema.SemanticObservation, len(field.SemanticObservations))
+				for i, value := range field.SemanticObservations {
+					values[i] = schema.SemanticObservation{SourcePath: value.Source.Path, KeySelector: value.Key.Selector, KeySystem: value.Key.System, KeyCode: value.Key.Code, KeyDisplay: value.Key.Display, ValueSelector: value.Value.Selector, ValueType: value.Value.Type, Cardinality: value.Cardinality, Population: value.Population, Examples: append([]string(nil), value.Examples...), ExamplesTruncated: value.ExamplesTruncated}
+				}
+				return values
+			}(),
 		})
 	}
-	return result, nil
+	return result
 }

@@ -395,6 +395,42 @@ func (r *queryResolver) DataframeBuilderSemanticCatalog(ctx context.Context, inp
 	return semanticCatalogModel(resp, resp.AuthResourcePaths), nil
 }
 
+// DataframeRecipeColumnCandidates is the resolver for the dataframeRecipeColumnCandidates field.
+func (r *queryResolver) DataframeRecipeColumnCandidates(ctx context.Context, input model.DataframeRecipeColumnCandidatesInput) (*model.DataframeRecipeColumnCandidateConnection, error) {
+	var bundle recipe.Bundle
+	if err := json.Unmarshal(input.Recipe, &bundle); err != nil {
+		return nil, recipeGraphQLError(err)
+	}
+	first := 100
+	if input.First != nil {
+		first = *input.First
+	}
+	generation, after := "", ""
+	if input.DatasetGeneration != nil {
+		generation = *input.DatasetGeneration
+	}
+	if input.After != nil {
+		after = *input.After
+	}
+	resp, err := r.query.RecipeColumnCandidates(ctx, queryapi.RecipeColumnCandidatesRequest{Project: input.Project, Recipe: bundle, Output: input.Output, NodePath: append([]string(nil), input.NodePath...), DatasetGeneration: generation, AuthResourcePaths: append([]string(nil), input.AuthResourcePaths...), First: first, After: after})
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]*model.DataframeRecipeColumnCandidate, 0, len(resp.Candidates))
+	for _, candidate := range resp.Candidates {
+		nodes = append(nodes, &model.DataframeRecipeColumnCandidate{ID: candidate.ID, Output: candidate.Output, NodePath: candidate.NodePath, FamilyID: candidate.FamilyID, FamilyKind: candidate.FamilyKind, FamilyName: candidate.FamilyName, PatchPath: candidate.PatchPath, RawKey: candidate.RawKey, RawSystem: candidate.RawSystem, RawCode: candidate.RawCode, ExtensionURL: candidate.ExtensionURL, PublicName: candidate.PublicName, Label: candidate.Label, ValueSelector: candidate.ValueSelector, ValueType: candidate.ValueType, Cardinality: candidate.Cardinality, Population: int(candidate.Population), Examples: append([]string(nil), candidate.Examples...), Selected: candidate.Selected, Complete: candidate.Complete, Diagnostic: candidate.Diagnostic})
+	}
+	diagnostics := make([]*model.DataframeSemanticDiagnostic, 0, len(resp.Diagnostics))
+	for _, message := range resp.Diagnostics {
+		diagnostics = append(diagnostics, &model.DataframeSemanticDiagnostic{Severity: "ERROR", Code: "INCOMPLETE_COLUMN_CANDIDATES", Path: input.Output + "." + strings.Join(input.NodePath, "."), Message: message})
+	}
+	var cursor *string
+	if resp.EndCursor != "" {
+		cursor = &resp.EndCursor
+	}
+	return &model.DataframeRecipeColumnCandidateConnection{Nodes: nodes, PageInfo: &model.DataframePageInfo{HasNextPage: resp.HasNext, EndCursor: cursor}, Completeness: &model.DataframeRecipeColumnCandidateCompleteness{Complete: resp.Complete, TotalCount: resp.TotalCount, ReturnedCount: len(nodes), BlockingDiagnosticCount: len(diagnostics)}, Diagnostics: diagnostics}, nil
+}
+
 // DataframeMaterialization is the resolver for the dataframeMaterialization field.
 func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
 	value, err := r.materializations.Get(ctx, id)

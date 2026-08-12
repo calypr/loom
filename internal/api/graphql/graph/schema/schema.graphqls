@@ -11,6 +11,10 @@ type Query {
     input: DataframeBuilderSemanticCatalogInput!
   ): DataframeSemanticConceptCatalog!
 
+  dataframeRecipeColumnCandidates(
+    input: DataframeRecipeColumnCandidatesInput!
+  ): DataframeRecipeColumnCandidateConnection!
+
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
@@ -605,6 +609,55 @@ input DataframeBuilderSemanticCatalogInput {
   authResourcePaths: [String!]
   resourceLimit: Int = 0
   conceptLimitPerResource: Int = 0
+}
+
+input DataframeRecipeColumnCandidatesInput {
+  project: String!
+  recipe: JSON!
+  output: String!
+  nodePath: [String!] = []
+  datasetGeneration: String
+  authResourcePaths: [String!]
+  first: Int = 100
+  after: String
+}
+
+type DataframeRecipeColumnCandidateConnection {
+  nodes: [DataframeRecipeColumnCandidate!]!
+  pageInfo: DataframePageInfo!
+  completeness: DataframeRecipeColumnCandidateCompleteness!
+  diagnostics: [DataframeSemanticDiagnostic!]!
+}
+
+type DataframeRecipeColumnCandidateCompleteness {
+  complete: Boolean!
+  totalCount: Int!
+  returnedCount: Int!
+  blockingDiagnosticCount: Int!
+}
+
+type DataframeRecipeColumnCandidate {
+  id: ID!
+  output: String!
+  nodePath: String!
+  familyId: ID!
+  familyKind: String!
+  familyName: String!
+  patchPath: String!
+  rawKey: String!
+  rawSystem: String!
+  rawCode: String!
+  extensionUrl: String!
+  publicName: String!
+  label: String!
+  valueSelector: String!
+  valueType: String!
+  cardinality: String!
+  population: Int!
+  examples: [String!]!
+  selected: Boolean!
+  complete: Boolean!
+  diagnostic: String!
 }
 
 type DataframeSemanticConceptCatalog {

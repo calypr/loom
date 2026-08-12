@@ -135,11 +135,17 @@ func (p Pivot) validateAt(path string, budget *int) error {
 	if err := validateRecipeName(p.Name, path+".name"); err != nil {
 		return err
 	}
-	if p.Discovery != nil && len(p.Columns) != 0 {
+	if !p.ColumnMode.Valid() {
+		return validationError("invalid_column_mode", path+".columnMode", "must be DISCOVER or SELECTED")
+	}
+	if p.Discovery != nil && len(p.Columns) != 0 && !p.ColumnMode.Selected() {
 		return validationError("ambiguous_columns", path, "pivot may use static columns or discovery, not both")
 	}
-	if p.Discovery == nil && (len(p.Columns) == 0 || len(p.Columns) > maxPivotColumns) {
+	if p.Discovery == nil && !p.ColumnMode.Selected() && (len(p.Columns) == 0 || len(p.Columns) > maxPivotColumns) {
 		return validationError("invalid_columns", path+".columns", fmt.Sprintf("must contain 1..%d columns", maxPivotColumns))
+	}
+	if len(p.Columns) > maxPivotColumns {
+		return validationError("invalid_columns", path+".columns", fmt.Sprintf("must contain at most %d columns", maxPivotColumns))
 	}
 	if p.Discovery != nil {
 		if strings.TrimSpace(p.Discovery.Family) == "" && strings.TrimSpace(p.Discovery.Path) == "" {
