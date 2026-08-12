@@ -16,15 +16,15 @@ import (
 // family at one traversal node. Identity includes the raw semantic key so
 // superficially identical labels from different families remain distinct.
 type ColumnCandidate struct {
-	ID, Output, NodePath, FamilyID, FamilyKind, FamilyName string
-	PatchPath, RawKey, RawSystem, RawCode, ExtensionURL    string
-	PublicName, Label, ValueSelector, ValueType            string
-	Cardinality                                            string
-	Population                                             int64
-	Examples                                               []string
-	Selected, Complete                                     bool
-	Diagnostic                                             string
-	ExtensionMapping                                       *recipe.ExtensionColumnMapping
+	ID, Output, NodePath, FamilyID, FamilyKind, FamilyName            string
+	PatchPath, RawKey, SelectionKey, RawSystem, RawCode, ExtensionURL string
+	PublicName, Label, ValueSelector, ValueType                       string
+	Cardinality                                                       string
+	Population                                                        int64
+	Examples                                                          []string
+	Selected, Complete                                                bool
+	Diagnostic                                                        string
+	ExtensionMapping                                                  *recipe.ExtensionColumnMapping
 }
 
 // ColumnCandidates enumerates all columns controlled by the authored recipe
@@ -137,7 +137,7 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 		if !ok || observed.Population <= 0 {
 			continue
 		}
-		add(ColumnCandidate{FamilyKind: "FIELD", FamilyName: "explicit", PatchPath: fmt.Sprintf("%s.fields[%d]", base, i), RawKey: path, PublicName: field.Name, ValueSelector: field.Expr.Select, ValueType: observed.Kind, Population: observed.Population, Examples: observed.Examples, Selected: true, Complete: !observed.DistinctTruncated})
+		add(ColumnCandidate{FamilyKind: "FIELD", FamilyName: "explicit", PatchPath: fmt.Sprintf("%s.fields[%d]", base, i), RawKey: path, SelectionKey: field.Name, PublicName: field.Name, ValueSelector: field.Expr.Select, ValueType: observed.Kind, Population: observed.Population, Examples: observed.Examples, Selected: true, Complete: !observed.DistinctTruncated})
 	}
 	for _, family := range projections {
 		matched := filterCandidates(fields, family)
@@ -146,7 +146,7 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 			if observed.ResourceType != resourceType {
 				continue
 			}
-			add(ColumnCandidate{FamilyKind: "CATALOG_PROJECTION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.fields", base), RawKey: observed.Path, PublicName: projectionName(family, observed.Path), ValueSelector: qualifyDiscoveredSelector(lastAlias(nodeAliases), observed.Path), ValueType: observed.Kind, Population: observed.Population, Examples: observed.Examples, Complete: complete && !observed.DistinctTruncated, Diagnostic: limitDiagnostic(complete, family.MaxColumns, len(matched))})
+			add(ColumnCandidate{FamilyKind: "CATALOG_PROJECTION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.fields", base), RawKey: observed.Path, SelectionKey: projectionName(family, observed.Path), PublicName: projectionName(family, observed.Path), ValueSelector: qualifyDiscoveredSelector(lastAlias(nodeAliases), observed.Path), ValueType: observed.Kind, Population: observed.Population, Examples: observed.Examples, Complete: complete && !observed.DistinctTruncated, Diagnostic: limitDiagnostic(complete, family.MaxColumns, len(matched))})
 		}
 	}
 	for i, family := range dynamics {
@@ -191,7 +191,7 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 				if semantic != nil {
 					rawSystem, rawCode = semantic.KeySystem, semantic.KeyCode
 				}
-				add(ColumnCandidate{FamilyKind: "DYNAMIC", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.dynamicColumns[%d].columns", base, i), RawKey: raw, RawSystem: rawSystem, RawCode: rawCode, PublicName: public, ValueSelector: valueSelector, ValueType: valueType, Cardinality: cardinality, Population: population, Examples: examples, Selected: selected[name], Complete: complete, Diagnostic: dynamicDiagnostic(observed, family.MaxColumns)})
+				add(ColumnCandidate{FamilyKind: "DYNAMIC", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.dynamicColumns[%d].columns", base, i), RawKey: raw, SelectionKey: name, RawSystem: rawSystem, RawCode: rawCode, PublicName: public, ValueSelector: valueSelector, ValueType: valueType, Cardinality: cardinality, Population: population, Examples: examples, Selected: selected[name], Complete: complete, Diagnostic: dynamicDiagnostic(observed, family.MaxColumns)})
 			}
 		}
 		for name := range selected {
@@ -204,7 +204,7 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 				if prefix != "" {
 					public = prefix + "_" + name
 				}
-				add(ColumnCandidate{FamilyKind: "DYNAMIC", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.dynamicColumns[%d].columns", base, i), RawKey: name, PublicName: public, Selected: true, Complete: false, Diagnostic: "selected key is not populated in this dataset generation"})
+				add(ColumnCandidate{FamilyKind: "DYNAMIC", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.dynamicColumns[%d].columns", base, i), RawKey: name, SelectionKey: name, PublicName: public, Selected: true, Complete: false, Diagnostic: "selected key is not populated in this dataset generation"})
 			}
 		}
 	}
@@ -237,12 +237,12 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 			if semantic := semanticsForKey(fields, "", mapping.URL); len(semantic) > 0 {
 				population, examples, cardinality = semantic[0].Population, semantic[0].Examples, strings.ToUpper(semantic[0].Cardinality)
 			}
-			add(ColumnCandidate{FamilyKind: "EXTENSION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.extensionColumns[%d].columns", base, i), RawKey: mapping.URL, ExtensionURL: mapping.URL, PublicName: public, ValueSelector: mapping.ValuePath, ValueType: mapping.ValueType, Cardinality: cardinality, Population: population, Examples: examples, Selected: selected[mapping.URL+"\x00"+mapping.Name], Complete: complete, Diagnostic: limitDiagnostic(complete, family.MaxColumns, len(items[0].Columns)), ExtensionMapping: &mapping})
+			add(ColumnCandidate{FamilyKind: "EXTENSION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.extensionColumns[%d].columns", base, i), RawKey: mapping.URL, SelectionKey: mapping.Name, ExtensionURL: mapping.URL, PublicName: public, ValueSelector: mapping.ValuePath, ValueType: mapping.ValueType, Cardinality: cardinality, Population: population, Examples: examples, Selected: selected[mapping.URL+"\x00"+mapping.Name], Complete: complete, Diagnostic: limitDiagnostic(complete, family.MaxColumns, len(items[0].Columns)), ExtensionMapping: &mapping})
 		}
 		for _, mapping := range family.Columns {
 			if !found[mapping.URL+"\x00"+mapping.Name] {
 				copy := mapping
-				add(ColumnCandidate{FamilyKind: "EXTENSION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.extensionColumns[%d].columns", base, i), RawKey: mapping.URL, ExtensionURL: mapping.URL, PublicName: extensionPublicName(family, mapping), ValueSelector: mapping.ValuePath, ValueType: mapping.ValueType, Selected: true, Complete: false, Diagnostic: "selected extension is not populated in this dataset generation", ExtensionMapping: &copy})
+				add(ColumnCandidate{FamilyKind: "EXTENSION", FamilyName: family.Name, PatchPath: fmt.Sprintf("%s.extensionColumns[%d].columns", base, i), RawKey: mapping.URL, SelectionKey: mapping.Name, ExtensionURL: mapping.URL, PublicName: extensionPublicName(family, mapping), ValueSelector: mapping.ValuePath, ValueType: mapping.ValueType, Selected: true, Complete: false, Diagnostic: "selected extension is not populated in this dataset generation", ExtensionMapping: &copy})
 			}
 		}
 	}
@@ -268,11 +268,11 @@ func ColumnCandidates(bundle recipe.Bundle, outputName string, nodeAliases []str
 		}
 		complete := len(keys) <= pivot.Discovery.MaxColumns
 		for key, field := range keys {
-			add(ColumnCandidate{FamilyKind: "PIVOT", FamilyName: pivot.Name, PatchPath: fmt.Sprintf("%s.pivots[%d].columns", base, i), RawKey: key, RawCode: key, PublicName: pivot.Name + "__" + candidateKeyName(key), ValueSelector: field.PivotValueSelect, ValueType: "unknown", Population: field.Population, Examples: field.Examples, Selected: selected[key], Complete: complete && !field.DistinctTruncated, Diagnostic: limitDiagnostic(complete, pivot.Discovery.MaxColumns, len(keys))})
+			add(ColumnCandidate{FamilyKind: "PIVOT", FamilyName: pivot.Name, PatchPath: fmt.Sprintf("%s.pivots[%d].columns", base, i), RawKey: key, SelectionKey: key, RawCode: key, PublicName: pivot.Name + "__" + candidateKeyName(key), ValueSelector: field.PivotValueSelect, ValueType: "unknown", Population: field.Population, Examples: field.Examples, Selected: selected[key], Complete: complete && !field.DistinctTruncated, Diagnostic: limitDiagnostic(complete, pivot.Discovery.MaxColumns, len(keys))})
 		}
 		for key := range selected {
 			if _, ok := keys[key]; !ok {
-				add(ColumnCandidate{FamilyKind: "PIVOT", FamilyName: pivot.Name, PatchPath: fmt.Sprintf("%s.pivots[%d].columns", base, i), RawKey: key, RawCode: key, PublicName: pivot.Name + "__" + candidateKeyName(key), Selected: true, Complete: false, Diagnostic: "selected pivot key is not populated in this dataset generation"})
+				add(ColumnCandidate{FamilyKind: "PIVOT", FamilyName: pivot.Name, PatchPath: fmt.Sprintf("%s.pivots[%d].columns", base, i), RawKey: key, SelectionKey: key, RawCode: key, PublicName: pivot.Name + "__" + candidateKeyName(key), Selected: true, Complete: false, Diagnostic: "selected pivot key is not populated in this dataset generation"})
 			}
 		}
 	}

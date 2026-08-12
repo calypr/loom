@@ -418,7 +418,16 @@ func (r *queryResolver) DataframeRecipeColumnCandidates(ctx context.Context, inp
 	}
 	nodes := make([]*model.DataframeRecipeColumnCandidate, 0, len(resp.Candidates))
 	for _, candidate := range resp.Candidates {
-		nodes = append(nodes, &model.DataframeRecipeColumnCandidate{ID: candidate.ID, Output: candidate.Output, NodePath: candidate.NodePath, FamilyID: candidate.FamilyID, FamilyKind: candidate.FamilyKind, FamilyName: candidate.FamilyName, PatchPath: candidate.PatchPath, RawKey: candidate.RawKey, RawSystem: candidate.RawSystem, RawCode: candidate.RawCode, ExtensionURL: candidate.ExtensionURL, PublicName: candidate.PublicName, Label: candidate.Label, ValueSelector: candidate.ValueSelector, ValueType: candidate.ValueType, Cardinality: candidate.Cardinality, Population: int(candidate.Population), Examples: append([]string(nil), candidate.Examples...), Selected: candidate.Selected, Complete: candidate.Complete, Diagnostic: candidate.Diagnostic})
+		var extensionMapping *string
+		if candidate.ExtensionMapping != nil {
+			encoded, marshalErr := json.Marshal(candidate.ExtensionMapping)
+			if marshalErr != nil {
+				return nil, recipeGraphQLError(marshalErr)
+			}
+			value := string(encoded)
+			extensionMapping = &value
+		}
+		nodes = append(nodes, &model.DataframeRecipeColumnCandidate{ID: candidate.ID, Output: candidate.Output, NodePath: candidate.NodePath, FamilyID: candidate.FamilyID, FamilyKind: candidate.FamilyKind, FamilyName: candidate.FamilyName, PatchPath: candidate.PatchPath, RawKey: candidate.RawKey, SelectionKey: candidate.SelectionKey, RawSystem: candidate.RawSystem, RawCode: candidate.RawCode, ExtensionURL: candidate.ExtensionURL, PublicName: candidate.PublicName, Label: candidate.Label, ValueSelector: candidate.ValueSelector, ValueType: candidate.ValueType, Cardinality: candidate.Cardinality, Population: int(candidate.Population), Examples: append([]string(nil), candidate.Examples...), Selected: candidate.Selected, Complete: candidate.Complete, Diagnostic: candidate.Diagnostic, ExtensionMapping: extensionMapping})
 	}
 	diagnostics := make([]*model.DataframeSemanticDiagnostic, 0, len(resp.Diagnostics))
 	for _, message := range resp.Diagnostics {

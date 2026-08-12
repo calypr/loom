@@ -756,27 +756,29 @@ type ComplexityRoot struct {
 	}
 
 	DataframeRecipeColumnCandidate struct {
-		Cardinality   func(childComplexity int) int
-		Complete      func(childComplexity int) int
-		Diagnostic    func(childComplexity int) int
-		Examples      func(childComplexity int) int
-		ExtensionURL  func(childComplexity int) int
-		FamilyID      func(childComplexity int) int
-		FamilyKind    func(childComplexity int) int
-		FamilyName    func(childComplexity int) int
-		ID            func(childComplexity int) int
-		Label         func(childComplexity int) int
-		NodePath      func(childComplexity int) int
-		Output        func(childComplexity int) int
-		PatchPath     func(childComplexity int) int
-		Population    func(childComplexity int) int
-		PublicName    func(childComplexity int) int
-		RawCode       func(childComplexity int) int
-		RawKey        func(childComplexity int) int
-		RawSystem     func(childComplexity int) int
-		Selected      func(childComplexity int) int
-		ValueSelector func(childComplexity int) int
-		ValueType     func(childComplexity int) int
+		Cardinality      func(childComplexity int) int
+		Complete         func(childComplexity int) int
+		Diagnostic       func(childComplexity int) int
+		Examples         func(childComplexity int) int
+		ExtensionMapping func(childComplexity int) int
+		ExtensionURL     func(childComplexity int) int
+		FamilyID         func(childComplexity int) int
+		FamilyKind       func(childComplexity int) int
+		FamilyName       func(childComplexity int) int
+		ID               func(childComplexity int) int
+		Label            func(childComplexity int) int
+		NodePath         func(childComplexity int) int
+		Output           func(childComplexity int) int
+		PatchPath        func(childComplexity int) int
+		Population       func(childComplexity int) int
+		PublicName       func(childComplexity int) int
+		RawCode          func(childComplexity int) int
+		RawKey           func(childComplexity int) int
+		RawSystem        func(childComplexity int) int
+		Selected         func(childComplexity int) int
+		SelectionKey     func(childComplexity int) int
+		ValueSelector    func(childComplexity int) int
+		ValueType        func(childComplexity int) int
 	}
 
 	DataframeRecipeColumnCandidateCompleteness struct {
@@ -6477,6 +6479,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Examples(childComplexity), true
+	case "DataframeRecipeColumnCandidate.extensionMapping":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ExtensionMapping == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.ExtensionMapping(childComplexity), true
 	case "DataframeRecipeColumnCandidate.extensionUrl":
 		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ExtensionURL == nil {
 			break
@@ -6567,6 +6575,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRecipeColumnCandidate.Selected(childComplexity), true
+	case "DataframeRecipeColumnCandidate.selectionKey":
+		if e.ComplexityRoot.DataframeRecipeColumnCandidate.SelectionKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeColumnCandidate.SelectionKey(childComplexity), true
 	case "DataframeRecipeColumnCandidate.valueSelector":
 		if e.ComplexityRoot.DataframeRecipeColumnCandidate.ValueSelector == nil {
 			break
@@ -22034,6 +22048,7 @@ type DataframeRecipeColumnCandidate {
   familyName: String!
   patchPath: String!
   rawKey: String!
+  selectionKey: String!
   rawSystem: String!
   rawCode: String!
   extensionUrl: String!
@@ -22047,6 +22062,7 @@ type DataframeRecipeColumnCandidate {
   selected: Boolean!
   complete: Boolean!
   diagnostic: String!
+  extensionMapping: String
 }
 
 type DataframeSemanticConceptCatalog {
@@ -26570,6 +26586,8 @@ func (ec *executionContext) childFields_DataframeRecipeColumnCandidate(ctx conte
 		return ec.fieldContext_DataframeRecipeColumnCandidate_patchPath(ctx, field)
 	case "rawKey":
 		return ec.fieldContext_DataframeRecipeColumnCandidate_rawKey(ctx, field)
+	case "selectionKey":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_selectionKey(ctx, field)
 	case "rawSystem":
 		return ec.fieldContext_DataframeRecipeColumnCandidate_rawSystem(ctx, field)
 	case "rawCode":
@@ -26596,6 +26614,8 @@ func (ec *executionContext) childFields_DataframeRecipeColumnCandidate(ctx conte
 		return ec.fieldContext_DataframeRecipeColumnCandidate_complete(ctx, field)
 	case "diagnostic":
 		return ec.fieldContext_DataframeRecipeColumnCandidate_diagnostic(ctx, field)
+	case "extensionMapping":
+		return ec.fieldContext_DataframeRecipeColumnCandidate_extensionMapping(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeColumnCandidate", field.Name)
 }

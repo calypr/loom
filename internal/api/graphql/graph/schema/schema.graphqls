@@ -645,6 +645,7 @@ type DataframeRecipeColumnCandidate {
   familyName: String!
   patchPath: String!
   rawKey: String!
+  selectionKey: String!
   rawSystem: String!
   rawCode: String!
   extensionUrl: String!
@@ -658,6 +659,7 @@ type DataframeRecipeColumnCandidate {
   selected: Boolean!
   complete: Boolean!
   diagnostic: String!
+  extensionMapping: String
 }
 
 type DataframeSemanticConceptCatalog {

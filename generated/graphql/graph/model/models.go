@@ -284,27 +284,29 @@ type DataframeRecipeColumn struct {
 }
 
 type DataframeRecipeColumnCandidate struct {
-	ID            string   `json:"id"`
-	Output        string   `json:"output"`
-	NodePath      string   `json:"nodePath"`
-	FamilyID      string   `json:"familyId"`
-	FamilyKind    string   `json:"familyKind"`
-	FamilyName    string   `json:"familyName"`
-	PatchPath     string   `json:"patchPath"`
-	RawKey        string   `json:"rawKey"`
-	RawSystem     string   `json:"rawSystem"`
-	RawCode       string   `json:"rawCode"`
-	ExtensionURL  string   `json:"extensionUrl"`
-	PublicName    string   `json:"publicName"`
-	Label         string   `json:"label"`
-	ValueSelector string   `json:"valueSelector"`
-	ValueType     string   `json:"valueType"`
-	Cardinality   string   `json:"cardinality"`
-	Population    int      `json:"population"`
-	Examples      []string `json:"examples"`
-	Selected      bool     `json:"selected"`
-	Complete      bool     `json:"complete"`
-	Diagnostic    string   `json:"diagnostic"`
+	ID               string   `json:"id"`
+	Output           string   `json:"output"`
+	NodePath         string   `json:"nodePath"`
+	FamilyID         string   `json:"familyId"`
+	FamilyKind       string   `json:"familyKind"`
+	FamilyName       string   `json:"familyName"`
+	PatchPath        string   `json:"patchPath"`
+	RawKey           string   `json:"rawKey"`
+	SelectionKey     string   `json:"selectionKey"`
+	RawSystem        string   `json:"rawSystem"`
+	RawCode          string   `json:"rawCode"`
+	ExtensionURL     string   `json:"extensionUrl"`
+	PublicName       string   `json:"publicName"`
+	Label            string   `json:"label"`
+	ValueSelector    string   `json:"valueSelector"`
+	ValueType        string   `json:"valueType"`
+	Cardinality      string   `json:"cardinality"`
+	Population       int      `json:"population"`
+	Examples         []string `json:"examples"`
+	Selected         bool     `json:"selected"`
+	Complete         bool     `json:"complete"`
+	Diagnostic       string   `json:"diagnostic"`
+	ExtensionMapping *string  `json:"extensionMapping,omitempty"`
 }
 
 type DataframeRecipeColumnCandidateCompleteness struct {

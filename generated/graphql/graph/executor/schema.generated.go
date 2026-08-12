@@ -4624,6 +4624,29 @@ func (ec *executionContext) fieldContext_DataframeRecipeColumnCandidate_rawKey(_
 	return graphql.NewScalarFieldContext("DataframeRecipeColumnCandidate", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _DataframeRecipeColumnCandidate_selectionKey(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumnCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeColumnCandidate_selectionKey(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SelectionKey, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeColumnCandidate_selectionKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeColumnCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _DataframeRecipeColumnCandidate_rawSystem(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumnCandidate) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4920,6 +4943,29 @@ func (ec *executionContext) _DataframeRecipeColumnCandidate_diagnostic(ctx conte
 	)
 }
 func (ec *executionContext) fieldContext_DataframeRecipeColumnCandidate_diagnostic(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeColumnCandidate", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeColumnCandidate_extensionMapping(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeColumnCandidate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeColumnCandidate_extensionMapping(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ExtensionMapping, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeColumnCandidate_extensionMapping(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeRecipeColumnCandidate", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
@@ -18248,6 +18294,11 @@ func (ec *executionContext) _DataframeRecipeColumnCandidate(ctx context.Context,
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "selectionKey":
+			out.Values[i] = ec._DataframeRecipeColumnCandidate_selectionKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "rawSystem":
 			out.Values[i] = ec._DataframeRecipeColumnCandidate_rawSystem(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18311,6 +18362,11 @@ func (ec *executionContext) _DataframeRecipeColumnCandidate(ctx context.Context,
 		case "diagnostic":
 			out.Values[i] = ec._DataframeRecipeColumnCandidate_diagnostic(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "extensionMapping":
+			out.Values[i] = ec._DataframeRecipeColumnCandidate_extensionMapping(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
