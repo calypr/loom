@@ -27,25 +27,15 @@ func (c Control) Validate(ctx context.Context, name string, bindings recipe.Runt
 	if c.Engine == nil {
 		return Validation{}, fmt.Errorf("recipe engine is required")
 	}
-	entry, err := c.Engine.registry.LoadRecipe(ctx, name)
+	entry, err := c.Engine.loadEntry(ctx, name, bindings)
 	if err != nil {
 		return Validation{}, recipeControlBackend(err)
 	}
-	bundle := entry.Bundle
-	if c.Engine.resolveBundle != nil {
-		bundle, err = c.Engine.resolveBundle(ctx, bundle, bindings)
-		if err != nil {
-			return Validation{}, fmt.Errorf("resolve recipe schema: %w", err)
-		}
-	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	resolved, err := c.Engine.resolveEntry(ctx, entry, bindings)
 	if err != nil {
-		return Validation{}, err
+		return Validation{}, recipeControlBackend(err)
 	}
-	if digest, digestErr := entry.Bundle.Digest(); digestErr == nil {
-		plan.RecipeDigest = digest
-	}
-	return Validation{Entry: entry, Plan: plan}, nil
+	return Validation{Entry: entry, Plan: resolved.Semantic.SemanticPlan}, nil
 }
 
 func (c Control) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {

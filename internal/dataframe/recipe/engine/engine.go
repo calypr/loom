@@ -133,24 +133,25 @@ func New(cfg Config) (*Engine, error) {
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
-	}
-	var entry exec.Entry
-	var err error
-	if bindings.RecipeDigest != "" && e.revisions != nil {
-		revision, revisionErr := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
-		if revisionErr != nil {
-			return Resolved{}, revisionErr
-		}
-		entry = exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}
-	} else {
-		entry, err = e.registry.LoadRecipe(ctx, name)
-		if err != nil {
-			return Resolved{}, err
-		}
+	entry, err := e.loadEntry(ctx, name, bindings)
+	if err != nil {
+		return Resolved{}, err
 	}
 	return e.resolveEntry(ctx, entry, bindings)
+}
+
+func (e *Engine) loadEntry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
+	if strings.TrimSpace(bindings.Project) == "" {
+		return exec.Entry{}, fmt.Errorf("recipe project is required")
+	}
+	if bindings.RecipeDigest != "" && e.revisions != nil {
+		revision, err := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
+		if err != nil {
+			return exec.Entry{}, err
+		}
+		return exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
+	}
+	return e.registry.LoadRecipe(ctx, name)
 }
 
 // ResolveBundle validates, schema-resolves, and compiles an inline bundle.

@@ -57,17 +57,6 @@ func (r *Registry) Register(rule Rule) error {
 	return nil
 }
 
-func (r *Registry) RegisterOrReplace(rule Rule) error {
-	if rule == nil || strings.TrimSpace(rule.ID()) == "" {
-		return fmt.Errorf("semantic rule and rule ID are required")
-	}
-	if r.rules == nil {
-		r.rules = make(map[string]Rule)
-	}
-	r.rules[rule.ID()] = rule
-	return nil
-}
-
 func (r *Registry) Rule(id string) (Rule, bool) {
 	rule, ok := r.rules[strings.TrimSpace(id)]
 	return rule, ok

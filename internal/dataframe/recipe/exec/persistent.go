@@ -137,14 +137,6 @@ func (r PersistentRegistry) RegisterVersionForProject(ctx context.Context, proje
 	return entry, nil
 }
 
-func (r PersistentRegistry) LoadVersionForProject(ctx context.Context, project, name, translationVersion string) (Entry, error) {
-	store, ok := r.Store.(ScopedStore)
-	if !ok {
-		return Entry{}, fmt.Errorf("persistent recipe store does not support scoped recipes")
-	}
-	return store.LoadRecipeVersionForProject(ctx, project, name, translationVersion)
-}
-
 func canonicalEntry(bundle recipe.Bundle) (Entry, error) {
 	if bundle.Fragments != nil {
 		expanded, err := bundle.ExpandFragments()

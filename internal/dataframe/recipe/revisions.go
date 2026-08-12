@@ -305,36 +305,6 @@ func (s *MemoryRevisionStore) Register(_ context.Context, project string, bundle
 	return revision, nil
 }
 
-// RegisterProjectRevision creates an immutable UUIDv7-backed authoring
-// revision. It is separate from the legacy digest revision API above so old
-// registered/default callers retain their behavior.
-func RegisterProjectRevision(ctx context.Context, store RevisionStore, project string, bundle Bundle, parent string, revisionNumber int64) (RecipeRevision, error) {
-	if store == nil {
-		return RecipeRevision{}, fmt.Errorf("recipe revision store is required")
-	}
-	if strings.TrimSpace(project) == "" {
-		return RecipeRevision{}, fmt.Errorf("project is required")
-	}
-	if bundle.Name == "" {
-		bundle.Name = ProjectRecipeName(project)
-	}
-	if bundle.TranslationVersion == "" {
-		bundle.TranslationVersion = "draft"
-	}
-	value, err := store.Register(ctx, project, bundle, parent)
-	if err != nil {
-		return RecipeRevision{}, err
-	}
-	if parsed, parseErr := uuid.NewV7(); parseErr == nil {
-		value.ID = parsed.String()
-	}
-	value.RevisionNumber = revisionNumber
-	value.Status = RecipeRevisionValidating
-	value.RecipeName = ProjectRecipeName(project)
-	value.TranslationVersion = ProjectRecipeTranslationVersion(revisionNumber, value.ID)
-	return value, nil
-}
-
 func (s *MemoryRevisionStore) Get(_ context.Context, project, name, digest string) (RecipeRevision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
