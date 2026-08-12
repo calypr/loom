@@ -27,25 +27,29 @@ type FieldCatalogDocument struct {
 	// produced this catalog row. An omitted value is intentionally the legacy
 	// dataset namespace; readers always bind either this exact value or null so
 	// legacy and generation-qualified observations never mix.
-	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath      string                      `json:"auth_resource_path,omitempty"`
-	ResourceType          string                      `json:"resource_type"`
-	Path                  string                      `json:"path"`
-	Kind                  string                      `json:"kind"`
-	DocCount              int64                       `json:"doc_count"`
-	SampleCount           int                         `json:"sample_count"`
-	DistinctValues        []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated     bool                        `json:"distinct_truncated"`
-	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
-	PivotCandidate        bool                        `json:"pivot_candidate"`
-	PivotKind             string                      `json:"pivot_kind,omitempty"`
-	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
-	PivotFamily           string                      `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                      `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                      `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                      `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                      `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
+	DatasetGeneration string                      `json:"dataset_generation,omitempty"`
+	AuthResourcePath  string                      `json:"auth_resource_path,omitempty"`
+	ResourceType      string                      `json:"resource_type"`
+	Path              string                      `json:"path"`
+	Kind              string                      `json:"kind"`
+	DocCount          int64                       `json:"doc_count"`
+	SampleCount       int                         `json:"sample_count"`
+	DistinctValues    []string                    `json:"distinct_values,omitempty"`
+	DistinctTruncated bool                        `json:"distinct_truncated"`
+	ExtensionValues   []ExtensionValueObservation `json:"extension_values,omitempty"`
+	// SemanticObservations are additive, correlated key/value facts derived
+	// from this raw field catalog row. Their absence is intentional for legacy
+	// documents and keeps the raw FieldCatalogDocument wire shape compatible.
+	SemanticObservations  []SemanticObservation `json:"semantic_observations,omitempty"`
+	PivotCandidate        bool                  `json:"pivot_candidate"`
+	PivotKind             string                `json:"pivot_kind,omitempty"`
+	PivotColumns          []string              `json:"pivot_columns,omitempty"`
+	PivotFamily           string                `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string                `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string                `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string                `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string                `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string              `json:"pivot_value_selectors,omitempty"`
 }
 
 // ExtensionValueObservation preserves the correlation between an Extension
@@ -61,6 +65,47 @@ type ExtensionValueObservation struct {
 	// empty for top-level extensions and lets recipe discovery avoid leaf-name
 	// collisions while retaining deterministic parent__child names.
 	URLPath []string `json:"url_path,omitempty"`
+}
+
+// SemanticObservationSchemaVersion identifies the additive semantic
+// observation wire shape. A zero value means that the field is absent in a
+// legacy catalog document, not that the observation has an unknown version.
+const SemanticObservationSchemaVersion = 1
+
+// SemanticObservation keeps the correlated key and value selectors that a
+// downstream rule or builder needs to present one researcher-facing concept.
+// All strings are intentionally extensible; new rule families can add values
+// without changing the storage envelope.
+type SemanticObservation struct {
+	SchemaVersion     int                       `json:"schema_version"`
+	Source            SemanticObservationSource `json:"source"`
+	Key               SemanticObservationKey    `json:"key"`
+	Value             SemanticObservationValue  `json:"value"`
+	Cardinality       string                    `json:"cardinality"`
+	Population        int64                     `json:"population"`
+	Examples          []string                  `json:"examples,omitempty"`
+	ExamplesTruncated bool                      `json:"examples_truncated"`
+	RuleHint          string                    `json:"rule_hint,omitempty"`
+	RuleVersion       string                    `json:"rule_version,omitempty"`
+}
+
+type SemanticObservationSource struct {
+	Canonical string `json:"canonical,omitempty"`
+	Type      string `json:"type,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Path      string `json:"path,omitempty"`
+}
+
+type SemanticObservationKey struct {
+	Selector string `json:"selector,omitempty"`
+	System   string `json:"system,omitempty"`
+	Code     string `json:"code,omitempty"`
+	Display  string `json:"display,omitempty"`
+}
+
+type SemanticObservationValue struct {
+	Selector string `json:"selector,omitempty"`
+	Type     string `json:"type,omitempty"`
 }
 
 // Read-side field discovery request and response types.
@@ -93,6 +138,7 @@ type PopulatedField struct {
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
 	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
+	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                        `json:"pivot_candidate"`
 	PivotKind             string                      `json:"pivot_kind,omitempty"`
 	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
@@ -187,6 +233,12 @@ type fieldCatalogStats struct {
 	pivotValueSelectors   []string
 	extensionValues       []ExtensionValueObservation
 	extensionValueSet     map[string]struct{}
+	semanticObservations  map[string]*semanticObservationStats
+}
+
+type semanticObservationStats struct {
+	observation SemanticObservation
+	exampleSet  map[string]struct{}
 }
 
 // Shared write-side shape planning cache.

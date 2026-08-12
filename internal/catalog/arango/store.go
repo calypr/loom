@@ -295,6 +295,9 @@ func decode(row map[string]any, out *catalog.PopulatedField) error {
 	if out.ExtensionValues, err = decodeExtensionValues(row["extension_values"]); err != nil {
 		return fmt.Errorf("decode field row %s/%s extension_values: %w", out.ResourceType, out.Path, err)
 	}
+	if out.SemanticObservations, err = decodeSemanticObservations(row["semantic_observations"]); err != nil {
+		return fmt.Errorf("decode field row %s/%s semantic_observations: %w", out.ResourceType, out.Path, err)
+	}
 	out.PivotKind = stringValue(row["pivot_kind"])
 	out.PivotFamily = stringValue(row["pivot_family"])
 	out.PivotColumnSelect = stringValue(row["pivot_column_selector"])
@@ -302,6 +305,60 @@ func decode(row map[string]any, out *catalog.PopulatedField) error {
 	out.PivotItemSource = stringValue(row["pivot_item_source"])
 	out.PivotItemResourceType = stringValue(row["pivot_item_resource_type"])
 	return nil
+}
+
+func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		if typed, ok := value.([]map[string]any); ok {
+			items = make([]any, len(typed))
+			for i := range typed {
+				items[i] = typed[i]
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported semantic observation slice type %T", value)
+		}
+	}
+	result := make([]catalog.SemanticObservation, 0, len(items))
+	for i, item := range items {
+		row, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("unsupported semantic observation type %T at index %d", item, i)
+		}
+		var observation catalog.SemanticObservation
+		var err error
+		if version, err := decodeInt64(row["schema_version"]); err != nil {
+			return nil, err
+		} else {
+			observation.SchemaVersion = int(version)
+		}
+		observation.Cardinality = stringValue(row["cardinality"])
+		if observation.Population, err = decodeInt64(row["population"]); err != nil {
+			return nil, err
+		}
+		if observation.Examples, err = decodeStrings(row["examples"]); err != nil {
+			return nil, err
+		}
+		if observation.ExamplesTruncated, err = decodeBool(row["examples_truncated"]); err != nil {
+			return nil, err
+		}
+		observation.RuleHint = stringValue(row["rule_hint"])
+		observation.RuleVersion = stringValue(row["rule_version"])
+		if source, ok := row["source"].(map[string]any); ok {
+			observation.Source = catalog.SemanticObservationSource{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
+		}
+		if key, ok := row["key"].(map[string]any); ok {
+			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
+		}
+		if value, ok := row["value"].(map[string]any); ok {
+			observation.Value = catalog.SemanticObservationValue{Selector: stringValue(value["selector"]), Type: stringValue(value["type"])}
+		}
+		result = append(result, observation)
+	}
+	return result, nil
 }
 
 const populatedFieldsAQL = `
@@ -324,6 +381,7 @@ FOR d IN fhir_field_catalog
     distinct_values: d.distinct_values,
     distinct_truncated: d.distinct_truncated,
     extension_values: d.extension_values,
+    semantic_observations: d.semantic_observations,
     pivot_candidate: d.pivot_candidate,
     pivot_kind: d.pivot_kind,
     pivot_columns: d.pivot_columns,
