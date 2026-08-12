@@ -48,6 +48,28 @@ func (b Bundle) Validate() error {
 		if output.CollisionPolicy != "" && output.CollisionPolicy != "error" && output.CollisionPolicy != "overwrite" && output.CollisionPolicy != "coalesce" {
 			return validationError("invalid_collision_policy", path+".collisionPolicy", "must be error, overwrite, or coalesce")
 		}
+		seenConcepts := map[string]bool{}
+		seenConceptColumns := map[string]bool{}
+		for index, selection := range output.ConceptSelections {
+			selectionPath := fmt.Sprintf("%s.conceptSelections[%d]", path, index)
+			if strings.TrimSpace(selection.ConceptID) == "" {
+				return validationError("required", selectionPath+".conceptId", "conceptId is required")
+			}
+			if strings.TrimSpace(selection.RuleID) == "" {
+				return validationError("required", selectionPath+".ruleId", "ruleId is required")
+			}
+			if err := validateRecipeName(selection.ColumnName, selectionPath+".columnName"); err != nil {
+				return err
+			}
+			if seenConcepts[selection.ConceptID] {
+				return validationError("duplicate_name", selectionPath+".conceptId", "conceptId is selected more than once")
+			}
+			if seenConceptColumns[selection.ColumnName] {
+				return validationError("duplicate_name", selectionPath+".columnName", "columnName is selected more than once")
+			}
+			seenConcepts[selection.ConceptID] = true
+			seenConceptColumns[selection.ColumnName] = true
+		}
 		budget := 0
 		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.Aggregates, output.Slices, path, &budget); err != nil {
 			return err

@@ -16,6 +16,9 @@ import (
 )
 
 func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (OutputPlan, error) {
+	if len(output.ConceptSelections) != 0 {
+		return OutputPlan{}, fmt.Errorf("conceptSelections require producer catalog resolution before recipe planning")
+	}
 	if !fhirschema.HasResource(output.RootResourceType) {
 		return OutputPlan{}, fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType)
 	}
@@ -110,6 +113,13 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 		plan.Fields = append(plan.Fields, normalized.projection)
 		plan.DeclaredOrder = append(plan.DeclaredOrder, field.Name)
 		plan.Root.Fields = append(plan.Root.Fields, normalized.field)
+		if field.ConceptID != "" {
+			plan.ConceptColumns = append(plan.ConceptColumns, ConceptColumn{
+				Name: field.Name, ConceptID: field.ConceptID, RuleID: field.RuleID,
+				Label: field.Label, LogicalType: string(normalized.projection.Expr.Type.Kind),
+				Repeated: normalized.projection.Expr.Type.Cardinality == expression.Many,
+			})
+		}
 	}
 	for index, traversal := range output.Traversals {
 		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index))

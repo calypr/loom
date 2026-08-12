@@ -45,6 +45,9 @@ type SemanticField struct {
 	ExprType   expression.Type
 	SourcePath string
 	Discovered bool
+	ConceptID  string
+	RuleID     string
+	Label      string
 }
 
 type SemanticPivot struct {

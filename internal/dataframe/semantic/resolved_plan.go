@@ -22,8 +22,12 @@ type ResolvedColumn struct {
 // production execution/materialization adapter. Stored recipe data and
 // request-scoped discovery are never mutated in place.
 type ResolvedRecipePlan struct {
-	SemanticPlan         RecipePlan
-	ResolvedColumns      map[string][]ResolvedColumn
+	SemanticPlan    RecipePlan
+	ResolvedColumns map[string][]ResolvedColumn
+	// ConceptColumns is carried independently of dynamic discovery so
+	// publication adapters can retain authored concept identity even when a
+	// release has no dynamic families.
+	ConceptColumns       map[string][]ConceptColumn
 	ResolvedSchemaDigest string
 	ScopeDigest          string
 	SourceGeneration     string
@@ -51,10 +55,14 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 	resolved := ResolvedRecipePlan{
 		SemanticPlan:     plan,
 		ResolvedColumns:  make(map[string][]ResolvedColumn),
+		ConceptColumns:   make(map[string][]ConceptColumn),
 		ScopeDigest:      scopeDigest,
 		SourceGeneration: sourceGeneration,
 	}
 	for _, output := range plan.Outputs {
+		if len(output.ConceptColumns) > 0 {
+			resolved.ConceptColumns[output.Name] = append([]ConceptColumn(nil), output.ConceptColumns...)
+		}
 		var walk func(SemanticNode) error
 		walk = func(node SemanticNode) error {
 			for _, dynamic := range node.DynamicMaps {
@@ -121,7 +129,8 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 	canonical, err := json.Marshal(struct {
 		RecipeDigest, ScopeDigest, Generation string
 		Columns                               any `json:"columns"`
-	}{plan.RecipeDigest, scopeDigest, sourceGeneration, ordered})
+		ConceptColumns                        any `json:"conceptColumns"`
+	}{plan.RecipeDigest, scopeDigest, sourceGeneration, ordered, resolved.ConceptColumns})
 	if err != nil {
 		return ResolvedRecipePlan{}, fmt.Errorf("resolved schema digest: %w", err)
 	}
