@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestDiscoverCatalogEmptyIsValidAndDistinctFromPartial(t *testing.T) {
@@ -21,6 +22,40 @@ func TestDiscoverCatalogEmptyIsValidAndDistinctFromPartial(t *testing.T) {
 	concept := partial.Resources[0].Families[0].Concepts[0]
 	if concept.RuleID != "future.rule.v9" || concept.Output.Generic != true || concept.Source.PopulationCount != 2 || !concept.Examples.Limited {
 		t.Fatalf("catalog metadata not preserved: %#v", concept)
+	}
+}
+
+func TestCatalogResultFeedsConceptLoweringAndPlanWithoutTranslation(t *testing.T) {
+	fields := []catalog.PopulatedField{{
+		ResourceType: "Patient", Path: "identifier[]", DocCount: 4,
+		SemanticObservations: []catalog.SemanticObservation{{
+			Source:      catalog.SemanticObservationSource{Canonical: "Patient.identifier[]", Type: "Patient", Path: "identifier[]"},
+			Key:         catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:mrn"},
+			Value:       catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
+			Cardinality: CardinalityRepeated, Population: 3, Examples: []string{"123"},
+			RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: "2",
+		}},
+	}}
+	catalogResult := DiscoverCatalog(fields, CatalogOptions{Project: "P1", SourceGeneration: "g1"})
+	byResource := catalogResult.ResultsByResource()
+	concepts := byResource["Patient"].Concepts
+	if len(concepts) != 1 {
+		t.Fatalf("adapter concepts = %#v", concepts)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "semantic", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", ConceptSelections: []recipe.ConceptSelection{{ConceptID: concepts[0].ID, RuleID: concepts[0].RuleID, ColumnName: "mrn"}}}}}
+	plan, err := BuildRecipePlanWithConcepts(bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "g1"}, byResource)
+	if err != nil {
+		t.Fatalf("catalog -> concept lowering -> plan: %v", err)
+	}
+	output := plan.Outputs[0]
+	if len(output.DynamicMaps) != 1 || output.DynamicMaps[0].Source.Expression.Selector.Path != "identifier[]" {
+		t.Fatalf("dynamic map unexpectedly shaped: %#v", output.DynamicMaps)
+	}
+	if output.Unnest != nil {
+		t.Fatalf("dynamic concept introduced row expansion: %#v", output.Unnest)
+	}
+	if len(output.ConceptColumns) != 1 || output.ConceptColumns[0].ConceptID != concepts[0].ID || !output.ConceptColumns[0].Repeated {
+		t.Fatalf("concept audit metadata lost: %#v", output.ConceptColumns)
 	}
 }
 

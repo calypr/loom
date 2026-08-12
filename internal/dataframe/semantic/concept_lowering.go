@@ -260,8 +260,10 @@ func lowerDynamicConcept(resourceType string, authored recipe.ConceptSelection, 
 	if strings.TrimSpace(s.KeySelector) == "" || strings.TrimSpace(s.ValueSelector) == "" {
 		return recipe.DynamicColumn{}, conceptDiagnostic(path, "CONCEPT_DYNAMIC_SELECTOR_MISSING", "dynamic concept requires keySelector and valueSelector")
 	}
-	key := recipe.Expression{Select: "item." + strings.TrimPrefix(s.KeySelector, ".")}
-	value := recipe.Expression{Select: "item." + strings.TrimPrefix(s.ValueSelector, ".")}
+	keySelector := selectorRelativeToItem(itemSource, s.KeySelector)
+	valueSelector := selectorRelativeToItem(itemSource, s.ValueSelector)
+	key := recipe.Expression{Select: "item." + keySelector}
+	value := recipe.Expression{Select: "item." + valueSelector}
 	dynamic := recipe.DynamicColumn{
 		Name: authored.ColumnName, Source: recipe.Expression{Select: "root." + itemSource},
 		Key: &key, Value: &value, MaxColumns: 256, Discovered: true,
@@ -288,8 +290,8 @@ func lowerPivotConcept(resourceType string, authored recipe.ConceptSelection, co
 	if len(columns) == 0 {
 		return recipe.Pivot{}, conceptDiagnostic(path, "CONCEPT_PIVOT_COLUMNS_MISSING", "pivot concept requires bounded key examples or catalog columns")
 	}
-	columnSelector := joinConceptPath(itemSource, s.KeySelector)
-	valueSelector := joinConceptPath(itemSource, s.ValueSelector)
+	columnSelector := joinConceptPath(itemSource, selectorRelativeToItem(itemSource, s.KeySelector))
+	valueSelector := joinConceptPath(itemSource, selectorRelativeToItem(itemSource, s.ValueSelector))
 	pivot := recipe.Pivot{
 		Name: authored.ColumnName, FieldRef: authored.ConceptID,
 		ColumnExpr:       recipe.Expression{Select: "root." + columnSelector},
@@ -346,6 +348,27 @@ func joinConceptPath(source, relative string) string {
 		return relative
 	}
 	return source + "." + relative
+}
+
+// selectorRelativeToItem converts catalog selectors that are recorded from
+// the document root (for example identifier[].value) into selectors relative
+// to the repeated item binding used by dynamic maps and pivots (value). Older
+// producer catalogs may already contain item-relative selectors, which are
+// retained unchanged.
+func selectorRelativeToItem(itemSource, selector string) string {
+	itemSource = strings.TrimSpace(strings.TrimPrefix(itemSource, "root."))
+	selector = strings.TrimSpace(strings.TrimPrefix(selector, "root."))
+	selector = strings.TrimPrefix(selector, ".")
+	if itemSource == "" {
+		return selector
+	}
+	if selector == itemSource {
+		return ""
+	}
+	if strings.HasPrefix(selector, itemSource+".") {
+		return strings.TrimPrefix(selector, itemSource+".")
+	}
+	return selector
 }
 
 func firstNonEmpty(values ...string) string {

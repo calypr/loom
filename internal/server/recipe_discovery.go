@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 type recipeCatalogDiscovery struct {
@@ -86,6 +88,66 @@ func recipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptio
 		if err != nil {
 			return recipe.Bundle{}, err
 		}
-		return resolved.Bundle, nil
+		if !bundleHasConceptSelections(resolved.Bundle) {
+			return resolved.Bundle, nil
+		}
+		fields := make([]catalog.PopulatedField, 0)
+		for _, resourceType := range conceptResourceTypes(resolved.Bundle) {
+			part, discoverErr := read(ctx, catalog.PopulatedFieldOptions{
+				Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration, ResourceType: resourceType,
+				AuthResourcePaths:             append([]string(nil), bindings.AuthResourcePaths...),
+				AuthResourcePathsUnrestricted: unrestrictedAuthScope(bindings),
+			})
+			if discoverErr != nil {
+				return recipe.Bundle{}, discoverErr
+			}
+			fields = append(fields, part...)
+		}
+		concepts := semantic.DiscoverCatalog(fields, semantic.CatalogOptions{Project: bindings.Project, SourceGeneration: bindings.DatasetGeneration})
+		lowered, err := semantic.LowerBundleConceptSelections(resolved.Bundle, concepts.ResultsByResource())
+		if err != nil {
+			return recipe.Bundle{}, err
+		}
+		// Keep authored selections in the durable draft/revision; this transient
+		// execution copy contains only concrete recipe constructs for the legacy
+		// planner and still carries concept identity on generated columns.
+		for index := range lowered.Outputs {
+			lowered.Outputs[index].ConceptSelections = nil
+		}
+		return lowered, nil
 	}
+}
+
+func bundleHasConceptSelections(bundle recipe.Bundle) bool {
+	for _, output := range bundle.Outputs {
+		if len(output.ConceptSelections) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func conceptResourceTypes(bundle recipe.Bundle) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, output := range bundle.Outputs {
+		if len(output.ConceptSelections) == 0 {
+			continue
+		}
+		resourceType := strings.TrimSpace(output.RootResourceType)
+		if resourceType == "" {
+			continue
+		}
+		if _, ok := seen[resourceType]; ok {
+			continue
+		}
+		seen[resourceType] = struct{}{}
+		result = append(result, resourceType)
+	}
+	return result
+}
+
+func unrestrictedAuthScope(bindings recipe.RuntimeBindings) *bool {
+	value := bindings.AuthScopeMode == authscope.ReadScopeUnrestricted || (bindings.AuthScopeMode == "" && len(bindings.AuthResourcePaths) == 0)
+	return &value
 }

@@ -30,7 +30,7 @@ func TestMemoryRevisionStoreRegistersImmutableProjectRevision(t *testing.T) {
 
 func TestProjectRecipeNameAndDraftCAS(t *testing.T) {
 	store := NewMemoryDraftStore()
-	bundle := Bundle{RecipeSchemaVersion: CurrentSchemaVersion, Outputs: []Output{{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient"}}}
+	bundle := Bundle{RecipeSchemaVersion: CurrentSchemaVersion, Outputs: []Output{{Name: "Patients", RootResourceType: "Patient", RowGrain: "patient", ConceptSelections: []ConceptSelection{{ConceptID: "concept_stable", RuleID: "future.rule.v2", ColumnName: "research_birth"}}}}}
 	draft, err := store.SaveDraft(context.Background(), RecipeDraft{Project: "acme/cancer-study", Document: bundle}, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +44,10 @@ func TestProjectRecipeNameAndDraftCAS(t *testing.T) {
 	loaded, err := store.GetDraft(context.Background(), draft.Project)
 	if err != nil || loaded.AuthoringDigest != draft.AuthoringDigest {
 		t.Fatalf("loaded=%#v err=%v", loaded, err)
+	}
+	selection := loaded.Document.Outputs[0].ConceptSelections
+	if len(selection) != 1 || selection[0].ConceptID != "concept_stable" || selection[0].RuleID != "future.rule.v2" || selection[0].ColumnName != "research_birth" {
+		t.Fatalf("concept selection was not persisted immutably: %#v", selection)
 	}
 }
 

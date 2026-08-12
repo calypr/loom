@@ -54,6 +54,37 @@ type CatalogResult struct {
 	Diagnostics       []CatalogDiagnostic
 }
 
+// ResultsByResource exposes the catalog in the transport-neutral shape used
+// by recipe lowering.  Catalog discovery intentionally groups concepts for
+// GraphQL presentation (resource -> family -> concept), while lowering needs
+// an exact identity index. Keeping this adapter here makes the catalog result
+// directly consumable by the authoring/execution boundary and avoids callers
+// rebuilding Concepts from labels or GraphQL models.
+func (c CatalogResult) ResultsByResource() map[string]Result {
+	out := make(map[string]Result, len(c.Resources))
+	for _, resource := range c.Resources {
+		result := Result{ResourceType: resource.ResourceType, Families: append([]Family(nil), resource.Families...), Concepts: []Concept{}, Diagnostics: []Diagnostic{}}
+		for _, family := range resource.Families {
+			result.Concepts = append(result.Concepts, family.Concepts...)
+		}
+		// Family concepts are the canonical catalog set. Deduplicate IDs in
+		// case a producer includes a concept in more than one presentation
+		// family, while preserving deterministic ordering from discovery.
+		seen := make(map[string]struct{}, len(result.Concepts))
+		unique := result.Concepts[:0]
+		for _, concept := range result.Concepts {
+			if _, ok := seen[concept.ID]; ok {
+				continue
+			}
+			seen[concept.ID] = struct{}{}
+			unique = append(unique, concept)
+		}
+		result.Concepts = unique
+		out[resource.ResourceType] = result
+	}
+	return out
+}
+
 // DiscoverCatalog adapts authenticated, persisted catalog rows into semantic
 // concepts. Rows are expected to have already been filtered by project,
 // generation, and authorization scope; this function never broadens that

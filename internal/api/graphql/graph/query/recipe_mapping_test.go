@@ -124,3 +124,33 @@ func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing
 		t.Fatalf("scoped GraphQL resolution = options:%#v bundle:%#v", got, resolved)
 	}
 }
+
+func TestGraphQLRecipeResolutionLowersCatalogConceptSelection(t *testing.T) {
+	var got catalog.PopulatedFieldOptions
+	service := NewService(Config{DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		got = options
+		return []catalog.PopulatedField{{ResourceType: "Patient", Path: "birthDate", DocCount: 2, SemanticObservations: []catalog.SemanticObservation{{
+			Source: catalog.SemanticObservationSource{Canonical: "Patient.birthDate", Type: "Patient", Path: "birthDate"},
+			Value:  catalog.SemanticObservationValue{Selector: "birthDate", Type: "date"}, Cardinality: "single", Population: 2,
+			RuleHint: "future.date.v1", RuleVersion: "1",
+		}}}}, nil
+	}})
+	result := semantic.DiscoverCatalog([]catalog.PopulatedField{{ResourceType: "Patient", Path: "birthDate", DocCount: 2, SemanticObservations: []catalog.SemanticObservation{{
+		Source: catalog.SemanticObservationSource{Canonical: "Patient.birthDate", Type: "Patient", Path: "birthDate"}, Value: catalog.SemanticObservationValue{Selector: "birthDate", Type: "date"}, Cardinality: "single", Population: 2, RuleHint: "future.date.v1", RuleVersion: "1",
+	}}}}, semantic.CatalogOptions{Project: "P1"})
+	concept := result.Resources[0].Families[0].Concepts[0]
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "semantic", TranslationVersion: "v1", Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", ConceptSelections: []recipe.ConceptSelection{{ConceptID: concept.ID, RuleID: concept.RuleID, ColumnName: "birth_date"}}}}}
+	resolved, err := service.resolveRecipeBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "g1", AuthResourcePaths: []string{"/authorized"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ResourceType != "Patient" || len(resolved.Outputs[0].ConceptSelections) != 0 || len(resolved.Outputs[0].Fields) != 1 {
+		t.Fatalf("concept resolution did not produce transient executable copy: options:%#v bundle:%#v", got, resolved)
+	}
+	if resolved.Outputs[0].Fields[0].ConceptID != concept.ID || resolved.Outputs[0].Fields[0].RuleID != concept.RuleID {
+		t.Fatalf("concept provenance lost: %#v", resolved.Outputs[0].Fields)
+	}
+	if _, err := semantic.BuildRecipePlan(resolved, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "g1"}); err != nil {
+		t.Fatalf("lowered GraphQL recipe does not type-check: %v", err)
+	}
+}
