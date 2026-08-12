@@ -20,12 +20,13 @@ func NewShapePlanCache() *ShapePlanCache {
 // generation intentionally selects the legacy namespace for compatibility.
 func NewProfilerForGeneration(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
 	return &Profiler{
-		project:           project,
-		datasetGeneration: NormalizeDatasetGeneration(datasetGeneration),
-		authResourcePath:  authResourcePath,
-		resourceType:      resourceType,
-		shapeCache:        cache,
-		stats:             make(map[string]*fieldCatalogStats),
+		project:             project,
+		datasetGeneration:   NormalizeDatasetGeneration(datasetGeneration),
+		authResourcePath:    authResourcePath,
+		resourceType:        resourceType,
+		shapeCache:          cache,
+		stats:               make(map[string]*fieldCatalogStats),
+		semanticPayloadSeen: make(map[string]struct{}),
 	}
 }
 
@@ -42,6 +43,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	timings["field_shape_plan"] += time.Since(planStart).Seconds()
 
 	observeStart := time.Now()
+	p.semanticPayloadSeen = make(map[string]struct{})
 	for _, field := range plan.fields {
 		values, ok := extractAccessorValues(payload, field.Accessor)
 		if !ok {

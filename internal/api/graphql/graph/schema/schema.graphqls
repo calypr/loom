@@ -7,6 +7,10 @@ type Query {
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
 
+  dataframeBuilderSemanticCatalog(
+    input: DataframeBuilderSemanticCatalogInput!
+  ): DataframeSemanticConceptCatalog!
+
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
   projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
@@ -593,6 +597,128 @@ type DataframeBuilderIntrospection {
   traversals: [DataframeTraversalHint!]!
   fields: [DataframeFieldHint!]!
   pivotFields: [DataframeFieldHint!]!
+}
+
+input DataframeBuilderSemanticCatalogInput {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]
+  resourceLimit: Int = 0
+  conceptLimitPerResource: Int = 0
+}
+
+type DataframeSemanticConceptCatalog {
+  schemaVersion: Int!
+  project: String!
+  sourceGeneration: String!
+  authResourcePaths: [String!]!
+  completeness: DataframeSemanticCompleteness!
+  resources: [DataframeSemanticResource!]!
+  diagnostics: [DataframeSemanticDiagnostic!]!
+}
+
+type DataframeSemanticCompleteness {
+  state: String!
+  resourceLimit: Int!
+  conceptLimitPerResource: Int!
+  returnedResourceCount: Int!
+  returnedConceptCount: Int!
+}
+
+type DataframeSemanticResource {
+  resourceType: String!
+  documentCount: Int!
+  families: [DataframeSemanticFamily!]!
+}
+
+type DataframeSemanticFamily {
+  id: ID!
+  label: String!
+  ruleId: String!
+  precedence: Int!
+  concepts: [DataframeSemanticConcept!]!
+  trace: DataframeSemanticTrace!
+}
+
+type DataframeSemanticConcept {
+  id: ID!
+  label: String!
+  group: String!
+  description: String!
+  ruleId: String!
+  ruleVersion: String!
+  precedence: Int!
+  source: DataframeSemanticSource!
+  output: DataframeSemanticOutput!
+  examples: DataframeSemanticExamples!
+  trace: DataframeSemanticTrace!
+}
+
+type DataframeSemanticSource {
+  canonical: String!
+  resourceType: String!
+  path: String!
+  profile: String!
+  sourcePath: String!
+  valuePath: String!
+  keySelector: String!
+  keySystem: String!
+  keyCode: String!
+  keyDisplay: String!
+  ruleVersion: String!
+  shape: String!
+  primitive: String!
+  repeated: Boolean!
+  populationCount: Int!
+  distinctTruncated: Boolean!
+}
+
+type DataframeSemanticOutput {
+  mode: String!
+  valueType: String!
+  cardinality: String!
+  generic: Boolean!
+  selection: DataframeSemanticSelection!
+}
+
+type DataframeSemanticSelection {
+  mode: String!
+  sourcePath: String!
+  keySelector: String!
+  valueSelector: String!
+  valueFallbacks: [String!]!
+  itemSource: String!
+  itemResourceType: String!
+  transforms: [String!]!
+  key: String!
+}
+
+type DataframeSemanticExamples {
+  values: [String!]!
+  limited: Boolean!
+}
+
+type DataframeSemanticTrace {
+  resourceType: String!
+  rawPath: String!
+  rawKey: String!
+  rawValue: String!
+  rawCardinality: String!
+  sourcePath: String!
+  valuePath: String!
+  reference: String!
+  ruleId: String!
+  ruleVersion: String!
+  precedence: Int!
+  fallback: Boolean!
+}
+
+type DataframeSemanticDiagnostic {
+  severity: String!
+  code: String!
+  ruleId: String!
+  path: String!
+  message: String!
 }
 
 type DataframeResourceHints {

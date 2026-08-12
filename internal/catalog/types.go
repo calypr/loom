@@ -206,12 +206,13 @@ type RelationshipKey struct {
 
 // Write-side field profiling state.
 type Profiler struct {
-	project           string
-	datasetGeneration string
-	authResourcePath  string
-	resourceType      string
-	shapeCache        *ShapePlanCache
-	stats             map[string]*fieldCatalogStats
+	project             string
+	datasetGeneration   string
+	authResourcePath    string
+	resourceType        string
+	shapeCache          *ShapePlanCache
+	stats               map[string]*fieldCatalogStats
+	semanticPayloadSeen map[string]struct{}
 }
 
 type fieldCatalogStats struct {

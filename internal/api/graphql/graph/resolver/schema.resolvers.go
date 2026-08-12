@@ -375,6 +375,26 @@ func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input
 	}, nil
 }
 
+// DataframeBuilderSemanticCatalog is the resolver for the dataframeBuilderSemanticCatalog field.
+func (r *queryResolver) DataframeBuilderSemanticCatalog(ctx context.Context, input model.DataframeBuilderSemanticCatalogInput) (*model.DataframeSemanticConceptCatalog, error) {
+	resourceLimit, conceptLimit := 0, 0
+	if input.ResourceLimit != nil {
+		resourceLimit = *input.ResourceLimit
+	}
+	if input.ConceptLimitPerResource != nil {
+		conceptLimit = *input.ConceptLimitPerResource
+	}
+	resp, err := r.query.SemanticCatalog(ctx, queryapi.SemanticCatalogRequest{
+		Project: input.Project, RootResourceType: input.RootResourceType,
+		AuthResourcePaths: input.AuthResourcePaths, ResourceLimit: resourceLimit,
+		ConceptLimitPerResource: conceptLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return semanticCatalogModel(resp, resp.AuthResourcePaths), nil
+}
+
 // DataframeMaterialization is the resolver for the dataframeMaterialization field.
 func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
 	value, err := r.materializations.Get(ctx, id)

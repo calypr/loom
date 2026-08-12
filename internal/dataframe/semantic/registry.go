@@ -224,7 +224,7 @@ func familiesFromConcepts(concepts []Concept) []Family {
 		if concept.Output.Selection.SourcePath == "" && concept.Source.Path == "" {
 			continue
 		}
-		family := &Family{Label: concept.Group, RuleID: concept.RuleID, Precedence: concept.Precedence, Source: concept.Source, Concepts: []Concept{}}
+		family := &Family{Label: concept.Group, RuleID: concept.RuleID, Precedence: concept.Precedence, Source: concept.Source, Concepts: []Concept{concept}}
 		family.ID = familyID(*family)
 		if existing := byID[family.ID]; existing != nil {
 			existing.Concepts = append(existing.Concepts, concept)

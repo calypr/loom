@@ -1002,6 +1002,120 @@ type ComplexityRoot struct {
 		TranslationVersion func(childComplexity int) int
 	}
 
+	DataframeSemanticCompleteness struct {
+		ConceptLimitPerResource func(childComplexity int) int
+		ResourceLimit           func(childComplexity int) int
+		ReturnedConceptCount    func(childComplexity int) int
+		ReturnedResourceCount   func(childComplexity int) int
+		State                   func(childComplexity int) int
+	}
+
+	DataframeSemanticConcept struct {
+		Description func(childComplexity int) int
+		Examples    func(childComplexity int) int
+		Group       func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Label       func(childComplexity int) int
+		Output      func(childComplexity int) int
+		Precedence  func(childComplexity int) int
+		RuleID      func(childComplexity int) int
+		RuleVersion func(childComplexity int) int
+		Source      func(childComplexity int) int
+		Trace       func(childComplexity int) int
+	}
+
+	DataframeSemanticConceptCatalog struct {
+		AuthResourcePaths func(childComplexity int) int
+		Completeness      func(childComplexity int) int
+		Diagnostics       func(childComplexity int) int
+		Project           func(childComplexity int) int
+		Resources         func(childComplexity int) int
+		SchemaVersion     func(childComplexity int) int
+		SourceGeneration  func(childComplexity int) int
+	}
+
+	DataframeSemanticDiagnostic struct {
+		Code     func(childComplexity int) int
+		Message  func(childComplexity int) int
+		Path     func(childComplexity int) int
+		RuleID   func(childComplexity int) int
+		Severity func(childComplexity int) int
+	}
+
+	DataframeSemanticExamples struct {
+		Limited func(childComplexity int) int
+		Values  func(childComplexity int) int
+	}
+
+	DataframeSemanticFamily struct {
+		Concepts   func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Label      func(childComplexity int) int
+		Precedence func(childComplexity int) int
+		RuleID     func(childComplexity int) int
+		Trace      func(childComplexity int) int
+	}
+
+	DataframeSemanticOutput struct {
+		Cardinality func(childComplexity int) int
+		Generic     func(childComplexity int) int
+		Mode        func(childComplexity int) int
+		Selection   func(childComplexity int) int
+		ValueType   func(childComplexity int) int
+	}
+
+	DataframeSemanticResource struct {
+		DocumentCount func(childComplexity int) int
+		Families      func(childComplexity int) int
+		ResourceType  func(childComplexity int) int
+	}
+
+	DataframeSemanticSelection struct {
+		ItemResourceType func(childComplexity int) int
+		ItemSource       func(childComplexity int) int
+		Key              func(childComplexity int) int
+		KeySelector      func(childComplexity int) int
+		Mode             func(childComplexity int) int
+		SourcePath       func(childComplexity int) int
+		Transforms       func(childComplexity int) int
+		ValueFallbacks   func(childComplexity int) int
+		ValueSelector    func(childComplexity int) int
+	}
+
+	DataframeSemanticSource struct {
+		Canonical         func(childComplexity int) int
+		DistinctTruncated func(childComplexity int) int
+		KeyCode           func(childComplexity int) int
+		KeyDisplay        func(childComplexity int) int
+		KeySelector       func(childComplexity int) int
+		KeySystem         func(childComplexity int) int
+		Path              func(childComplexity int) int
+		PopulationCount   func(childComplexity int) int
+		Primitive         func(childComplexity int) int
+		Profile           func(childComplexity int) int
+		Repeated          func(childComplexity int) int
+		ResourceType      func(childComplexity int) int
+		RuleVersion       func(childComplexity int) int
+		Shape             func(childComplexity int) int
+		SourcePath        func(childComplexity int) int
+		ValuePath         func(childComplexity int) int
+	}
+
+	DataframeSemanticTrace struct {
+		Fallback       func(childComplexity int) int
+		Precedence     func(childComplexity int) int
+		RawCardinality func(childComplexity int) int
+		RawKey         func(childComplexity int) int
+		RawPath        func(childComplexity int) int
+		RawValue       func(childComplexity int) int
+		Reference      func(childComplexity int) int
+		ResourceType   func(childComplexity int) int
+		RuleID         func(childComplexity int) int
+		RuleVersion    func(childComplexity int) int
+		SourcePath     func(childComplexity int) int
+		ValuePath      func(childComplexity int) int
+	}
+
 	DataframeTraversalHint struct {
 		EdgeCount func(childComplexity int) int
 		FromType  func(childComplexity int) int
@@ -2467,6 +2581,7 @@ type ComplexityRoot struct {
 		DataframeAggregations           func(childComplexity int, input model.DataframeAggregationsInput) int
 		DataframeBuilderIntrospection   func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
 		DataframeBuilderProjectMap      func(childComplexity int, input model.DataframeBuilderProjectMapInput) int
+		DataframeBuilderSemanticCatalog func(childComplexity int, input model.DataframeBuilderSemanticCatalogInput) int
 		DataframeDataset                func(childComplexity int, input model.DataframeDatasetInput) int
 		DataframeDatasets               func(childComplexity int) int
 		DataframeMaterialization        func(childComplexity int, id string) int
@@ -7270,6 +7385,503 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeSelector.TranslationVersion(childComplexity), true
+
+	case "DataframeSemanticCompleteness.conceptLimitPerResource":
+		if e.ComplexityRoot.DataframeSemanticCompleteness.ConceptLimitPerResource == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticCompleteness.ConceptLimitPerResource(childComplexity), true
+	case "DataframeSemanticCompleteness.resourceLimit":
+		if e.ComplexityRoot.DataframeSemanticCompleteness.ResourceLimit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticCompleteness.ResourceLimit(childComplexity), true
+	case "DataframeSemanticCompleteness.returnedConceptCount":
+		if e.ComplexityRoot.DataframeSemanticCompleteness.ReturnedConceptCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticCompleteness.ReturnedConceptCount(childComplexity), true
+	case "DataframeSemanticCompleteness.returnedResourceCount":
+		if e.ComplexityRoot.DataframeSemanticCompleteness.ReturnedResourceCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticCompleteness.ReturnedResourceCount(childComplexity), true
+	case "DataframeSemanticCompleteness.state":
+		if e.ComplexityRoot.DataframeSemanticCompleteness.State == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticCompleteness.State(childComplexity), true
+
+	case "DataframeSemanticConcept.description":
+		if e.ComplexityRoot.DataframeSemanticConcept.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Description(childComplexity), true
+	case "DataframeSemanticConcept.examples":
+		if e.ComplexityRoot.DataframeSemanticConcept.Examples == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Examples(childComplexity), true
+	case "DataframeSemanticConcept.group":
+		if e.ComplexityRoot.DataframeSemanticConcept.Group == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Group(childComplexity), true
+	case "DataframeSemanticConcept.id":
+		if e.ComplexityRoot.DataframeSemanticConcept.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.ID(childComplexity), true
+	case "DataframeSemanticConcept.label":
+		if e.ComplexityRoot.DataframeSemanticConcept.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Label(childComplexity), true
+	case "DataframeSemanticConcept.output":
+		if e.ComplexityRoot.DataframeSemanticConcept.Output == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Output(childComplexity), true
+	case "DataframeSemanticConcept.precedence":
+		if e.ComplexityRoot.DataframeSemanticConcept.Precedence == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Precedence(childComplexity), true
+	case "DataframeSemanticConcept.ruleId":
+		if e.ComplexityRoot.DataframeSemanticConcept.RuleID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.RuleID(childComplexity), true
+	case "DataframeSemanticConcept.ruleVersion":
+		if e.ComplexityRoot.DataframeSemanticConcept.RuleVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.RuleVersion(childComplexity), true
+	case "DataframeSemanticConcept.source":
+		if e.ComplexityRoot.DataframeSemanticConcept.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Source(childComplexity), true
+	case "DataframeSemanticConcept.trace":
+		if e.ComplexityRoot.DataframeSemanticConcept.Trace == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConcept.Trace(childComplexity), true
+
+	case "DataframeSemanticConceptCatalog.authResourcePaths":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.AuthResourcePaths == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.AuthResourcePaths(childComplexity), true
+	case "DataframeSemanticConceptCatalog.completeness":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.Completeness == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.Completeness(childComplexity), true
+	case "DataframeSemanticConceptCatalog.diagnostics":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.Diagnostics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.Diagnostics(childComplexity), true
+	case "DataframeSemanticConceptCatalog.project":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.Project == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.Project(childComplexity), true
+	case "DataframeSemanticConceptCatalog.resources":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.Resources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.Resources(childComplexity), true
+	case "DataframeSemanticConceptCatalog.schemaVersion":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.SchemaVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.SchemaVersion(childComplexity), true
+	case "DataframeSemanticConceptCatalog.sourceGeneration":
+		if e.ComplexityRoot.DataframeSemanticConceptCatalog.SourceGeneration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticConceptCatalog.SourceGeneration(childComplexity), true
+
+	case "DataframeSemanticDiagnostic.code":
+		if e.ComplexityRoot.DataframeSemanticDiagnostic.Code == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticDiagnostic.Code(childComplexity), true
+	case "DataframeSemanticDiagnostic.message":
+		if e.ComplexityRoot.DataframeSemanticDiagnostic.Message == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticDiagnostic.Message(childComplexity), true
+	case "DataframeSemanticDiagnostic.path":
+		if e.ComplexityRoot.DataframeSemanticDiagnostic.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticDiagnostic.Path(childComplexity), true
+	case "DataframeSemanticDiagnostic.ruleId":
+		if e.ComplexityRoot.DataframeSemanticDiagnostic.RuleID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticDiagnostic.RuleID(childComplexity), true
+	case "DataframeSemanticDiagnostic.severity":
+		if e.ComplexityRoot.DataframeSemanticDiagnostic.Severity == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticDiagnostic.Severity(childComplexity), true
+
+	case "DataframeSemanticExamples.limited":
+		if e.ComplexityRoot.DataframeSemanticExamples.Limited == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticExamples.Limited(childComplexity), true
+	case "DataframeSemanticExamples.values":
+		if e.ComplexityRoot.DataframeSemanticExamples.Values == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticExamples.Values(childComplexity), true
+
+	case "DataframeSemanticFamily.concepts":
+		if e.ComplexityRoot.DataframeSemanticFamily.Concepts == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.Concepts(childComplexity), true
+	case "DataframeSemanticFamily.id":
+		if e.ComplexityRoot.DataframeSemanticFamily.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.ID(childComplexity), true
+	case "DataframeSemanticFamily.label":
+		if e.ComplexityRoot.DataframeSemanticFamily.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.Label(childComplexity), true
+	case "DataframeSemanticFamily.precedence":
+		if e.ComplexityRoot.DataframeSemanticFamily.Precedence == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.Precedence(childComplexity), true
+	case "DataframeSemanticFamily.ruleId":
+		if e.ComplexityRoot.DataframeSemanticFamily.RuleID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.RuleID(childComplexity), true
+	case "DataframeSemanticFamily.trace":
+		if e.ComplexityRoot.DataframeSemanticFamily.Trace == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticFamily.Trace(childComplexity), true
+
+	case "DataframeSemanticOutput.cardinality":
+		if e.ComplexityRoot.DataframeSemanticOutput.Cardinality == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticOutput.Cardinality(childComplexity), true
+	case "DataframeSemanticOutput.generic":
+		if e.ComplexityRoot.DataframeSemanticOutput.Generic == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticOutput.Generic(childComplexity), true
+	case "DataframeSemanticOutput.mode":
+		if e.ComplexityRoot.DataframeSemanticOutput.Mode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticOutput.Mode(childComplexity), true
+	case "DataframeSemanticOutput.selection":
+		if e.ComplexityRoot.DataframeSemanticOutput.Selection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticOutput.Selection(childComplexity), true
+	case "DataframeSemanticOutput.valueType":
+		if e.ComplexityRoot.DataframeSemanticOutput.ValueType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticOutput.ValueType(childComplexity), true
+
+	case "DataframeSemanticResource.documentCount":
+		if e.ComplexityRoot.DataframeSemanticResource.DocumentCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticResource.DocumentCount(childComplexity), true
+	case "DataframeSemanticResource.families":
+		if e.ComplexityRoot.DataframeSemanticResource.Families == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticResource.Families(childComplexity), true
+	case "DataframeSemanticResource.resourceType":
+		if e.ComplexityRoot.DataframeSemanticResource.ResourceType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticResource.ResourceType(childComplexity), true
+
+	case "DataframeSemanticSelection.itemResourceType":
+		if e.ComplexityRoot.DataframeSemanticSelection.ItemResourceType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.ItemResourceType(childComplexity), true
+	case "DataframeSemanticSelection.itemSource":
+		if e.ComplexityRoot.DataframeSemanticSelection.ItemSource == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.ItemSource(childComplexity), true
+	case "DataframeSemanticSelection.key":
+		if e.ComplexityRoot.DataframeSemanticSelection.Key == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.Key(childComplexity), true
+	case "DataframeSemanticSelection.keySelector":
+		if e.ComplexityRoot.DataframeSemanticSelection.KeySelector == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.KeySelector(childComplexity), true
+	case "DataframeSemanticSelection.mode":
+		if e.ComplexityRoot.DataframeSemanticSelection.Mode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.Mode(childComplexity), true
+	case "DataframeSemanticSelection.sourcePath":
+		if e.ComplexityRoot.DataframeSemanticSelection.SourcePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.SourcePath(childComplexity), true
+	case "DataframeSemanticSelection.transforms":
+		if e.ComplexityRoot.DataframeSemanticSelection.Transforms == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.Transforms(childComplexity), true
+	case "DataframeSemanticSelection.valueFallbacks":
+		if e.ComplexityRoot.DataframeSemanticSelection.ValueFallbacks == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.ValueFallbacks(childComplexity), true
+	case "DataframeSemanticSelection.valueSelector":
+		if e.ComplexityRoot.DataframeSemanticSelection.ValueSelector == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSelection.ValueSelector(childComplexity), true
+
+	case "DataframeSemanticSource.canonical":
+		if e.ComplexityRoot.DataframeSemanticSource.Canonical == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Canonical(childComplexity), true
+	case "DataframeSemanticSource.distinctTruncated":
+		if e.ComplexityRoot.DataframeSemanticSource.DistinctTruncated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.DistinctTruncated(childComplexity), true
+	case "DataframeSemanticSource.keyCode":
+		if e.ComplexityRoot.DataframeSemanticSource.KeyCode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.KeyCode(childComplexity), true
+	case "DataframeSemanticSource.keyDisplay":
+		if e.ComplexityRoot.DataframeSemanticSource.KeyDisplay == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.KeyDisplay(childComplexity), true
+	case "DataframeSemanticSource.keySelector":
+		if e.ComplexityRoot.DataframeSemanticSource.KeySelector == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.KeySelector(childComplexity), true
+	case "DataframeSemanticSource.keySystem":
+		if e.ComplexityRoot.DataframeSemanticSource.KeySystem == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.KeySystem(childComplexity), true
+	case "DataframeSemanticSource.path":
+		if e.ComplexityRoot.DataframeSemanticSource.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Path(childComplexity), true
+	case "DataframeSemanticSource.populationCount":
+		if e.ComplexityRoot.DataframeSemanticSource.PopulationCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.PopulationCount(childComplexity), true
+	case "DataframeSemanticSource.primitive":
+		if e.ComplexityRoot.DataframeSemanticSource.Primitive == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Primitive(childComplexity), true
+	case "DataframeSemanticSource.profile":
+		if e.ComplexityRoot.DataframeSemanticSource.Profile == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Profile(childComplexity), true
+	case "DataframeSemanticSource.repeated":
+		if e.ComplexityRoot.DataframeSemanticSource.Repeated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Repeated(childComplexity), true
+	case "DataframeSemanticSource.resourceType":
+		if e.ComplexityRoot.DataframeSemanticSource.ResourceType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.ResourceType(childComplexity), true
+	case "DataframeSemanticSource.ruleVersion":
+		if e.ComplexityRoot.DataframeSemanticSource.RuleVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.RuleVersion(childComplexity), true
+	case "DataframeSemanticSource.shape":
+		if e.ComplexityRoot.DataframeSemanticSource.Shape == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.Shape(childComplexity), true
+	case "DataframeSemanticSource.sourcePath":
+		if e.ComplexityRoot.DataframeSemanticSource.SourcePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.SourcePath(childComplexity), true
+	case "DataframeSemanticSource.valuePath":
+		if e.ComplexityRoot.DataframeSemanticSource.ValuePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticSource.ValuePath(childComplexity), true
+
+	case "DataframeSemanticTrace.fallback":
+		if e.ComplexityRoot.DataframeSemanticTrace.Fallback == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.Fallback(childComplexity), true
+	case "DataframeSemanticTrace.precedence":
+		if e.ComplexityRoot.DataframeSemanticTrace.Precedence == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.Precedence(childComplexity), true
+	case "DataframeSemanticTrace.rawCardinality":
+		if e.ComplexityRoot.DataframeSemanticTrace.RawCardinality == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RawCardinality(childComplexity), true
+	case "DataframeSemanticTrace.rawKey":
+		if e.ComplexityRoot.DataframeSemanticTrace.RawKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RawKey(childComplexity), true
+	case "DataframeSemanticTrace.rawPath":
+		if e.ComplexityRoot.DataframeSemanticTrace.RawPath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RawPath(childComplexity), true
+	case "DataframeSemanticTrace.rawValue":
+		if e.ComplexityRoot.DataframeSemanticTrace.RawValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RawValue(childComplexity), true
+	case "DataframeSemanticTrace.reference":
+		if e.ComplexityRoot.DataframeSemanticTrace.Reference == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.Reference(childComplexity), true
+	case "DataframeSemanticTrace.resourceType":
+		if e.ComplexityRoot.DataframeSemanticTrace.ResourceType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.ResourceType(childComplexity), true
+	case "DataframeSemanticTrace.ruleId":
+		if e.ComplexityRoot.DataframeSemanticTrace.RuleID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RuleID(childComplexity), true
+	case "DataframeSemanticTrace.ruleVersion":
+		if e.ComplexityRoot.DataframeSemanticTrace.RuleVersion == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.RuleVersion(childComplexity), true
+	case "DataframeSemanticTrace.sourcePath":
+		if e.ComplexityRoot.DataframeSemanticTrace.SourcePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.SourcePath(childComplexity), true
+	case "DataframeSemanticTrace.valuePath":
+		if e.ComplexityRoot.DataframeSemanticTrace.ValuePath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeSemanticTrace.ValuePath(childComplexity), true
 
 	case "DataframeTraversalHint.edgeCount":
 		if e.ComplexityRoot.DataframeTraversalHint.EdgeCount == nil {
@@ -14875,6 +15487,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeBuilderProjectMap(childComplexity, args["input"].(model.DataframeBuilderProjectMapInput)), true
+	case "Query.dataframeBuilderSemanticCatalog":
+		if e.ComplexityRoot.Query.DataframeBuilderSemanticCatalog == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeBuilderSemanticCatalog_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeBuilderSemanticCatalog(childComplexity, args["input"].(model.DataframeBuilderSemanticCatalogInput)), true
 	case "Query.dataframeDataset":
 		if e.ComplexityRoot.Query.DataframeDataset == nil {
 			break
@@ -20427,6 +21050,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeAggregationsInput,
 		ec.unmarshalInputDataframeBuilderIntrospectionInput,
 		ec.unmarshalInputDataframeBuilderProjectMapInput,
+		ec.unmarshalInputDataframeBuilderSemanticCatalogInput,
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
@@ -20543,6 +21167,10 @@ var sources = []*ast.Source{
   dataframeBuilderIntrospection(
     input: DataframeBuilderIntrospectionInput!
   ): DataframeBuilderIntrospection!
+
+  dataframeBuilderSemanticCatalog(
+    input: DataframeBuilderSemanticCatalogInput!
+  ): DataframeSemanticConceptCatalog!
 
   dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
@@ -21130,6 +21758,128 @@ type DataframeBuilderIntrospection {
   traversals: [DataframeTraversalHint!]!
   fields: [DataframeFieldHint!]!
   pivotFields: [DataframeFieldHint!]!
+}
+
+input DataframeBuilderSemanticCatalogInput {
+  project: String!
+  rootResourceType: String!
+  authResourcePaths: [String!]
+  resourceLimit: Int = 0
+  conceptLimitPerResource: Int = 0
+}
+
+type DataframeSemanticConceptCatalog {
+  schemaVersion: Int!
+  project: String!
+  sourceGeneration: String!
+  authResourcePaths: [String!]!
+  completeness: DataframeSemanticCompleteness!
+  resources: [DataframeSemanticResource!]!
+  diagnostics: [DataframeSemanticDiagnostic!]!
+}
+
+type DataframeSemanticCompleteness {
+  state: String!
+  resourceLimit: Int!
+  conceptLimitPerResource: Int!
+  returnedResourceCount: Int!
+  returnedConceptCount: Int!
+}
+
+type DataframeSemanticResource {
+  resourceType: String!
+  documentCount: Int!
+  families: [DataframeSemanticFamily!]!
+}
+
+type DataframeSemanticFamily {
+  id: ID!
+  label: String!
+  ruleId: String!
+  precedence: Int!
+  concepts: [DataframeSemanticConcept!]!
+  trace: DataframeSemanticTrace!
+}
+
+type DataframeSemanticConcept {
+  id: ID!
+  label: String!
+  group: String!
+  description: String!
+  ruleId: String!
+  ruleVersion: String!
+  precedence: Int!
+  source: DataframeSemanticSource!
+  output: DataframeSemanticOutput!
+  examples: DataframeSemanticExamples!
+  trace: DataframeSemanticTrace!
+}
+
+type DataframeSemanticSource {
+  canonical: String!
+  resourceType: String!
+  path: String!
+  profile: String!
+  sourcePath: String!
+  valuePath: String!
+  keySelector: String!
+  keySystem: String!
+  keyCode: String!
+  keyDisplay: String!
+  ruleVersion: String!
+  shape: String!
+  primitive: String!
+  repeated: Boolean!
+  populationCount: Int!
+  distinctTruncated: Boolean!
+}
+
+type DataframeSemanticOutput {
+  mode: String!
+  valueType: String!
+  cardinality: String!
+  generic: Boolean!
+  selection: DataframeSemanticSelection!
+}
+
+type DataframeSemanticSelection {
+  mode: String!
+  sourcePath: String!
+  keySelector: String!
+  valueSelector: String!
+  valueFallbacks: [String!]!
+  itemSource: String!
+  itemResourceType: String!
+  transforms: [String!]!
+  key: String!
+}
+
+type DataframeSemanticExamples {
+  values: [String!]!
+  limited: Boolean!
+}
+
+type DataframeSemanticTrace {
+  resourceType: String!
+  rawPath: String!
+  rawKey: String!
+  rawValue: String!
+  rawCardinality: String!
+  sourcePath: String!
+  valuePath: String!
+  reference: String!
+  ruleId: String!
+  ruleVersion: String!
+  precedence: Int!
+  fallback: Boolean!
+}
+
+type DataframeSemanticDiagnostic {
+  severity: String!
+  code: String!
+  ruleId: String!
+  path: String!
+  message: String!
 }
 
 type DataframeResourceHints {
@@ -26013,6 +26763,234 @@ func (ec *executionContext) childFields_DataframeSelector(ctx context.Context, f
 		return ec.fieldContext_DataframeSelector_output(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeSelector", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticCompleteness(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "state":
+		return ec.fieldContext_DataframeSemanticCompleteness_state(ctx, field)
+	case "resourceLimit":
+		return ec.fieldContext_DataframeSemanticCompleteness_resourceLimit(ctx, field)
+	case "conceptLimitPerResource":
+		return ec.fieldContext_DataframeSemanticCompleteness_conceptLimitPerResource(ctx, field)
+	case "returnedResourceCount":
+		return ec.fieldContext_DataframeSemanticCompleteness_returnedResourceCount(ctx, field)
+	case "returnedConceptCount":
+		return ec.fieldContext_DataframeSemanticCompleteness_returnedConceptCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticCompleteness", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticConcept(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_DataframeSemanticConcept_id(ctx, field)
+	case "label":
+		return ec.fieldContext_DataframeSemanticConcept_label(ctx, field)
+	case "group":
+		return ec.fieldContext_DataframeSemanticConcept_group(ctx, field)
+	case "description":
+		return ec.fieldContext_DataframeSemanticConcept_description(ctx, field)
+	case "ruleId":
+		return ec.fieldContext_DataframeSemanticConcept_ruleId(ctx, field)
+	case "ruleVersion":
+		return ec.fieldContext_DataframeSemanticConcept_ruleVersion(ctx, field)
+	case "precedence":
+		return ec.fieldContext_DataframeSemanticConcept_precedence(ctx, field)
+	case "source":
+		return ec.fieldContext_DataframeSemanticConcept_source(ctx, field)
+	case "output":
+		return ec.fieldContext_DataframeSemanticConcept_output(ctx, field)
+	case "examples":
+		return ec.fieldContext_DataframeSemanticConcept_examples(ctx, field)
+	case "trace":
+		return ec.fieldContext_DataframeSemanticConcept_trace(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticConcept", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticConceptCatalog(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "schemaVersion":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_schemaVersion(ctx, field)
+	case "project":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_project(ctx, field)
+	case "sourceGeneration":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_sourceGeneration(ctx, field)
+	case "authResourcePaths":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_authResourcePaths(ctx, field)
+	case "completeness":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_completeness(ctx, field)
+	case "resources":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_resources(ctx, field)
+	case "diagnostics":
+		return ec.fieldContext_DataframeSemanticConceptCatalog_diagnostics(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticConceptCatalog", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticDiagnostic(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "severity":
+		return ec.fieldContext_DataframeSemanticDiagnostic_severity(ctx, field)
+	case "code":
+		return ec.fieldContext_DataframeSemanticDiagnostic_code(ctx, field)
+	case "ruleId":
+		return ec.fieldContext_DataframeSemanticDiagnostic_ruleId(ctx, field)
+	case "path":
+		return ec.fieldContext_DataframeSemanticDiagnostic_path(ctx, field)
+	case "message":
+		return ec.fieldContext_DataframeSemanticDiagnostic_message(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticDiagnostic", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticExamples(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "values":
+		return ec.fieldContext_DataframeSemanticExamples_values(ctx, field)
+	case "limited":
+		return ec.fieldContext_DataframeSemanticExamples_limited(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticExamples", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticFamily(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_DataframeSemanticFamily_id(ctx, field)
+	case "label":
+		return ec.fieldContext_DataframeSemanticFamily_label(ctx, field)
+	case "ruleId":
+		return ec.fieldContext_DataframeSemanticFamily_ruleId(ctx, field)
+	case "precedence":
+		return ec.fieldContext_DataframeSemanticFamily_precedence(ctx, field)
+	case "concepts":
+		return ec.fieldContext_DataframeSemanticFamily_concepts(ctx, field)
+	case "trace":
+		return ec.fieldContext_DataframeSemanticFamily_trace(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticFamily", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticOutput(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "mode":
+		return ec.fieldContext_DataframeSemanticOutput_mode(ctx, field)
+	case "valueType":
+		return ec.fieldContext_DataframeSemanticOutput_valueType(ctx, field)
+	case "cardinality":
+		return ec.fieldContext_DataframeSemanticOutput_cardinality(ctx, field)
+	case "generic":
+		return ec.fieldContext_DataframeSemanticOutput_generic(ctx, field)
+	case "selection":
+		return ec.fieldContext_DataframeSemanticOutput_selection(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticOutput", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticResource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "resourceType":
+		return ec.fieldContext_DataframeSemanticResource_resourceType(ctx, field)
+	case "documentCount":
+		return ec.fieldContext_DataframeSemanticResource_documentCount(ctx, field)
+	case "families":
+		return ec.fieldContext_DataframeSemanticResource_families(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticResource", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticSelection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "mode":
+		return ec.fieldContext_DataframeSemanticSelection_mode(ctx, field)
+	case "sourcePath":
+		return ec.fieldContext_DataframeSemanticSelection_sourcePath(ctx, field)
+	case "keySelector":
+		return ec.fieldContext_DataframeSemanticSelection_keySelector(ctx, field)
+	case "valueSelector":
+		return ec.fieldContext_DataframeSemanticSelection_valueSelector(ctx, field)
+	case "valueFallbacks":
+		return ec.fieldContext_DataframeSemanticSelection_valueFallbacks(ctx, field)
+	case "itemSource":
+		return ec.fieldContext_DataframeSemanticSelection_itemSource(ctx, field)
+	case "itemResourceType":
+		return ec.fieldContext_DataframeSemanticSelection_itemResourceType(ctx, field)
+	case "transforms":
+		return ec.fieldContext_DataframeSemanticSelection_transforms(ctx, field)
+	case "key":
+		return ec.fieldContext_DataframeSemanticSelection_key(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticSelection", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticSource(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "canonical":
+		return ec.fieldContext_DataframeSemanticSource_canonical(ctx, field)
+	case "resourceType":
+		return ec.fieldContext_DataframeSemanticSource_resourceType(ctx, field)
+	case "path":
+		return ec.fieldContext_DataframeSemanticSource_path(ctx, field)
+	case "profile":
+		return ec.fieldContext_DataframeSemanticSource_profile(ctx, field)
+	case "sourcePath":
+		return ec.fieldContext_DataframeSemanticSource_sourcePath(ctx, field)
+	case "valuePath":
+		return ec.fieldContext_DataframeSemanticSource_valuePath(ctx, field)
+	case "keySelector":
+		return ec.fieldContext_DataframeSemanticSource_keySelector(ctx, field)
+	case "keySystem":
+		return ec.fieldContext_DataframeSemanticSource_keySystem(ctx, field)
+	case "keyCode":
+		return ec.fieldContext_DataframeSemanticSource_keyCode(ctx, field)
+	case "keyDisplay":
+		return ec.fieldContext_DataframeSemanticSource_keyDisplay(ctx, field)
+	case "ruleVersion":
+		return ec.fieldContext_DataframeSemanticSource_ruleVersion(ctx, field)
+	case "shape":
+		return ec.fieldContext_DataframeSemanticSource_shape(ctx, field)
+	case "primitive":
+		return ec.fieldContext_DataframeSemanticSource_primitive(ctx, field)
+	case "repeated":
+		return ec.fieldContext_DataframeSemanticSource_repeated(ctx, field)
+	case "populationCount":
+		return ec.fieldContext_DataframeSemanticSource_populationCount(ctx, field)
+	case "distinctTruncated":
+		return ec.fieldContext_DataframeSemanticSource_distinctTruncated(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticSource", field.Name)
+}
+
+func (ec *executionContext) childFields_DataframeSemanticTrace(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "resourceType":
+		return ec.fieldContext_DataframeSemanticTrace_resourceType(ctx, field)
+	case "rawPath":
+		return ec.fieldContext_DataframeSemanticTrace_rawPath(ctx, field)
+	case "rawKey":
+		return ec.fieldContext_DataframeSemanticTrace_rawKey(ctx, field)
+	case "rawValue":
+		return ec.fieldContext_DataframeSemanticTrace_rawValue(ctx, field)
+	case "rawCardinality":
+		return ec.fieldContext_DataframeSemanticTrace_rawCardinality(ctx, field)
+	case "sourcePath":
+		return ec.fieldContext_DataframeSemanticTrace_sourcePath(ctx, field)
+	case "valuePath":
+		return ec.fieldContext_DataframeSemanticTrace_valuePath(ctx, field)
+	case "reference":
+		return ec.fieldContext_DataframeSemanticTrace_reference(ctx, field)
+	case "ruleId":
+		return ec.fieldContext_DataframeSemanticTrace_ruleId(ctx, field)
+	case "ruleVersion":
+		return ec.fieldContext_DataframeSemanticTrace_ruleVersion(ctx, field)
+	case "precedence":
+		return ec.fieldContext_DataframeSemanticTrace_precedence(ctx, field)
+	case "fallback":
+		return ec.fieldContext_DataframeSemanticTrace_fallback(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeSemanticTrace", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeTraversalHint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {

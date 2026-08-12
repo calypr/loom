@@ -37,6 +37,7 @@ type MutationResolver interface {
 type QueryResolver interface {
 	DataframeBuilderProjectMap(ctx context.Context, input model.DataframeBuilderProjectMapInput) (*model.DataframeBuilderProjectMap, error)
 	DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error)
+	DataframeBuilderSemanticCatalog(ctx context.Context, input model.DataframeBuilderSemanticCatalogInput) (*model.DataframeSemanticConceptCatalog, error)
 	DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error)
 	DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error)
 	ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error)
@@ -1025,6 +1026,20 @@ func (ec *executionContext) field_Query_dataframeBuilderProjectMap_args(ctx cont
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
 		func(ctx context.Context, v any) (model.DataframeBuilderProjectMapInput, error) {
 			return ec.unmarshalNDataframeBuilderProjectMapInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderProjectMapInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_dataframeBuilderSemanticCatalog_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (model.DataframeBuilderSemanticCatalogInput, error) {
+			return ec.unmarshalNDataframeBuilderSemanticCatalogInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderSemanticCatalogInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -8246,6 +8261,1968 @@ func (ec *executionContext) fieldContext_DataframeSelector_output(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeSelector", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _DataframeSemanticCompleteness_state(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticCompleteness) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticCompleteness_state(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.State, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticCompleteness_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticCompleteness", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticCompleteness_resourceLimit(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticCompleteness) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticCompleteness_resourceLimit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResourceLimit, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticCompleteness_resourceLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticCompleteness", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticCompleteness_conceptLimitPerResource(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticCompleteness) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticCompleteness_conceptLimitPerResource(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ConceptLimitPerResource, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticCompleteness_conceptLimitPerResource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticCompleteness", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticCompleteness_returnedResourceCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticCompleteness) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticCompleteness_returnedResourceCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReturnedResourceCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticCompleteness_returnedResourceCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticCompleteness", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticCompleteness_returnedConceptCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticCompleteness) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticCompleteness_returnedConceptCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ReturnedConceptCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticCompleteness_returnedConceptCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticCompleteness", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_id(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_label(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_group(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_group(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Group, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_group(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_description(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_description(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_ruleId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_ruleId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_ruleId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_ruleVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_ruleVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_ruleVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_precedence(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_precedence(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Precedence, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_precedence(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConcept", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_source(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_source(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticSource) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticSource2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticSource(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConcept",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_output(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_output(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Output, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticOutput) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticOutput(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_output(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConcept",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticOutput(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_examples(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_examples(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Examples, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticExamples) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticExamples2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticExamples(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_examples(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConcept",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticExamples(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConcept_trace(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConcept) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConcept_trace(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Trace, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticTrace) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticTrace2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticTrace(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConcept_trace(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConcept",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticTrace(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_schemaVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_schemaVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SchemaVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_schemaVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConceptCatalog", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_project(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_project(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Project, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_project(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConceptCatalog", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_sourceGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_sourceGeneration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourceGeneration, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_sourceGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConceptCatalog", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_authResourcePaths(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_authResourcePaths(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AuthResourcePaths, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_authResourcePaths(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticConceptCatalog", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_completeness(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_completeness(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Completeness, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticCompleteness) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticCompleteness2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticCompleteness(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_completeness(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConceptCatalog",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticCompleteness(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_resources(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_resources(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Resources, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeSemanticResource) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticResource2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticResourceᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_resources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConceptCatalog",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticResource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog_diagnostics(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticConceptCatalog) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticConceptCatalog_diagnostics(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Diagnostics, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeSemanticDiagnostic) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticDiagnostic2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticDiagnosticᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticConceptCatalog_diagnostics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticConceptCatalog",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticDiagnostic(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic_severity(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticDiagnostic_severity(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Severity, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticDiagnostic_severity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic_code(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticDiagnostic_code(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticDiagnostic_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic_ruleId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticDiagnostic_ruleId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticDiagnostic_ruleId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic_path(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticDiagnostic_path(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticDiagnostic_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic_message(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticDiagnostic_message(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Message, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticDiagnostic_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticDiagnostic", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticExamples_values(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticExamples) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticExamples_values(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Values, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticExamples_values(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticExamples", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticExamples_limited(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticExamples) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticExamples_limited(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Limited, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticExamples_limited(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticExamples", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_id(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticFamily", field, false, false, errors.New("field of type ID does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_label(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticFamily", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_ruleId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_ruleId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_ruleId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticFamily", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_precedence(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_precedence(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Precedence, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_precedence(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticFamily", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_concepts(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_concepts(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Concepts, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeSemanticConcept) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticConcept2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConceptᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_concepts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticFamily",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticConcept(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticFamily_trace(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticFamily) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticFamily_trace(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Trace, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticTrace) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticTrace2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticTrace(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticFamily_trace(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticFamily",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticTrace(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticOutput_mode(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticOutput_mode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Mode, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticOutput_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticOutput", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticOutput_valueType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticOutput_valueType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ValueType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticOutput_valueType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticOutput", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticOutput_cardinality(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticOutput_cardinality(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cardinality, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticOutput_cardinality(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticOutput", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticOutput_generic(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticOutput_generic(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Generic, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticOutput_generic(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticOutput", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticOutput_selection(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticOutput_selection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Selection, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticSelection) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticSelection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticSelection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticOutput_selection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticSelection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticResource_resourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticResource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticResource_resourceType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResourceType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticResource_resourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticResource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticResource_documentCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticResource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticResource_documentCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DocumentCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticResource_documentCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticResource", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticResource_families(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticResource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticResource_families(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Families, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeSemanticFamily) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticFamily2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticFamilyᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticResource_families(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeSemanticResource",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticFamily(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_mode(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_mode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Mode, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_sourcePath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourcePath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_keySelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_keySelector(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeySelector, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_keySelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_valueSelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_valueSelector(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ValueSelector, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_valueSelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_valueFallbacks(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_valueFallbacks(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ValueFallbacks, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_valueFallbacks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_itemSource(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_itemSource(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ItemSource, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_itemSource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_itemResourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_itemResourceType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ItemResourceType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_itemResourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_transforms(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_transforms(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Transforms, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_transforms(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSelection_key(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSelection_key(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Key, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSelection_key(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSelection", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_canonical(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_canonical(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Canonical, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_canonical(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_resourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_resourceType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResourceType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_resourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_path(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_path(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_profile(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_profile(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Profile, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_profile(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_sourcePath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourcePath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_valuePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_valuePath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ValuePath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_valuePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_keySelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_keySelector(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeySelector, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_keySelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_keySystem(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_keySystem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeySystem, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_keySystem(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_keyCode(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_keyCode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeyCode, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_keyCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_keyDisplay(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_keyDisplay(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.KeyDisplay, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_keyDisplay(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_ruleVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_ruleVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_ruleVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_shape(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_shape(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Shape, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_shape(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_primitive(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_primitive(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Primitive, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_primitive(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_repeated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_repeated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Repeated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_repeated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_populationCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_populationCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PopulationCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_populationCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticSource_distinctTruncated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticSource_distinctTruncated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DistinctTruncated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticSource_distinctTruncated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_resourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_resourceType(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResourceType, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_resourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_rawPath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_rawPath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RawPath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_rawPath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_rawKey(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_rawKey(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RawKey, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_rawKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_rawValue(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_rawValue(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RawValue, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_rawValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_rawCardinality(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_rawCardinality(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RawCardinality, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_rawCardinality(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_sourcePath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourcePath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_valuePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_valuePath(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ValuePath, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_valuePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_reference(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_reference(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reference, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_reference(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_ruleId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_ruleId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_ruleId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_ruleVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_ruleVersion(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RuleVersion, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_ruleVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_precedence(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_precedence(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Precedence, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_precedence(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeSemanticTrace_fallback(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSemanticTrace) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeSemanticTrace_fallback(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Fallback, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeSemanticTrace_fallback(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeSemanticTrace", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _DataframeTraversalHint_fromType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeTraversalHint) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -9814,6 +11791,50 @@ func (ec *executionContext) fieldContext_Query_dataframeBuilderIntrospection(ctx
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeBuilderIntrospection_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeBuilderSemanticCatalog(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeBuilderSemanticCatalog(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DataframeBuilderSemanticCatalog(ctx, fc.Args["input"].(model.DataframeBuilderSemanticCatalogInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSemanticConceptCatalog) graphql.Marshaler {
+			return ec.marshalNDataframeSemanticConceptCatalog2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConceptCatalog(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeBuilderSemanticCatalog(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeSemanticConceptCatalog(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeBuilderSemanticCatalog_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -11989,6 +14010,71 @@ func (ec *executionContext) unmarshalInputDataframeBuilderProjectMapInput(ctx co
 				return it, err
 			}
 			it.IncludePivotOnlyFields = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputDataframeBuilderSemanticCatalogInput(ctx context.Context, obj any) (model.DataframeBuilderSemanticCatalogInput, error) {
+	var it model.DataframeBuilderSemanticCatalogInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["resourceLimit"]; !present {
+		asMap["resourceLimit"] = 0
+	}
+	if _, present := asMap["conceptLimitPerResource"]; !present {
+		asMap["conceptLimitPerResource"] = 0
+	}
+
+	fieldsInOrder := [...]string{"project", "rootResourceType", "authResourcePaths", "resourceLimit", "conceptLimitPerResource"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "project":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("project"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Project = data
+		case "rootResourceType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootResourceType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RootResourceType = data
+		case "authResourcePaths":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authResourcePaths"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AuthResourcePaths = data
+		case "resourceLimit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resourceLimit"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ResourceLimit = data
+		case "conceptLimitPerResource":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("conceptLimitPerResource"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ConceptLimitPerResource = data
 		}
 	}
 	return it, nil
@@ -17037,6 +19123,774 @@ func (ec *executionContext) _DataframeSelector(ctx context.Context, sel ast.Sele
 	return out
 }
 
+var dataframeSemanticCompletenessImplementors = []string{"DataframeSemanticCompleteness"}
+
+func (ec *executionContext) _DataframeSemanticCompleteness(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticCompleteness) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticCompletenessImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticCompleteness")
+		case "state":
+			out.Values[i] = ec._DataframeSemanticCompleteness_state(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resourceLimit":
+			out.Values[i] = ec._DataframeSemanticCompleteness_resourceLimit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "conceptLimitPerResource":
+			out.Values[i] = ec._DataframeSemanticCompleteness_conceptLimitPerResource(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "returnedResourceCount":
+			out.Values[i] = ec._DataframeSemanticCompleteness_returnedResourceCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "returnedConceptCount":
+			out.Values[i] = ec._DataframeSemanticCompleteness_returnedConceptCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticConceptImplementors = []string{"DataframeSemanticConcept"}
+
+func (ec *executionContext) _DataframeSemanticConcept(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticConcept) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticConceptImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticConcept")
+		case "id":
+			out.Values[i] = ec._DataframeSemanticConcept_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._DataframeSemanticConcept_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "group":
+			out.Values[i] = ec._DataframeSemanticConcept_group(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._DataframeSemanticConcept_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleId":
+			out.Values[i] = ec._DataframeSemanticConcept_ruleId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleVersion":
+			out.Values[i] = ec._DataframeSemanticConcept_ruleVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "precedence":
+			out.Values[i] = ec._DataframeSemanticConcept_precedence(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "source":
+			out.Values[i] = ec._DataframeSemanticConcept_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "output":
+			out.Values[i] = ec._DataframeSemanticConcept_output(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "examples":
+			out.Values[i] = ec._DataframeSemanticConcept_examples(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "trace":
+			out.Values[i] = ec._DataframeSemanticConcept_trace(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticConceptCatalogImplementors = []string{"DataframeSemanticConceptCatalog"}
+
+func (ec *executionContext) _DataframeSemanticConceptCatalog(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticConceptCatalog) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticConceptCatalogImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticConceptCatalog")
+		case "schemaVersion":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_schemaVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "project":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_project(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceGeneration":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_sourceGeneration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "authResourcePaths":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_authResourcePaths(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "completeness":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_completeness(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resources":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_resources(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "diagnostics":
+			out.Values[i] = ec._DataframeSemanticConceptCatalog_diagnostics(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticDiagnosticImplementors = []string{"DataframeSemanticDiagnostic"}
+
+func (ec *executionContext) _DataframeSemanticDiagnostic(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticDiagnostic) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticDiagnosticImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticDiagnostic")
+		case "severity":
+			out.Values[i] = ec._DataframeSemanticDiagnostic_severity(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "code":
+			out.Values[i] = ec._DataframeSemanticDiagnostic_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleId":
+			out.Values[i] = ec._DataframeSemanticDiagnostic_ruleId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._DataframeSemanticDiagnostic_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "message":
+			out.Values[i] = ec._DataframeSemanticDiagnostic_message(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticExamplesImplementors = []string{"DataframeSemanticExamples"}
+
+func (ec *executionContext) _DataframeSemanticExamples(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticExamples) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticExamplesImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticExamples")
+		case "values":
+			out.Values[i] = ec._DataframeSemanticExamples_values(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "limited":
+			out.Values[i] = ec._DataframeSemanticExamples_limited(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticFamilyImplementors = []string{"DataframeSemanticFamily"}
+
+func (ec *executionContext) _DataframeSemanticFamily(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticFamily) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticFamilyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticFamily")
+		case "id":
+			out.Values[i] = ec._DataframeSemanticFamily_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._DataframeSemanticFamily_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleId":
+			out.Values[i] = ec._DataframeSemanticFamily_ruleId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "precedence":
+			out.Values[i] = ec._DataframeSemanticFamily_precedence(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "concepts":
+			out.Values[i] = ec._DataframeSemanticFamily_concepts(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "trace":
+			out.Values[i] = ec._DataframeSemanticFamily_trace(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticOutputImplementors = []string{"DataframeSemanticOutput"}
+
+func (ec *executionContext) _DataframeSemanticOutput(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticOutput) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticOutputImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticOutput")
+		case "mode":
+			out.Values[i] = ec._DataframeSemanticOutput_mode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valueType":
+			out.Values[i] = ec._DataframeSemanticOutput_valueType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cardinality":
+			out.Values[i] = ec._DataframeSemanticOutput_cardinality(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "generic":
+			out.Values[i] = ec._DataframeSemanticOutput_generic(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "selection":
+			out.Values[i] = ec._DataframeSemanticOutput_selection(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticResourceImplementors = []string{"DataframeSemanticResource"}
+
+func (ec *executionContext) _DataframeSemanticResource(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticResource) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticResourceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticResource")
+		case "resourceType":
+			out.Values[i] = ec._DataframeSemanticResource_resourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "documentCount":
+			out.Values[i] = ec._DataframeSemanticResource_documentCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "families":
+			out.Values[i] = ec._DataframeSemanticResource_families(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticSelectionImplementors = []string{"DataframeSemanticSelection"}
+
+func (ec *executionContext) _DataframeSemanticSelection(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticSelection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticSelectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticSelection")
+		case "mode":
+			out.Values[i] = ec._DataframeSemanticSelection_mode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourcePath":
+			out.Values[i] = ec._DataframeSemanticSelection_sourcePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "keySelector":
+			out.Values[i] = ec._DataframeSemanticSelection_keySelector(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valueSelector":
+			out.Values[i] = ec._DataframeSemanticSelection_valueSelector(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valueFallbacks":
+			out.Values[i] = ec._DataframeSemanticSelection_valueFallbacks(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "itemSource":
+			out.Values[i] = ec._DataframeSemanticSelection_itemSource(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "itemResourceType":
+			out.Values[i] = ec._DataframeSemanticSelection_itemResourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "transforms":
+			out.Values[i] = ec._DataframeSemanticSelection_transforms(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "key":
+			out.Values[i] = ec._DataframeSemanticSelection_key(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticSourceImplementors = []string{"DataframeSemanticSource"}
+
+func (ec *executionContext) _DataframeSemanticSource(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticSource) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticSourceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticSource")
+		case "canonical":
+			out.Values[i] = ec._DataframeSemanticSource_canonical(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resourceType":
+			out.Values[i] = ec._DataframeSemanticSource_resourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._DataframeSemanticSource_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "profile":
+			out.Values[i] = ec._DataframeSemanticSource_profile(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourcePath":
+			out.Values[i] = ec._DataframeSemanticSource_sourcePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valuePath":
+			out.Values[i] = ec._DataframeSemanticSource_valuePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "keySelector":
+			out.Values[i] = ec._DataframeSemanticSource_keySelector(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "keySystem":
+			out.Values[i] = ec._DataframeSemanticSource_keySystem(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "keyCode":
+			out.Values[i] = ec._DataframeSemanticSource_keyCode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "keyDisplay":
+			out.Values[i] = ec._DataframeSemanticSource_keyDisplay(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleVersion":
+			out.Values[i] = ec._DataframeSemanticSource_ruleVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "shape":
+			out.Values[i] = ec._DataframeSemanticSource_shape(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "primitive":
+			out.Values[i] = ec._DataframeSemanticSource_primitive(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "repeated":
+			out.Values[i] = ec._DataframeSemanticSource_repeated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "populationCount":
+			out.Values[i] = ec._DataframeSemanticSource_populationCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "distinctTruncated":
+			out.Values[i] = ec._DataframeSemanticSource_distinctTruncated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var dataframeSemanticTraceImplementors = []string{"DataframeSemanticTrace"}
+
+func (ec *executionContext) _DataframeSemanticTrace(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSemanticTrace) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSemanticTraceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeSemanticTrace")
+		case "resourceType":
+			out.Values[i] = ec._DataframeSemanticTrace_resourceType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rawPath":
+			out.Values[i] = ec._DataframeSemanticTrace_rawPath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rawKey":
+			out.Values[i] = ec._DataframeSemanticTrace_rawKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rawValue":
+			out.Values[i] = ec._DataframeSemanticTrace_rawValue(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rawCardinality":
+			out.Values[i] = ec._DataframeSemanticTrace_rawCardinality(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourcePath":
+			out.Values[i] = ec._DataframeSemanticTrace_sourcePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "valuePath":
+			out.Values[i] = ec._DataframeSemanticTrace_valuePath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reference":
+			out.Values[i] = ec._DataframeSemanticTrace_reference(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleId":
+			out.Values[i] = ec._DataframeSemanticTrace_ruleId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ruleVersion":
+			out.Values[i] = ec._DataframeSemanticTrace_ruleVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "precedence":
+			out.Values[i] = ec._DataframeSemanticTrace_precedence(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fallback":
+			out.Values[i] = ec._DataframeSemanticTrace_fallback(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var dataframeTraversalHintImplementors = []string{"DataframeTraversalHint"}
 
 func (ec *executionContext) _DataframeTraversalHint(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeTraversalHint) graphql.Marshaler {
@@ -17703,6 +20557,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_dataframeBuilderIntrospection(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeBuilderSemanticCatalog":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeBuilderSemanticCatalog(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18734,6 +21610,11 @@ func (ec *executionContext) unmarshalNDataframeBuilderProjectMapInput2githubᚗc
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNDataframeBuilderSemanticCatalogInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderSemanticCatalogInput(ctx context.Context, v any) (model.DataframeBuilderSemanticCatalogInput, error) {
+	res, err := ec.unmarshalInputDataframeBuilderSemanticCatalogInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -19632,6 +22513,184 @@ func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalypr�
 func (ec *executionContext) unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx context.Context, v any) (*model.DataframeSelectorInput, error) {
 	res, err := ec.unmarshalInputDataframeSelectorInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticCompleteness2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticCompleteness(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticCompleteness) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticCompleteness(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticConcept2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConceptᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeSemanticConcept) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeSemanticConcept2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConcept(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeSemanticConcept2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConcept(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticConcept) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticConcept(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticConceptCatalog2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConceptCatalog(ctx context.Context, sel ast.SelectionSet, v model.DataframeSemanticConceptCatalog) graphql.Marshaler {
+	return ec._DataframeSemanticConceptCatalog(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticConceptCatalog2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticConceptCatalog(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticConceptCatalog) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticConceptCatalog(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticDiagnostic2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticDiagnosticᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeSemanticDiagnostic) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeSemanticDiagnostic2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticDiagnostic(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeSemanticDiagnostic2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticDiagnostic(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticDiagnostic) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticDiagnostic(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticExamples2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticExamples(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticExamples) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticExamples(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticFamily2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticFamilyᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeSemanticFamily) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeSemanticFamily2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticFamily(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeSemanticFamily2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticFamily(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticFamily) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticFamily(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticOutput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticOutput(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticOutput) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticOutput(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticResource2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticResourceᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeSemanticResource) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeSemanticResource2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticResource(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeSemanticResource2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticResource(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticResource) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticResource(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticSelection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticSelection(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticSelection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticSelection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticSource2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticSource(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticSource) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticSource(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDataframeSemanticTrace2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSemanticTrace(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSemanticTrace) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeSemanticTrace(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNDataframeTraversalHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHintᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeTraversalHint) graphql.Marshaler {

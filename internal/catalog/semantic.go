@@ -314,7 +314,7 @@ func (p *Profiler) emitSemantic(container map[string]any, sourcePath string, cod
 		RuleVersion: "1",
 	}
 	if stat := p.ensureSemanticStat(path); stat != nil {
-		stat.addSemanticObservation(observation, examples)
+		p.addSemanticObservation(stat, observation, examples)
 	}
 }
 
@@ -363,7 +363,7 @@ func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile st
 		RuleHint:    "IDENTIFIER_SYSTEM_VALUE", RuleVersion: "1",
 	}
 	if stat := p.ensureSemanticStat(path); stat != nil {
-		stat.addSemanticObservation(observation, []any{raw})
+		p.addSemanticObservation(stat, observation, []any{raw})
 	}
 }
 
@@ -399,7 +399,7 @@ func (p *Profiler) emitCodeableSemantic(value map[string]any, path, profile stri
 			RuleHint:    "CODEABLE_CONCEPT_VALUE", RuleVersion: "1",
 		}
 		if stat := p.ensureSemanticStat(path); stat != nil {
-			stat.addSemanticObservation(observation, examples)
+			p.addSemanticObservation(stat, observation, examples)
 		}
 	}
 }
@@ -425,9 +425,23 @@ func (p *Profiler) emitExtensionSemantic(value map[string]any, path, profile str
 			RuleHint:    "EXTENSION_URL_VALUE", RuleVersion: "1",
 		}
 		if stat := p.ensureSemanticStat(path); stat != nil {
-			stat.addSemanticObservation(observation, []any{value[key]})
+			p.addSemanticObservation(stat, observation, []any{value[key]})
 		}
 	}
+}
+
+func (p *Profiler) addSemanticObservation(stat *fieldCatalogStats, observation SemanticObservation, examples []any) {
+	if p.semanticPayloadSeen == nil {
+		p.semanticPayloadSeen = make(map[string]struct{})
+	}
+	key := semanticObservationKey(observation)
+	if _, seen := p.semanticPayloadSeen[key]; seen {
+		// Examples are still bounded and deterministic on the first occurrence;
+		// repeated identical mappings in one document carry no new population.
+		return
+	}
+	p.semanticPayloadSeen[key] = struct{}{}
+	stat.addSemanticObservation(observation, examples)
 }
 
 func (p *Profiler) ensureSemanticStat(path string) *fieldCatalogStats {

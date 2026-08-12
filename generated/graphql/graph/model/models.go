@@ -91,6 +91,14 @@ type DataframeBuilderProjectMapInput struct {
 	IncludePivotOnlyFields *bool    `json:"includePivotOnlyFields,omitempty"`
 }
 
+type DataframeBuilderSemanticCatalogInput struct {
+	Project                 string   `json:"project"`
+	RootResourceType        string   `json:"rootResourceType"`
+	AuthResourcePaths       []string `json:"authResourcePaths,omitempty"`
+	ResourceLimit           *int     `json:"resourceLimit,omitempty"`
+	ConceptLimitPerResource *int     `json:"conceptLimitPerResource,omitempty"`
+}
+
 type DataframeColumn struct {
 	SemanticPath   string `json:"semanticPath"`
 	Name           string `json:"name"`
@@ -537,6 +545,120 @@ type DataframeSelectorInput struct {
 	Recipe             string `json:"recipe"`
 	TranslationVersion string `json:"translationVersion"`
 	Output             string `json:"output"`
+}
+
+type DataframeSemanticCompleteness struct {
+	State                   string `json:"state"`
+	ResourceLimit           int    `json:"resourceLimit"`
+	ConceptLimitPerResource int    `json:"conceptLimitPerResource"`
+	ReturnedResourceCount   int    `json:"returnedResourceCount"`
+	ReturnedConceptCount    int    `json:"returnedConceptCount"`
+}
+
+type DataframeSemanticConcept struct {
+	ID          string                     `json:"id"`
+	Label       string                     `json:"label"`
+	Group       string                     `json:"group"`
+	Description string                     `json:"description"`
+	RuleID      string                     `json:"ruleId"`
+	RuleVersion string                     `json:"ruleVersion"`
+	Precedence  int                        `json:"precedence"`
+	Source      *DataframeSemanticSource   `json:"source"`
+	Output      *DataframeSemanticOutput   `json:"output"`
+	Examples    *DataframeSemanticExamples `json:"examples"`
+	Trace       *DataframeSemanticTrace    `json:"trace"`
+}
+
+type DataframeSemanticConceptCatalog struct {
+	SchemaVersion     int                            `json:"schemaVersion"`
+	Project           string                         `json:"project"`
+	SourceGeneration  string                         `json:"sourceGeneration"`
+	AuthResourcePaths []string                       `json:"authResourcePaths"`
+	Completeness      *DataframeSemanticCompleteness `json:"completeness"`
+	Resources         []*DataframeSemanticResource   `json:"resources"`
+	Diagnostics       []*DataframeSemanticDiagnostic `json:"diagnostics"`
+}
+
+type DataframeSemanticDiagnostic struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	RuleID   string `json:"ruleId"`
+	Path     string `json:"path"`
+	Message  string `json:"message"`
+}
+
+type DataframeSemanticExamples struct {
+	Values  []string `json:"values"`
+	Limited bool     `json:"limited"`
+}
+
+type DataframeSemanticFamily struct {
+	ID         string                      `json:"id"`
+	Label      string                      `json:"label"`
+	RuleID     string                      `json:"ruleId"`
+	Precedence int                         `json:"precedence"`
+	Concepts   []*DataframeSemanticConcept `json:"concepts"`
+	Trace      *DataframeSemanticTrace     `json:"trace"`
+}
+
+type DataframeSemanticOutput struct {
+	Mode        string                      `json:"mode"`
+	ValueType   string                      `json:"valueType"`
+	Cardinality string                      `json:"cardinality"`
+	Generic     bool                        `json:"generic"`
+	Selection   *DataframeSemanticSelection `json:"selection"`
+}
+
+type DataframeSemanticResource struct {
+	ResourceType  string                     `json:"resourceType"`
+	DocumentCount int                        `json:"documentCount"`
+	Families      []*DataframeSemanticFamily `json:"families"`
+}
+
+type DataframeSemanticSelection struct {
+	Mode             string   `json:"mode"`
+	SourcePath       string   `json:"sourcePath"`
+	KeySelector      string   `json:"keySelector"`
+	ValueSelector    string   `json:"valueSelector"`
+	ValueFallbacks   []string `json:"valueFallbacks"`
+	ItemSource       string   `json:"itemSource"`
+	ItemResourceType string   `json:"itemResourceType"`
+	Transforms       []string `json:"transforms"`
+	Key              string   `json:"key"`
+}
+
+type DataframeSemanticSource struct {
+	Canonical         string `json:"canonical"`
+	ResourceType      string `json:"resourceType"`
+	Path              string `json:"path"`
+	Profile           string `json:"profile"`
+	SourcePath        string `json:"sourcePath"`
+	ValuePath         string `json:"valuePath"`
+	KeySelector       string `json:"keySelector"`
+	KeySystem         string `json:"keySystem"`
+	KeyCode           string `json:"keyCode"`
+	KeyDisplay        string `json:"keyDisplay"`
+	RuleVersion       string `json:"ruleVersion"`
+	Shape             string `json:"shape"`
+	Primitive         string `json:"primitive"`
+	Repeated          bool   `json:"repeated"`
+	PopulationCount   int    `json:"populationCount"`
+	DistinctTruncated bool   `json:"distinctTruncated"`
+}
+
+type DataframeSemanticTrace struct {
+	ResourceType   string `json:"resourceType"`
+	RawPath        string `json:"rawPath"`
+	RawKey         string `json:"rawKey"`
+	RawValue       string `json:"rawValue"`
+	RawCardinality string `json:"rawCardinality"`
+	SourcePath     string `json:"sourcePath"`
+	ValuePath      string `json:"valuePath"`
+	Reference      string `json:"reference"`
+	RuleID         string `json:"ruleId"`
+	RuleVersion    string `json:"ruleVersion"`
+	Precedence     int    `json:"precedence"`
+	Fallback       bool   `json:"fallback"`
 }
 
 type DataframeSortInput struct {

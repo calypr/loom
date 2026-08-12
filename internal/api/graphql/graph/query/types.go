@@ -50,6 +50,14 @@ type ResourceHints struct {
 	Traversals    []catalog.PopulatedReference
 }
 
+type SemanticCatalogRequest struct {
+	Project                 string
+	RootResourceType        string
+	AuthResourcePaths       []string
+	ResourceLimit           int
+	ConceptLimitPerResource int
+}
+
 type RelatedResourceHints struct {
 	ViaLabel  string
 	EdgeCount int64

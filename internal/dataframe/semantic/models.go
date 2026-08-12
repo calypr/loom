@@ -53,10 +53,17 @@ type ProfileBinding struct {
 // generated source. Reference and shape values are metadata strings, not a
 // closed list of FHIR structures.
 type SourceDescriptor struct {
+	Canonical         string
 	ResourceType      string
 	Path              string
+	Profile           string
 	SourcePath        string
 	ValuePath         string
+	KeySelector       string
+	KeySystem         string
+	KeyCode           string
+	KeyDisplay        string
+	RuleVersion       string
 	Shape             string
 	Primitive         string
 	Repeated          bool
@@ -103,14 +110,18 @@ type OutputDescriptor struct {
 }
 
 type TraceDescriptor struct {
-	ResourceType string
-	RawPath      string
-	SourcePath   string
-	ValuePath    string
-	Reference    string
-	RuleID       string
-	Precedence   int
-	Fallback     bool
+	ResourceType   string
+	RawPath        string
+	RawKey         string
+	RawValue       string
+	RawCardinality string
+	SourcePath     string
+	ValuePath      string
+	Reference      string
+	RuleID         string
+	RuleVersion    string
+	Precedence     int
+	Fallback       bool
 }
 
 type Concept struct {
@@ -119,6 +130,7 @@ type Concept struct {
 	Group       string
 	Description string
 	RuleID      string
+	RuleVersion string
 	Precedence  int
 	Source      SourceDescriptor
 	Output      OutputDescriptor
@@ -152,10 +164,17 @@ type Result struct {
 }
 
 func (s SourceDescriptor) canonical() SourceDescriptor {
+	s.Canonical = strings.TrimSpace(s.Canonical)
 	s.ResourceType = strings.TrimSpace(s.ResourceType)
 	s.Path = strings.TrimSpace(s.Path)
+	s.Profile = strings.TrimSpace(s.Profile)
 	s.SourcePath = strings.TrimSpace(s.SourcePath)
 	s.ValuePath = strings.TrimSpace(s.ValuePath)
+	s.KeySelector = strings.TrimSpace(s.KeySelector)
+	s.KeySystem = strings.TrimSpace(s.KeySystem)
+	s.KeyCode = strings.TrimSpace(s.KeyCode)
+	s.KeyDisplay = strings.TrimSpace(s.KeyDisplay)
+	s.RuleVersion = strings.TrimSpace(s.RuleVersion)
 	s.Shape = strings.TrimSpace(s.Shape)
 	s.Primitive = strings.TrimSpace(s.Primitive)
 	s.Reference = strings.TrimSpace(s.Reference)

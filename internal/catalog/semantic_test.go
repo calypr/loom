@@ -147,3 +147,20 @@ func TestSemanticObservationMergeAggregatesPopulationAndExamples(t *testing.T) {
 		t.Fatalf("merged observation = %#v", observation)
 	}
 }
+
+func TestSemanticObservationDuplicateCodingCountsOneDocument(t *testing.T) {
+	profiler := NewProfilerForGeneration("P", "g", "scope", "Observation", NewShapePlanCache())
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"code": map[string]any{"coding": []any{
+			map[string]any{"system": "s", "code": "c", "display": "Same"},
+			map[string]any{"system": "s", "code": "c", "display": "Same"},
+		}},
+		"valueString": "value",
+	}
+	profiler.ObservePayload(payload, map[string]float64{})
+	document := semanticDocument(t, profiler, "code")
+	if len(document.SemanticObservations) != 1 || document.SemanticObservations[0].Population != 1 {
+		t.Fatalf("duplicate coding overcounted: %#v", document.SemanticObservations)
+	}
+}

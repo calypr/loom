@@ -118,6 +118,7 @@ func aggregatePopulatedFields(in []catalog.PopulatedField) []catalog.PopulatedFi
 	pivotColumns := make(map[key]map[string]struct{}, len(in))
 	pivotSelectors := make(map[key]map[string]struct{}, len(in))
 	extensionValues := make(map[key]map[string]catalog.ExtensionValueObservation, len(in))
+	semanticObservations := make(map[key]map[string]catalog.SemanticObservation, len(in))
 	for _, field := range in {
 		if strings.TrimSpace(field.ResourceType) == "" || strings.TrimSpace(field.Path) == "" || field.DocCount <= 0 {
 			continue
@@ -136,6 +137,7 @@ func aggregatePopulatedFields(in []catalog.PopulatedField) []catalog.PopulatedFi
 			pivotColumns[k] = make(map[string]struct{})
 			pivotSelectors[k] = make(map[string]struct{})
 			extensionValues[k] = make(map[string]catalog.ExtensionValueObservation)
+			semanticObservations[k] = make(map[string]catalog.SemanticObservation)
 		}
 		current.DocCount += field.DocCount
 		current.SampleCount = maxInt(current.SampleCount, field.SampleCount)
@@ -161,6 +163,32 @@ func aggregatePopulatedFields(in []catalog.PopulatedField) []catalog.PopulatedFi
 			observationKey := observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
 			extensionValues[k][observationKey] = observation
 		}
+		for _, observation := range field.SemanticObservations {
+			observationKey := strings.Join([]string{observation.Source.Canonical, observation.Source.Type, observation.Source.Profile, observation.Source.Path, observation.Key.Selector, observation.Key.System, observation.Key.Code, observation.Key.Display, observation.Value.Selector, observation.Value.Type, observation.Cardinality, observation.RuleHint, observation.RuleVersion}, "\x00")
+			if existing, ok := semanticObservations[k][observationKey]; ok {
+				existing.Population += observation.Population
+				existing.ExamplesTruncated = existing.ExamplesTruncated || observation.ExamplesTruncated
+				exampleSet := make(map[string]struct{}, len(existing.Examples)+len(observation.Examples))
+				for _, value := range append(existing.Examples, observation.Examples...) {
+					if value != "" {
+						exampleSet[value] = struct{}{}
+					}
+				}
+				existing.Examples = existing.Examples[:0]
+				for value := range exampleSet {
+					existing.Examples = append(existing.Examples, value)
+				}
+				sort.Strings(existing.Examples)
+				if len(existing.Examples) > 32 {
+					existing.Examples = existing.Examples[:32]
+					existing.ExamplesTruncated = true
+				}
+				semanticObservations[k][observationKey] = existing
+			} else {
+				observation.Examples = append([]string(nil), observation.Examples...)
+				semanticObservations[k][observationKey] = observation
+			}
+		}
 		aggregates[k] = current
 	}
 	out := make([]catalog.PopulatedField, 0, len(aggregates))
@@ -177,12 +205,18 @@ func aggregatePopulatedFields(in []catalog.PopulatedField) []catalog.PopulatedFi
 		for _, value := range extensionValues[k] {
 			field.ExtensionValues = append(field.ExtensionValues, value)
 		}
+		for _, value := range semanticObservations[k] {
+			field.SemanticObservations = append(field.SemanticObservations, value)
+		}
 		sort.Strings(field.DistinctValues)
 		sort.Strings(field.PivotColumns)
 		sort.Strings(field.PivotValueSelectors)
 		sort.Slice(field.ExtensionValues, func(i, j int) bool {
 			left, right := field.ExtensionValues[i], field.ExtensionValues[j]
 			return left.URL+"\x00"+strings.Join(left.URLPath, "\x00")+"\x00"+left.SourcePath+"\x00"+left.ValuePath+"\x00"+left.ValueType < right.URL+"\x00"+strings.Join(right.URLPath, "\x00")+"\x00"+right.SourcePath+"\x00"+right.ValuePath+"\x00"+right.ValueType
+		})
+		sort.Slice(field.SemanticObservations, func(i, j int) bool {
+			return observationSortKey(field.SemanticObservations[i]) < observationSortKey(field.SemanticObservations[j])
 		})
 		field.SampleCount = maxInt(field.SampleCount, len(field.DistinctValues))
 		out = append(out, field)
@@ -216,6 +250,10 @@ func aggregatePopulatedReferences(in []catalog.PopulatedReference) []catalog.Pop
 	}
 	sort.Slice(out, func(i, j int) bool { return referenceLess(out[i], out[j]) })
 	return out
+}
+
+func observationSortKey(observation catalog.SemanticObservation) string {
+	return strings.Join([]string{observation.Source.Canonical, observation.Key.Selector, observation.Key.System, observation.Key.Code, observation.Key.Display, observation.Value.Selector, observation.Value.Type, observation.Cardinality, observation.RuleHint, observation.RuleVersion}, "\x00")
 }
 
 func referenceLess(left, right catalog.PopulatedReference) bool {
