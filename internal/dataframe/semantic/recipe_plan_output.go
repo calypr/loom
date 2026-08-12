@@ -303,7 +303,12 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
-		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, Discovered: dynamic.Discovered}
+		// A SELECTED family deliberately projects only its authored keys. The
+		// source map can, and normally will, contain other semantic keys; those
+		// siblings must not be reported as runtime schema drift after the query
+		// has already omitted their physical columns. DISCOVER families retain
+		// the strict guard so ingestion drift is still surfaced.
+		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: dynamic.ColumnMode.Selected(), Discovered: dynamic.Discovered}
 		if dynamic.ColumnPrefix != nil {
 			prefix := *dynamic.ColumnPrefix
 			item.ColumnPrefix = &prefix
