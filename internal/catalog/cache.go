@@ -160,6 +160,13 @@ func cloneFields(in []PopulatedField) []PopulatedField {
 				out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 			}
 		}
+		if in[i].SemanticObservations != nil {
+			out[i].SemanticObservations = make([]SemanticObservation, len(in[i].SemanticObservations))
+			for j, observation := range in[i].SemanticObservations {
+				out[i].SemanticObservations[j] = observation
+				out[i].SemanticObservations[j].Examples = append([]string(nil), observation.Examples...)
+			}
+		}
 	}
 	return out
 }

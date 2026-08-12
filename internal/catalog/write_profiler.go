@@ -69,6 +69,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
+	p.observeSemanticObservations(payload)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 
@@ -138,6 +139,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 				distinctSet:           make(map[string]struct{}),
 				pivotColumnSet:        make(map[string]struct{}),
 				extensionValueSet:     make(map[string]struct{}),
+				semanticObservations:  make(map[string]*semanticObservationStats),
 			}
 			p.stats[path] = stat
 		}
@@ -153,6 +155,9 @@ func (p *Profiler) Merge(other *Profiler) error {
 		}
 		for _, observation := range otherStat.extensionValues {
 			stat.addExtensionValue(observation)
+		}
+		for _, observation := range otherStat.semanticObservations {
+			mergeSemanticObservation(stat, observation)
 		}
 	}
 	return nil
@@ -171,6 +176,18 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
 		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
+		semanticObservations := make([]SemanticObservation, 0, len(stat.semanticObservations))
+		semanticKeys := make([]string, 0, len(stat.semanticObservations))
+		for key := range stat.semanticObservations {
+			semanticKeys = append(semanticKeys, key)
+		}
+		slices.Sort(semanticKeys)
+		for _, key := range semanticKeys {
+			observation := stat.semanticObservations[key]
+			value := observation.observation
+			value.Examples = semanticExamples(observation)
+			semanticObservations = append(semanticObservations, value)
+		}
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
 		sort.Slice(extensionValues, func(i, j int) bool {
@@ -207,6 +224,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotItemResourceType: stat.pivotItemResourceType,
 			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
 			ExtensionValues:       extensionValues,
+			SemanticObservations:  semanticObservations,
 		})
 	}
 	return out
@@ -217,13 +235,14 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		return stat
 	}
 	stat := &fieldCatalogStats{
-		path:              field.Path,
-		kind:              field.Kind,
-		pivotCandidate:    field.PivotCandidate,
-		pivotKind:         field.PivotKind,
-		distinctSet:       make(map[string]struct{}),
-		pivotColumnSet:    make(map[string]struct{}),
-		extensionValueSet: make(map[string]struct{}),
+		path:                 field.Path,
+		kind:                 field.Kind,
+		pivotCandidate:       field.PivotCandidate,
+		pivotKind:            field.PivotKind,
+		distinctSet:          make(map[string]struct{}),
+		pivotColumnSet:       make(map[string]struct{}),
+		extensionValueSet:    make(map[string]struct{}),
+		semanticObservations: make(map[string]*semanticObservationStats),
 	}
 	if field.PivotCandidate {
 		if spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
@@ -334,7 +353,7 @@ func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 	if stat, ok := p.stats[path]; ok {
 		return stat
 	}
-	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{})}
+	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{}), semanticObservations: make(map[string]*semanticObservationStats)}
 	p.stats[path] = stat
 	return stat
 }

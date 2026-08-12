@@ -54,6 +54,11 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 		"pivot_column_selector": "coding.display", "pivot_value_selector": "coding.code",
 		"pivot_item_source": "item", "pivot_item_resource_type": "Observation", "pivot_value_selectors": []any{"code"},
 		"extension_values": []any{map[string]any{"url": "http://example.org/source_path", "source_path": "extension[]", "value_path": "valueUrl", "value_type": "string"}},
+		"semantic_observations": []any{map[string]any{
+			"schema_version": int64(1), "source": map[string]any{"canonical": "Observation.code", "type": "Observation", "profile": "p", "path": "code"},
+			"key":   map[string]any{"selector": "code.coding[]", "system": "s", "code": "c", "display": "Display"},
+			"value": map[string]any{"selector": "valueString", "type": "string"}, "cardinality": "single", "population": int64(2), "examples": []any{"x"}, "examples_truncated": true, "rule_hint": "RULE", "rule_version": "1",
+		}},
 	}}
 	adapter, err := New(client)
 	if err != nil {
@@ -64,7 +69,7 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	field := fields[0]
-	if !field.PivotCandidate || field.PivotKind != "code" || len(field.DistinctValues) != 1 || field.PivotItemResourceType != "Observation" || len(field.ExtensionValues) != 1 || field.ExtensionValues[0].ValuePath != "valueUrl" {
+	if !field.PivotCandidate || field.PivotKind != "code" || len(field.DistinctValues) != 1 || field.PivotItemResourceType != "Observation" || len(field.ExtensionValues) != 1 || field.ExtensionValues[0].ValuePath != "valueUrl" || len(field.SemanticObservations) != 1 || field.SemanticObservations[0].Key.Code != "c" || field.SemanticObservations[0].Population != 2 {
 		t.Fatalf("field metadata = %#v", field)
 	}
 
