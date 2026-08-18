@@ -11,6 +11,7 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
 )
@@ -26,8 +27,16 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		}
 		return graphresolver.RecipeExecution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []graphresolver.RecipeExecutionOutput{{Name: "DocumentReference", State: "PUBLISHED"}}}, nil
 	}
+	activationCount := 0
+	activateRelease := func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) error {
+		activationCount++
+		if project != "project-a" || generation != "generation-a" || len(selectors) != 1 || selectors[0].Output != "DocumentReference" {
+			t.Fatalf("release activation = %s/%s %#v", project, generation, selectors)
+		}
+		return nil
+	}
 	app := fiber.New()
-	RegisterExplorerConfigV2Route(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, materialize)
+	RegisterExplorerConfigV2Route(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, materialize, ExplorerV2LifecycleConfig{ActivateRelease: activateRelease})
 
 	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerConfigV2("project-a", "Default")), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {
@@ -36,6 +45,9 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	repeated := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerConfigV2("project-a", "Default")), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if repeated.StatusCode != http.StatusOK {
 		t.Fatalf("repeated deploy status=%d body=%s", repeated.StatusCode, repeated.Body)
+	}
+	if activationCount != 2 {
+		t.Fatalf("release activation count = %d, want 2", activationCount)
 	}
 	state, err := getExplorerV2State(context.Background(), service, "project-a", "default")
 	if err != nil {

@@ -235,13 +235,13 @@ func buildTermsGroupingSetSQL(dataset FederatedDataset, access map[string]Source
 	orderKey := "`" + statement.jobs[0].job.Column + "`"
 	if len(statement.jobs) > 1 {
 		parts := make([]string, 0, len(statement.jobs)*2+1)
-		for i, condition := range conditions {
-			parts = append(parts, condition, "`"+statement.jobs[i].job.Column+"`")
+		for i, planned := range statement.jobs {
+			parts = append(parts, fmt.Sprintf("`__loom_slot` = %d", i), "`"+planned.job.Column+"`")
 		}
 		parts = append(parts, "NULL")
 		orderKey = "multiIf(" + strings.Join(parts, ", ") + ")"
 	}
-	query = fmt.Sprintf("SELECT `__loom_slot`, `__loom_group_json`, `__loom_metric` FROM (SELECT *, row_number() OVER (PARTITION BY `__loom_slot` ORDER BY `__loom_metric` DESC, `__loom_order_key` ASC) AS `__loom_rank` FROM (SELECT *, %s AS `__loom_order_key` FROM (%s) AS __loom_terms_projected) AS __loom_terms WHERE `__loom_group_json` != '[null]') AS __loom_ranked WHERE `__loom_rank` <= %s ORDER BY `__loom_slot`, `__loom_metric` DESC, `__loom_order_key` ASC", orderKey, query, limitExpr)
+	query = fmt.Sprintf("SELECT `__loom_slot`, `__loom_group_json`, `__loom_metric` FROM (SELECT `__loom_slot`, `__loom_group_json`, `__loom_metric`, `__loom_order_key`, row_number() OVER (PARTITION BY `__loom_slot` ORDER BY `__loom_metric` DESC, `__loom_order_key` ASC) AS `__loom_rank` FROM (SELECT `__loom_slot`, `__loom_group_json`, `__loom_metric`, %s AS `__loom_order_key` FROM (%s) AS __loom_terms_projected) AS __loom_terms WHERE `__loom_group_json` != '[null]') AS __loom_ranked WHERE `__loom_rank` <= %s ORDER BY `__loom_slot`, `__loom_metric` DESC, `__loom_order_key` ASC", orderKey, query, limitExpr)
 	return aggregateSQL{
 		query: query, columns: []string{"__loom_slot", "__loom_group_json", "__loom_metric"}, args: args,
 		sourceColumns: sourceColumns, groupingSets: len(statement.jobs),

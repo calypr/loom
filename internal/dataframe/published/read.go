@@ -20,13 +20,14 @@ type ClickHouseQueryer interface {
 }
 
 type Reader struct {
-	ClickHouse               ClickHouseQueryer
-	Catalog                  bundlepublication.BundleCatalog
-	Logger                   *slog.Logger
-	MaxPage                  int
-	ActiveManifestResolver   publication.ActiveResolver
-	ProjectStatusResolver    ProjectStatusResolver
-	ReleaseExecutionResolver ReleaseExecutionResolver
+	ClickHouse                 ClickHouseQueryer
+	Catalog                    bundlepublication.BundleCatalog
+	Logger                     *slog.Logger
+	MaxPage                    int
+	ActiveManifestResolver     publication.ActiveResolver
+	ProjectStatusResolver      ProjectStatusResolver
+	ReleaseExecutionResolver   ReleaseExecutionResolver
+	FederationSnapshotResolver FederationSnapshotResolver
 }
 
 type Filter struct {

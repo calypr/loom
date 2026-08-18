@@ -325,10 +325,16 @@ Content-Type: application/json
 
 Publish reads the server-owned draft. The frontend does not send a config in
 this request. Loom recompiles the draft, materializes every referenced output,
-checks that every output is queryable, inserts an immutable revision, and then
-activates it. This applies to both custom Explorers and `default`. A failed
-publication leaves the previous active revision in place and records
-diagnostics on the failed revision.
+checks that every output is queryable, inserts an immutable revision, updates
+the project's active release with those outputs, and then activates the
+Explorer revision. This applies to both custom Explorers and `default`.
+Existing publications from other Explorers remain in the active release. A
+failed publication or release activation leaves the previous Explorer revision
+in place and records diagnostics on the failed revision.
+
+The authoring UI exposes Preview and Publish; it does not expose separate
+create-release, save-release, or activate-release controls. Release records are
+internal atomic visibility and audit metadata managed by Publish.
 
 On success, update the local store from the returned `state` rather than
 manually inferring active metadata:

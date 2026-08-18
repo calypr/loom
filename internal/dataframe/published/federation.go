@@ -83,11 +83,79 @@ type ReleaseExecutionResolver interface {
 	ActiveReleaseSelectors(context.Context, []string) ([]DataframeSelector, map[string]bool, error)
 }
 
+// FederationSnapshotResolver resolves active release execution IDs and their
+// project statuses together. This lets interactive reads avoid independently
+// rediscovering the same release and publication lifecycle metadata.
+type FederationSnapshotResolver interface {
+	ResolveFederationSnapshot(context.Context, []string, DataframeSelector) (map[string]string, []ProjectStatus, bool, error)
+}
+
 func (r *Reader) FederationProjectStatuses(ctx context.Context, projects []string, selector DataframeSelector) ([]ProjectStatus, error) {
 	if r != nil && r.ProjectStatusResolver != nil {
 		return r.ProjectStatusResolver.DataframeProjectStatuses(ctx, append([]string(nil), projects...), selector)
 	}
 	return nil, nil
+}
+
+// CurrentFederatedSnapshot resolves sources and project status through the
+// combined release fast path when available. The legacy discovery methods are
+// retained as a fallback for alternate catalogs and tests.
+func (r *Reader) CurrentFederatedSnapshot(ctx context.Context, projects []string, selector DataframeSelector) ([]Materialization, []ProjectStatus, error) {
+	projects = normalizedProjects(projects)
+	if r != nil && r.FederationSnapshotResolver != nil {
+		if r.Catalog == nil {
+			return nil, nil, fmt.Errorf("bundle catalog dependency is required")
+		}
+		executionIDs, statuses, complete, err := r.FederationSnapshotResolver.ResolveFederationSnapshot(ctx, projects, selector)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !complete {
+			sources, err := r.CurrentFederatedSources(ctx, projects, selector)
+			if err != nil {
+				return nil, nil, err
+			}
+			statuses, err := r.FederationProjectStatuses(ctx, projects, selector)
+			return sources, statuses, err
+		}
+		sources := make([]Materialization, 0, len(executionIDs))
+		for _, project := range projects {
+			executionID := strings.TrimSpace(executionIDs[project])
+			if executionID == "" {
+				continue
+			}
+			execution, err := r.Catalog.GetExecution(ctx, executionID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if execution.Project != project || !execution.State.Successful() {
+				continue
+			}
+			for _, output := range execution.Outputs {
+				if output.Name != selector.Output {
+					continue
+				}
+				executionSelector := output.Selector
+				if !executionSelector.Valid() {
+					executionSelector = execution.Selector(selector.Output)
+				}
+				if executionSelector != selector {
+					continue
+				}
+				materialization := publishedMaterialization(execution, output, selector.Output)
+				materialization.Selector = selector
+				sources = append(sources, materialization)
+				break
+			}
+		}
+		return sources, statuses, nil
+	}
+	sources, err := r.CurrentFederatedSources(ctx, projects, selector)
+	if err != nil {
+		return nil, nil, err
+	}
+	statuses, err := r.FederationProjectStatuses(ctx, projects, selector)
+	return sources, statuses, err
 }
 
 // SourceAccess is the already-resolved visibility for one published project.

@@ -14,6 +14,7 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
 )
@@ -58,6 +59,18 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		}
 		return graphresolver.RecipeExecution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []graphresolver.RecipeExecutionOutput{{Name: "DocumentReference", State: "PUBLISHED"}}}, nil
 	}
+	var releaseActivations [][]dataset.DataframeSelector
+	releaseFails := false
+	activateRelease := func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) error {
+		if project != "project-a" || generation != "generation-a" {
+			t.Fatalf("release identity = %s/%s", project, generation)
+		}
+		if releaseFails {
+			return errors.New("release conflict")
+		}
+		releaseActivations = append(releaseActivations, append([]dataset.DataframeSelector(nil), selectors...))
+		return nil
+	}
 	catalog := func(_ context.Context, project, _ string, _ string) (explorer.CatalogSnapshot, error) {
 		return explorer.NewCatalogSnapshot(project, "generation-a", "scope-a", explorer.Catalog{
 			Nodes: []explorer.CatalogNode{{ID: "node-document-reference", ResourceType: "DocumentReference"}},
@@ -67,7 +80,7 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		}, true, false, nil)
 	}
 	app := fiber.New()
-	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{Compile: compile, Catalog: catalog, Preview: preview, Materialize: materialize})
+	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{Compile: compile, Catalog: catalog, Preview: preview, Materialize: materialize, ActivateRelease: activateRelease})
 
 	catalogResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer/authoring/catalog", "")
 	if catalogResponse.StatusCode != http.StatusOK || !strings.Contains(catalogResponse.Body, `"snapshotToken":"sha256:`) || !strings.Contains(catalogResponse.Body, `"selectionId":"selection-id"`) {
@@ -133,6 +146,9 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if defaultPublished.StatusCode != http.StatusOK || !strings.Contains(defaultPublished.Body, `"publicationId"`) {
 		t.Fatalf("default publish status=%d body=%s", defaultPublished.StatusCode, defaultPublished.Body)
 	}
+	if len(releaseActivations) != 1 || len(releaseActivations[0]) != 1 || releaseActivations[0][0].Output != "DocumentReference" {
+		t.Fatalf("default release activations = %#v", releaseActivations)
+	}
 	defaultAfterPublish := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	var activeDefaultState explorerV2State
 	decodeBody(t, defaultAfterPublish.Body, &activeDefaultState)
@@ -186,6 +202,9 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if published.StatusCode != http.StatusOK || !strings.Contains(published.Body, `"publicationId"`) || !strings.Contains(published.Body, `"activeUrl"`) {
 		t.Fatalf("publish status=%d body=%s", published.StatusCode, published.Body)
 	}
+	if len(releaseActivations) != 2 || len(releaseActivations[1]) != 1 || releaseActivations[1][0].Recipe != bundle.Name {
+		t.Fatalf("custom release activations = %#v", releaseActivations)
+	}
 	stateResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
 	var active explorerV2State
 	decodeBody(t, stateResponse.Body, &active)
@@ -193,17 +212,39 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("active state=%#v", active)
 	}
 	priorActiveRevision := active.ActiveRevisionID
+	releaseFails = true
+	draftExplorer["title"] = "Failed release draft"
+	draftBytes, _ = json.Marshal(draft)
+	draftRequest, _ = json.Marshal(map[string]any{"config": json.RawMessage(draftBytes), "expectedDraftVersion": active.DraftVersion, "expectedDraftDigest": active.DraftDigest})
+	failedReleaseDraft := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/custom-explorer/draft", string(draftRequest))
+	if failedReleaseDraft.StatusCode != http.StatusOK {
+		t.Fatalf("failed release draft save status=%d body=%s", failedReleaseDraft.StatusCode, failedReleaseDraft.Body)
+	}
+	var failedReleaseState explorerV2State
+	decodeBody(t, failedReleaseDraft.Body, &failedReleaseState)
+	failedReleasePublish := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/publish", `{"expectedDraftVersion":`+fmt.Sprint(failedReleaseState.DraftVersion)+`,"expectedDraftDigest":"`+failedReleaseState.DraftDigest+`"}`)
+	if failedReleasePublish.StatusCode != http.StatusConflict || !strings.Contains(failedReleasePublish.Body, `"code":"RELEASE_ACTIVATION_FAILED"`) {
+		t.Fatalf("failed release publish status=%d body=%s", failedReleasePublish.StatusCode, failedReleasePublish.Body)
+	}
+	unchangedAfterReleaseFailure := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
+	var releaseUnchanged explorerV2State
+	decodeBody(t, unchangedAfterReleaseFailure.Body, &releaseUnchanged)
+	if releaseUnchanged.ActiveRevisionID != priorActiveRevision || string(releaseUnchanged.ActiveConfig) == string(releaseUnchanged.DraftConfig) {
+		t.Fatalf("failed release activation changed active state: %#v", releaseUnchanged)
+	}
+
+	releaseFails = false
 	materializeFails = true
 	draftExplorer["title"] = "Failed publication draft"
 	draftBytes, _ = json.Marshal(draft)
-	draftRequest, _ = json.Marshal(map[string]any{"config": json.RawMessage(draftBytes), "expectedDraftVersion": active.DraftVersion, "expectedDraftDigest": active.DraftDigest})
+	draftRequest, _ = json.Marshal(map[string]any{"config": json.RawMessage(draftBytes), "expectedDraftVersion": failedReleaseState.DraftVersion, "expectedDraftDigest": failedReleaseState.DraftDigest})
 	failedDraft := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/custom-explorer/draft", string(draftRequest))
 	if failedDraft.StatusCode != http.StatusOK {
 		t.Fatalf("failed publication draft save status=%d body=%s", failedDraft.StatusCode, failedDraft.Body)
 	}
 	var failedDraftState explorerV2State
 	decodeBody(t, failedDraft.Body, &failedDraftState)
-	failedPublish := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/publish", `{"expectedDraftVersion":3,"expectedDraftDigest":"`+failedDraftState.DraftDigest+`"}`)
+	failedPublish := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/publish", `{"expectedDraftVersion":`+fmt.Sprint(failedDraftState.DraftVersion)+`,"expectedDraftDigest":"`+failedDraftState.DraftDigest+`"}`)
 	if failedPublish.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("failed publish status=%d body=%s", failedPublish.StatusCode, failedPublish.Body)
 	}

@@ -299,6 +299,7 @@ without rebuilding the server image.
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
+| [`internal/explorer`](internal/explorer) | Editable Explorer V2 configs, drafts, immutable revisions, and publication state. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |

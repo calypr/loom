@@ -101,6 +101,41 @@ func TestAggregatePlanCombines156CountFacets(t *testing.T) {
 	}
 }
 
+func TestAggregatePlanRanksMultipleTermsByProjectedSlot(t *testing.T) {
+	dataset := aggregateTestDataset(2)
+	fake := &aggregateFakeQueryer{}
+	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
+		Jobs: []AggregateJob{
+			{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 10},
+			{ID: 2, ResponseMode: AggregateResponseTerms, Column: "facet_001", Size: 10},
+		},
+		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GroupingStatements != 1 || result.ScalarStatements != 1 {
+		t.Fatalf("statement counts = grouping %d scalar %d, want 1 and 1", result.GroupingStatements, result.ScalarStatements)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("ClickHouse calls = %d, want 2", len(fake.calls))
+	}
+	query := fake.calls[0].query
+	if !strings.Contains(query, "multiIf(`__loom_slot` = 0, `facet_000`, `__loom_slot` = 1, `facet_001`, NULL) AS `__loom_order_key`") {
+		t.Fatalf("terms order key is not selected by projected slot: %s", query)
+	}
+	if strings.Contains(query, "SELECT *") {
+		t.Fatalf("terms ranking uses an implicit projection: %s", query)
+	}
+	projected := strings.Index(query, "AS __loom_terms_projected")
+	if projected < 0 {
+		t.Fatalf("terms projection boundary is missing: %s", query)
+	}
+	if strings.Contains(query[projected:], "__loom_mask_") {
+		t.Fatalf("grouping mask escaped its projection scope: %s", query[projected:])
+	}
+}
+
 func TestAggregatePlanCanonicalizesFilterAndMemberOrder(t *testing.T) {
 	dataset := aggregateTestDataset(2)
 	first := []Filter{{Column: "facet_001", Op: "IN", Value: []any{"b", "a"}}, {Column: "facet_000", Op: "EQ", Value: "x"}}

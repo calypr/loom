@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -228,16 +229,16 @@ func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMess
 }
 
 func (s *Service) authorizedFederationUncached(ctx context.Context, principal *authscope.Principal, selector dfmaterialization.DataframeSelector, candidates []string) (dfmaterialization.FederatedDataset, map[string]dfmaterialization.SourceAccess, error) {
-	sources, err := s.reader.CurrentFederatedSources(ctx, candidates, selector)
+	started := time.Now()
+	sources, statuses, err := s.reader.CurrentFederatedSnapshot(ctx, candidates, selector)
+	snapshotElapsed := time.Since(started)
 	if err != nil {
 		s.logReadFailure(ctx, "published_source_discovery", selector.Output, err, "projects", candidates)
 		return dfmaterialization.FederatedDataset{}, nil, mapReaderError(err)
 	}
 	if len(sources) == 0 {
 		dataset, reconcileErr := dfmaterialization.ReconcileFederatedDataset(selector, candidates, nil)
-		if statuses, statusErr := s.reader.FederationProjectStatuses(ctx, candidates, selector); statusErr != nil {
-			return dfmaterialization.FederatedDataset{}, nil, mapReaderError(statusErr)
-		} else if len(statuses) > 0 {
+		if len(statuses) > 0 {
 			dataset.ProjectStatuses = filterAuthorizedStatuses(candidates, statuses)
 		}
 		return dataset, map[string]dfmaterialization.SourceAccess{}, reconcileErr
@@ -246,6 +247,7 @@ func (s *Service) authorizedFederationUncached(ctx context.Context, principal *a
 	access := make(map[string]dfmaterialization.SourceAccess, len(sources))
 	authorizedSources := make([]dfmaterialization.Materialization, 0, len(sources))
 	rowCountComplete := true
+	authorizationStarted := time.Now()
 	for _, source := range sources {
 		if s.scopeResolver != nil {
 			scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, source.Project, source.DatasetGeneration, nil)
@@ -278,16 +280,17 @@ func (s *Service) authorizedFederationUncached(ctx context.Context, principal *a
 	if len(access) == 0 {
 		return dfmaterialization.FederatedDataset{}, nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
+	authorizationElapsed := time.Since(authorizationStarted)
+	reconcileStarted := time.Now()
 	dataset, err := dfmaterialization.ReconcileFederatedDataset(selector, candidates, authorizedSources)
 	if err != nil {
 		s.logReadFailure(ctx, "published_schema_reconciliation", selector.Output, err, "source_ids", materializationIDs(authorizedSources), "physical_tables", physicalTables(authorizedSources))
 		return dfmaterialization.FederatedDataset{}, nil, err
 	}
-	if statuses, statusErr := s.reader.FederationProjectStatuses(ctx, candidates, selector); statusErr != nil {
-		return dfmaterialization.FederatedDataset{}, nil, mapReaderError(statusErr)
-	} else if len(statuses) > 0 {
+	if len(statuses) > 0 {
 		dataset.ProjectStatuses = filterAuthorizedStatuses(candidates, statuses)
 	}
+	reconciliationElapsed := time.Since(reconcileStarted)
 	discovered := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
 		discovered[source.Project] = struct{}{}
@@ -303,6 +306,13 @@ func (s *Service) authorizedFederationUncached(ctx context.Context, principal *a
 	}
 	dataset.RowCountComplete = rowCountComplete
 	refreshAvailability(&dataset)
+	s.logger.Info("dataframe federation metadata resolved",
+		"request_id", httpapi.RequestIDFromContext(ctx), "selector", selector.Key(),
+		"candidate_project_count", len(candidates), "source_count", len(sources),
+		"snapshot_ms", snapshotElapsed.Milliseconds(),
+		"authorization_ms", authorizationElapsed.Milliseconds(),
+		"reconciliation_ms", reconciliationElapsed.Milliseconds(),
+	)
 	return dataset, access, nil
 }
 

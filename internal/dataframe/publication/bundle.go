@@ -202,6 +202,13 @@ type BundleCatalog interface {
 	ReleaseBundleLease(context.Context, string, string) error
 }
 
+// SelectorExecutionCatalog is the optimized read seam used by federation
+// status discovery. Implementations return all lifecycle attempts for one
+// exact selector with a single backing-store query.
+type SelectorExecutionCatalog interface {
+	ListSelectorExecutions(context.Context, DataframeSelector, time.Time) ([]BundleExecution, error)
+}
+
 // ExactExecutionCatalog is consumed by project release verification. It never
 // falls back to latest-by-output or a name-only recipe.
 type ExactExecutionCatalog interface {

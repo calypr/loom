@@ -40,6 +40,7 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 	physicalColumns := []storeclickhouse.Column{
 		{Name: "__loom_row_id", Type: "UInt64"},
 		{Name: "facet", Type: "Nullable(String)"},
+		{Name: "facet_other", Type: "Nullable(String)"},
 		{Name: "value", Type: "Nullable(Float64)"},
 		{Name: "auth_resource_path", Type: "String"},
 	}
@@ -49,26 +50,28 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 		}
 	}
 	if err := client.InsertRows(ctx, tableA, physicalColumns, []map[string]any{
-		{"__loom_row_id": uint64(1), "facet": "a", "value": 2.0, "auth_resource_path": "allowed"},
-		{"__loom_row_id": uint64(2), "facet": nil, "value": 3.0, "auth_resource_path": "allowed"},
-		{"__loom_row_id": uint64(3), "facet": "secret", "value": 100.0, "auth_resource_path": "denied"},
+		{"__loom_row_id": uint64(1), "facet": "a", "facet_other": "x", "value": 2.0, "auth_resource_path": "allowed"},
+		{"__loom_row_id": uint64(2), "facet": nil, "facet_other": "x", "value": 3.0, "auth_resource_path": "allowed"},
+		{"__loom_row_id": uint64(3), "facet": "secret", "facet_other": "secret", "value": 100.0, "auth_resource_path": "denied"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.InsertRows(ctx, tableB, physicalColumns, []map[string]any{
-		{"__loom_row_id": uint64(1), "facet": "b", "value": 5.0, "auth_resource_path": "anything"},
+		{"__loom_row_id": uint64(1), "facet": "b", "facet_other": "y", "value": 5.0, "auth_resource_path": "anything"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	sourceColumns := []Column{
 		{Name: "__loom_row_id", ClickHouse: "UInt64"},
 		{Name: "facet", ClickHouse: "Nullable(String)"},
+		{Name: "facet_other", ClickHouse: "Nullable(String)"},
 		{Name: "value", ClickHouse: "Nullable(Float64)"},
 		{Name: authResourcePathColumn, ClickHouse: "String"},
 	}
 	dataset := FederatedDataset{
 		Columns: []Column{
 			{Name: "facet", ClickHouse: "Nullable(String)"},
+			{Name: "facet_other", ClickHouse: "Nullable(String)"},
 			{Name: "value", ClickHouse: "Nullable(Float64)"},
 			{Name: projectIDColumn, ClickHouse: "String"},
 		},
@@ -82,6 +85,8 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet"}, Operation: "COUNT"},
 			{ID: 2, ResponseMode: AggregateResponseLegacy, Operation: "COUNT"},
 			{ID: 3, ResponseMode: AggregateResponseLegacy, Operation: "SUM", Column: "value"},
+			{ID: 4, ResponseMode: AggregateResponseTerms, Column: "facet", Size: 2},
+			{ID: 5, ResponseMode: AggregateResponseTerms, Column: "facet_other", Size: 1},
 		},
 		AccessByProject: map[string]SourceAccess{
 			"a": {ResourcePaths: []string{"allowed"}},
@@ -101,5 +106,11 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 	}
 	if got, err := numericCount(result.Jobs[1].Rows[0]["count"]); err != nil || got != 3 {
 		t.Fatalf("ungrouped count = %v, err = %v", result.Jobs[1].Rows, err)
+	}
+	if got := result.Jobs[3]; len(got.Rows) != 2 || got.Truncated || got.MissingCount != 1 {
+		t.Fatalf("facet terms = %#v", got)
+	}
+	if got := result.Jobs[4]; len(got.Rows) != 1 || !got.Truncated || got.MissingCount != 0 || got.Rows[0]["key"] != "x" {
+		t.Fatalf("facet_other terms = %#v", got)
 	}
 }

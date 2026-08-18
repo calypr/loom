@@ -85,6 +85,39 @@ func TestReleaseActivationCarriesOptionalPublicationAsStale(t *testing.T) {
 	}
 }
 
+func TestReleaseActivationAddsPublicationWithoutDroppingSameGenerationPublications(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	stageSnapshot(t, store, "project-a", "commit-a", now)
+	firstSelector := DataframeSelector{Recipe: "explorer-one", TranslationVersion: "v1", Output: "Patient"}
+	secondSelector := DataframeSelector{Recipe: "explorer-two", TranslationVersion: "v1", Output: "Observation"}
+	verifier := &verificationFixture{results: map[string]PublicationVerification{
+		firstSelector.Key():  published(firstSelector, "execution-a", "commit-a", now),
+		secondSelector.Key(): published(secondSelector, "execution-b", "commit-a", now),
+	}, errors: map[string]error{}}
+	service := ReleaseService{Snapshots: store, Releases: store, Verifier: verifier, Now: func() time.Time { return now }}
+
+	first, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: 0, OptionalSelectors: []DataframeSelector{firstSelector}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: first.Revision, OptionalSelectors: []DataframeSelector{secondSelector}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Revision != 2 || len(second.Release.Publications) != 2 {
+		t.Fatalf("second activation = %#v", second)
+	}
+	bySelector := map[string]ReleasePublication{}
+	for _, publication := range second.Release.Publications {
+		bySelector[publication.Selector.Key()] = publication
+	}
+	if bySelector[firstSelector.Key()].ExecutionID != "execution-a" || bySelector[firstSelector.Key()].Stale || bySelector[secondSelector.Key()].ExecutionID != "execution-b" || bySelector[secondSelector.Key()].Stale {
+		t.Fatalf("same-generation publications = %#v", second.Release.Publications)
+	}
+}
+
 func TestConcurrentReleaseActivationUsesCompareAndSwap(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryLifecycleStore()

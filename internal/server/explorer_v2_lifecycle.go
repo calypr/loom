@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
 )
@@ -43,6 +44,7 @@ type ExplorerV2CompileResult struct {
 type ExplorerV2Compiler func(context.Context, ExplorerV2CompileRequest) (ExplorerV2CompileResult, error)
 type ExplorerV2Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
 type ExplorerV2Materializer = graphresolver.ExplorerBundleMaterializer
+type ExplorerV2ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 
 // ExplorerV2LifecycleConfig contains explicit capabilities for the REST
 // surface. The HTTP layer does not reach into catalog, compiler, or storage
@@ -52,6 +54,9 @@ type ExplorerV2LifecycleConfig struct {
 	Catalog     explorerV2CatalogReader
 	Preview     ExplorerV2Previewer
 	Materialize ExplorerV2Materializer
+	// ActivateRelease makes Publish the sole visibility switch: callers never
+	// create or save a release as a separate user-facing step.
+	ActivateRelease ExplorerV2ReleaseActivator
 }
 
 type explorerV2State struct {
@@ -366,6 +371,14 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "REVISION_INSERT_FAILED", err.Error())
 		}
+		if capabilities.ActivateRelease == nil {
+			_, _ = explorers.FailRevision(c.Context(), revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_UNAVAILABLE", Message: "release activation is not configured", Retryable: true}})
+			return explorerV2Error(c, http.StatusServiceUnavailable, "RELEASE_ACTIVATION_UNAVAILABLE", "release activation is not configured")
+		}
+		if err := capabilities.ActivateRelease(c.Context(), project, sourceGeneration, selectorsForBundle(result.Bundle)); err != nil {
+			_, _ = explorers.FailRevision(c.Context(), revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+			return explorerV2Error(c, http.StatusConflict, "RELEASE_ACTIVATION_FAILED", err.Error())
+		}
 		var activationErr error
 		if id == "default" {
 			activationErr = explorers.ActivateRepository(c.Context(), project, revision.ID)
@@ -381,6 +394,14 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		}
 		return c.JSON(fiber.Map{"project": project, "explorerId": id, "publicationId": revision.ID, "activeUrl": state.ActiveURL, "state": state, "materializations": materializations, "diagnostics": result.Diagnostics})
 	})
+}
+
+func selectorsForBundle(bundle recipe.Bundle) []dataset.DataframeSelector {
+	selectors := make([]dataset.DataframeSelector, 0, len(bundle.Outputs))
+	for _, output := range bundle.Outputs {
+		selectors = append(selectors, dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: output.Name})
+	}
+	return selectors
 }
 
 func decodeStrict(raw []byte, value any) error {

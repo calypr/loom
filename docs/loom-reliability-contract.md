@@ -48,6 +48,12 @@ Creation and activation are separate. Activation is compare-and-swap against
 the observed active release revision. A failed generation load, verification,
 or publication never changes the active pointer.
 
+Those are internal persistence operations, not separate Explorer authoring
+steps. Explorer Preview is read-only. Explorer Publish materializes the config
+outputs and creates and activates the corresponding project release in one
+server workflow for both repository-managed defaults and user-created
+Explorers. The UI does not save or activate releases directly.
+
 ## GraphQL and Flat API
 
 ```graphql

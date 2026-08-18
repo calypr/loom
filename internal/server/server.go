@@ -219,6 +219,20 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	verificationStore := publicationVerificationStore{executions: publishedRegistry, query: lifecycleClient}
 	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
+		expectedRevision := int64(0)
+		active, err := releaseService.Active(ctx, project)
+		if err == nil {
+			expectedRevision = active.Revision
+		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
+			return err
+		}
+		_, err = releaseService.Activate(ctx, publicationcontract.ActivationRequest{
+			Project: project, Generation: generation, GitCommit: generation,
+			ExpectedRevision: expectedRevision, OptionalSelectors: selectors,
+		})
+		return err
+	}
 	noAuthEnabled := serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
 	var candidateProjects func(context.Context) ([]string, error)
 	if noAuthEnabled {
@@ -231,6 +245,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		statusResolver := releaseProjectStatusResolver{releases: lifecycleStore, executions: publishedRegistry}
 		materializationReader.ProjectStatusResolver = statusResolver
 		materializationReader.ReleaseExecutionResolver = statusResolver
+		materializationReader.FederationSnapshotResolver = statusResolver
 	}
 	var exactStarter graphresolver.ExactMaterializationStarter
 	if publicationWorker != nil {
@@ -368,7 +383,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
 		},
-		Materialize: explorerMaterializer,
+		Materialize:     explorerMaterializer,
+		ActivateRelease: activateExplorerRelease,
 	})
 	if publicationWorker != nil {
 		go func() {

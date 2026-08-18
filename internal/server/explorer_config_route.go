@@ -74,6 +74,13 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		if owner.ManagementMode != explorer.ManagementRepository {
 			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "default Explorer has invalid management mode"})
 		}
+		if len(lifecycle) == 0 || lifecycle[0].ActivateRelease == nil {
+			return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "release activation is not configured", "executionId": execution.ID})
+		}
+		if err := lifecycle[0].ActivateRelease(c.Context(), project, generation, selectorsForBundle(bundle)); err != nil {
+			_, _ = explorers.FailRevision(c.Context(), revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": fmt.Sprintf("activate published ExplorerConfigV2: %v", err), "executionId": execution.ID})
+		}
 		if err := explorers.ActivateRepositoryGeneration(c.Context(), project, generation, revision.ID); err != nil {
 			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": fmt.Sprintf("activate ExplorerConfigV2: %v", err), "executionId": execution.ID})
 		}
