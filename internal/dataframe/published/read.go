@@ -1,6 +1,7 @@
 package published
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,11 +12,15 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
+type ClickHouseQueryer interface {
+	QueryRowsArgs(context.Context, string, []string, ...any) ([]map[string]any, error)
+	QueryRowsArgsVisit(context.Context, string, []string, func(map[string]any) error, ...any) error
+}
+
 type Reader struct {
-	ClickHouse               *clickhouse.Client
+	ClickHouse               ClickHouseQueryer
 	Catalog                  bundlepublication.BundleCatalog
 	Logger                   *slog.Logger
 	MaxPage                  int

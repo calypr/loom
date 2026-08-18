@@ -129,22 +129,6 @@ type FederatedStreamRequest struct {
 	AccessByProject map[string]SourceAccess
 }
 
-// FederatedAggregateRequest describes an aggregate over the same authorized
-// union used by row reads.
-type FederatedAggregateRequest struct {
-	GroupBy         []string
-	Filters         []Filter
-	Operation       string
-	Column          string
-	AccessByProject map[string]SourceAccess
-}
-
-type FederatedAggregateResult struct {
-	Dataset FederatedDataset
-	Columns []string
-	Rows    []map[string]any
-}
-
 func normalizedProjects(projects []string) []string {
 	seen := make(map[string]struct{}, len(projects))
 	result := make([]string, 0, len(projects))
@@ -892,88 +876,6 @@ func datasetVisibleColumns(dataset FederatedDataset) []string {
 	return result
 }
 
-func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
-	if r == nil || r.ClickHouse == nil {
-		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	allowed := make(map[string]struct{}, len(dataset.Columns))
-	for _, column := range dataset.Columns {
-		if column.Name == authResourcePathColumn || column.Name == "__loom_row_id" {
-			continue
-		}
-		allowed[column.Name] = struct{}{}
-	}
-	for _, column := range req.GroupBy {
-		if _, ok := allowed[column]; !ok {
-			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	operation := strings.ToUpper(req.Operation)
-	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
-		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	if operation != "COUNT" {
-		if _, ok := allowed[req.Column]; !ok {
-			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	columns := append([]string(nil), req.GroupBy...)
-	metricName := strings.ToLower(operation)
-	if operation == "COUNT" {
-		metricName = "count"
-	}
-	columns = append(columns, metricName)
-	unionColumns := append([]string(nil), req.GroupBy...)
-	if operation != "COUNT" && !contains(unionColumns, req.Column) {
-		unionColumns = append(unionColumns, req.Column)
-	}
-	for _, filter := range req.Filters {
-		if !contains(unionColumns, filter.Column) {
-			unionColumns = append(unionColumns, filter.Column)
-		}
-	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
-	if err != nil {
-		return FederatedAggregateResult{}, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return FederatedAggregateResult{}, err
-	}
-	args = append(args, whereArgs...)
-	metric := "count()"
-	switch operation {
-	case "COUNT_DISTINCT":
-		metric = fmt.Sprintf("uniqExact(`%s`)", req.Column)
-	case "SUM":
-		metric = fmt.Sprintf("sum(`%s`)", req.Column)
-	case "AVG":
-		metric = fmt.Sprintf("avg(`%s`)", req.Column)
-	case "MIN":
-		metric = fmt.Sprintf("min(`%s`)", req.Column)
-	case "MAX":
-		metric = fmt.Sprintf("max(`%s`)", req.Column)
-	}
-	selectExpr := make([]string, 0, len(req.GroupBy)+1)
-	for _, group := range req.GroupBy {
-		selectExpr = append(selectExpr, fmt.Sprintf("`%s`", group))
-	}
-	selectExpr = append(selectExpr, metric+" AS `"+metricName+"`")
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_aggregate", strings.Join(selectExpr, ", "), union)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	query += aggregateGroupOrderClause(req.GroupBy)
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
-	if err != nil {
-		if r.Logger != nil {
-			r.Logger.Error("clickhouse federated aggregate failed", "query_id", shortQueryID(query), "query", query, "bind_count", len(args), "error", err)
-		}
-		return FederatedAggregateResult{}, backendCallError(err)
-	}
-	return FederatedAggregateResult{Dataset: dataset, Columns: columns, Rows: rows}, nil
-}
-
 func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) ([]string, map[string]struct{}, error) {
 	for _, column := range requested {
 		if column == authResourcePathColumn {
@@ -1078,14 +980,6 @@ func quotedColumns(columns []string) string {
 		quoted[index] = fmt.Sprintf("`%s`", column)
 	}
 	return strings.Join(quoted, ", ")
-}
-
-func aggregateGroupOrderClause(groupBy []string) string {
-	if len(groupBy) == 0 {
-		return ""
-	}
-	columns := quotedColumns(groupBy)
-	return " GROUP BY " + columns + " ORDER BY " + columns
 }
 
 func shortQueryID(query string) string {

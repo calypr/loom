@@ -132,12 +132,12 @@ func RepositoryRevisionID(project, sourceCommit, definitionDigest, sourceGenerat
 	return "repository_" + hex.EncodeToString(sum[:])
 }
 
-// CreateInteractiveV2 persists a complete V2 draft without compiling or
-// materializing it. The raw canonical packet is retained alongside the digest
-// so presentation-only fields survive a later read unchanged.
+// CreateInteractiveV2 persists a complete custom V2 draft without compiling or
+// materializing it. The repository default is created by repository deploys;
+// it uses SaveDraftV2 for subsequent Builder edits.
 func (s *Service) CreateInteractiveV2(ctx context.Context, project, id string, raw []byte, actor string) (*Explorer, error) {
 	if id == "default" {
-		return nil, fmt.Errorf("default Explorer is repository-managed")
+		return nil, fmt.Errorf("default Explorer already exists; edit its draft")
 	}
 	cfg, _, canonical, digest, err := CanonicalConfigV2(raw, project, id, "interactive")
 	if err != nil {
@@ -150,23 +150,59 @@ func (s *Service) CreateInteractiveV2(ctx context.Context, project, id string, r
 	})
 }
 
-// SaveInteractiveDraftV2 is the only V2 draft write path. It performs no
-// compilation or materialization and supplies both CAS components to the
-// durable adapter.
-func (s *Service) SaveInteractiveDraftV2(ctx context.Context, project, id string, raw []byte, expected int64, expectedDigest, actor string) (*Explorer, error) {
-	if id == "default" {
-		return nil, fmt.Errorf("default Explorer is repository-managed")
-	}
-	cfg, _, canonical, digest, err := CanonicalConfigV2(raw, project, id, "interactive")
+// SaveDraftV2 is the only V2 draft write path. It performs no compilation or
+// materialization and supplies both CAS components to the durable adapter.
+// The repository default is editable; its repository identity is retained in
+// the packet so a later ETL deployment can still recognize it.
+func (s *Service) SaveDraftV2(ctx context.Context, project, id string, raw []byte, expected int64, expectedDigest, actor string) (*Explorer, error) {
+	management := ConfigManagementForID(id)
+	cfg, _, canonical, digest, err := CanonicalConfigV2(raw, project, id, management)
 	if err != nil {
 		return nil, err
 	}
 	current, err := s.store.Get(ctx, project, id)
+	if errors.Is(err, ErrNotFound) && id == "default" {
+		repository, repositoryErr := s.store.GetRepositoryConfig(ctx, project)
+		if repositoryErr != nil {
+			return nil, repositoryErr
+		}
+		baseVersion := repository.DraftVersion
+		if baseVersion == 0 {
+			baseVersion = 1
+		}
+		baseDigest := repository.ConfigDigest
+		if baseDigest == "" {
+			_, _, _, baseDigest, _ = CanonicalConfigV2(repository.Config, project, "default", "repository")
+		}
+		if expected != baseVersion || (expectedDigest != "" && expectedDigest != baseDigest) {
+			return nil, ErrDraftConflict
+		}
+		updatedAt := repository.UpdatedAt
+		if updatedAt.IsZero() {
+			updatedAt = s.now()
+		}
+		current, err = s.store.CreateRepository(ctx, Explorer{
+			Project: project, ExplorerID: "default", Title: cfg.Explorer.Title,
+			ManagementMode: ManagementRepository, DraftConfig: append([]byte(nil), repository.Config...),
+			DraftVersion: baseVersion, DraftDigest: baseDigest,
+			ActiveRevisionID: repository.ActiveRevisionID, ActiveConfig: append([]byte(nil), repository.Config...),
+			SourceGeneration: repository.SourceGeneration, Materializations: append([]Materialization(nil), repository.Materializations...),
+			Dataset: repository.Dataset, Publication: repository.Publication, Diagnostics: append([]Diagnostic(nil), repository.Diagnostics...),
+			UpdatedBy: "repository", UpdatedAt: updatedAt,
+		})
+		if errors.Is(err, ErrDraftConflict) {
+			current, err = s.store.Get(ctx, project, id)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	if current.ManagementMode != ManagementInteractive {
-		return nil, fmt.Errorf("Explorer is not interactive")
+	expectedManagement := ManagementInteractive
+	if id == "default" {
+		expectedManagement = ManagementRepository
+	}
+	if current.ManagementMode != expectedManagement {
+		return nil, fmt.Errorf("Explorer management mode does not match its identity")
 	}
 	current.Title = cfg.Explorer.Title
 	current.DraftConfig = canonical
@@ -175,9 +211,9 @@ func (s *Service) SaveInteractiveDraftV2(ctx context.Context, project, id string
 	return s.store.SaveDraft(ctx, *current, expected, expectedDigest)
 }
 
-func (s *Service) InsertInteractiveReadyRevisionV2(ctx context.Context, owner *Explorer, config []byte, configDigest string, compiled Compilation, resolvedSchemaDigest, sourceGeneration, actor string, materializations []Materialization) (*Revision, error) {
-	if owner == nil || owner.ManagementMode != ManagementInteractive {
-		return nil, fmt.Errorf("Explorer is not interactive")
+func (s *Service) InsertReadyRevisionV2(ctx context.Context, owner *Explorer, config []byte, configDigest string, compiled Compilation, resolvedSchemaDigest, sourceGeneration, actor string, materializations []Materialization) (*Revision, error) {
+	if owner == nil || (owner.ManagementMode != ManagementInteractive && !(owner.ExplorerID == "default" && owner.ManagementMode == ManagementRepository)) {
+		return nil, fmt.Errorf("Explorer is not editable")
 	}
 	id, err := NewInteractiveRevisionID()
 	if err != nil {
@@ -210,9 +246,9 @@ func datasetMetadata(generation, schemaDigest string, materializations []Materia
 	return DatasetMetadata{Generation: generation, SchemaDigest: schemaDigest, Outputs: outputs}
 }
 
-func (s *Service) InsertInteractiveFailedRevisionV2(ctx context.Context, owner *Explorer, config []byte, configDigest, sourceGeneration, actor string, diagnostics []Diagnostic) (*Revision, error) {
-	if owner == nil || owner.ManagementMode != ManagementInteractive {
-		return nil, fmt.Errorf("Explorer is not interactive")
+func (s *Service) InsertFailedRevisionV2(ctx context.Context, owner *Explorer, config []byte, configDigest, sourceGeneration, actor string, diagnostics []Diagnostic) (*Revision, error) {
+	if owner == nil || (owner.ManagementMode != ManagementInteractive && !(owner.ExplorerID == "default" && owner.ManagementMode == ManagementRepository)) {
+		return nil, fmt.Errorf("Explorer is not editable")
 	}
 	id, err := NewInteractiveRevisionID()
 	if err != nil {

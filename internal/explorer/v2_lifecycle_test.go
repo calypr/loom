@@ -33,14 +33,14 @@ func TestV2DraftRoundTripAndDigestCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := service.SaveInteractiveDraftV2(context.Background(), "project-a", "my-explorer", updatedRaw, 1, created.DraftDigest, "author")
+	updated, err := service.SaveDraftV2(context.Background(), "project-a", "my-explorer", updatedRaw, 1, created.DraftDigest, "author")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.DraftVersion != 2 || updated.DraftDigest != nextDigest {
 		t.Fatalf("updated metadata = %#v", updated)
 	}
-	if _, err := service.SaveInteractiveDraftV2(context.Background(), "project-a", "my-explorer", raw, 1, created.DraftDigest, "stale"); err != ErrDraftConflict {
+	if _, err := service.SaveDraftV2(context.Background(), "project-a", "my-explorer", raw, 1, created.DraftDigest, "stale"); err != ErrDraftConflict {
 		t.Fatalf("stale digest/version save error = %v, want ErrDraftConflict", err)
 	}
 }

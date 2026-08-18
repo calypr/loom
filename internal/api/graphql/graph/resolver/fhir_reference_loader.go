@@ -69,11 +69,6 @@ func withFHIRReferenceLoader(ctx context.Context, resolver *Resolver) context.Co
 	})
 }
 
-// WithOperationContext installs request-scoped FHIR reference batching.
-func (r *Resolver) WithOperationContext(ctx context.Context) context.Context {
-	return withFHIRReferenceLoader(ctx, r)
-}
-
 func fhirReferenceLoaderFromContext(ctx context.Context, resolver *Resolver) *fhirReferenceLoader {
 	if loader, ok := ctx.Value(fhirReferenceLoaderKey{}).(*fhirReferenceLoader); ok {
 		return loader

@@ -56,7 +56,7 @@ func (s *Service) principal(ctx context.Context) (*authscope.Principal, error) {
 	return principal, nil
 }
 
-func (s *Service) projects(ctx context.Context, principal *authscope.Principal) ([]string, error) {
+func (s *Service) projectsUncached(ctx context.Context, principal *authscope.Principal) ([]string, error) {
 	if len(principal.Projects) > 0 {
 		return append([]string(nil), principal.Projects...), nil
 	}
@@ -203,94 +203,31 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 }
 
 func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
-	if s.reader == nil {
-		return dfmaterialization.AggregateResult{}, readerUnavailable()
-	}
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregateResult{}, err
 	}
-	principal, err := s.principal(ctx)
-	if err != nil {
-		s.logReadFailure(ctx, "principal_resolution", selector.Output, err)
-		return dfmaterialization.AggregateResult{}, mapReaderError(err)
+	result := s.submitAggregateCall(ctx, &aggregateCall{kind: aggregateCallLegacy, selector: selector, filters: convertFilters(input.Filters), legacy: input})
+	if result.err != nil {
+		s.logReadFailure(ctx, "federated_clickhouse_aggregate", selector.Output, result.err)
 	}
-	dataset, access, err := s.authorizedFederation(ctx, principal, selector, convertFilters(input.Filters))
-	if err != nil {
-		s.logReadFailure(ctx, "federated_publication_resolution", selector.Output, err)
-		return dfmaterialization.AggregateResult{}, mapReaderError(err)
-	}
-	if len(dataset.Sources) == 0 {
-		return dfmaterialization.AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	result, err := s.reader.AggregateFederatedDataset(ctx, dataset, dfmaterialization.FederatedAggregateRequest{
-		GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column), AccessByProject: access,
-	})
-	if err != nil {
-		s.logReadFailure(ctx, "federated_clickhouse_aggregate", selector.Output, err, "source_ids", materializationIDs(dataset.Sources), "physical_tables", physicalTables(dataset.Sources))
-		return dfmaterialization.AggregateResult{}, mapReaderError(err)
-	}
-	result.Dataset = dataset
-	return dfmaterialization.AggregateResult{Materialization: federatedMaterialization(result.Dataset), Columns: result.Columns, Rows: result.Rows}, nil
+	return result.legacy, result.err
 }
 
 func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
-	if s.reader == nil {
-		return dfmaterialization.AggregationsResult{}, readerUnavailable()
-	}
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregationsResult{}, err
 	}
-	principal, err := s.principal(ctx)
-	if err != nil {
-		return dfmaterialization.AggregationsResult{}, mapReaderError(err)
-	}
-	dataset, access, err := s.authorizedFederation(ctx, principal, selector, convertFilters(input.Filters))
-	if err != nil {
-		return dfmaterialization.AggregationsResult{}, mapReaderError(err)
-	}
-	if len(dataset.Sources) == 0 {
-		return dfmaterialization.AggregationsResult{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	specs := make([]dfmaterialization.AggregationSpec, 0, len(input.Specs))
-	for _, spec := range input.Specs {
-		if spec == nil {
-			continue
-		}
-		value := dfmaterialization.AggregationSpec{Name: spec.Name, Kind: spec.Kind, Column: spec.Column, ExcludeSelfFilter: spec.ExcludeSelfFilter != nil && *spec.ExcludeSelfFilter}
-		if spec.Size != nil {
-			value.Size = *spec.Size
-		}
-		if spec.Interval != nil {
-			value.Interval = *spec.Interval
-		}
-		if spec.DateInterval != nil {
-			value.DateInterval = *spec.DateInterval
-		}
-		specs = append(specs, value)
-	}
-	result, err := s.reader.AggregateFederatedBatchDataset(ctx, dataset, dfmaterialization.AggregationsRequest{
-		Filters: convertFilters(input.Filters), Specs: specs, AccessByProject: access,
-	})
-	if err != nil {
-		return dfmaterialization.AggregationsResult{}, err
-	}
-	result.Dataset = dataset
-	return result, nil
+	result := s.submitAggregateCall(ctx, &aggregateCall{kind: aggregateCallRich, selector: selector, filters: convertFilters(input.Filters), rich: input})
+	return result.rich, result.err
 }
 
 func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMessage, error) {
 	return json.Marshal(dfmaterialization.NormalizeAggregationResults(result.Aggregations))
 }
 
-func (s *Service) authorizedFederation(ctx context.Context, principal *authscope.Principal, selector dfmaterialization.DataframeSelector, filters []dfmaterialization.Filter) (dfmaterialization.FederatedDataset, map[string]dfmaterialization.SourceAccess, error) {
-	candidates, err := s.projects(ctx, principal)
-	if err != nil {
-		s.logReadFailure(ctx, "authorized_project_discovery", selector.Output, err)
-		return dfmaterialization.FederatedDataset{}, nil, mapReaderError(err)
-	}
-	candidates = filterProjects(candidates, filters)
+func (s *Service) authorizedFederationUncached(ctx context.Context, principal *authscope.Principal, selector dfmaterialization.DataframeSelector, candidates []string) (dfmaterialization.FederatedDataset, map[string]dfmaterialization.SourceAccess, error) {
 	sources, err := s.reader.CurrentFederatedSources(ctx, candidates, selector)
 	if err != nil {
 		s.logReadFailure(ctx, "published_source_discovery", selector.Output, err, "projects", candidates)

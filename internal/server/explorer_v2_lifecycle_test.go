@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,10 +38,15 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if _, err := service.SaveRepositoryConfig(context.Background(), explorer.RepositoryConfig{Project: "project-a", Config: repository, SourceGeneration: "generation-a"}); err != nil {
 		t.Fatal(err)
 	}
+	repositoryBundle := testV2Bundle("repository")
 	bundle := testV2Bundle("explorer-custom")
 	compile := func(_ context.Context, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, error) {
-		digest, _ := bundle.Digest()
-		return ExplorerV2CompileResult{Config: request.Config, Bundle: bundle, RecipeDigest: digest, SourceGeneration: "generation-a", EmittedColumns: []explorer.EmittedColumn{{OutputID: "DocumentReference", PublicColumn: "id", SelectionID: "id", LogicalType: "string"}}}, nil
+		compiledBundle := bundle
+		if request.ExplorerID == "default" {
+			compiledBundle = repositoryBundle
+		}
+		digest, _ := compiledBundle.Digest()
+		return ExplorerV2CompileResult{Config: request.Config, Bundle: compiledBundle, RecipeDigest: digest, SourceGeneration: "generation-a", EmittedColumns: []explorer.EmittedColumn{{OutputID: "DocumentReference", PublicColumn: "id", SelectionID: "id", LogicalType: "string"}}}, nil
 	}
 	preview := func(_ context.Context, _ recipe.Bundle, _ recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 		return map[string][]map[string]any{"DocumentReference": {{"id": "dr-1"}}}, nil
@@ -88,7 +94,7 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	}
 	var defaultState explorerV2State
 	decodeBody(t, defaultResponse.Body, &defaultState)
-	if len(defaultState.BaselineConfig) == 0 || len(defaultState.ActiveConfig) == 0 || len(defaultState.DraftConfig) != 0 {
+	if len(defaultState.BaselineConfig) == 0 || len(defaultState.DraftConfig) == 0 || len(defaultState.ActiveConfig) == 0 {
 		t.Fatalf("default state lifecycle config mismatch: %#v", defaultState)
 	}
 	var defaultConfig explorer.ConfigV2
@@ -101,9 +107,37 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if len(activeDefaultConfig.Views) != 1 || activeDefaultConfig.Views[0].Output != "DocumentReference" {
 		t.Fatalf("default active config lost presentation: %#v", activeDefaultConfig.Views)
 	}
-	defaultWrite := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/draft", `{}`)
-	if defaultWrite.StatusCode != http.StatusForbidden || !strings.Contains(defaultWrite.Body, `"code":"DEFAULT_READ_ONLY"`) {
+	var defaultDraft map[string]any
+	if err := json.Unmarshal(defaultState.DraftConfig, &defaultDraft); err != nil {
+		t.Fatal(err)
+	}
+	defaultDraft["explorer"].(map[string]any)["title"] = "Edited Default"
+	defaultDraftBytes, _ := json.Marshal(defaultDraft)
+	defaultDraftRequest, _ := json.Marshal(map[string]any{"config": json.RawMessage(defaultDraftBytes), "expectedDraftVersion": defaultState.DraftVersion, "expectedDraftDigest": defaultState.DraftDigest})
+	defaultWrite := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/draft", string(defaultDraftRequest))
+	if defaultWrite.StatusCode != http.StatusOK {
 		t.Fatalf("default draft write status=%d body=%s", defaultWrite.StatusCode, defaultWrite.Body)
+	}
+	var updatedDefault explorerV2State
+	decodeBody(t, defaultWrite.Body, &updatedDefault)
+	if updatedDefault.DraftVersion != defaultState.DraftVersion+1 || updatedDefault.DraftDigest == defaultState.DraftDigest {
+		t.Fatalf("default draft state=%#v", updatedDefault)
+	}
+	defaultCompileRequest, _ := json.Marshal(map[string]any{"output": "DocumentReference", "config": json.RawMessage(updatedDefault.DraftConfig), "expectedDraftVersion": updatedDefault.DraftVersion})
+	defaultCompiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/default/authoring/compile", string(defaultCompileRequest))
+	if defaultCompiled.StatusCode != http.StatusOK {
+		t.Fatalf("default compile status=%d body=%s", defaultCompiled.StatusCode, defaultCompiled.Body)
+	}
+	defaultPublishRequest := `{"expectedDraftVersion":` + fmt.Sprint(updatedDefault.DraftVersion) + `,"expectedDraftDigest":"` + updatedDefault.DraftDigest + `"}`
+	defaultPublished := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/default/publish", defaultPublishRequest)
+	if defaultPublished.StatusCode != http.StatusOK || !strings.Contains(defaultPublished.Body, `"publicationId"`) {
+		t.Fatalf("default publish status=%d body=%s", defaultPublished.StatusCode, defaultPublished.Body)
+	}
+	defaultAfterPublish := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
+	var activeDefaultState explorerV2State
+	decodeBody(t, defaultAfterPublish.Body, &activeDefaultState)
+	if defaultAfterPublish.StatusCode != http.StatusOK || activeDefaultState.ActiveRevisionID == "" || string(activeDefaultState.ActiveConfig) != string(activeDefaultState.DraftConfig) {
+		t.Fatalf("default active state=%#v", activeDefaultState)
 	}
 
 	var draft map[string]any
@@ -215,7 +249,7 @@ func TestRepositoryStateExposesPublishedPacketAndPresentationFreeBaseline(t *tes
 	var baseline, active explorer.ConfigV2
 	decodeBody(t, string(state.BaselineConfig), &baseline)
 	decodeBody(t, string(state.ActiveConfig), &active)
-	if len(baseline.Views) != 0 || len(active.Views) != 1 || active.Views[0].Output != "DocumentReference" || len(state.DraftConfig) != 0 {
+	if len(baseline.Views) != 0 || len(active.Views) != 1 || active.Views[0].Output != "DocumentReference" || len(state.DraftConfig) == 0 {
 		t.Fatalf("repository state did not separate lifecycle configs: baseline=%#v active=%#v state=%#v", baseline.Views, active.Views, state)
 	}
 }

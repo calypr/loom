@@ -151,13 +151,6 @@ func TestFederatedUnionSynthesizesProjectIDForLegacySource(t *testing.T) {
 	}
 }
 
-func TestAggregateGroupOrderClauseGroupsBeforeOrdering(t *testing.T) {
-	clause := aggregateGroupOrderClause([]string{"project_id", "status"})
-	if clause != " GROUP BY `project_id`, `status` ORDER BY `project_id`, `status`" {
-		t.Fatalf("aggregate group/order clause = %q", clause)
-	}
-}
-
 type federationCatalog struct {
 	bundlepublication.BundleCatalog
 	executions []bundlepublication.BundleExecution

@@ -22,6 +22,16 @@ const ConfigV2APIVersion = "loom.calypr.org/explorer-config/v2"
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
+// ConfigManagementForID returns the management value required inside a V2
+// packet for the durable Explorer identity. The repository default keeps its
+// repository identity even though Builder users may edit and publish it.
+func ConfigManagementForID(explorerID string) string {
+	if explorerID == "default" {
+		return "repository"
+	}
+	return "interactive"
+}
+
 type ConfigV2 struct {
 	APIVersion    string                    `json:"apiVersion"`
 	Kind          string                    `json:"kind"`

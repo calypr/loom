@@ -37,9 +37,11 @@ lifecycle or authoring types; REST V2 is the only Explorer contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
 owns persistence-neutral observed facts; `catalog/arango` owns catalog
-persistence; `dataframe/publication` owns dataframe publishing contracts and
-the runner; `dataframe/publication/{arango,clickhouse}` own storage adapters;
-and `dataframe/published` owns safe published-data reading and federation.
+persistence; `explorer` owns portable Explorer configs, editable drafts,
+immutable revisions, and publication state; `explorer/arango` owns its durable
+adapter; `dataframe/publication` owns dataframe publishing contracts and the
+runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
+`dataframe/published` owns safe published-data reading and federation.
 
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
 

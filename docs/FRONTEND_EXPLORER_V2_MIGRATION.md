@@ -11,7 +11,7 @@ Loom now has two Explorer ownership modes:
 
 | Explorer | Owner | Config returned by Loom | Frontend behavior |
 | --- | --- | --- | --- |
-| `default` | Repository / ETL | `baselineConfig` contains the recipe/schema baseline; `activeConfig` may contain the complete ETL-authored packet | Render `activeConfig` when present, otherwise build the layout from live dataset metadata. |
+| `default` | Repository / ETL initially; Builder may edit and publish | `baselineConfig` contains a presentation-free projection; `draftConfig` and `activeConfig` contain the editable/published packet | Render and edit `draftConfig`; use `activeConfig` for the published view and fall back to `baselineConfig`/dataset metadata when needed. |
 | Custom ID | User / Builder | `draftConfig` and, after publication, `activeConfig` contain the complete V2 packet | Render and edit the lossless presentation config. |
 
 Repository packets may be baseline-only or may include a complete presentation
@@ -67,12 +67,11 @@ interface ExplorerState {
   // recipe/schema baseline.
   baselineConfig?: ExplorerConfigV2;
 
-  // The published packet is renderable but not editable. It may be present
-  // for the repository default and is present after custom publication.
+  // The published packet is renderable. Edit draftConfig and publish it to
+  // replace activeConfig.
   activeConfig?: ExplorerConfigV2;
 
-  // Present for custom Explorers only. The default is read-only and does not
-  // require an editable draft.
+  // Present for custom Explorers and for the repository default.
   draftConfig?: ExplorerConfigV2;
 
   draftVersion: number;
@@ -144,10 +143,10 @@ the selected detail record.
 GET /api/v1/projects/:project/explorers/:explorerId
 ```
 
-For `default`, this is read-only but fully inspectable. Do not expect a
-`draftConfig`; the repository default has no editable draft. Render
-`activeConfig` when it contains a complete packet. If it is absent or has no
-views, use `baselineConfig` and derive the layout from `dataset`.
+The `default` Explorer is editable. Render `draftConfig` in the Builder and
+use `activeConfig` for the currently published view. If either packet is
+absent or has no views, use `baselineConfig` and derive the layout from
+`dataset`.
 
 ### Create a custom Explorer
 
@@ -195,6 +194,10 @@ This endpoint validates and canonicalizes the packet, computes its digest, and
 saves only the draft. It does not compile, materialize, or change the active
 revision. `expectedDraftVersion` is required; send `expectedDraftDigest` when
 available.
+
+The same endpoint applies to `default`. Keep `explorer.id` as `default` and
+keep `explorer.management` as `repository`; the repository identity describes
+where the config originated, not whether Builder edits are allowed.
 
 On conflict, Loom returns HTTP 409:
 
@@ -308,7 +311,7 @@ return HTTP 422 with empty `columns`/`rows` and a diagnostic such as
 }
 ```
 
-### Publish a custom Explorer
+### Publish an Explorer
 
 ```http
 POST /api/v1/projects/:project/explorers/:explorerId/publish
@@ -323,8 +326,9 @@ Content-Type: application/json
 Publish reads the server-owned draft. The frontend does not send a config in
 this request. Loom recompiles the draft, materializes every referenced output,
 checks that every output is queryable, inserts an immutable revision, and then
-activates it. A failed publication leaves the previous active revision in
-place and records diagnostics on the failed revision.
+activates it. This applies to both custom Explorers and `default`. A failed
+publication leaves the previous active revision in place and records
+diagnostics on the failed revision.
 
 On success, update the local store from the returned `state` rather than
 manually inferring active metadata:
@@ -389,8 +393,9 @@ Split the implementation into three layers:
 2. `explorerStore` — the selected project/Explorer, draft version/digest,
    active revision, and request status.
 3. Presenters:
-   - `DefaultExplorerPresenter`: renders `activeConfig` when present and
-     derives views from `dataset.outputs` and `columns` otherwise.
+   - `DefaultExplorerPresenter`: renders `draftConfig` while editing, then
+     `activeConfig` after publication, and derives views from `dataset.outputs`
+     and `columns` when no complete packet is available.
    - `InteractiveExplorerPresenter`: renders `draftConfig.views` and validates
      referenced outputs/columns against live metadata.
 
@@ -404,7 +409,7 @@ The minimum request flow is:
 ```text
 GET explorers
   -> GET selected Explorer
-  -> custom: edit draft and PUT /draft
+  -> edit draft (including default) and PUT /draft
   -> POST /authoring/compile when discovery changes
   -> POST /preview for the selected output
   -> POST /publish after explicit user confirmation
@@ -420,8 +425,8 @@ the Builder belong behind the REST lifecycle contract.
 
 - `400`: malformed request, missing expected version, unsupported limit, or
   missing required header/input. Show a request correction message.
-- `403`: authorization failure or an attempted write to `default`.
-- `404`: the custom Explorer does not exist. Refresh the Explorer list.
+- `403`: authorization failure.
+- `404`: the Explorer does not exist. Refresh the Explorer list.
 - `409` with `DRAFT_CONFLICT`: refresh server state and reconcile edits.
 - `409` during publication/activation: keep the current active Explorer and
   show the returned diagnostic; do not claim publication succeeded.
@@ -450,4 +455,4 @@ HTTP response. Clear the pending state in both success and failure handlers.
 - [ ] Use the REST compile result as the source of emitted columns and digests.
 - [ ] Scope preview to one output and clear loading state on 4xx/5xx responses.
 - [ ] Publish only after explicit confirmation and consume the returned state.
-- [ ] Keep repository default read-only in the frontend.
+- [ ] Allow the repository default to use the same draft/compile/publish flow as custom Explorers.

@@ -15,7 +15,7 @@ type explorerV2CatalogReader func(context.Context, string, string, string) (expl
 
 func explorerV2Compiler(recipeEngine *engine.Engine, catalogReader explorerV2CatalogReader) ExplorerV2Compiler {
 	return func(ctx context.Context, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, error) {
-		cfg, bundle, canonical, digest, err := explorer.CanonicalConfigV2(request.Config, request.Project, request.ExplorerID, "interactive")
+		cfg, bundle, canonical, digest, err := explorer.CanonicalConfigV2(request.Config, request.Project, request.ExplorerID, explorer.ConfigManagementForID(request.ExplorerID))
 		if err != nil {
 			return ExplorerV2CompileResult{}, err
 		}

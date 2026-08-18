@@ -58,10 +58,10 @@ type explorerV2State struct {
 	Project    string                  `json:"project"`
 	ExplorerID string                  `json:"explorerId"`
 	Management explorer.ManagementMode `json:"management"`
-	// BaselineConfig is present for the repository default. It is always the
-	// presentation-free recipe/schema baseline, even when the published
-	// repository packet also contains an ETL-authored presentation layer.
-	BaselineConfig       json.RawMessage              `json:"baselineConfig,omitempty"`
+	// BaselineConfig is present for the repository default. It is the
+	// presentation-free recipe/schema projection of the current default draft.
+	BaselineConfig json.RawMessage `json:"baselineConfig,omitempty"`
+	// DraftConfig is returned for custom Explorers and for the editable default.
 	DraftConfig          json.RawMessage              `json:"draftConfig,omitempty"`
 	DraftVersion         int64                        `json:"draftVersion"`
 	DraftDigest          string                       `json:"draftDigest"`
@@ -146,7 +146,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			"resolvedSchemaDigest": snapshot.ResolvedSchemaDigest, "nodes": nodes,
 			"selections": selections, "routeEdges": edges,
 			"completeness": fiber.Map{"complete": snapshot.Complete, "truncated": snapshot.Truncated, "diagnostics": snapshot.Diagnostics},
-			"diagnostics": snapshot.Diagnostics,
+			"diagnostics":  snapshot.Diagnostics,
 		})
 	})
 
@@ -175,7 +175,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		}
 		id := explorer.StableExplorerID(name)
 		if id == "default" {
-			return explorerV2Error(c, http.StatusForbidden, "DEFAULT_READ_ONLY", "the repository default is read-only")
+			return explorerV2Error(c, http.StatusConflict, "EXPLORER_EXISTS", "the repository default already exists; edit its draft")
 		}
 		title := strings.TrimSpace(request.Title)
 		if title == "" {
@@ -213,9 +213,6 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 
 	app.Put("/api/v1/projects/:project/explorers/:explorerId/draft", func(c fiber.Ctx) error {
 		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
-		if id == "default" {
-			return explorerV2Error(c, http.StatusForbidden, "DEFAULT_READ_ONLY", "the repository default is read-only")
-		}
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -230,16 +227,16 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			}
 			return explorerV2Error(c, http.StatusBadRequest, "MALFORMED_REQUEST", err.Error())
 		}
-		_, _, canonical, _, err := explorer.CanonicalConfigV2(request.Config, project, id, "interactive")
+		_, _, canonical, _, err := explorer.CanonicalConfigV2(request.Config, project, id, explorer.ConfigManagementForID(id))
 		if err != nil {
 			return explorerV2Error(c, http.StatusUnprocessableEntity, "INVALID_CONFIG", err.Error())
 		}
-		value, err := explorers.SaveInteractiveDraftV2(c.Context(), project, id, canonical, *request.ExpectedDraftVersion, request.ExpectedDraftDigest, subjectFromFiber(c))
+		value, err := explorers.SaveDraftV2(c.Context(), project, id, canonical, *request.ExpectedDraftVersion, request.ExpectedDraftDigest, subjectFromFiber(c))
 		if errors.Is(err, explorer.ErrDraftConflict) {
 			return draftConflictResponse(c, explorers, project, id)
 		}
 		if errors.Is(err, explorer.ErrNotFound) {
-			return explorerV2Error(c, http.StatusNotFound, "EXPLORER_NOT_FOUND", "custom Explorer not found")
+			return explorerV2Error(c, http.StatusNotFound, "EXPLORER_NOT_FOUND", "Explorer not found")
 		}
 		if err != nil {
 			return explorerV2Error(c, http.StatusUnprocessableEntity, "DRAFT_SAVE_FAILED", err.Error())
@@ -249,9 +246,6 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 
 	app.Post("/api/v1/projects/:project/explorers/:explorerId/authoring/compile", func(c fiber.Ctx) error {
 		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
-		if id == "default" {
-			return explorerV2Error(c, http.StatusForbidden, "DEFAULT_READ_ONLY", "the repository default is read-only")
-		}
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -323,9 +317,6 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 
 	app.Post("/api/v1/projects/:project/explorers/:explorerId/publish", func(c fiber.Ctx) error {
 		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
-		if id == "default" {
-			return explorerV2Error(c, http.StatusForbidden, "DEFAULT_READ_ONLY", "the repository default is read-only")
-		}
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -341,7 +332,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		}
 		owner, err := explorers.Get(c.Context(), project, id)
 		if errors.Is(err, explorer.ErrNotFound) {
-			return explorerV2Error(c, http.StatusNotFound, "EXPLORER_NOT_FOUND", "custom Explorer not found")
+			return explorerV2Error(c, http.StatusNotFound, "EXPLORER_NOT_FOUND", "Explorer not found")
 		}
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "EXPLORER_READ_FAILED", err.Error())
@@ -371,12 +362,18 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if sourceGeneration == "" {
 			sourceGeneration = execution.SourceGeneration
 		}
-		revision, err := explorers.InsertInteractiveReadyRevisionV2(c.Context(), owner, result.Config, digest, compiled, result.ResolvedSchemaDigest, sourceGeneration, subjectFromFiber(c), materializations)
+		revision, err := explorers.InsertReadyRevisionV2(c.Context(), owner, result.Config, digest, compiled, result.ResolvedSchemaDigest, sourceGeneration, subjectFromFiber(c), materializations)
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "REVISION_INSERT_FAILED", err.Error())
 		}
-		if err := explorers.ActivateInteractive(c.Context(), project, id, revision.ID); err != nil {
-			return explorerV2Error(c, http.StatusConflict, "ACTIVATION_FAILED", err.Error())
+		var activationErr error
+		if id == "default" {
+			activationErr = explorers.ActivateRepository(c.Context(), project, revision.ID)
+		} else {
+			activationErr = explorers.ActivateInteractive(c.Context(), project, id, revision.ID)
+		}
+		if activationErr != nil {
+			return explorerV2Error(c, http.StatusConflict, "ACTIVATION_FAILED", activationErr.Error())
 		}
 		state, err := getExplorerV2State(c.Context(), explorers, project, id)
 		if err != nil {
@@ -469,7 +466,8 @@ type v2HTTPError struct {
 func (e *v2HTTPError) Error() string { return e.message }
 
 func compileExplorerV2(ctx context.Context, compiler ExplorerV2Compiler, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, string, error) {
-	_, bundle, canonical, digest, err := explorer.CanonicalConfigV2(request.Config, request.Project, request.ExplorerID, "interactive")
+	management := explorer.ConfigManagementForID(request.ExplorerID)
+	_, bundle, canonical, digest, err := explorer.CanonicalConfigV2(request.Config, request.Project, request.ExplorerID, management)
 	if err != nil {
 		return ExplorerV2CompileResult{}, digest, err
 	}
@@ -481,7 +479,7 @@ func compileExplorerV2(ctx context.Context, compiler ExplorerV2Compiler, request
 		if len(result.Config) == 0 {
 			result.Config = canonical
 		}
-		if _, _, normalized, _, err := explorer.CanonicalConfigV2(result.Config, request.Project, request.ExplorerID, "interactive"); err != nil {
+		if _, _, normalized, _, err := explorer.CanonicalConfigV2(result.Config, request.Project, request.ExplorerID, management); err != nil {
 			return ExplorerV2CompileResult{}, digest, err
 		} else {
 			result.Config = normalized
@@ -562,7 +560,7 @@ func executionMaterializations(bundle recipe.Bundle, execution graphresolver.Rec
 }
 
 func insertFailedV2Revision(ctx context.Context, service *explorer.Service, owner *explorer.Explorer, config []byte, digest, generation, actor string, diagnostics []explorer.Diagnostic) error {
-	_, err := service.InsertInteractiveFailedRevisionV2(ctx, owner, config, digest, generation, actor, diagnostics)
+	_, err := service.InsertFailedRevisionV2(ctx, owner, config, digest, generation, actor, diagnostics)
 	return err
 }
 
@@ -623,7 +621,7 @@ func getExplorerV2State(ctx context.Context, service *explorer.Service, project,
 	if version == 0 {
 		version = 1
 	}
-	return &explorerV2State{Project: project, ExplorerID: "default", Management: explorer.ManagementRepository, BaselineConfig: repositoryBaselineConfig(repository.Config), DraftVersion: version, DraftDigest: digest, ActiveConfig: cloneRaw(repository.Config), ActiveRevisionID: repository.ActiveRevisionID, SourceGeneration: repository.SourceGeneration, Materializations: repository.Materializations, Dataset: repository.Dataset, Publication: repository.Publication, Diagnostics: repository.Diagnostics, PublicationState: repository.Publication.State, ActiveURL: explorerURL(project, "default"), UpdatedAt: repository.UpdatedAt}, nil
+	return &explorerV2State{Project: project, ExplorerID: "default", Management: explorer.ManagementRepository, BaselineConfig: repositoryBaselineConfig(repository.Config), DraftConfig: cloneRaw(repository.Config), DraftVersion: version, DraftDigest: digest, ActiveConfig: cloneRaw(repository.Config), ActiveRevisionID: repository.ActiveRevisionID, SourceGeneration: repository.SourceGeneration, Materializations: repository.Materializations, Dataset: repository.Dataset, Publication: repository.Publication, Diagnostics: repository.Diagnostics, PublicationState: repository.Publication.State, ActiveURL: explorerURL(project, "default"), UpdatedAt: repository.UpdatedAt}, nil
 }
 
 func listExplorerV2States(ctx context.Context, service *explorer.Service, project string) ([]*explorerV2State, error) {
@@ -675,7 +673,7 @@ func listExplorerV2States(ctx context.Context, service *explorer.Service, projec
 
 func stateFromExplorer(value *explorer.Explorer) *explorerV2State {
 	if value.ManagementMode == explorer.ManagementRepository {
-		return &explorerV2State{Project: value.Project, ExplorerID: value.ExplorerID, Management: value.ManagementMode, BaselineConfig: repositoryBaselineConfig(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: value.Publication.State, ActiveURL: explorerURL(value.Project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
+		return &explorerV2State{Project: value.Project, ExplorerID: value.ExplorerID, Management: value.ManagementMode, BaselineConfig: repositoryBaselineConfig(value.DraftConfig), DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: value.Publication.State, ActiveURL: explorerURL(value.Project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
 	}
 	return &explorerV2State{Project: value.Project, ExplorerID: value.ExplorerID, Management: value.ManagementMode, DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: publicationState(value.ActiveRevisionID), ActiveURL: explorerURL(value.Project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
 }
