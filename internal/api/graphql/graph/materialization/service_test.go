@@ -43,43 +43,13 @@ func TestProjectsReportsEmptyPublicationCatalogAsDatasetNotFound(t *testing.T) {
 	}
 }
 
-func TestResolveSelectorRejectsAmbiguousInputs(t *testing.T) {
-	service := NewService(Config{DefaultRecipe: "default", DefaultTranslationVersion: "v1"})
-	legacy := "Patient"
-	_, err := service.resolveSelector(&model.DataframeSelectorInput{Recipe: "other", TranslationVersion: "v2", Output: "Patient"}, &legacy)
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeInvalidSelector) {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestResolveLegacyDataTypeUsesPromotedDefaultContract(t *testing.T) {
-	service := NewService(Config{DefaultRecipe: "default", DefaultTranslationVersion: "v7"})
-	legacy := "Patient"
-	selector, err := service.resolveSelector(nil, &legacy)
+func TestResolveSelectorRequiresCompleteExplicitSelector(t *testing.T) {
+	selector, err := resolveSelector(&model.DataframeSelectorInput{Recipe: "documents", TranslationVersion: "v2", Output: "Patient"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selector.Recipe != "default" || selector.TranslationVersion != "v7" || selector.Output != "Patient" {
+	if selector.Recipe != "documents" || selector.TranslationVersion != "v2" || selector.Output != "Patient" {
 		t.Fatalf("selector = %#v", selector)
-	}
-}
-
-func TestResolveLegacyDataTypeObservesExplicitContractPromotion(t *testing.T) {
-	recipeName, version := "default", "v1"
-	service := NewService(Config{DefaultContract: func() (string, string) { return recipeName, version }})
-	legacy := "Patient"
-	first, err := service.resolveSelector(nil, &legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version = "v2"
-	second, err := service.resolveSelector(nil, &legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.TranslationVersion != "v1" || second.TranslationVersion != "v2" {
-		t.Fatalf("selectors before/after promotion = %#v %#v", first, second)
 	}
 }
 

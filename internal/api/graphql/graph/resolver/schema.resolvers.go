@@ -14,8 +14,6 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/executor"
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
-	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -181,28 +179,6 @@ func (r *mutationResolver) ActivateProjectRelease(ctx context.Context, input mod
 	return &model.ProjectRelease{ID: release.ID, Project: release.Project, Generation: release.Generation, Revision: release.Revision, State: model.ProjectReleaseState(release.State)}, nil
 }
 
-// PromoteDataframeContract is the resolver for the promoteDataframeContract field.
-func (r *mutationResolver) PromoteDataframeContract(ctx context.Context, input model.PromoteDataframeContractInput) (*model.DataframeContract, error) {
-	recipeName, version := strings.TrimSpace(input.Recipe), strings.TrimSpace(input.TranslationVersion)
-	if recipeName == "" || version == "" {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, ""))
-	}
-	if r.dataframeContractAuthorizer == nil {
-		return nil, recipeGraphQLError(authscope.ErrForbidden)
-	}
-	if err := r.dataframeContractAuthorizer(ctx); err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	if r.dataframeContractPromoter == nil {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
-	}
-	contract, err := r.dataframeContractPromoter(ctx, recipeName, version)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	return &model.DataframeContract{Recipe: contract.Recipe, TranslationVersion: contract.TranslationVersion, PromotedAt: contract.PromotedAt}, nil
-}
-
 // RegisterDataframeRecipeRevision is the resolver for the registerDataframeRecipeRevision field.
 func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error) {
 	if r.recipeRevisions == nil {
@@ -224,42 +200,6 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 		return nil, recipeGraphQLError(err)
 	}
 	return recipeRevisionModel(value), nil
-}
-
-// DataframeBuilderIntrospection is the resolver for the dataframeBuilderIntrospection field.
-func (r *queryResolver) DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error) {
-	includePivotOnlyFields := true
-	if input.IncludePivotOnlyFields != nil {
-		includePivotOnlyFields = *input.IncludePivotOnlyFields
-	}
-	resp, err := r.query.Introspect(ctx, queryapi.IntrospectionRequest{
-		Project:                input.Project,
-		RootResourceType:       input.RootResourceType,
-		AuthResourcePaths:      input.AuthResourcePaths,
-		IncludePivotOnlyFields: includePivotOnlyFields,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &model.DataframeBuilderIntrospection{
-		Project:           resp.Project,
-		RootResourceType:  resp.RootResourceType,
-		AuthResourcePaths: append([]string(nil), resp.AuthResourcePaths...),
-		Root:              resourceHints(resp.Root),
-		RelatedResources:  relatedResourceHints(resp.RelatedResources),
-		Traversals:        traversalHints(resp.Traversals),
-		Fields:            fieldHints(resp.Fields),
-		PivotFields:       fieldHints(resp.PivotFields),
-	}, nil
-}
-
-// DataframeMaterialization is the resolver for the dataframeMaterialization field.
-func (r *queryResolver) DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error) {
-	value, err := r.materializations.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return materializationapi.Model(*value), nil
 }
 
 // DataframeDatasets is the resolver for the dataframeDatasets field.

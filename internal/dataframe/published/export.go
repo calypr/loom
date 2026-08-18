@@ -13,7 +13,6 @@ const (
 
 type ExportRequest struct {
 	Selector *DataframeSelector `json:"selector,omitempty"`
-	DataType string             `json:"dataType,omitempty"`
 	Columns  []string
 	Filters  []Filter
 	Sort     *Sort

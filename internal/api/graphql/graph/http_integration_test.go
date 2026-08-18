@@ -18,105 +18,6 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-func TestGraphQLIntrospectionEndpoint(t *testing.T) {
-	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
-			ActiveManifestResolver: testActiveManifestResolver{},
-			DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
-				return []catalog.PopulatedReference{
-					{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 10},
-				}, nil
-			},
-			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-				if opts.PivotOnly {
-					return []catalog.PopulatedField{
-						{
-							ResourceType:      "Patient",
-							Path:              "valueCodeableConcept",
-							Kind:              "codeable_concept",
-							DocCount:          3,
-							SampleCount:       1,
-							PivotCandidate:    true,
-							PivotKind:         "codeable_concept_display_value",
-							PivotColumns:      []string{"Stage IVA"},
-							DistinctValues:    []string{"M0"},
-							DistinctTruncated: false,
-						},
-					}, nil
-				}
-				return []catalog.PopulatedField{
-					{
-						ResourceType:      "Patient",
-						Path:              "identifier[].value",
-						Kind:              "scalar",
-						DocCount:          5,
-						SampleCount:       1,
-						DistinctValues:    []string{"TCGA-01"},
-						DistinctTruncated: false,
-						PivotCandidate:    false,
-						PivotColumns:      []string{},
-					},
-				}, nil
-			},
-		},
-	})
-	server, err := newGraphServer(graphResolver, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}, AuthResourcePaths: []string{"pathA"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	queryBody := `{"query":"query($input: DataframeBuilderIntrospectionInput!) { dataframeBuilderIntrospection(input: $input) { project rootResourceType authResourcePaths root { resourceType fields { resourceType fieldRef label path selector { sourcePath where { path op value } valuePath } kind } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } traversals { fromType label toType edgeCount } } relatedResources { viaLabel edgeCount target { resourceType fields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } kind } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } } } traversals { fromType label toType edgeCount } fields { resourceType fieldRef label path selector { sourcePath where { path op value } valuePath } kind docCount sampleCount distinctValues distinctTruncated pivotCandidate pivotKind pivotColumns } pivotFields { resourceType fieldRef path selector { sourcePath where { path op value } valuePath } pivotCandidate pivotKind pivotColumns } } }","variables":{"input":{"project":"P1","rootResourceType":"Patient"}}}`
-	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(queryBody))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := server.App().Test(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-
-	var payload struct {
-		Data struct {
-			Introspection struct {
-				Project           string           `json:"project"`
-				RootResourceType  string           `json:"rootResourceType"`
-				AuthResourcePaths []string         `json:"authResourcePaths"`
-				Root              map[string]any   `json:"root"`
-				RelatedResources  []map[string]any `json:"relatedResources"`
-				Traversals        []map[string]any `json:"traversals"`
-				Fields            []map[string]any `json:"fields"`
-				PivotFields       []map[string]any `json:"pivotFields"`
-			} `json:"dataframeBuilderIntrospection"`
-		} `json:"data"`
-		Errors []map[string]any `json:"errors"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Errors) != 0 {
-		t.Fatalf("unexpected graphql errors: %#v", payload.Errors)
-	}
-	if payload.Data.Introspection.Project != "P1" || payload.Data.Introspection.RootResourceType != "Patient" {
-		t.Fatalf("unexpected introspection header: %#v", payload.Data.Introspection)
-	}
-	if got := payload.Data.Introspection.AuthResourcePaths; len(got) != 1 || got[0] != "pathA" {
-		t.Fatalf("unexpected auth resource paths: %#v", got)
-	}
-	if len(payload.Data.Introspection.Traversals) != 1 || len(payload.Data.Introspection.Fields) == 0 || len(payload.Data.Introspection.PivotFields) != 1 {
-		t.Fatalf("unexpected response sizes: %#v", payload.Data.Introspection)
-	}
-	if payload.Data.Introspection.Root["resourceType"] != "Patient" || len(payload.Data.Introspection.RelatedResources) != 1 {
-		t.Fatalf("unexpected structured introspection: %#v", payload.Data.Introspection)
-	}
-	firstField, _ := payload.Data.Introspection.Fields[0]["selector"].(map[string]any)
-	if firstField == nil || firstField["valuePath"] == "" {
-		t.Fatalf("expected structured selector payload: %#v", payload.Data.Introspection.Fields[0])
-	}
-}
-
 func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{})
 	server, err := newGraphServer(graphResolver, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1"}})
@@ -166,8 +67,8 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer aliasResp.Body.Close()
-	if aliasResp.StatusCode != http.StatusOK {
-		t.Fatalf("flat compatibility alias status = %d", aliasResp.StatusCode)
+	if aliasResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("retired flat alias status = %d, want %d", aliasResp.StatusCode, http.StatusNotFound)
 	}
 }
 

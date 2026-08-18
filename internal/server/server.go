@@ -34,6 +34,8 @@ import (
 	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/explorer"
+	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
@@ -92,18 +94,16 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
 	}
-	if err := lifecycleClient.Bootstrap(ctx, dataframeContractBootstrapSpec()); err != nil {
-		degradation = recordDegradation(logger, degradation, "bootstrap dataframe contract registry", err)
-	}
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.RevisionBootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe revision registry", err)
+	}
+	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+		return fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
-	initialRecipe := strings.TrimSpace(serverConfig.Server.DefaultRecipe)
-	initialVersion := strings.TrimSpace(serverConfig.Server.DefaultTranslationVersion)
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -116,21 +116,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
-		if initialRecipe == "" && initialVersion == "" {
-			initialRecipe, initialVersion = defaultBundle.Name, defaultBundle.TranslationVersion
-		}
 	}
-	contractStore := dataframeContractStore{query: lifecycleClient}
-	contractState := &dataframeContractState{}
-	contract, contractErr := contractStore.Load(ctx)
-	if errors.Is(contractErr, errNoDataframeContract) && initialRecipe != "" && initialVersion != "" {
-		contract, contractErr = contractStore.Promote(ctx, initialRecipe, initialVersion)
-	}
-	if contractErr != nil && !errors.Is(contractErr, errNoDataframeContract) {
-		degradation = recordDegradation(logger, degradation, "load dataframe contract", contractErr)
-		contract = promotedDataframeContract{Recipe: initialRecipe, TranslationVersion: initialVersion}
-	}
-	contractState.Set(contract)
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create dataset lifecycle store: %w", err)
@@ -282,27 +268,16 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return graphresolver.ProjectRelease{ID: active.Release.ID, Project: active.Release.Project, Generation: active.Release.Generation, Revision: strconv.FormatInt(active.Revision, 10), State: "ACTIVE"}, nil
 	}
-	contractPromoter := func(ctx context.Context, recipeName, version string) (graphresolver.DataframeContract, error) {
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).LoadVersion(ctx, recipeName, version); err != nil {
-			return graphresolver.DataframeContract{}, err
-		}
-		contract, err := contractStore.Promote(ctx, recipeName, version)
-		if err != nil {
-			return graphresolver.DataframeContract{}, err
-		}
-		contractState.Set(contract)
-		return graphresolver.DataframeContract{Recipe: contract.Recipe, TranslationVersion: contract.TranslationVersion, PromotedAt: contract.PromotedAt.Format(time.RFC3339Nano)}, nil
+	explorerStore, err := explorerarango.New(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer store: %w", err)
 	}
-	contractAuthorizer := func(ctx context.Context) error {
-		principal, ok := authscope.PrincipalFromContext(ctx)
-		if !ok || principal == nil {
-			return authscope.ErrUnauthenticated
-		}
-		if noAuthEnabled || strings.EqualFold(serverConfig.Auth.Mode, "basic") || strings.EqualFold(principal.Claims["loom_operator"], "true") {
-			return nil
-		}
-		return authscope.ErrForbidden
+	explorerService, err := explorer.NewService(explorerStore)
+	if err != nil {
+		return fmt.Errorf("create Explorer service: %w", err)
 	}
+	explorerMaterializer := explorerBundleMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes)
+	explorerCatalog := explorerCatalogReader(discoverFields, discoverReferences, scopeResolver, activeManifestResolver)
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -326,10 +301,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,
 		ProjectReleaseActivator:     releaseActivator,
-		DataframeContractPromoter:   contractPromoter,
-		DataframeContractAuthorizer: contractAuthorizer,
 		CandidateProjects:           candidateProjects,
-		DefaultContract:             contractState.Current,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
@@ -381,6 +353,23 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
+	RegisterExplorerConfigV2Route(server.App(), authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
+		if scopeResolver == nil {
+			return nil
+		}
+		scope, err := scopeResolver.ResolveReadScope(ctx, principal, project, nil)
+		if err != nil || (!scope.Unrestricted() && len(scope.AuthResourcePaths) == 0) {
+			return authscope.ErrForbidden
+		}
+		return nil
+	}, explorerService, explorerMaterializer, ExplorerV2LifecycleConfig{
+		Compile: explorerV2Compiler(recipeEngine, explorerCatalog),
+		Catalog: explorerCatalog,
+		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
+			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
+		},
+		Materialize: explorerMaterializer,
+	})
 	if publicationWorker != nil {
 		go func() {
 			err := publicationWorker.Run(ctx, time.Second, func(workerErr error) {

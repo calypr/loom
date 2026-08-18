@@ -3,7 +3,6 @@ package resolver
 import (
 	"context"
 	"log/slog"
-	"os"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
@@ -68,9 +67,11 @@ type RecipeExecutionReader func(context.Context, string) (*RecipeExecution, erro
 type ExactMaterializationStarter func(context.Context, dataset.DataframeSelector, recipe.RuntimeBindings) (RecipeExecution, error)
 type ProjectRelease struct{ ID, Project, Generation, Revision, State string }
 type ProjectReleaseActivator func(context.Context, string, string, string) (ProjectRelease, error)
-type DataframeContract struct{ Recipe, TranslationVersion, PromotedAt string }
-type DataframeContractPromoter func(context.Context, string, string) (DataframeContract, error)
-type DataframeContractAuthorizer func(context.Context) error
+
+// ExplorerBundleMaterializer is retained as the shared publication capability
+// used by the REST V2 lifecycle. GraphQL no longer owns Explorer lifecycle
+// mutations.
+type ExplorerBundleMaterializer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (RecipeExecution, error)
 
 // RecipeAuthorizer resolves request bindings against the caller's project
 // grants. GraphQL operation type is intentionally irrelevant: preview/run are
@@ -89,8 +90,6 @@ type Resolver struct {
 	recipeAuthorizer            RecipeAuthorizer
 	exactMaterializationStarter ExactMaterializationStarter
 	projectReleaseActivator     ProjectReleaseActivator
-	dataframeContractPromoter   DataframeContractPromoter
-	dataframeContractAuthorizer DataframeContractAuthorizer
 	recipeRevisions             recipe.RevisionStore
 }
 
@@ -102,34 +101,20 @@ type ResolverConfig struct {
 	RecipeMaterialize           RecipeMaterializeFunc
 	RecipeExecutions            RecipeExecutionReader
 	RecipeAuthorizer            RecipeAuthorizer
-	DefaultRecipe               string
-	DefaultTranslationVersion   string
-	DefaultContract             func() (string, string)
 	ExactMaterializationStarter ExactMaterializationStarter
 	ProjectReleaseActivator     ProjectReleaseActivator
-	DataframeContractPromoter   DataframeContractPromoter
-	DataframeContractAuthorizer DataframeContractAuthorizer
 	CandidateProjects           func(context.Context) ([]string, error)
 	RecipeRevisions             recipe.RevisionStore
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
-	if cfg.DefaultRecipe == "" {
-		cfg.DefaultRecipe = os.Getenv("LOOM_DEFAULT_RECIPE")
-	}
-	if cfg.DefaultTranslationVersion == "" {
-		cfg.DefaultTranslationVersion = os.Getenv("LOOM_DEFAULT_TRANSLATION_VERSION")
-	}
 	return &Resolver{
 		query: queryapi.NewService(cfg.DataframeQuery),
 		materializations: materializationapi.NewService(materializationapi.Config{
-			Reader:                    cfg.MaterializationReader,
-			ScopeResolver:             cfg.DataframeQuery.ScopeResolver,
-			Logger:                    cfg.Logger,
-			DefaultRecipe:             cfg.DefaultRecipe,
-			DefaultTranslationVersion: cfg.DefaultTranslationVersion,
-			DefaultContract:           cfg.DefaultContract,
-			CandidateProjects:         cfg.CandidateProjects,
+			Reader:            cfg.MaterializationReader,
+			ScopeResolver:     cfg.DataframeQuery.ScopeResolver,
+			Logger:            cfg.Logger,
+			CandidateProjects: cfg.CandidateProjects,
 		}),
 		recipeControl:               cfg.RecipeControl,
 		recipeMaterialize:           cfg.RecipeMaterialize,
@@ -137,8 +122,6 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 		recipeAuthorizer:            cfg.RecipeAuthorizer,
 		exactMaterializationStarter: cfg.ExactMaterializationStarter,
 		projectReleaseActivator:     cfg.ProjectReleaseActivator,
-		dataframeContractPromoter:   cfg.DataframeContractPromoter,
-		dataframeContractAuthorizer: cfg.DataframeContractAuthorizer,
 		recipeRevisions:             cfg.RecipeRevisions,
 	}
 }

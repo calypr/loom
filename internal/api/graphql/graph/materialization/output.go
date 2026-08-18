@@ -44,11 +44,6 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 	if value.Selector.Valid() {
 		result.Selector = &model.DataframeSelector{Recipe: value.Selector.Recipe, TranslationVersion: value.Selector.TranslationVersion, Output: value.Selector.Output}
-		activeVersion := value.ActiveContractVersion
-		if activeVersion == "" {
-			activeVersion = value.Selector.TranslationVersion
-		}
-		result.ActiveContractVersion = &activeVersion
 	}
 	if value.Availability != "" {
 		availability := model.DataframeAvailability(value.Availability)
@@ -130,7 +125,7 @@ func FederatedMaterialization(dataset materialization.FederatedDataset) *model.D
 		ID: "federated:" + dataset.Selector.Key(), Name: dataset.Name, Revision: dataset.Revision,
 		DatasetGeneration: "federated:" + dataset.Revision, State: materialization.StateReady,
 		Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete,
-		Selector: dataset.Selector, Availability: dataset.Availability, ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: dataset.ProjectStatuses, ActiveContractVersion: dataset.ActiveContractVersion,
+		Selector: dataset.Selector, Availability: dataset.Availability, ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: dataset.ProjectStatuses,
 	})
 }
 

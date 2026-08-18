@@ -2,8 +2,8 @@
 
 This document freezes the compatibility contract for versioned dataframe
 publication, immutable ingest, project releases, federation, and ETL. New code
-must use these identities and states. Legacy readers remain additive during the
-compatibility window described below.
+must use these identities and states. The public APIs have no name-only or
+default-contract compatibility path.
 
 ## Canonical identities
 
@@ -30,8 +30,8 @@ resourceType)`, and its checksum is part of the idempotency contract.
 - Authorized project state: `CURRENT`, `STALE`, `BUILDING`, `FAILED`,
   `MISSING`, `EXCLUDED`.
 
-Legacy `READY` values remain readable and map to the appropriate successful
-state, but new workflows never write `READY`.
+Historical storage rows may be normalized by the storage adapters while they
+are retired, but new workflows use only `PUBLISHED`.
 
 ## Project release
 
@@ -58,10 +58,9 @@ input DataframeSelectorInput {
 }
 ```
 
-Dataset discovery, rows, aggregate, aggregations, and export accept exactly one
-of `selector` or deprecated `dataType`. Passing both is an input error.
-`dataType` resolves through the configured default recipe and active promoted
-contract version.
+Dataset discovery, rows, aggregate, aggregations, and export require a
+complete `selector`. No `dataType`, materialization-ID, or default recipe
+resolution is accepted.
 
 Dataset metadata exposes the exact selector, active contract version,
 availability, completeness, included and expected project counts, and an
@@ -74,10 +73,7 @@ Operator operations support:
 1. starting an asynchronous exact-version materialization;
 2. polling its durable execution;
 3. activating a completed project release; and
-4. explicitly promoting a recipe version as the default federation contract.
-
-The first registered contract may initialize the default automatically. Every
-later version requires explicit promotion.
+4. activating a project release containing the exact published selectors.
 
 ## Snapshot HTTP API
 
@@ -106,8 +102,7 @@ Public structured errors use stable codes:
   queryable for the staged generation;
 - `RELEASE_ACTIVATION_CONFLICT`: compare-and-swap observed a newer active
   release; and
-- `INVALID_SELECTOR`: selector/dataType inputs are absent, ambiguous, or
-  mutually supplied.
+- `INVALID_SELECTOR`: the selector is absent or incomplete.
 
 Every structured failure may include phase, output, details, retryability, and
 the Loom request ID. Retryability is explicit; clients do not infer it from an
@@ -115,8 +110,6 @@ HTTP status or message.
 
 ## Configuration
 
-- `LOOM_DEFAULT_RECIPE`: recipe used to resolve deprecated `dataType`.
-- `LOOM_DEFAULT_TRANSLATION_VERSION`: promoted default contract version.
 - `LOOM_REQUIRED_DATAFRAME_SELECTORS`: JSON array of exact selectors required
   for release activation.
 - `LOOM_PUBLICATION_WORKER_LEASE`: publication worker lease duration.
@@ -130,12 +123,10 @@ names and meanings remain stable.
 
 ## Migration rules
 
-The rollout is additive. Existing name-only recipes, direct materialization-ID
-reads, deprecated `dataType`, and stored `READY` states remain readable for one
-compatibility window. Legacy recipe rows are interpreted at the configured
-default translation version. Legacy executions retain their IDs and acquire
-selector fields when resolvable; unresolved legacy rows are readable but never
-chosen by exact-selector federation.
+The rollout is selector-first. Existing persisted publication rows may be
+read by storage migration code, but they are never selected through a name-only
+or default contract and no new request can address them without an exact
+selector.
 
 New writes always use exact recipe versions, immutable generation keys, durable
 publication states, and release-controlled visibility. No migration step moves

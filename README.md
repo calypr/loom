@@ -25,7 +25,7 @@ flowchart LR
     Publish --> ClickHouse["Versioned flat tables"]
     Publish --> Catalog["Arango publication catalog"]
     Catalog["Arango publication catalog"] --> Graph["POST /graphql/graph"]
-    ClickHouse --> Flat
+    ClickHouse --> Graph
     Arango --> Graph["POST /graphql/graph"]
     Arango --> Dataframe["POST /graphql/dataframe"]
     Compile --> Graph
@@ -39,13 +39,13 @@ flowchart LR
 - Populated-field, reference, traversal, and pivot discovery.
 - Strict, versioned dataframe recipes and compiler-backed AQL execution.
 - Scoped publication of recipe outputs into ClickHouse.
-- A durable Arango catalog that maps logical dataframe names to current READY
-  ClickHouse outputs.
+- A durable Arango catalog that maps exact dataframe selectors to current
+  published outputs.
 - Multi-project, `project_id`-identifiable and `auth_resource_path`-scoped flat-data reads.
 
 Loom does **not** expose arbitrary ClickHouse tables, arbitrary SQL, or an
-Elasticsearch/Guppy fallback. A logical `dataType` is a catalog alias, never a
-browser-supplied physical table name.
+Elasticsearch/Guppy fallback. Published dataframe reads require an exact
+recipe, translation-version, and output selector.
 
 ## Runtime surfaces
 
@@ -53,10 +53,9 @@ browser-supplied physical table name.
 | --- | --- |
 | `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
-| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, builder introspection, recipe validation, preview, execution, and publication. |
+| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
-| `POST /graphql/graph` | Graph and published-dataframe API: graph reads, recipe control, and ClickHouse publication reads. |
-| `POST /graphql/flat` | Compatibility alias for `/graphql/graph` published-dataframe queries. |
+| `POST /api/v1/projects/:project/explorers/...` | REST V2 Explorer lifecycle used by the Builder. |
 | `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
@@ -148,7 +147,7 @@ Useful local URLs:
 - [Graph Playground](http://127.0.0.1:8080/graphql/graph)
 - [Apollo Sandbox](http://127.0.0.1:8080/apollo)
 - FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
-- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph` (legacy alias: `/graphql/flat`)
+- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph`
 - [Health summary](http://127.0.0.1:8080/health)
 - [Process liveness](http://127.0.0.1:8080/livez)
 - [Dependency readiness](http://127.0.0.1:8080/readyz)
@@ -223,19 +222,22 @@ query ExplorerRows($input: DataframeRowsInput!) {
 ```json
 {
   "input": {
-    "dataType": "cases",
+    "selector": {
+      "recipe": "documents",
+      "translationVersion": "v2",
+      "output": "DocumentReference"
+    },
     "first": 100,
     "sort": { "column": "case_id" }
   }
 }
 ```
 
-The preferred reader input is the exact selector `(recipe,
-translationVersion, output)`. The deprecated `dataType` form remains
-available through the configured default recipe and translation version. Loom
-derives the authorized project set from the principal, selects each project's
-active pointer-backed publication, reconciles compatible outputs, and
-federates them into one logical dataframe. Every row exposes `project_id`,
+The reader requires the exact selector `(recipe, translationVersion, output)`.
+There is no server-side default recipe or `dataType` alias. Loom derives the
+authorized project set from the principal, selects each project's active
+pointer-backed publication, reconciles compatible outputs, and federates them
+into one logical dataframe. Every row exposes `project_id`,
 derived from the publication project identity (for example,
 `HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
 columns. Rows remain permissive JSON; columns and capabilities are discovered

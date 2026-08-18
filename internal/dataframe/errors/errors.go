@@ -349,7 +349,7 @@ func defaultMessage(code ErrorCode) string {
 	case CodeFederationIncompatible:
 		return "published sources cannot share a logical schema"
 	case CodeInvalidSelector:
-		return "exactly one dataframe selector or legacy dataType is required"
+		return "a complete dataframe selector is required"
 	default:
 		return "internal server error"
 	}

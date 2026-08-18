@@ -25,6 +25,19 @@ type Client struct {
 	client *http.Client
 }
 
+// Transaction is the narrow query surface used by stores that need to make
+// several collection updates visible as one Arango transaction.
+type Transaction interface {
+	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
+}
+
+type TransactionCollections struct {
+	Read  []string
+	Write []string
+}
+
+type TransactionFunc func(context.Context, Transaction) error
+
 var bufferPool = sync.Pool{
 	New: func() any {
 		return &bytes.Buffer{}
@@ -146,7 +159,31 @@ func (c *Client) InsertBatchRaw(ctx context.Context, collection string, docs []j
 }
 
 func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
-	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
+	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
+}
+
+func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
+	if fn == nil {
+		return fmt.Errorf("Arango transaction callback is required")
+	}
+	return c.db.WithTransaction(ctx, driver.TransactionCollections{
+		Read:  collections.Read,
+		Write: collections.Write,
+	}, nil, nil, nil, func(txCtx context.Context, tx driver.Transaction) error {
+		return fn(txCtx, transactionClient{queryer: tx})
+	})
+}
+
+type transactionClient struct {
+	queryer driver.DatabaseQuery
+}
+
+func (t transactionClient) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
+	return queryRows(ctx, t.queryer, query, batchSize, bindVars, visit)
+}
+
+func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
+	cursor, err := queryer.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
 	if err != nil {
 		return err
 	}

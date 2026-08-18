@@ -30,6 +30,11 @@ they do not live in `generated/`.
 
 ## Runtime surfaces
 
+The Builder integration contract is documented in
+[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md).
+The Builder uses the REST Explorer lifecycle. GraphQL does not expose Explorer
+lifecycle or authoring types; REST V2 is the only Explorer contract.
+
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
 owns persistence-neutral observed facts; `catalog/arango` owns catalog
 persistence; `dataframe/publication` owns dataframe publishing contracts and

@@ -18,27 +18,21 @@ import (
 )
 
 type Service struct {
-	reader                    *dfmaterialization.Reader
-	scopeResolver             *authscope.ScopeResolver
-	logger                    *slog.Logger
-	maxExportRows             int64
-	maxExportBytes            int64
-	defaultRecipe             string
-	defaultTranslationVersion string
-	defaultContract           func() (string, string)
-	candidateProjects         func(context.Context) ([]string, error)
+	reader            *dfmaterialization.Reader
+	scopeResolver     *authscope.ScopeResolver
+	logger            *slog.Logger
+	maxExportRows     int64
+	maxExportBytes    int64
+	candidateProjects func(context.Context) ([]string, error)
 }
 
 type Config struct {
-	Reader                    *dfmaterialization.Reader
-	ScopeResolver             *authscope.ScopeResolver
-	Logger                    *slog.Logger
-	MaxExportRows             int64
-	MaxExportBytes            int64
-	DefaultRecipe             string
-	DefaultTranslationVersion string
-	DefaultContract           func() (string, string)
-	CandidateProjects         func(context.Context) ([]string, error)
+	Reader            *dfmaterialization.Reader
+	ScopeResolver     *authscope.ScopeResolver
+	Logger            *slog.Logger
+	MaxExportRows     int64
+	MaxExportBytes    int64
+	CandidateProjects func(context.Context) ([]string, error)
 }
 
 func NewService(cfg Config) *Service {
@@ -51,20 +45,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	if cfg.Reader != nil {
-		cfg.Reader.LegacyTranslationVersion = strings.TrimSpace(cfg.DefaultTranslationVersion)
-	}
-	return &Service{reader: cfg.Reader, scopeResolver: cfg.ScopeResolver, logger: cfg.Logger, maxExportRows: cfg.MaxExportRows, maxExportBytes: cfg.MaxExportBytes, defaultRecipe: strings.TrimSpace(cfg.DefaultRecipe), defaultTranslationVersion: strings.TrimSpace(cfg.DefaultTranslationVersion), defaultContract: cfg.DefaultContract, candidateProjects: cfg.CandidateProjects}
-}
-
-func (s *Service) contract() (string, string) {
-	if s.defaultContract != nil {
-		recipe, version := s.defaultContract()
-		if strings.TrimSpace(recipe) != "" && strings.TrimSpace(version) != "" {
-			return strings.TrimSpace(recipe), strings.TrimSpace(version)
-		}
-	}
-	return s.defaultRecipe, s.defaultTranslationVersion
+	return &Service{reader: cfg.Reader, scopeResolver: cfg.ScopeResolver, logger: cfg.Logger, maxExportRows: cfg.MaxExportRows, maxExportBytes: cfg.MaxExportBytes, candidateProjects: cfg.CandidateProjects}
 }
 
 func (s *Service) principal(ctx context.Context) (*authscope.Principal, error) {
@@ -169,21 +150,6 @@ func containsProject(projects []string, project string) bool {
 	return false
 }
 
-// Get preserves the legacy published-materialization lookup by ID.
-func (s *Service) Get(ctx context.Context, id string) (*dfmaterialization.Materialization, error) {
-	if s.reader == nil {
-		return nil, readerUnavailable()
-	}
-	value, err := s.reader.DatasetByPublishedID(ctx, id)
-	if err != nil {
-		return nil, mapReaderError(err)
-	}
-	if err := s.authorizePublished(ctx, value); err != nil {
-		return nil, err
-	}
-	return &value, nil
-}
-
 func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput) (*dfmaterialization.Materialization, error) {
 	if s.reader == nil {
 		return nil, readerUnavailable()
@@ -192,7 +158,7 @@ func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput
 	if err != nil {
 		return nil, err
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
+	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return nil, err
 	}
@@ -208,26 +174,9 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 	if s.reader == nil {
 		return dfmaterialization.Page{}, readerUnavailable()
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
+	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.Page{}, err
-	}
-	if input.MaterializationID != nil && *input.MaterializationID != "" {
-		s.logger.Debug("dataframe rows start", "path", "published", "materialization_id", *input.MaterializationID)
-		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
-		if err != nil {
-			s.logReadFailure(ctx, "published_materialization_lookup", selector.Output, err, "materialization_id", *input.MaterializationID)
-			return dfmaterialization.Page{}, mapReaderError(err)
-		}
-		if err := s.authorizePublished(ctx, value); err != nil {
-			return dfmaterialization.Page{}, err
-		}
-		page, err := s.reader.PagePublishedID(ctx, value.ID, pageRequest(input))
-		if err != nil {
-			s.logReadFailure(ctx, "published_clickhouse_rows", selector.Output, err, "materialization_id", value.ID, "physical_table", value.PhysicalTable)
-			return dfmaterialization.Page{}, mapReaderError(err)
-		}
-		return page, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -257,28 +206,9 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	if s.reader == nil {
 		return dfmaterialization.AggregateResult{}, readerUnavailable()
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
+	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregateResult{}, err
-	}
-	if input.MaterializationID != nil && *input.MaterializationID != "" {
-		s.logger.Debug("dataframe aggregate start", "path", "published", "materialization_id", *input.MaterializationID, "operation", input.Operation, "group_by", input.GroupBy)
-		value, err := s.reader.DatasetByPublishedID(ctx, *input.MaterializationID)
-		if err != nil {
-			s.logReadFailure(ctx, "published_materialization_lookup", selector.Output, err, "materialization_id", *input.MaterializationID)
-			return dfmaterialization.AggregateResult{}, mapReaderError(err)
-		}
-		if err := s.authorizePublished(ctx, value); err != nil {
-			return dfmaterialization.AggregateResult{}, err
-		}
-		result, err := s.reader.AggregatePublishedID(ctx, value.ID, dfmaterialization.AggregateRequest{
-			GroupBy: input.GroupBy, Filters: convertFilters(input.Filters), Operation: input.Operation, Column: stringValue(input.Column),
-		})
-		if err != nil {
-			s.logReadFailure(ctx, "published_clickhouse_aggregate", selector.Output, err, "materialization_id", value.ID, "physical_table", value.PhysicalTable)
-			return dfmaterialization.AggregateResult{}, mapReaderError(err)
-		}
-		return result, nil
 	}
 	principal, err := s.principal(ctx)
 	if err != nil {
@@ -308,7 +238,7 @@ func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAg
 	if s.reader == nil {
 		return dfmaterialization.AggregationsResult{}, readerUnavailable()
 	}
-	selector, err := s.resolveSelector(input.Selector, input.DataType)
+	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregationsResult{}, err
 	}
@@ -373,7 +303,6 @@ func (s *Service) authorizedFederation(ctx context.Context, principal *authscope
 		} else if len(statuses) > 0 {
 			dataset.ProjectStatuses = filterAuthorizedStatuses(candidates, statuses)
 		}
-		_, dataset.ActiveContractVersion = s.contract()
 		return dataset, map[string]dfmaterialization.SourceAccess{}, reconcileErr
 	}
 	s.logger.Debug("dataframe publication sources discovered", "request_id", httpapi.RequestIDFromContext(ctx), "selector", selector.Key(), "projects", candidates, "source_count", len(sources), "source_ids", materializationIDs(sources), "physical_tables", physicalTables(sources))
@@ -436,7 +365,6 @@ func (s *Service) authorizedFederation(ctx context.Context, principal *authscope
 		}
 	}
 	dataset.RowCountComplete = rowCountComplete
-	_, dataset.ActiveContractVersion = s.contract()
 	refreshAvailability(&dataset)
 	return dataset, access, nil
 }
@@ -471,46 +399,27 @@ func filterAuthorizedStatuses(projects []string, statuses []dfmaterialization.Pr
 	return result
 }
 
-func (s *Service) resolveSelector(input *model.DataframeSelectorInput, dataType *string) (dfmaterialization.DataframeSelector, error) {
-	legacy := ""
-	if dataType != nil {
-		legacy = strings.TrimSpace(*dataType)
+func resolveSelector(input *model.DataframeSelectorInput) (dfmaterialization.DataframeSelector, error) {
+	if input == nil {
+		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
-	if input != nil && dataType != nil {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input"))
+	selector := dfmaterialization.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
+	if !selector.Valid() {
+		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
-	if input != nil {
-		selector := dfmaterialization.DataframeSelector{Recipe: strings.TrimSpace(input.Recipe), TranslationVersion: strings.TrimSpace(input.TranslationVersion), Output: strings.TrimSpace(input.Output)}
-		if !selector.Valid() {
-			return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
-		}
-		return selector, nil
-	}
-	defaultRecipe, defaultVersion := s.contract()
-	if legacy == "" || defaultRecipe == "" || defaultVersion == "" {
-		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input"))
-	}
-	return dfmaterialization.DataframeSelector{Recipe: defaultRecipe, TranslationVersion: defaultVersion, Output: legacy}, nil
+	return selector, nil
 }
 
-func (s *Service) resolvePublishedSelector(input *dfmaterialization.DataframeSelector, dataType string) (dfmaterialization.DataframeSelector, error) {
-	legacy := strings.TrimSpace(dataType)
-	if input != nil && legacy != "" {
+func resolvePublishedSelector(input *dfmaterialization.DataframeSelector) (dfmaterialization.DataframeSelector, error) {
+	if input == nil {
 		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
 	}
-	if input != nil {
-		selector := *input
-		selector.Recipe, selector.TranslationVersion, selector.Output = strings.TrimSpace(selector.Recipe), strings.TrimSpace(selector.TranslationVersion), strings.TrimSpace(selector.Output)
-		if !selector.Valid() {
-			return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
-		}
-		return selector, nil
-	}
-	defaultRecipe, defaultVersion := s.contract()
-	if legacy == "" || defaultRecipe == "" || defaultVersion == "" {
+	selector := *input
+	selector.Recipe, selector.TranslationVersion, selector.Output = strings.TrimSpace(selector.Recipe), strings.TrimSpace(selector.TranslationVersion), strings.TrimSpace(selector.Output)
+	if !selector.Valid() {
 		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
 	}
-	return dfmaterialization.DataframeSelector{Recipe: defaultRecipe, TranslationVersion: defaultVersion, Output: legacy}, nil
+	return selector, nil
 }
 
 // filterProjects applies authoritative project_id equality/IN constraints
@@ -645,12 +554,8 @@ func (s *Service) authorizePublished(ctx context.Context, value dfmaterializatio
 	return nil
 }
 
-func pageRequest(input model.DataframeRowsInput) dfmaterialization.PageRequest {
-	return dfmaterialization.PageRequest{Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: stringValue(input.After)}
-}
-
 func federatedMaterialization(dataset dfmaterialization.FederatedDataset) dfmaterialization.Materialization {
-	return dfmaterialization.Materialization{ID: "federated:" + dataset.Selector.Key(), Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete, Selector: dataset.Selector, Availability: dataset.Availability, IncludedProjects: len(dataset.Sources), ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: append([]dfmaterialization.ProjectStatus(nil), dataset.ProjectStatuses...), ActiveContractVersion: dataset.ActiveContractVersion}
+	return dfmaterialization.Materialization{ID: "federated:" + dataset.Selector.Key(), Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete, Selector: dataset.Selector, Availability: dataset.Availability, IncludedProjects: len(dataset.Sources), ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: append([]dfmaterialization.ProjectStatus(nil), dataset.ProjectStatuses...)}
 }
 
 func convertFilters(filters []*model.DataframeFilterInput) []dfmaterialization.Filter {

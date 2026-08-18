@@ -260,8 +260,8 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	identities := []publication.BundleIdentity{
-		{Name: "observation", Project: "project-a", DatasetGeneration: "generation-1"},
-		{Name: "observation", Project: "project-b", DatasetGeneration: "generation-1"},
+		{Name: "observation", TranslationVersion: "legacy", Project: "project-a", DatasetGeneration: "generation-1"},
+		{Name: "observation", TranslationVersion: "legacy", Project: "project-b", DatasetGeneration: "generation-1"},
 	}
 	for index, identity := range identities {
 		execution := publication.BundleExecution{
@@ -272,7 +272,7 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 		catalog.executions[execution.ID] = execution
 		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
-	reader := &dfpublished.Reader{Catalog: catalog, LegacyTranslationVersion: "legacy"}
+	reader := &dfpublished.Reader{Catalog: catalog}
 	selector := dfpublished.DataframeSelector{Recipe: "observation", TranslationVersion: "legacy", Output: "Observation"}
 	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, selector)
 	if err != nil {

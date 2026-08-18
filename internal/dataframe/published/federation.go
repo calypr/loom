@@ -20,17 +20,16 @@ import (
 // authorized project publications. project_id is a public, stable row column;
 // legacy outputs that predate it are filled from the source publication project.
 type FederatedDataset struct {
-	Selector              DataframeSelector
-	ActiveContractVersion string
-	Name                  string
-	Revision              string
-	Sources               []Materialization
-	Columns               []Column
-	RowCount              int64
-	RowCountComplete      bool
-	Availability          FederationAvailability
-	ExpectedProjects      int
-	ProjectStatuses       []ProjectStatus
+	Selector         DataframeSelector
+	Name             string
+	Revision         string
+	Sources          []Materialization
+	Columns          []Column
+	RowCount         int64
+	RowCountComplete bool
+	Availability     FederationAvailability
+	ExpectedProjects int
+	ProjectStatuses  []ProjectStatus
 }
 
 type FederationAvailability string
@@ -372,6 +371,12 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 		}
 		executionSelector, selectorErr := r.selectorForExecution(ctx, execution, selector.Output)
 		if selectorErr != nil {
+			// A stale active-release pointer must degrade that project, not make
+			// every other authorized project's valid publication unreadable.
+			// Status resolution still reports the missing project to callers.
+			if errors.Is(selectorErr, bundlepublication.ErrBundleNotFound) {
+				continue
+			}
 			return nil, selectorErr
 		}
 		if executionSelector != selector {
@@ -409,27 +414,22 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	return result, nil
 }
 
-func executionTranslationVersion(execution bundlepublication.BundleExecution, legacyDefault string) string {
-	if version := strings.TrimSpace(execution.TranslationVersion); version != "" {
-		return version
-	}
-	return strings.TrimSpace(legacyDefault)
-}
-
 func (r *Reader) selectorForExecution(ctx context.Context, execution bundlepublication.BundleExecution, output string) (DataframeSelector, error) {
 	if resolver, ok := r.Catalog.(ExecutionSelectorResolver); ok {
 		selector, err := resolver.DataframeSelectorForExecution(ctx, execution.ID, output)
-		if err == nil && selector.Valid() {
-			return selector, nil
-		}
-		if strings.TrimSpace(execution.TranslationVersion) != "" {
-			if err == nil {
-				return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
-			}
+		if err != nil {
 			return DataframeSelector{}, err
 		}
+		if selector.Valid() {
+			return selector, nil
+		}
+		return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
 	}
-	return DataframeSelector{Recipe: execution.Name, TranslationVersion: executionTranslationVersion(execution, r.LegacyTranslationVersion), Output: output}, nil
+	selector := DataframeSelector{Recipe: execution.Name, TranslationVersion: strings.TrimSpace(execution.TranslationVersion), Output: output}
+	if !selector.Valid() {
+		return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
+	}
+	return selector, nil
 }
 
 func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []string) ([]string, error) {

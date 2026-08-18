@@ -17,7 +17,7 @@ import (
 type fakeDataframeExporter struct{}
 
 func (fakeDataframeExporter) ExportDataframe(_ context.Context, request dfmaterialization.ExportRequest, out io.Writer) error {
-	if request.DataType != "files" || request.Format.Normalize() != dfmaterialization.ExportCSV {
+	if request.Selector == nil || request.Format.Normalize() != dfmaterialization.ExportCSV {
 		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	_, err := io.WriteString(out, "id\n1\n")
@@ -34,7 +34,7 @@ func (fakeSelectorExporter) ExportDataframe(_ context.Context, request dfmateria
 	return err
 }
 
-func TestDataframeExportRoute(t *testing.T) {
+func TestDataframeExportRouteRejectsLegacyDataType(t *testing.T) {
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
@@ -47,15 +47,9 @@ func TestDataframeExportRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
-	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/csv") {
-		t.Fatalf("content type = %q", got)
-	}
-	if got := resp.Header.Get("Content-Disposition"); strings.Contains(got, "../") || !strings.Contains(got, "files.csv") {
-		t.Fatalf("content disposition = %q", got)
 	}
 }
 

@@ -152,6 +152,42 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
+// ResolveBundle runs an unregistered immutable bundle through the identical
+// schema, semantic, optimization, and lowering pipeline as a registry entry.
+// Explorer uses this to avoid creating recipe drafts/revisions for authored UI
+// intent.
+func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
+	if strings.TrimSpace(bindings.Project) == "" {
+		return Resolved{}, fmt.Errorf("recipe project is required")
+	}
+	digest, err := bundle.Digest()
+	if err != nil {
+		return Resolved{}, fmt.Errorf("digest bundle: %w", err)
+	}
+	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
+}
+
+func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
+	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
+	if err != nil {
+		return nil, &ResolutionError{Err: err}
+	}
+	return e.Preview(ctx, resolved, bindings.PreviewLimit)
+}
+
+func (e *Engine) MaterializeBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
+	resolved, err := e.ResolveBundle(ctx, bundle, bindings)
+	if err != nil {
+		return Resolved{}, &ResolutionError{Err: err}
+	}
+	if publish != nil {
+		if err := publish(ctx, resolved); err != nil {
+			return Resolved{}, err
+		}
+	}
+	return resolved, nil
+}
+
 func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, fmt.Errorf("recipe project is required")

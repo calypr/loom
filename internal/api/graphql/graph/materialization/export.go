@@ -24,7 +24,7 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err != nil {
 		return err
 	}
-	selector, err := s.resolvePublishedSelector(request.Selector, request.DataType)
+	selector, err := resolvePublishedSelector(request.Selector)
 	if err != nil {
 		return err
 	}

@@ -49,7 +49,7 @@ func RegisterRecipeExecutionRoute(app *fiber.App, catalog publication.BundleCata
 				}
 				columns = append(columns, fiber.Map{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
 			}
-			outputs = append(outputs, fiber.Map{"name": output.Name, "dataType": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
+			outputs = append(outputs, fiber.Map{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
 		}
 		return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs})
 	})

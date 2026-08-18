@@ -35,10 +35,6 @@ func RegisterRoutes(router fiber.Router, cfg RouteConfig) {
 		h := fiberadaptor.HTTPHandlerWithContext(cfg.Handler)
 		router.Post("/graphql/graph", h)
 		router.Post("/graphql/dataframe", h)
-		// Keep the historical flat URL as a compatibility alias. It uses the
-		// same executable schema and resolver, so the alias adds no duplicate
-		// transport or generated code.
-		router.Post("/graphql/flat", h)
 	}
 }
 

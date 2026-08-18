@@ -96,86 +96,17 @@ On macOS you can jump straight to Apollo with:
 open http://127.0.0.1:8080/apollo
 ```
 
-## 5. Run a builder introspection query
+## 5. Inspect and author an Explorer
 
-Use this first. It tells you what traversals and fields are actually populated
-for the chosen root resource type.
+Explorer authoring is a REST V2 workflow. Start with the project Explorer
+list/detail routes, then use the server-owned catalog compiler and preview
+endpoints. The frontend migration guide has the request and response shapes:
 
-To promote a proven interactive query into the server's persistent default,
-follow the [dataframer recipe authoring guide](DATAFRAMER_RECIPES.md).
+[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md)
 
-### Query
-
-```graphql
-query BuilderIntrospection($input: DataframeBuilderIntrospectionInput!) {
-  dataframeBuilderIntrospection(input: $input) {
-    project
-    rootResourceType
-    authResourcePaths
-    root {
-      resourceType
-      fields {
-        fieldRef
-        label
-        path
-        selector {
-          sourcePath
-          valuePath
-          where {
-            path
-            op
-            value
-          }
-        }
-      }
-      pivotFields {
-        fieldRef
-        label
-        pivotFamily
-        pivotColumns
-        defaultPivotColumnSelector {
-          sourcePath
-          valuePath
-        }
-        defaultPivotValueSelector {
-          sourcePath
-          valuePath
-        }
-      }
-      traversals {
-        fromType
-        label
-        toType
-        edgeCount
-      }
-    }
-    relatedResources {
-      viaLabel
-      edgeCount
-      target {
-        resourceType
-        fields {
-          fieldRef
-          label
-          path
-        }
-      }
-    }
-  }
-}
-```
-
-### Variables
-
-```json
-{
-  "input": {
-    "project": "ARANGODB_PROTO",
-    "rootResourceType": "Patient",
-    "includePivotOnlyFields": true
-  }
-}
-```
+The workflow is deliberately not a GraphQL introspection query: Loom validates
+catalog selections, dataset generation, recipe compilation, preview, and
+publication through the same REST capability path.
 
 ## 6. Run a sample dataframe query
 

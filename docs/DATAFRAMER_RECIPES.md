@@ -133,7 +133,8 @@ grain:
 
 These names are public API:
 
-- `outputs[].name` becomes the flat API `dataType`.
+- `outputs[].name` becomes the `output` component of the exact dataframe
+  selector `(recipe, translationVersion, output)`.
 - `fields[].name`, pivot names, and dynamic-column names contribute public
   column names.
 - A traversal `alias` namespaces fields from the related resource.
@@ -148,68 +149,23 @@ must deliberately produce multiple rows.
 
 ## Step 2: discover the graph that is actually loaded
 
-Run `dataframeBuilderIntrospection` against the project and proposed root.
-This reports populated fields, pivot candidates, and valid outbound
-relationships. Do not infer relationship labels from FHIR property names.
+Use the REST V2 authoring compiler and its server-owned catalog discovery. It
+reports populated fields, pivot candidates, and valid outbound relationships
+for the selected generation. Do not infer relationship labels from FHIR
+property names or manufacture browser selector IDs. See
+[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md).
 
-```graphql
-query RecipeDiscovery($input: DataframeBuilderIntrospectionInput!) {
-  dataframeBuilderIntrospection(input: $input) {
-    rootResourceType
-    root {
-      fields {
-        fieldRef
-        path
-      }
-      pivotFields {
-        fieldRef
-        path
-        pivotFamily
-        pivotColumns
-      }
-      traversals {
-        fromType
-        label
-        toType
-        edgeCount
-      }
-    }
-    relatedResources {
-      viaLabel
-      edgeCount
-      target {
-        resourceType
-        fields {
-          fieldRef
-          path
-        }
-      }
-    }
-  }
-}
-```
-
-```json
-{
-  "input": {
-    "project": "HTAN_INT-BForePC",
-    "rootResourceType": "DocumentReference",
-    "includePivotOnlyFields": true
-  }
-}
-```
-
-For a second hop, rerun introspection with the first-hop target as the root.
-For example:
+For a second hop, select the first-hop target in the authoring request. For
+example:
 
 ```text
 DocumentReference --subject_Specimen--> Specimen
 Specimen          --subject_Patient----> Patient
 ```
 
-Both labels and target types must be confirmed by introspection. A relationship
-with `edgeCount: 0` is not useful for that project even if the FHIR schema
-allows it.
+Both labels and target types must be confirmed by the catalog. A relationship
+with no discovered candidates is not useful for that project even if the FHIR
+schema allows it.
 
 ## Step 3: prototype before persisting
 
@@ -232,7 +188,7 @@ The GraphQL input and persistent recipe use the same concepts:
 | `project`, `limit`, authorization | Runtime bindings; never stored |
 
 The copy-paste GraphQL examples in
-[the Quickstart](QUICKSTART.md#5-run-a-builder-introspection-query) cover
+[the Quickstart](QUICKSTART.md#6-run-a-sample-dataframe-query) cover
 introspection and dataframe execution.
 
 ## Minimal recipe
