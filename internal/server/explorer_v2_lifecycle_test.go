@@ -13,6 +13,7 @@ import (
 
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -36,7 +37,9 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.SaveRepositoryConfig(context.Background(), explorer.RepositoryConfig{Project: "project-a", Config: repository, SourceGeneration: "generation-a"}); err != nil {
+	repositorySelector := dataset.DataframeSelector{Recipe: "repository", TranslationVersion: "interactive", Output: "DocumentReference"}
+	repositoryMaterialization := explorer.Materialization{OutputID: "DocumentReference", Output: "DocumentReference", MaterializationID: "execution-a", Selector: &repositorySelector, Columns: []publication.PhysicalColumn{{Name: "id", LogicalType: "String"}}}
+	if _, err := service.SaveRepositoryConfig(context.Background(), explorer.RepositoryConfig{Project: "project-a", Config: repository, SourceGeneration: "generation-a", ExecutionID: "execution-a", Materializations: []explorer.Materialization{repositoryMaterialization}, Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "DocumentReference", State: "PUBLISHED", Queryable: true, Selector: &repositorySelector, Columns: repositoryMaterialization.Columns}}}, Publication: explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a", ExecutionID: "execution-a"}}); err != nil {
 		t.Fatal(err)
 	}
 	repositoryBundle := testV2Bundle("repository")
@@ -146,8 +149,8 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if defaultPublished.StatusCode != http.StatusOK || !strings.Contains(defaultPublished.Body, `"publicationId"`) {
 		t.Fatalf("default publish status=%d body=%s", defaultPublished.StatusCode, defaultPublished.Body)
 	}
-	if len(releaseActivations) != 1 || len(releaseActivations[0]) != 1 || releaseActivations[0][0].Output != "DocumentReference" {
-		t.Fatalf("default release activations = %#v", releaseActivations)
+	if len(releaseActivations) != 0 {
+		t.Fatalf("configuration publish unexpectedly activated a dataset release: %#v", releaseActivations)
 	}
 	defaultAfterPublish := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	var activeDefaultState explorerV2State
@@ -155,7 +158,6 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if defaultAfterPublish.StatusCode != http.StatusOK || activeDefaultState.ActiveRevisionID == "" || string(activeDefaultState.ActiveConfig) != string(activeDefaultState.DraftConfig) {
 		t.Fatalf("default active state=%#v", activeDefaultState)
 	}
-
 	var draft map[string]any
 	if err := json.Unmarshal(created.DraftConfig, &draft); err != nil {
 		t.Fatal(err)
@@ -177,13 +179,13 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("saved state=%#v", updated)
 	}
 	stale := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/custom-explorer/draft", string(draftRequest))
-	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, `"code":"DRAFT_CONFLICT"`) || !strings.Contains(stale.Body, `"currentVersion":2`) {
-		t.Fatalf("stale status=%d body=%s", stale.StatusCode, stale.Body)
+	if stale.StatusCode != http.StatusOK || !strings.Contains(stale.Body, `"draftVersion":3`) {
+		t.Fatalf("last-write-wins status=%d body=%s", stale.StatusCode, stale.Body)
 	}
 
 	compileRequest, _ := json.Marshal(map[string]any{"output": "DocumentReference", "config": json.RawMessage(updated.DraftConfig), "expectedDraftVersion": updated.DraftVersion})
 	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/authoring/compile", string(compileRequest))
-	if compiled.StatusCode != http.StatusOK || !strings.Contains(compiled.Body, `"recipeDigest"`) {
+	if compiled.StatusCode != http.StatusOK || !strings.Contains(compiled.Body, `"recipeDigest"`) || !strings.Contains(compiled.Body, `"diagnostics":[]`) {
 		t.Fatalf("compile status=%d body=%s", compiled.StatusCode, compiled.Body)
 	}
 
@@ -202,14 +204,17 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if published.StatusCode != http.StatusOK || !strings.Contains(published.Body, `"publicationId"`) || !strings.Contains(published.Body, `"activeUrl"`) {
 		t.Fatalf("publish status=%d body=%s", published.StatusCode, published.Body)
 	}
-	if len(releaseActivations) != 2 || len(releaseActivations[1]) != 1 || releaseActivations[1][0].Recipe != bundle.Name {
-		t.Fatalf("custom release activations = %#v", releaseActivations)
+	if len(releaseActivations) != 0 {
+		t.Fatalf("custom configuration publish unexpectedly activated a dataset release: %#v", releaseActivations)
 	}
 	stateResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
 	var active explorerV2State
 	decodeBody(t, stateResponse.Body, &active)
 	if stateResponse.StatusCode != http.StatusOK || active.ActiveRevisionID == "" || string(active.ActiveConfig) != string(active.DraftConfig) {
 		t.Fatalf("active state=%#v", active)
+	}
+	if len(active.Materializations) != 1 || active.Materializations[0].Selector == nil || active.Materializations[0].Selector.Recipe != "repository" {
+		t.Fatalf("configuration publish did not reuse the active dataset selector: %#v", active.Materializations)
 	}
 	priorActiveRevision := active.ActiveRevisionID
 	releaseFails = true
@@ -223,14 +228,14 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	var failedReleaseState explorerV2State
 	decodeBody(t, failedReleaseDraft.Body, &failedReleaseState)
 	failedReleasePublish := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/publish", `{"expectedDraftVersion":`+fmt.Sprint(failedReleaseState.DraftVersion)+`,"expectedDraftDigest":"`+failedReleaseState.DraftDigest+`"}`)
-	if failedReleasePublish.StatusCode != http.StatusConflict || !strings.Contains(failedReleasePublish.Body, `"code":"RELEASE_ACTIVATION_FAILED"`) {
-		t.Fatalf("failed release publish status=%d body=%s", failedReleasePublish.StatusCode, failedReleasePublish.Body)
+	if failedReleasePublish.StatusCode != http.StatusOK {
+		t.Fatalf("configuration publish should not depend on release activation status=%d body=%s", failedReleasePublish.StatusCode, failedReleasePublish.Body)
 	}
 	unchangedAfterReleaseFailure := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
 	var releaseUnchanged explorerV2State
 	decodeBody(t, unchangedAfterReleaseFailure.Body, &releaseUnchanged)
-	if releaseUnchanged.ActiveRevisionID != priorActiveRevision || string(releaseUnchanged.ActiveConfig) == string(releaseUnchanged.DraftConfig) {
-		t.Fatalf("failed release activation changed active state: %#v", releaseUnchanged)
+	if releaseUnchanged.ActiveRevisionID == priorActiveRevision || string(releaseUnchanged.ActiveConfig) != string(releaseUnchanged.DraftConfig) {
+		t.Fatalf("configuration publish did not activate independently of release state: %#v", releaseUnchanged)
 	}
 
 	releaseFails = false
@@ -245,14 +250,244 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	var failedDraftState explorerV2State
 	decodeBody(t, failedDraft.Body, &failedDraftState)
 	failedPublish := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom-explorer/publish", `{"expectedDraftVersion":`+fmt.Sprint(failedDraftState.DraftVersion)+`,"expectedDraftDigest":"`+failedDraftState.DraftDigest+`"}`)
-	if failedPublish.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("failed publish status=%d body=%s", failedPublish.StatusCode, failedPublish.Body)
+	if failedPublish.StatusCode != http.StatusOK {
+		t.Fatalf("configuration publish should not call materialization status=%d body=%s", failedPublish.StatusCode, failedPublish.Body)
 	}
 	unchangedResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
 	var unchanged explorerV2State
 	decodeBody(t, unchangedResponse.Body, &unchanged)
-	if unchanged.ActiveRevisionID != priorActiveRevision || string(unchanged.ActiveConfig) == string(unchanged.DraftConfig) {
-		t.Fatalf("failed publication changed active state: %#v", unchanged)
+	if unchanged.ActiveRevisionID == releaseUnchanged.ActiveRevisionID || string(unchanged.ActiveConfig) != string(unchanged.DraftConfig) {
+		t.Fatalf("materializer availability affected configuration activation: %#v", unchanged)
+	}
+}
+
+func TestActiveExplorerDatasetRequiresCanonicalReleaseMetadata(t *testing.T) {
+	bundle := testV2Bundle("explorer-custom")
+	candidate := activeExplorerDataset{
+		Generation:       "generation-a",
+		Dataset:          explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{Name: "DocumentReference", State: "PUBLISHED", Queryable: true}}},
+		Materializations: []explorer.Materialization{{Output: "DocumentReference", MaterializationID: "execution-a"}},
+	}
+	if activeExplorerDatasetSupports(candidate, bundle) {
+		t.Fatal("incomplete release metadata was accepted without canonical selectors")
+	}
+}
+
+func TestOutputsNeedingMaterializationReusesUnchangedOutputs(t *testing.T) {
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "Patient"}, {Name: "Specimen"}}}
+	patientSelector := dataset.DataframeSelector{Recipe: "explorer", TranslationVersion: "v1", Output: "Patient"}
+	specimenSelector := dataset.DataframeSelector{Recipe: "explorer", TranslationVersion: "v1", Output: "Specimen"}
+	active := activeExplorerDataset{
+		Generation: "generation-a",
+		Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{
+			{Name: "Patient", State: "PUBLISHED", Queryable: true, Fingerprint: "patient-v1", Selector: &patientSelector},
+			{Name: "Specimen", State: "PUBLISHED", Queryable: true, Fingerprint: "specimen-v1", Selector: &specimenSelector},
+		}},
+		Materializations: []explorer.Materialization{
+			{Output: "Patient", MaterializationID: "execution-patient", Fingerprint: "patient-v1", Selector: &patientSelector},
+			{Output: "Specimen", MaterializationID: "execution-specimen", Fingerprint: "specimen-v1", Selector: &specimenSelector},
+		},
+	}
+	changed := outputsNeedingMaterialization(bundle, active, "generation-a", map[string]string{"Patient": "patient-v1", "Specimen": "specimen-v2"})
+	if len(changed) != 1 || changed[0].Name != "Specimen" {
+		t.Fatalf("changed outputs = %#v, want only Specimen", changed)
+	}
+}
+
+func TestPublishBuildsMissingDatasetOutput(t *testing.T) {
+	store := explorer.NewMemoryStore()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := baselineExplorerConfigV2("project-a", "Default")
+	repositorySelector := dataset.DataframeSelector{Recipe: "repository", TranslationVersion: "interactive", Output: "DocumentReference"}
+	repositoryMaterialization := explorer.Materialization{OutputID: "DocumentReference", Output: "DocumentReference", MaterializationID: "execution-a", Selector: &repositorySelector, Columns: []publication.PhysicalColumn{{Name: "id", LogicalType: "String"}}}
+	if _, err := service.SaveRepositoryConfig(context.Background(), explorer.RepositoryConfig{
+		Project: "project-a", Config: repository, SourceGeneration: "generation-a", ExecutionID: "execution-a",
+		Materializations: []explorer.Materialization{repositoryMaterialization},
+		Dataset:          explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "DocumentReference", State: "PUBLISHED", Queryable: true, Selector: &repositorySelector, Columns: repositoryMaterialization.Columns}}},
+		Publication:      explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a", ExecutionID: "execution-a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	missingBundle := testV2Bundle("explorer-custom")
+	missingBundle.Outputs[0].Name = "SubstanceDefinition"
+	missingBundle.Outputs[0].RootResourceType = "SubstanceDefinition"
+	missingBundle.Outputs[0].RowGrain = "substance_definition"
+	compile := func(_ context.Context, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, error) {
+		digest, _ := missingBundle.Digest()
+		return ExplorerV2CompileResult{Config: request.Config, Bundle: missingBundle, RecipeDigest: digest, SourceGeneration: "generation-a", ResolvedSchemaDigest: "schema-a"}, nil
+	}
+	materializeCalls := 0
+	var materializedOutputNames [][]string
+	materialize := func(_ context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+		materializeCalls++
+		materializedOutputNames = append(materializedOutputNames, append([]string(nil), bindings.OutputNames...))
+		outputs := make([]graphresolver.RecipeExecutionOutput, 0, len(bundle.Outputs))
+		for _, output := range bundle.Outputs {
+			outputs = append(outputs, graphresolver.RecipeExecutionOutput{Name: output.Name, State: "PUBLISHED", Columns: []publication.PhysicalColumn{{Name: "id", LogicalType: "String"}}})
+		}
+		return graphresolver.RecipeExecution{ID: "execution-substance", SourceGeneration: "generation-a", ResolvedSchemaDigest: "schema-substance", State: "PUBLISHED", Outputs: outputs}, nil
+	}
+	var releaseActivations [][]dataset.DataframeSelector
+	activateRelease := func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) error {
+		if project != "project-a" || generation != "generation-a" {
+			t.Fatalf("release identity = %s/%s", project, generation)
+		}
+		releaseActivations = append(releaseActivations, append([]dataset.DataframeSelector(nil), selectors...))
+		return nil
+	}
+	app := fiber.New()
+	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{Compile: compile, Materialize: materialize, ActivateRelease: activateRelease})
+	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Needs Load","blank":true}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.StatusCode, created.Body)
+	}
+	published := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/needs-load/publish", `{}`)
+	if published.StatusCode != http.StatusOK || !strings.Contains(published.Body, `"publicationId"`) {
+		t.Fatalf("publish status=%d body=%s", published.StatusCode, published.Body)
+	}
+	if materializeCalls != 1 || len(releaseActivations) != 1 || len(releaseActivations[0]) != 1 || releaseActivations[0][0].Output != "SubstanceDefinition" {
+		t.Fatalf("build lifecycle calls=%d releases=%#v", materializeCalls, releaseActivations)
+	}
+	if len(materializedOutputNames) != 1 || len(materializedOutputNames[0]) != 1 || materializedOutputNames[0][0] != "SubstanceDefinition" {
+		t.Fatalf("materialized output selection = %#v", materializedOutputNames)
+	}
+	active, err := service.ActiveRevision(context.Background(), "project-a", "needs-load")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active.Materializations) != 1 || active.Materializations[0].Output != "SubstanceDefinition" || active.Materializations[0].Selector == nil {
+		t.Fatalf("active materializations=%#v", active.Materializations)
+	}
+	updatedRepository, err := service.RepositoryConfig(context.Background(), "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updatedRepository.Dataset.Outputs) != 2 || len(updatedRepository.Materializations) != 2 {
+		t.Fatalf("merged repository dataset=%#v materializations=%#v", updatedRepository.Dataset, updatedRepository.Materializations)
+	}
+}
+
+func TestPublishUsesCompiledGenerationInsteadOfStaleRepositoryGeneration(t *testing.T) {
+	store := explorer.NewMemoryStore()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := baselineExplorerConfigV2("project-a", "Default")
+	oldSelector := dataset.DataframeSelector{Recipe: "repository", TranslationVersion: "interactive", Output: "DocumentReference"}
+	oldMaterialization := explorer.Materialization{OutputID: "DocumentReference", Output: "DocumentReference", MaterializationID: "execution-old", Selector: &oldSelector}
+	if _, err := service.SaveRepositoryConfig(context.Background(), explorer.RepositoryConfig{
+		Project: "project-a", Config: repository, SourceGeneration: "generation-old", ExecutionID: "execution-old",
+		Materializations: []explorer.Materialization{oldMaterialization},
+		Dataset:          explorer.DatasetMetadata{Generation: "generation-old", Outputs: []explorer.DatasetOutput{{Name: "DocumentReference", State: "PUBLISHED", Queryable: true, Selector: &oldSelector}}},
+		Publication:      explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-old", ExecutionID: "execution-old"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := testV2Bundle("explorer-custom")
+	compile := func(_ context.Context, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, error) {
+		digest, _ := bundle.Digest()
+		return ExplorerV2CompileResult{Config: request.Config, Bundle: bundle, RecipeDigest: digest, SourceGeneration: "generation-new", ResolvedSchemaDigest: "schema-new", OutputFingerprints: map[string]string{"DocumentReference": "fingerprint-new"}}, nil
+	}
+	validatedGeneration := ""
+	validateGeneration := func(_ context.Context, project, generation string) error {
+		if project != "project-a" {
+			t.Fatalf("validated project = %q", project)
+		}
+		validatedGeneration = generation
+		return nil
+	}
+	materializedGeneration := ""
+	materialize := func(_ context.Context, _ recipe.Bundle, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+		materializedGeneration = bindings.DatasetGeneration
+		return graphresolver.RecipeExecution{ID: "execution-new", SourceGeneration: bindings.DatasetGeneration, ResolvedSchemaDigest: "schema-new", State: "PUBLISHED", Outputs: []graphresolver.RecipeExecutionOutput{{Name: "DocumentReference", State: "PUBLISHED"}}}, nil
+	}
+	activatedGeneration := ""
+	activateRelease := func(_ context.Context, project, generation string, _ []dataset.DataframeSelector) error {
+		if project != "project-a" {
+			t.Fatalf("activated project = %q", project)
+		}
+		activatedGeneration = generation
+		return nil
+	}
+	app := fiber.New()
+	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{
+		Compile: compile, Materialize: materialize, ValidateReleaseGeneration: validateGeneration, ActivateRelease: activateRelease,
+	})
+	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Current Generation","blank":true}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.StatusCode, created.Body)
+	}
+	published := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/current-generation/publish", `{}`)
+	if published.StatusCode != http.StatusOK {
+		t.Fatalf("publish status=%d body=%s", published.StatusCode, published.Body)
+	}
+	if validatedGeneration != "generation-new" || materializedGeneration != "generation-new" || activatedGeneration != "generation-new" {
+		t.Fatalf("publish generations validate=%q materialize=%q activate=%q", validatedGeneration, materializedGeneration, activatedGeneration)
+	}
+	updated, err := service.RepositoryConfig(context.Background(), "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SourceGeneration != "generation-new" || updated.Dataset.Generation != "generation-new" || updated.Publication.Generation != "generation-new" {
+		t.Fatalf("updated repository generation = %#v", updated)
+	}
+}
+
+func TestPublishPreflightsGenerationBeforeMaterialization(t *testing.T) {
+	store := explorer.NewMemoryStore()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := testV2Bundle("explorer-custom")
+	compile := func(_ context.Context, request ExplorerV2CompileRequest) (ExplorerV2CompileResult, error) {
+		digest, _ := bundle.Digest()
+		return ExplorerV2CompileResult{Config: request.Config, Bundle: bundle, RecipeDigest: digest, SourceGeneration: "generation-missing"}, nil
+	}
+	materializeCalls := 0
+	materialize := func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+		materializeCalls++
+		return graphresolver.RecipeExecution{}, nil
+	}
+	app := fiber.New()
+	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{
+		Compile: compile, Materialize: materialize,
+		ValidateReleaseGeneration: func(context.Context, string, string) error { return dataset.ErrSnapshotNotFound },
+		ActivateRelease:           func(context.Context, string, string, []dataset.DataframeSelector) error { return nil },
+	})
+	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Missing Generation","blank":true}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.StatusCode, created.Body)
+	}
+	published := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/missing-generation/publish", `{}`)
+	if published.StatusCode != http.StatusServiceUnavailable || !strings.Contains(published.Body, `"code":"DATASET_GENERATION_UNAVAILABLE"`) || !strings.Contains(published.Body, `"retryable":true`) {
+		t.Fatalf("publish status=%d body=%s", published.StatusCode, published.Body)
+	}
+	if materializeCalls != 0 {
+		t.Fatalf("materializer called %d times after failed generation preflight", materializeCalls)
+	}
+}
+
+func TestExplorerPublishErrorHidesBackendCause(t *testing.T) {
+	app := fiber.New()
+	app.Get("/", func(c fiber.Ctx) error {
+		c.Locals("request_id", "request-a")
+		return explorerV2ErrorWithDetails(c, http.StatusServiceUnavailable, "DATASET_BUILD_FAILED", "the dataset could not be built", publicExplorerPublishDetails(fiber.Map{
+			"generation": "generation-a",
+			"output":     "Patient",
+			"cause":      "secret backend query and credentials",
+		}))
+	})
+	response := requestJSON(t, app, http.MethodGet, "/", "")
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(response.Body, `"retryable":true`) || !strings.Contains(response.Body, `"requestId":"request-a"`) {
+		t.Fatalf("publish error status=%d body=%s", response.StatusCode, response.Body)
+	}
+	if strings.Contains(response.Body, "secret backend") || !strings.Contains(response.Body, `"output":"Patient"`) {
+		t.Fatalf("publish error leaked backend cause or lost public context: %s", response.Body)
 	}
 }
 

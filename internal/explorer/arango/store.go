@@ -58,11 +58,7 @@ func (s *Store) ListConfigs(ctx context.Context, project string) ([]explorer.Rep
 }
 func (s *Store) GetConfig(ctx context.Context, project, id string) (*explorer.RepositoryConfig, error) {
 	var out *explorer.RepositoryConfig
-	keys := []string{configKey(project, id)}
-	if id == "default" {
-		keys = append(keys, repositoryConfigKey(project))
-	}
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key IN @keys SORT d.updatedAt DESC RETURN d`, 1, map[string]any{"@c": RepositoryConfigsCollection, "keys": keys}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
+	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": configKey(project, id)}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
 	if err != nil {
 		return nil, err
 	}
@@ -88,11 +84,32 @@ func (s *Store) SaveConfig(ctx context.Context, value explorer.RepositoryConfig)
 	return out, nil
 }
 func (s *Store) GetRepositoryConfig(ctx context.Context, project string) (*explorer.RepositoryConfig, error) {
-	return s.GetConfig(ctx, project, "default")
+	var out *explorer.RepositoryConfig
+	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": repositoryConfigKey(project)}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return nil, explorer.ErrNotFound
+	}
+	if out.ExplorerID == "" {
+		out.ExplorerID, out.Management = "default", explorer.ManagementRepository
+	}
+	return out, nil
 }
 func (s *Store) SaveRepositoryConfig(ctx context.Context, value explorer.RepositoryConfig) (*explorer.RepositoryConfig, error) {
 	value.ExplorerID, value.Management = "default", explorer.ManagementRepository
-	return s.SaveConfig(ctx, value)
+	value.UpdatedAt = time.Now().UTC()
+	doc, err := document(value, repositoryConfigKey(value.Project))
+	if err != nil {
+		return nil, err
+	}
+	var out *explorer.RepositoryConfig
+	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE @doc IN @@c RETURN NEW`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": repositoryConfigKey(value.Project), "doc": doc}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 func (s *Store) List(ctx context.Context, project string) ([]explorer.Explorer, error) {
 	out := []explorer.Explorer{}
@@ -135,18 +152,13 @@ func (s *Store) CreateRepository(ctx context.Context, e explorer.Explorer) (*exp
 	return s.CreateInteractive(ctx, e)
 }
 func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
-	e.DraftVersion = expected + 1
 	e.UpdatedAt = time.Now().UTC()
 	raw, err := document(e, explorerKey(e.Project, e.ExplorerID))
 	if err != nil {
 		return nil, err
 	}
 	var out *explorer.Explorer
-	digest := ""
-	if len(expectedDigest) > 0 {
-		digest = expectedDigest[0]
-	}
-	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.draftVersion == @expected AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest) UPDATE d WITH @doc IN @@c RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(e.Project, e.ExplorerID), "expected": expected, "expectedDigest": digest, "doc": raw}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
+	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH MERGE(@doc, { draftVersion: d.draftVersion + 1 }) IN @@c RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(e.Project, e.ExplorerID), "doc": raw}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
 	if err != nil {
 		return nil, err
 	}
@@ -449,12 +461,50 @@ var _ explorer.Store = (*Store)(nil)
 
 func decode[T any](value any) (T, error) {
 	var out T
-	raw, err := json.Marshal(value)
+	raw, err := json.Marshal(normalizeUpdatedAt(value))
 	if err != nil {
 		return out, err
 	}
 	err = json.Unmarshal(raw, &out)
 	return out, err
+}
+
+// normalizeUpdatedAt keeps reads tolerant of the numeric Arango timestamp
+// written by the short-lived last-write-wins regression. New writes use the
+// normal JSON time string representation, but existing documents must remain
+// readable so they can be repaired by a subsequent draft save.
+func normalizeUpdatedAt(value any) any {
+	row, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	normalized := make(map[string]any, len(row))
+	for key, item := range row {
+		normalized[key] = item
+	}
+	if timestamp, ok := numericTimestamp(row["updatedAt"]); ok {
+		normalized["updatedAt"] = timestamp
+	}
+	return normalized
+}
+
+func numericTimestamp(value any) (string, bool) {
+	var millis int64
+	switch number := value.(type) {
+	case float64:
+		millis = int64(number)
+	case float32:
+		millis = int64(number)
+	case int:
+		millis = int64(number)
+	case int64:
+		millis = number
+	case uint64:
+		millis = int64(number)
+	default:
+		return "", false
+	}
+	return time.UnixMilli(millis).UTC().Format(time.RFC3339Nano), true
 }
 func document(value any, k string) (map[string]any, error) {
 	raw, err := json.Marshal(value)

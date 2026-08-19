@@ -69,11 +69,12 @@ type DatasetMetadata struct {
 }
 
 type DatasetOutput struct {
-	Name      string                       `json:"name"`
-	State     string                       `json:"state"`
-	Queryable bool                         `json:"queryable"`
-	Selector  *dataset.DataframeSelector   `json:"selector,omitempty"`
-	Columns   []publication.PhysicalColumn `json:"columns,omitempty"`
+	Name        string                       `json:"name"`
+	State       string                       `json:"state"`
+	Queryable   bool                         `json:"queryable"`
+	Fingerprint string                       `json:"fingerprint,omitempty"`
+	Selector    *dataset.DataframeSelector   `json:"selector,omitempty"`
+	Columns     []publication.PhysicalColumn `json:"columns,omitempty"`
 }
 
 type PublicationMetadata struct {
@@ -111,25 +112,17 @@ type Materialization struct {
 	OutputID          string                       `json:"outputId"`
 	Output            string                       `json:"output"`
 	MaterializationID string                       `json:"materializationId"`
+	Fingerprint       string                       `json:"fingerprint,omitempty"`
 	Selector          *dataset.DataframeSelector   `json:"selector,omitempty"`
 	Columns           []publication.PhysicalColumn `json:"columns"`
 }
 
-// WithDataframeSelectors projects the immutable executable recipe identity
-// onto server-derived publication metadata. This also upgrades lifecycle
-// records written before selectors were persisted without mutating the
-// authored ExplorerConfigV2 packet or immutable revision.
-func WithDataframeSelectors(bundle recipe.Bundle, materializations []Materialization, metadata DatasetMetadata) ([]Materialization, DatasetMetadata) {
+// WithDataframeSelectors clones canonical publication metadata while
+// preserving the selectors that identify the active dataset release. Missing
+// selectors are invalid and are not synthesized.
+func WithDataframeSelectors(_ recipe.Bundle, materializations []Materialization, metadata DatasetMetadata) ([]Materialization, DatasetMetadata) {
 	materializations = append([]Materialization(nil), materializations...)
 	metadata.Outputs = append([]DatasetOutput(nil), metadata.Outputs...)
-	for index := range materializations {
-		selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: materializations[index].Output}
-		materializations[index].Selector = &selector
-	}
-	for index := range metadata.Outputs {
-		selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: metadata.Outputs[index].Name}
-		metadata.Outputs[index].Selector = &selector
-	}
 	return materializations, metadata
 }
 

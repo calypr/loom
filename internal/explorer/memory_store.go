@@ -10,14 +10,15 @@ import (
 // MemoryStore is used by service tests and local wiring; durable deployments
 // use the Arango implementation.
 type MemoryStore struct {
-	mu        sync.Mutex
-	explorers map[string]Explorer
-	revisions map[string]Revision
-	configs   map[string]RepositoryConfig
+	mu                sync.Mutex
+	explorers         map[string]Explorer
+	revisions         map[string]Revision
+	configs           map[string]RepositoryConfig
+	repositoryConfigs map[string]RepositoryConfig
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{explorers: map[string]Explorer{}, revisions: map[string]Revision{}, configs: map[string]RepositoryConfig{}}
+	return &MemoryStore{explorers: map[string]Explorer{}, revisions: map[string]Revision{}, configs: map[string]RepositoryConfig{}, repositoryConfigs: map[string]RepositoryConfig{}}
 }
 func configKey(project, id string) string { return project + "\x00" + id }
 func (s *MemoryStore) ListConfigs(_ context.Context, project string) ([]RepositoryConfig, error) {
@@ -28,6 +29,9 @@ func (s *MemoryStore) ListConfigs(_ context.Context, project string) ([]Reposito
 		if value.Project == project {
 			out = append(out, value)
 		}
+	}
+	if value, ok := s.repositoryConfigs[project]; ok {
+		out = append(out, value)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ExplorerID < out[j].ExplorerID })
 	return out, nil
@@ -50,11 +54,22 @@ func (s *MemoryStore) SaveConfig(_ context.Context, value RepositoryConfig) (*Re
 	return &value, nil
 }
 func (s *MemoryStore) GetRepositoryConfig(ctx context.Context, project string) (*RepositoryConfig, error) {
-	return s.GetConfig(ctx, project, "default")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.repositoryConfigs[project]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return &v, nil
 }
 func (s *MemoryStore) SaveRepositoryConfig(ctx context.Context, value RepositoryConfig) (*RepositoryConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	value.ExplorerID, value.Management = "default", ManagementRepository
-	return s.SaveConfig(ctx, value)
+	value.UpdatedAt = time.Now().UTC()
+	value.Config = append([]byte(nil), value.Config...)
+	s.repositoryConfigs[value.Project] = value
+	return &value, nil
 }
 func explorerKey(project, id string) string { return project + "\x00" + id }
 func (s *MemoryStore) List(_ context.Context, project string) ([]Explorer, error) {
@@ -98,12 +113,6 @@ func (s *MemoryStore) SaveDraft(_ context.Context, e Explorer, expected int64, e
 	old, ok := s.explorers[k]
 	if !ok {
 		return nil, ErrNotFound
-	}
-	if old.DraftVersion != expected {
-		return nil, ErrDraftConflict
-	}
-	if len(expectedDigest) > 0 && expectedDigest[0] != "" && old.DraftDigest != expectedDigest[0] {
-		return nil, ErrDraftConflict
 	}
 	e.DraftVersion = old.DraftVersion + 1
 	e.UpdatedAt = time.Now().UTC()

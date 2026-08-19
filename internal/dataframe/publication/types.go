@@ -51,6 +51,10 @@ type OutputStream struct {
 type PublicationIdentity struct {
 	Name               string
 	TranslationVersion string
+	// OutputName scopes single-output publications. The field is empty for
+	// legacy/full-bundle publications and is used by incremental Explorer
+	// loads so each output can retain its own visibility pointer.
+	OutputName         string
 	Project            string
 	DatasetGeneration  string
 	RecipeDigest       string
@@ -71,6 +75,15 @@ type PublishedOutput struct {
 
 type Target interface {
 	Begin(context.Context, PublicationIdentity, []OutputSchema) (Transaction, error)
+}
+
+// ObjectValueTarget is implemented by publication targets that can persist
+// logical object columns without flattening or stringifying them. Targets
+// that do not implement this capability continue to receive the generic flat
+// publication contract, where object values are rejected before any rows are
+// written.
+type ObjectValueTarget interface {
+	SupportsObjectValues() bool
 }
 
 type Transaction interface {

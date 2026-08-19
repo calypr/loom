@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,7 @@ func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testi
 	if got := strings.Count(call.query, "UPDATE "); got != 1 {
 		t.Fatalf("release activation must use one AQL modification operation, got %d:\n%s", got, call.query)
 	}
+	assertOnlyDeclaredBindVariables(t, call)
 }
 
 func TestSaveReleasePersistsCandidateWithoutMovingVisibility(t *testing.T) {
@@ -245,7 +247,8 @@ func TestReadActiveReleasePassesOnlyDeclaredBindVariables(t *testing.T) {
 func assertOnlyDeclaredBindVariables(t *testing.T, call queryCall) {
 	t.Helper()
 	for name := range call.bindVars {
-		if !strings.Contains(call.query, "@"+name) {
+		pattern := "@" + regexp.QuoteMeta(name) + `\b`
+		if !regexp.MustCompile(pattern).MatchString(call.query) {
 			t.Errorf("bind variable %q is not declared in query", name)
 		}
 	}

@@ -4,9 +4,23 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	storepkg "github.com/calypr/loom/internal/store/arango"
 )
+
+func TestDecodeNormalizesNumericUpdatedAt(t *testing.T) {
+	timestamp := float64(1776620000000)
+	value, err := decode[struct {
+		UpdatedAt time.Time `json:"updatedAt"`
+	}](map[string]any{"updatedAt": timestamp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.UpdatedAt.UnixMilli() != int64(timestamp) {
+		t.Fatalf("updatedAt=%v, want %d", value.UpdatedAt, int64(timestamp))
+	}
+}
 
 type queryCall struct {
 	query string

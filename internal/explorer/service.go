@@ -151,7 +151,10 @@ func (s *Service) CreateInteractiveV2(ctx context.Context, project, id string, r
 }
 
 // SaveDraftV2 is the only V2 draft write path. It performs no compilation or
-// materialization and supplies both CAS components to the durable adapter.
+// materialization. Draft writes are intentionally last-write-wins: the
+// expected version and digest are retained for API compatibility and
+// observability, but a stale Builder cannot block the latest valid draft from
+// being saved.
 // The repository default is editable; its repository identity is retained in
 // the packet so a later ETL deployment can still recognize it.
 func (s *Service) SaveDraftV2(ctx context.Context, project, id string, raw []byte, expected int64, expectedDigest, actor string) (*Explorer, error) {
@@ -173,9 +176,6 @@ func (s *Service) SaveDraftV2(ctx context.Context, project, id string, raw []byt
 		baseDigest := repository.ConfigDigest
 		if baseDigest == "" {
 			_, _, _, baseDigest, _ = CanonicalConfigV2(repository.Config, project, "default", "repository")
-		}
-		if expected != baseVersion || (expectedDigest != "" && expectedDigest != baseDigest) {
-			return nil, ErrDraftConflict
 		}
 		updatedAt := repository.UpdatedAt
 		if updatedAt.IsZero() {
@@ -212,6 +212,14 @@ func (s *Service) SaveDraftV2(ctx context.Context, project, id string, raw []byt
 }
 
 func (s *Service) InsertReadyRevisionV2(ctx context.Context, owner *Explorer, config []byte, configDigest string, compiled Compilation, resolvedSchemaDigest, sourceGeneration, actor string, materializations []Materialization) (*Revision, error) {
+	return s.InsertReadyRevisionV2WithMetadata(ctx, owner, config, configDigest, compiled, resolvedSchemaDigest, sourceGeneration, actor, materializations, datasetMetadata(sourceGeneration, resolvedSchemaDigest, materializations), PublicationMetadata{})
+}
+
+// InsertReadyRevisionV2WithMetadata records a configuration revision against
+// an already materialized dataset. Callers that publish an Explorer
+// configuration without rebuilding data pass the active release's frozen
+// dataset/materialization metadata here so the revision remains queryable.
+func (s *Service) InsertReadyRevisionV2WithMetadata(ctx context.Context, owner *Explorer, config []byte, configDigest string, compiled Compilation, resolvedSchemaDigest, sourceGeneration, actor string, materializations []Materialization, dataset DatasetMetadata, publication PublicationMetadata) (*Revision, error) {
 	if owner == nil || (owner.ManagementMode != ManagementInteractive && !(owner.ExplorerID == "default" && owner.ManagementMode == ManagementRepository)) {
 		return nil, fmt.Errorf("Explorer is not editable")
 	}
@@ -220,13 +228,28 @@ func (s *Service) InsertReadyRevisionV2(ctx context.Context, owner *Explorer, co
 		return nil, err
 	}
 	now := s.now()
+	if dataset.Generation == "" {
+		dataset.Generation = sourceGeneration
+	}
+	if dataset.SchemaDigest == "" {
+		dataset.SchemaDigest = resolvedSchemaDigest
+	}
+	if publication.State == "" {
+		publication.State = string(RevisionReady)
+	}
+	if publication.Generation == "" {
+		publication.Generation = sourceGeneration
+	}
+	if publication.UpdatedAt.IsZero() {
+		publication.UpdatedAt = now
+	}
 	return s.store.InsertRevision(ctx, Revision{
 		ID: id, Project: owner.Project, ExplorerID: owner.ExplorerID,
 		Config: append([]byte(nil), config...), ConfigDigest: configDigest,
 		Recipe: compiled.Bundle, RecipeDigest: compiled.RecipeDigest,
 		ResolvedSchemaDigest: resolvedSchemaDigest, SourceGeneration: sourceGeneration,
-		Dataset:          datasetMetadata(sourceGeneration, resolvedSchemaDigest, materializations),
-		Publication:      PublicationMetadata{State: string(RevisionReady), Generation: sourceGeneration, UpdatedAt: now},
+		Dataset:          dataset,
+		Publication:      publication,
 		EmittedColumns:   append([]EmittedColumn(nil), compiled.EmittedColumns...),
 		Materializations: append([]Materialization(nil), materializations...),
 		Status:           RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now,

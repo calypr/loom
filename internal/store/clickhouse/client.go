@@ -265,6 +265,24 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		if items.Kind() != reflect.Array && items.Kind() != reflect.Slice {
 			return nil, fmt.Errorf("ClickHouse column %q expects %s, got %T", column.Name, columnType, value)
 		}
+		if unwrapClickHouseType(itemType, "Nullable") == "JSON" {
+			normalized := make([]*ch.JSON, items.Len())
+			for index := 0; index < items.Len(); index++ {
+				item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
+				if err != nil {
+					return nil, err
+				}
+				if item == nil {
+					continue
+				}
+				jsonValue, ok := item.(*ch.JSON)
+				if !ok {
+					return nil, fmt.Errorf("ClickHouse column %q JSON array item normalized to %T", column.Name, item)
+				}
+				normalized[index] = jsonValue
+			}
+			return normalized, nil
+		}
 		normalized := make([]any, items.Len())
 		for index := 0; index < items.Len(); index++ {
 			item, err := normalizeInsertValue(Column{Name: column.Name, Type: itemType}, items.Index(index).Interface())
@@ -274,6 +292,9 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 			normalized[index] = item
 		}
 		return normalized, nil
+	}
+	if baseType == "JSON" {
+		return normalizeJSONInsertValue(column.Name, value)
 	}
 	text, isString := value.(string)
 	if !isString {
@@ -295,6 +316,139 @@ func normalizeInsertValue(column Column, value any) (any, error) {
 		return nil, fmt.Errorf("ClickHouse column %q parse DateTime %q: unsupported timestamp format", column.Name, text)
 	}
 	return value, nil
+}
+
+func normalizeJSONInsertValue(column string, value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if _, ok := value.(*ch.JSON); ok {
+		return value, nil
+	}
+	if _, ok := value.(ch.JSON); ok {
+		return value, nil
+	}
+	object, ok, err := jsonObjectMap(value)
+	if err != nil {
+		return nil, fmt.Errorf("ClickHouse column %q JSON object: %w", column, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("ClickHouse column %q expects a JSON object, got %T", column, value)
+	}
+	return buildNativeJSONObject(object)
+}
+
+func buildNativeJSONObject(object map[string]any) (*ch.JSON, error) {
+	result := ch.NewJSON()
+	if err := addNativeJSONFields(result, "", object); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func addNativeJSONFields(result *ch.JSON, prefix string, object map[string]any) error {
+	for key, value := range object {
+		path := key
+		if prefix != "" {
+			path = prefix + "." + key
+		}
+		if nested, ok, err := jsonObjectMap(value); err != nil {
+			return err
+		} else if ok {
+			if err := addNativeJSONFields(result, path, nested); err != nil {
+				return err
+			}
+			continue
+		}
+		normalized, err := normalizeNativeJSONField(value)
+		if err != nil {
+			return err
+		}
+		result.SetValueAtPath(path, normalized)
+	}
+	return nil
+}
+
+func normalizeNativeJSONField(value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	rv := reflect.ValueOf(value)
+	for rv.IsValid() && (rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer) {
+		if rv.IsNil() {
+			return nil, nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() || (rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array) || rv.Type().Elem().Kind() == reflect.Uint8 {
+		return value, nil
+	}
+	items := make([]*ch.JSON, rv.Len())
+	for index := 0; index < rv.Len(); index++ {
+		item := rv.Index(index).Interface()
+		if item == nil || (reflect.ValueOf(item).Kind() == reflect.Pointer && reflect.ValueOf(item).IsNil()) {
+			continue
+		}
+		object, ok, err := jsonObjectMap(item)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return value, nil
+		}
+		converted, err := buildNativeJSONObject(object)
+		if err != nil {
+			return nil, err
+		}
+		items[index] = converted
+	}
+	return ch.NewDynamicWithType(items, "Array(JSON)"), nil
+}
+
+func jsonObjectMap(value any) (map[string]any, bool, error) {
+	if value == nil {
+		return nil, false, nil
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true, nil
+	case ch.JSON:
+		return typed.NestedMap(), true, nil
+	case *ch.JSON:
+		if typed == nil {
+			return nil, false, nil
+		}
+		return typed.NestedMap(), true, nil
+	}
+	rv := reflect.ValueOf(value)
+	for rv.IsValid() && (rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer) {
+		if rv.IsNil() {
+			return nil, false, nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return nil, false, nil
+	}
+	if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
+		result := make(map[string]any, rv.Len())
+		for _, key := range rv.MapKeys() {
+			result[key.String()] = rv.MapIndex(key).Interface()
+		}
+		return result, true, nil
+	}
+	if rv.Kind() != reflect.Struct {
+		return nil, false, nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, false, err
+	}
+	var result map[string]any
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return nil, false, nil
+	}
+	return result, true, nil
 }
 
 func unwrapClickHouseType(value, wrapper string) string {
@@ -385,6 +539,13 @@ func parseOptions(opts Options) (*ch.Options, error) {
 	parsed.Auth.Password = opts.Password
 	parsed.DialTimeout = opts.Timeout
 	parsed.ReadTimeout = opts.Timeout
+	// Native JSON columns are used for logical object-valued dataframe fields.
+	// Keep the setting on every connection so DDL and native batch inserts work
+	// consistently against ClickHouse 25.3 deployments.
+	if parsed.Settings == nil {
+		parsed.Settings = ch.Settings{}
+	}
+	parsed.Settings["allow_experimental_json_type"] = true
 	return parsed, nil
 }
 

@@ -3,6 +3,8 @@ package clickhouse
 import (
 	"testing"
 	"time"
+
+	ch "github.com/ClickHouse/clickhouse-go/v2"
 )
 
 func TestNewUsesOfficialDriverDSN(t *testing.T) {
@@ -59,5 +61,40 @@ func TestNormalizeInsertValueUsesEmptyArrayForMissingRepeatedValue(t *testing.T)
 	}
 	if got := len(value.([]any)); got != 0 {
 		t.Fatalf("empty array length = %d", got)
+	}
+}
+
+func TestNormalizeInsertValuePassesNativeJSONValuesThrough(t *testing.T) {
+	value, err := normalizeInsertValue(Column{Name: "method", Type: "Nullable(JSON)"}, map[string]any{"code": "M1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonValue, ok := value.(*ch.JSON)
+	if !ok || jsonValue.NestedMap()["code"] != "M1" {
+		t.Fatalf("native JSON value = %#v", value)
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "method", Type: "JSON"}, map[string]any{
+		"coding": []map[string]any{{"code": "M1", "display": "Fixation"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonValue, ok = value.(*ch.JSON)
+	if !ok {
+		t.Fatalf("nested native JSON value = %#v", value)
+	}
+	coding, ok := jsonValue.NestedMap()["coding"].(ch.Dynamic)
+	if !ok || coding.Type() != "Array(JSON)" {
+		t.Fatalf("nested coding value = %#v", jsonValue.NestedMap()["coding"])
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "methods", Type: "Array(JSON)"}, []map[string]any{{"code": "M1"}, {"code": "M2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, ok := value.([]*ch.JSON)
+	if !ok || len(items) != 2 {
+		t.Fatalf("native JSON array = %#v", value)
 	}
 }

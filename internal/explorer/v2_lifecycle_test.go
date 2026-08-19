@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestV2DraftRoundTripAndDigestCAS(t *testing.T) {
+func TestV2DraftRoundTripLastWriteWins(t *testing.T) {
 	service, err := NewService(NewMemoryStore())
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,30 @@ func TestV2DraftRoundTripAndDigestCAS(t *testing.T) {
 	if updated.DraftVersion != 2 || updated.DraftDigest != nextDigest {
 		t.Fatalf("updated metadata = %#v", updated)
 	}
-	if _, err := service.SaveDraftV2(context.Background(), "project-a", "my-explorer", raw, 1, created.DraftDigest, "stale"); err != ErrDraftConflict {
-		t.Fatalf("stale digest/version save error = %v, want ErrDraftConflict", err)
+	stale, err := service.SaveDraftV2(context.Background(), "project-a", "my-explorer", raw, 1, created.DraftDigest, "stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.DraftVersion != 3 || stale.DraftDigest == updated.DraftDigest || string(stale.DraftConfig) == string(updated.DraftConfig) {
+		t.Fatalf("last-write-wins draft = %#v", stale)
+	}
+}
+
+func TestRepositoryConfigDoesNotFallBackToInteractiveDefault(t *testing.T) {
+	store := NewMemoryStore()
+	interactive := RepositoryConfig{Project: "project-a", ExplorerID: "default", Management: ManagementInteractive, SourceGeneration: "interactive-generation"}
+	repository := RepositoryConfig{Project: "project-a", ExplorerID: "default", Management: ManagementRepository, SourceGeneration: "repository-generation"}
+	if _, err := store.SaveConfig(context.Background(), interactive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveRepositoryConfig(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetRepositoryConfig(context.Background(), "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceGeneration != repository.SourceGeneration || got.Management != ManagementRepository {
+		t.Fatalf("repository config = %#v", got)
 	}
 }

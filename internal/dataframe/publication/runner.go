@@ -26,7 +26,11 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
-	schemas, err := validateOutputs(normalizedOutputs)
+	supportsObjects := false
+	if objectTarget, ok := target.(ObjectValueTarget); ok {
+		supportsObjects = objectTarget.SupportsObjectValues()
+	}
+	schemas, err := validateOutputs(normalizedOutputs, supportsObjects)
 	if err != nil {
 		return Result{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 	}
@@ -76,7 +80,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := validateRow(output.Columns, row); err != nil {
+			if err := validateRow(output.Columns, row, supportsObjects); err != nil {
 				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 			}
 			for _, column := range output.Columns {
@@ -211,7 +215,7 @@ func cloneRow(row map[string]any) map[string]any {
 	return copy
 }
 
-func validateOutputs(outputs []OutputStream) ([]OutputSchema, error) {
+func validateOutputs(outputs []OutputStream, supportsObjects bool) ([]OutputSchema, error) {
 	seen := map[string]struct{}{}
 	schemas := make([]OutputSchema, 0, len(outputs))
 	for _, output := range outputs {
@@ -232,6 +236,9 @@ func validateOutputs(outputs []OutputStream) ([]OutputSchema, error) {
 			if strings.TrimSpace(column.Name) == "" || strings.TrimSpace(column.Kind) == "" {
 				return nil, fmt.Errorf("output %q has an invalid column", name)
 			}
+			if strings.EqualFold(strings.TrimSpace(column.Kind), "object") && !supportsObjects {
+				return nil, fmt.Errorf("output %q object-valued column %q is not supported by the publication target", name, column.Name)
+			}
 			if _, ok := columnSeen[column.Name]; ok {
 				return nil, fmt.Errorf("output %q column %q is duplicated", name, column.Name)
 			}
@@ -242,7 +249,7 @@ func validateOutputs(outputs []OutputStream) ([]OutputSchema, error) {
 	return schemas, nil
 }
 
-func validateRow(columns []LogicalColumn, row map[string]any) error {
+func validateRow(columns []LogicalColumn, row map[string]any, supportsObjects bool) error {
 	if row == nil {
 		return fmt.Errorf("row is nil")
 	}
@@ -259,7 +266,7 @@ func validateRow(columns []LogicalColumn, row map[string]any) error {
 			}
 			continue
 		}
-		if err := validateValue(column, value); err != nil {
+		if err := validateValue(column, value, supportsObjects); err != nil {
 			return err
 		}
 	}
@@ -284,23 +291,23 @@ func populatedValue(column LogicalColumn, value any) bool {
 	return true
 }
 
-func validateValue(column LogicalColumn, value any) error {
+func validateValue(column LogicalColumn, value any, supportsObjects bool) error {
 	if column.Repeated {
 		v := reflect.ValueOf(value)
 		if v.Kind() != reflect.Array && v.Kind() != reflect.Slice {
 			return fmt.Errorf("column %q must be repeated", column.Name)
 		}
 		for i := 0; i < v.Len(); i++ {
-			if err := validateScalar(column, v.Index(i).Interface()); err != nil {
+			if err := validateScalar(column, v.Index(i).Interface(), supportsObjects); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return validateScalar(column, value)
+	return validateScalar(column, value, supportsObjects)
 }
 
-func validateScalar(column LogicalColumn, value any) error {
+func validateScalar(column LogicalColumn, value any, supportsObjects bool) error {
 	if value == nil {
 		return nil
 	}
@@ -322,7 +329,13 @@ func validateScalar(column LogicalColumn, value any) error {
 	case "boolean":
 		_, valid = value.(bool)
 	case "object":
-		return fmt.Errorf("object-valued column %q is not supported by the flat publication contract", column.Name)
+		if !supportsObjects {
+			return fmt.Errorf("object-valued column %q is not supported by the flat publication contract", column.Name)
+		}
+		if err := validateObjectValue(value); err != nil {
+			return fmt.Errorf("object-valued column %q is invalid: %w", column.Name, err)
+		}
+		valid = true
 	default:
 		return fmt.Errorf("column %q has unsupported logical kind %q", column.Name, column.Kind)
 	}
@@ -333,6 +346,26 @@ func validateScalar(column LogicalColumn, value any) error {
 		if f, ok := value.(float64); ok && (math.IsNaN(f) || math.IsInf(f, 0) || math.Trunc(f) != f) {
 			return fmt.Errorf("column %q has non-integral value", column.Name)
 		}
+	}
+	return nil
+}
+
+func validateObjectValue(value any) error {
+	rv := reflect.ValueOf(value)
+	for rv.IsValid() && (rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer) {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return nil
+	}
+	if rv.Kind() != reflect.Map && rv.Kind() != reflect.Struct {
+		return fmt.Errorf("expected an object, got %T", value)
+	}
+	if _, err := json.Marshal(value); err != nil {
+		return fmt.Errorf("cannot encode as JSON: %w", err)
 	}
 	return nil
 }

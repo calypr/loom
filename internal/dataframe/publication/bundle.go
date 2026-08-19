@@ -69,6 +69,7 @@ func (s BundleState) Successful() bool { return s.Canonical() == BundlePublished
 type BundleIdentity struct {
 	Name               string   `json:"name"`
 	TranslationVersion string   `json:"translationVersion,omitempty"`
+	OutputName         string   `json:"outputName,omitempty"`
 	Project            string   `json:"project"`
 	DatasetGeneration  string   `json:"datasetGeneration"`
 	RecipeDigest       string   `json:"recipeDigest"`
@@ -83,21 +84,26 @@ type BundleIdentity struct {
 // Project and generation are part of the key so two tenants can publish the
 // same recipe/output name without racing a shared pointer.
 func (i BundleIdentity) PointerName() string {
-	if strings.TrimSpace(i.TranslationVersion) == "" {
-		return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name}, "\x00")
+	parts := []string{i.Project, i.DatasetGeneration, i.Name}
+	if strings.TrimSpace(i.TranslationVersion) != "" {
+		parts = append(parts, i.TranslationVersion)
 	}
-	return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name, i.TranslationVersion}, "\x00")
+	if strings.TrimSpace(i.OutputName) != "" {
+		parts = append(parts, i.OutputName)
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func (i BundleIdentity) Key() string {
 	b, _ := json.Marshal(struct {
 		Name, Project, DatasetGeneration string
 		TranslationVersion               string `json:"TranslationVersion,omitempty"`
+		OutputName                       string `json:"OutputName,omitempty"`
 		RecipeDigest, SchemaDigest       string
 		ScopeDigest, EngineVersion       string
 		AuthScopeMode                    string   `json:"AuthScopeMode,omitempty"`
 		AuthResourcePaths                []string `json:"AuthResourcePaths,omitempty"`
-	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
+	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.OutputName, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

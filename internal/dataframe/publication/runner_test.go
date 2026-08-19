@@ -51,6 +51,10 @@ func (t *finalizingTarget) Begin(_ context.Context, _ PublicationIdentity, _ []O
 	return t.tx, nil
 }
 
+type objectTarget struct{ fakeTarget }
+
+func (t *objectTarget) SupportsObjectValues() bool { return true }
+
 func TestPublishPrunesOnlyUnpopulatedDiscoveredColumns(t *testing.T) {
 	target := &finalizingTarget{}
 	columns := []LogicalColumn{
@@ -128,6 +132,30 @@ func TestPublishValidatesAndBoundsBatches(t *testing.T) {
 	}
 	if got := target.tx.batches[0][0]["project_id"]; got != "HTAN_INT-BForePC" {
 		t.Fatalf("project_id = %#v", got)
+	}
+}
+
+func TestPublishAllowsObjectsOnlyForObjectCapableTargets(t *testing.T) {
+	row := map[string]any{"value": map[string]any{"code": "M1", "active": true}}
+	columns := []LogicalColumn{{Name: "value", Kind: "object"}}
+	unsupported := &fakeTarget{}
+	_, err := Publish(context.Background(), unsupported, PublicationIdentity{Name: "r"}, []OutputStream{{
+		Name: "objects", Columns: columns, Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			return visit(row)
+		},
+	}}, Limits{})
+	if err == nil {
+		t.Fatal("expected generic target to reject object schema")
+	}
+
+	target := &objectTarget{}
+	_, err = Publish(context.Background(), target, PublicationIdentity{Name: "r"}, []OutputStream{{
+		Name: "objects", Columns: columns, Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			return visit(row)
+		},
+	}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

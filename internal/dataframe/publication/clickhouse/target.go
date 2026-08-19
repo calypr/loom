@@ -18,6 +18,10 @@ type Target struct {
 	OwnerID     string
 }
 
+// SupportsObjectValues tells the generic publication runner that this target
+// can persist logical object values as native ClickHouse JSON columns.
+func (t *Target) SupportsObjectValues() bool { return true }
+
 func New(bundleStore IdentityBundleStore) (*Target, error) {
 	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
@@ -26,7 +30,7 @@ func New(bundleStore IdentityBundleStore) (*Target, error) {
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, OutputName: identity.OutputName, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
 	var tx publication.AtomicBundleTx
 	var err error
 	if t.ExecutionID != "" {
@@ -189,7 +193,7 @@ func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {
 		case "code":
 			columnType = "String"
 		case "object":
-			return nil, fmt.Errorf("object-valued column %q is not supported", column.Name)
+			columnType = "JSON"
 		}
 		if column.Repeated {
 			columnType = "Array(" + columnType + ")"

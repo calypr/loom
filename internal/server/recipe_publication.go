@@ -90,7 +90,8 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	identity := publication.BundleIdentity{
 		Name: name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion,
-		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
+		OutputName: incrementalPublicationOutput(bindings, streams),
+		Project:    bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest,
 		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1",
 		AuthScopeMode:     string(bindings.AuthScopeMode),
@@ -117,7 +118,8 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	publicationIdentity := publication.PublicationIdentity{
 		Name: identity.Name, TranslationVersion: identity.TranslationVersion,
-		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration,
+		OutputName: identity.OutputName,
+		Project:    identity.Project, DatasetGeneration: identity.DatasetGeneration,
 		RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest,
 		ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
 		AuthScopeMode:     identity.AuthScopeMode,
@@ -125,6 +127,13 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{BatchRows: batchRows, BatchBytes: batchBytes})
 	return identity, err
+}
+
+func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []engine.OutputStream) string {
+	if len(bindings.OutputNames) != 1 || len(streams) != 1 {
+		return ""
+	}
+	return streams[0].Name
 }
 
 func recipeResolvedDynamicColumnCounts(plan engine.Resolved) map[string]int {

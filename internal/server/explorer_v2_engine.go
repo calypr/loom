@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -40,16 +43,24 @@ func explorerV2Compiler(recipeEngine *engine.Engine, catalogReader explorerV2Cat
 			}
 			for nodeID, candidateIDs := range request.SelectedCandidateIDsByNode {
 				lookupNodeID := nodeID
-				if nodeID == "root" && len(bundle.Outputs) > 0 {
-					lookupNodeID = explorer.OpaqueID("n_", bundle.Outputs[0].RootResourceType)
+				if nodeID == "root" {
+					for _, output := range bundle.Outputs {
+						if output.Name == request.Output {
+							lookupNodeID = explorer.OpaqueID("n_", output.RootResourceType)
+							break
+						}
+					}
 				}
 				if _, ok := catalogNodeForREST(snapshot.Catalog, lookupNodeID); !ok {
 					return ExplorerV2CompileResult{}, fmt.Errorf("unresolved catalog node %q", nodeID)
 				}
 				for _, candidateID := range candidateIDs {
 					selection, ok := catalogSelectionForREST(snapshot.Catalog, candidateID)
-					if !ok || selection.NodeID != lookupNodeID {
-						return ExplorerV2CompileResult{}, fmt.Errorf("unresolved catalog candidate %q for node %q", candidateID, nodeID)
+					if !ok {
+						return ExplorerV2CompileResult{}, fmt.Errorf("catalog candidate %q is absent from the current snapshot for node %q", candidateID, nodeID)
+					}
+					if selection.NodeID != lookupNodeID {
+						return ExplorerV2CompileResult{}, fmt.Errorf("catalog candidate %q belongs to node %q, not requested node %q (resolved as %q)", candidateID, selection.NodeID, nodeID, lookupNodeID)
 					}
 				}
 			}
@@ -75,8 +86,31 @@ func explorerV2Compiler(recipeEngine *engine.Engine, catalogReader explorerV2Cat
 		if err := synchronizeExplorerV2Views(cfg, resolved.Compiled.Outputs); err != nil {
 			return ExplorerV2CompileResult{}, err
 		}
-		return ExplorerV2CompileResult{Config: canonical, Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, SourceGeneration: resolved.Compiled.SourceGeneration, EmittedColumns: emitted}, nil
+		return ExplorerV2CompileResult{Config: canonical, Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, SourceGeneration: resolved.Compiled.SourceGeneration, OutputFingerprints: resolvedOutputFingerprints(resolved), EmittedColumns: emitted}, nil
 	}
+}
+
+// resolvedOutputFingerprints are intentionally output-scoped. A bundle-level
+// schema digest changes when any output changes, which would defeat reuse of
+// the other tables. The lowered physical plan captures catalog resolution,
+// discovered columns, filters, and row shape for only this output.
+func resolvedOutputFingerprints(resolved engine.Resolved) map[string]string {
+	result := make(map[string]string, len(resolved.Compiled.Outputs))
+	for _, output := range resolved.Compiled.Outputs {
+		payload, err := json.Marshal(struct {
+			Version    int    `json:"version"`
+			Name       string `json:"name"`
+			Scope      string `json:"scope"`
+			Generation string `json:"generation"`
+			Output     any    `json:"output"`
+		}{Version: 1, Name: output.Name, Scope: resolved.Semantic.ScopeDigest, Generation: resolved.Compiled.SourceGeneration, Output: output})
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(payload)
+		result[output.Name] = hex.EncodeToString(sum[:])
+	}
+	return result
 }
 
 // The explorer package intentionally keeps Catalog's internal lookup methods

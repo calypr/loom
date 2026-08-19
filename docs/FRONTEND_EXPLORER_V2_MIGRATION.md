@@ -324,17 +324,31 @@ Content-Type: application/json
 ```
 
 Publish reads the server-owned draft. The frontend does not send a config in
-this request. Loom recompiles the draft, materializes every referenced output,
-checks that every output is queryable, inserts an immutable revision, updates
-the project's active release with those outputs, and then activates the
-Explorer revision. This applies to both custom Explorers and `default`.
-Existing publications from other Explorers remain in the active release. A
-failed publication or release activation leaves the previous Explorer revision
-in place and records diagnostics on the failed revision.
+this request. Loom recompiles the draft against the current active dataset
+generation, reuses outputs whose generation and output fingerprint still
+match, and materializes only missing or changed outputs. Loom then atomically
+activates the matching dataset release, persists its materialization metadata,
+inserts an immutable Explorer revision, and activates that revision. This
+applies to both custom Explorers and `default`.
+
+The generation resolved during compilation is authoritative for the entire
+publish operation. Loom validates that its immutable snapshot is staged before
+starting materialization, so a stale or incomplete generation does not leave
+behind an expensive partial build. A failed publish leaves the previous
+Explorer revision and dataset release active.
 
 The authoring UI exposes Preview and Publish; it does not expose separate
 create-release, save-release, or activate-release controls. Release records are
-internal atomic visibility and audit metadata managed by Publish.
+internal visibility and audit metadata managed by the ingestion/deployment
+pipeline.
+
+Publish failures use stable frontend-safe error codes and do not expose raw
+database errors. `DATASET_GENERATION_UNAVAILABLE` and
+`DATASET_GENERATION_NOT_READY` mean data loading has not produced an activatable
+generation; `DATASET_RELEASE_CONFLICT` means the active generation changed
+during publish. These responses set `retryable: true` and include `requestId`
+when available. Clear the Publishing state, retain the draft, show the friendly
+`message`, and offer Retry; include `requestId` in support diagnostics.
 
 On success, update the local store from the returned `state` rather than
 manually inferring active metadata:

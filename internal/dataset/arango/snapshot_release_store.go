@@ -176,7 +176,6 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	releaseDocument["recordType"] = releaseRecordType
 	binds := lifecycleCollectionBindVars()
 	binds["project"] = release.Project
-	binds["release"] = releaseDocument
 	binds["release_key"] = releaseDocument["_key"]
 	binds["release_id"] = release.ID
 	binds["generation"] = release.Generation

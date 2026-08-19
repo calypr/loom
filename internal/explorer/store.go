@@ -26,8 +26,10 @@ type Store interface {
 	Get(context.Context, string, string) (*Explorer, error)
 	CreateInteractive(context.Context, Explorer) (*Explorer, error)
 	CreateRepository(context.Context, Explorer) (*Explorer, error)
-	// expectedDigest is optional so callers can perform a version-only compare;
-	// when supplied, adapters must include it in the CAS predicate.
+	// expected and expectedDigest are retained for adapter compatibility and
+	// observability. Draft writes are last-write-wins; adapters must increment
+	// the stored draft version from the current value rather than trusting the
+	// caller's expected version.
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
 	InsertRevision(context.Context, Revision) (*Revision, error)
 	GetRevision(context.Context, string) (*Revision, error)
