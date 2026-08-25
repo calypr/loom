@@ -21,7 +21,7 @@ COPY internal ./internal
 COPY schemas ./schemas
 
 ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
@@ -29,6 +29,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -trimpath \
       -ldflags="-s -w" \
       -o /out/arango-fhir-server ./cmd/arango-fhir-server
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
+    go build -mod=mod \
+      -trimpath \
+      -ldflags="-s -w" \
+      -o /out/arango-fhir-proto ./cmd/arango-fhir-proto
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata && \
@@ -38,6 +45,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
 WORKDIR /app
 
 COPY --from=builder /out/arango-fhir-server /app/arango-fhir-server
+COPY --from=builder /out/arango-fhir-proto /app/arango-fhir-proto
 COPY --from=builder /src/schemas /app/schemas
 
 USER arango-fhir

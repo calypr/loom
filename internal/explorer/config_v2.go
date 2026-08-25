@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 // ConfigV2 is the portable Explorer artifact. Both repository and interactive
@@ -93,6 +94,163 @@ type FileActions struct {
 	Actions    map[string]string   `json:"actions,omitempty"`
 }
 
+// PresentationRepairError reports a presentation reference that cannot be
+// repaired without making a view unusable. Ordinary stale references are
+// removed by RepairConfigV2Presentation and returned as WARN diagnostics.
+type PresentationRepairError struct {
+	Diagnostic Diagnostic
+}
+
+func (e *PresentationRepairError) Error() string {
+	if e == nil {
+		return "invalid Explorer presentation"
+	}
+	return e.Diagnostic.Message
+}
+
+// RepairConfigV2Presentation removes presentation references that are absent
+// from the authoritative emitted output schema. The schema is deliberately
+// supplied by the caller because recipe parsing alone cannot know dynamic or
+// snapshot-dependent output columns.
+func RepairConfigV2Presentation(cfg ConfigV2, available map[string]map[string]bool) (ConfigV2, []Diagnostic, error) {
+	if len(available) == 0 {
+		return cfg, nil, nil
+	}
+	diagnostics := make([]Diagnostic, 0)
+	stale := func(path, output, column, reference string) {
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity:  "WARN",
+			Stage:     "presentation",
+			Code:      "STALE_PRESENTATION_REFERENCE",
+			FieldPath: path,
+			Message:   fmt.Sprintf("removed stale %s presentation reference to output column %q", reference, column),
+			Details: map[string]any{
+				"outputId":      output,
+				"column":        column,
+				"referenceKind": reference,
+			},
+		})
+	}
+	hasColumn := func(output, column string) bool {
+		columns, ok := available[output]
+		return ok && columns[column]
+	}
+	allColumns := func(column string) bool {
+		for _, columns := range available {
+			if columns[column] {
+				return true
+			}
+		}
+		return false
+	}
+
+	for viewIndex := range cfg.Views {
+		view := &cfg.Views[viewIndex]
+		if _, ok := available[view.Output]; !ok {
+			return cfg, diagnostics, &PresentationRepairError{Diagnostic: Diagnostic{
+				Severity:  "ERROR",
+				Stage:     "presentation",
+				Code:      "STALE_PRESENTATION_OUTPUT",
+				FieldPath: fmt.Sprintf("$.views[%d].output", viewIndex),
+				Message:   fmt.Sprintf("view %q references an output absent from the compiled schema", view.ID),
+				Details:   map[string]any{"viewId": view.ID, "outputId": view.Output},
+			}}
+		}
+		columns := view.Table.Columns[:0]
+		for columnIndex, column := range view.Table.Columns {
+			if hasColumn(view.Output, column.Column) {
+				columns = append(columns, column)
+				continue
+			}
+			stale(fmt.Sprintf("$.views[%d].table.columns[%d].column", viewIndex, columnIndex), view.Output, column.Column, "table")
+		}
+		view.Table.Columns = columns
+		if len(view.Table.Columns) == 0 {
+			return cfg, diagnostics, &PresentationRepairError{Diagnostic: Diagnostic{
+				Severity:  "ERROR",
+				Stage:     "presentation",
+				Code:      "STALE_PRESENTATION_EMPTY_VIEW",
+				FieldPath: fmt.Sprintf("$.views[%d].table.columns", viewIndex),
+				Message:   fmt.Sprintf("view %q has no table columns after stale presentation repair", view.ID),
+				Details:   map[string]any{"viewId": view.ID, "outputId": view.Output},
+			}}
+		}
+		if view.RowLabel != "" && !hasColumn(view.Output, view.RowLabel) {
+			stale(fmt.Sprintf("$.views[%d].rowLabel", viewIndex), view.Output, view.RowLabel, "rowLabel")
+			view.RowLabel = ""
+		}
+		filters := view.Filters[:0]
+		for filterIndex, filter := range view.Filters {
+			if hasColumn(view.Output, filter.Column) {
+				filters = append(filters, filter)
+				continue
+			}
+			stale(fmt.Sprintf("$.views[%d].filters[%d].column", viewIndex, filterIndex), view.Output, filter.Column, "filter")
+		}
+		view.Filters = filters
+		charts := view.Charts[:0]
+		for chartIndex, chart := range view.Charts {
+			if hasColumn(view.Output, chart.Column) {
+				charts = append(charts, chart)
+				continue
+			}
+			stale(fmt.Sprintf("$.views[%d].charts[%d].column", viewIndex, chartIndex), view.Output, chart.Column, "chart")
+		}
+		view.Charts = charts
+		for column := range view.FixedFilters {
+			if hasColumn(view.Output, column) {
+				continue
+			}
+			stale(fmt.Sprintf("$.views[%d].fixedFilters.%s", viewIndex, column), view.Output, column, "fixedFilter")
+			delete(view.FixedFilters, column)
+		}
+		for actionIndex := range view.Actions {
+			action := &view.Actions[actionIndex]
+			kept := action.Columns[:0]
+			for columnIndex, column := range action.Columns {
+				if hasColumn(view.Output, column) {
+					kept = append(kept, column)
+					continue
+				}
+				stale(fmt.Sprintf("$.views[%d].actions[%d].columns[%d]", viewIndex, actionIndex, columnIndex), view.Output, column, "action")
+			}
+			action.Columns = kept
+		}
+	}
+
+	for output, filters := range cfg.SharedFilters {
+		kept := filters[:0]
+		for index, filter := range filters {
+			if hasColumn(filter.Output, filter.Column) {
+				kept = append(kept, filter)
+				continue
+			}
+			stale(fmt.Sprintf("$.sharedFilters.%s[%d].column", output, index), filter.Output, filter.Column, "sharedFilter")
+		}
+		if len(kept) == 0 {
+			delete(cfg.SharedFilters, output)
+		} else {
+			cfg.SharedFilters[output] = kept
+		}
+	}
+	for extension, columns := range cfg.FileActions.Extensions {
+		kept := columns[:0]
+		for index, column := range columns {
+			if allColumns(column) {
+				kept = append(kept, column)
+				continue
+			}
+			stale(fmt.Sprintf("$.fileActions.extensions.%s[%d]", extension, index), "", column, "fileAction")
+		}
+		if len(kept) == 0 {
+			delete(cfg.FileActions.Extensions, extension)
+		} else {
+			cfg.FileActions.Extensions[extension] = kept
+		}
+	}
+	return cfg, diagnostics, nil
+}
+
 // DecodeConfigV2 rejects the legacy explorerConfig/tabs envelope and every
 // unknown field. The recipe gets its own strict decoder and validator.
 func DecodeConfigV2(raw []byte, project string) (ConfigV2, recipe.Bundle, error) {
@@ -129,13 +287,7 @@ func CanonicalConfigV2(raw []byte, project, explorerID, management string) (Conf
 	if err != nil {
 		return cfg, bundle, nil, "", err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return cfg, bundle, nil, "", fmt.Errorf("canonicalize ExplorerConfigV2: %w", err)
-	}
-	canonical, err := json.Marshal(value)
+	canonical, err := canonicalJSONBytes(raw)
 	if err != nil {
 		return cfg, bundle, nil, "", fmt.Errorf("canonicalize ExplorerConfigV2: %w", err)
 	}
@@ -157,9 +309,10 @@ func decodeConfigV2(raw []byte, project, explorerID, management string) (ConfigV
 	if cfg.APIVersion != ConfigV2APIVersion || cfg.Kind != "ExplorerConfig" {
 		return cfg, recipe.Bundle{}, fmt.Errorf("apiVersion must be %q and kind must be ExplorerConfig", ConfigV2APIVersion)
 	}
-	if cfg.Project != project {
+	if projectid.Canonical(cfg.Project) != projectid.Canonical(project) {
 		return cfg, recipe.Bundle{}, fmt.Errorf("config project must match deployment project")
 	}
+	cfg.Project = projectid.Canonical(project)
 	if cfg.Explorer.ID != explorerID || !strings.EqualFold(cfg.Explorer.Management, management) {
 		return cfg, recipe.Bundle{}, fmt.Errorf("config explorer identity or management mode does not match deployment")
 	}

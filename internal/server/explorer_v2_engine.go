@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 type explorerV2CatalogReader func(context.Context, string, string, string) (explorer.CatalogSnapshot, error)
@@ -70,7 +71,7 @@ func explorerV2Compiler(recipeEngine *engine.Engine, catalogReader explorerV2Cat
 		if recipeEngine == nil {
 			return ExplorerV2CompileResult{Config: canonical, Bundle: bundle, RecipeDigest: digest, SourceGeneration: sourceGeneration}, nil
 		}
-		resolved, err := recipeEngine.ResolveBundle(ctx, bundle, recipe.RuntimeBindings{Project: request.Project, DatasetGeneration: sourceGeneration})
+		resolved, err := recipeEngine.ResolveBundle(ctx, bundle, recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: sourceGeneration})
 		if err != nil {
 			return ExplorerV2CompileResult{}, err
 		}
@@ -83,10 +84,15 @@ func explorerV2Compiler(recipeEngine *engine.Engine, catalogReader explorerV2Cat
 				emitted = append(emitted, explorer.EmittedColumn{OutputID: output.Name, PublicColumn: column.Name, SelectionID: column.SemanticPath, LogicalType: column.Kind, Filterable: true, Chartable: true})
 			}
 		}
-		if err := synchronizeExplorerV2Views(cfg, resolved.Compiled.Outputs); err != nil {
+		cfg, presentationDiagnostics, err := synchronizeExplorerV2Views(cfg, resolved.Compiled.Outputs)
+		if err != nil {
 			return ExplorerV2CompileResult{}, err
 		}
-		return ExplorerV2CompileResult{Config: canonical, Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, SourceGeneration: resolved.Compiled.SourceGeneration, OutputFingerprints: resolvedOutputFingerprints(resolved), EmittedColumns: emitted}, nil
+		repairedConfig, err := json.Marshal(cfg)
+		if err != nil {
+			return ExplorerV2CompileResult{}, fmt.Errorf("marshal repaired ExplorerConfigV2: %w", err)
+		}
+		return ExplorerV2CompileResult{Config: repairedConfig, Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, SourceGeneration: resolved.Compiled.SourceGeneration, OutputFingerprints: resolvedOutputFingerprints(resolved), EmittedColumns: emitted, Diagnostics: presentationDiagnostics}, nil
 	}
 }
 
@@ -128,7 +134,7 @@ func catalogSelectionForREST(c explorer.Catalog, id string) (explorer.CatalogSel
 	return value, ok
 }
 
-func synchronizeExplorerV2Views(cfg explorer.ConfigV2, outputs []lower.CompiledRecipeOutput) error {
+func synchronizeExplorerV2Views(cfg explorer.ConfigV2, outputs []lower.CompiledRecipeOutput) (explorer.ConfigV2, []explorer.Diagnostic, error) {
 	columns := map[string]map[string]bool{}
 	for _, output := range outputs {
 		columns[output.Name] = map[string]bool{}
@@ -136,26 +142,6 @@ func synchronizeExplorerV2Views(cfg explorer.ConfigV2, outputs []lower.CompiledR
 			columns[output.Name][column] = true
 		}
 	}
-	for _, view := range cfg.Views {
-		available, ok := columns[view.Output]
-		if !ok {
-			return fmt.Errorf("view %q references unsupported output %q", view.ID, view.Output)
-		}
-		for _, column := range view.Table.Columns {
-			if !available[column.Column] {
-				return fmt.Errorf("view %q references missing output column %q", view.ID, column.Column)
-			}
-		}
-		for _, filter := range view.Filters {
-			if !available[filter.Column] {
-				return fmt.Errorf("view %q references missing filter column %q", view.ID, filter.Column)
-			}
-		}
-		for _, chart := range view.Charts {
-			if !available[chart.Column] {
-				return fmt.Errorf("view %q references missing chart column %q", view.ID, chart.Column)
-			}
-		}
-	}
-	return nil
+	repaired, diagnostics, err := explorer.RepairConfigV2Presentation(cfg, columns)
+	return repaired, diagnostics, err
 }

@@ -20,3 +20,21 @@ func TestCatalogSnapshotBindsIdentityAndBlocksIncompleteDiscovery(t *testing.T) 
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestCatalogSnapshotTokenBindsResolvedSchemaDigest(t *testing.T) {
+	catalog := Catalog{Selections: map[string]CatalogSelection{}}
+	a, err := NewCatalogSnapshotWithSchema("p", "g", "scope", "schema-a", catalog, true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewCatalogSnapshotWithSchema("p", "g", "scope", "schema-b", catalog, true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Token == b.Token {
+		t.Fatalf("schema-specific snapshots reused token %q", a.Token)
+	}
+	if a.ResolvedSchemaDigest != "schema-a" || b.ResolvedSchemaDigest != "schema-b" {
+		t.Fatalf("schema digests were not retained: a=%q b=%q", a.ResolvedSchemaDigest, b.ResolvedSchemaDigest)
+	}
+}

@@ -37,7 +37,7 @@ func TestValidateSemanticGraphRejectsUnknownRootAndTraversal(t *testing.T) {
 	assertSemanticValidationError(t, unknownTraversal, "is not represented by the active generated FHIR schema")
 }
 
-func TestValidateSemanticGraphRejectsSelfCycle(t *testing.T) {
+func TestValidateSemanticGraphAcceptsRepeatedSelfReference(t *testing.T) {
 	plan := semantic.SemanticPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
 		Children: []semantic.SemanticNode{{
@@ -45,7 +45,9 @@ func TestValidateSemanticGraphRejectsSelfCycle(t *testing.T) {
 			Children: []semantic.SemanticNode{{Alias: "linked_again", ResourceType: "Patient", EdgeLabel: "link_other_Patient"}},
 		}},
 	}}
-	assertSemanticValidationError(t, plan, "cycle detected")
+	if err := semantic.ValidateSemanticGraph(plan); err != nil {
+		t.Fatalf("repeated self-reference should remain a valid finite query: %v", err)
+	}
 }
 
 func TestValidateSemanticGraphAllowsOneHopSelfReference(t *testing.T) {
@@ -58,7 +60,7 @@ func TestValidateSemanticGraphAllowsOneHopSelfReference(t *testing.T) {
 	}
 }
 
-func TestValidateSemanticGraphEnforcesDepthCap(t *testing.T) {
+func TestValidateSemanticGraphAcceptsMoreThanFourHops(t *testing.T) {
 	plan := semantic.SemanticPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
 		Children: []semantic.SemanticNode{{
@@ -70,14 +72,16 @@ func TestValidateSemanticGraphEnforcesDepthCap(t *testing.T) {
 					Children: []semantic.SemanticNode{{
 						Alias: "another_specimen", ResourceType: "Specimen", EdgeLabel: "collection_procedure",
 						Children: []semantic.SemanticNode{{
-							Alias: "too_deep", ResourceType: "Practitioner", EdgeLabel: "irrelevant_at_depth_guard",
+							Alias: "another_file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 						}},
 					}},
 				}},
 			}},
 		}},
 	}}
-	assertSemanticValidationError(t, plan, "exceeds maximum 4")
+	if err := semantic.ValidateSemanticGraph(plan); err != nil {
+		t.Fatalf("finite route longer than four hops should remain valid: %v", err)
+	}
 }
 
 func TestValidateSemanticGraphRejectsMalformedRoot(t *testing.T) {

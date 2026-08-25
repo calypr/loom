@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -36,7 +37,10 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -290,12 +294,26 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer store: %w", err)
 	}
+	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
+	}
+	capabilityResolver, err := newExplorerCapabilityResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
+	if err != nil {
+		return fmt.Errorf("create Explorer capability resolver: %w", err)
+	}
 	explorerService, err := explorer.NewService(explorerStore)
 	if err != nil {
 		return fmt.Errorf("create Explorer service: %w", err)
 	}
 	explorerMaterializer := explorerBundleMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes)
-	explorerCatalog := explorerCatalogReader(discoverFields, discoverReferences, scopeResolver, activeManifestResolver)
+	explorerCatalog := explorerV2CatalogReader(func(ctx context.Context, project, _ string, requestedGeneration string) (explorer.CatalogSnapshot, error) {
+		snapshot, resolveErr := capabilityResolver.Resolve(ctx, project, requestedGeneration)
+		if resolveErr != nil {
+			return incompleteExplorerCatalog(projectid.Canonical(project), requestedGeneration, "", resolveErr)
+		}
+		return legacyCatalogSnapshot(snapshot), nil
+	})
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -352,6 +370,177 @@ func run(ctx context.Context, serverConfig Config) error {
 	} else if len(deletedGenerations) != 0 {
 		logger.Info("snapshot retention cleanup complete", "deleted_generations", len(deletedGenerations))
 	}
+	authoringCompile := func(ctx context.Context, request ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error) {
+		request.RequestID = firstNonEmpty(request.RequestID, "loom-authoring-migration")
+		return compileExplorerAuthoringV1(ctx, recipeEngine, explorerCatalog, request)
+	}
+	// CompileReceipt is the native V2 path. V1 remains below only for the
+	// startup migration of already-stored legacy documents.
+	compileReceipt := func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+		started := time.Now()
+		authorized := request.Authorized.Clone()
+		if strings.TrimSpace(authorized.Snapshot.Token) == "" {
+			var err error
+			authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
+			if err != nil {
+				return nil, err
+			}
+		} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+			return nil, capability.ErrStaleSnapshot
+		}
+		snapshot := authorized.Snapshot
+		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return nil, capability.ErrStaleSnapshot
+		}
+		intentDigest, err := request.Document.Digest()
+		if err != nil {
+			return nil, err
+		}
+		normalized, err := request.Document.CanonicalJSON()
+		if err != nil {
+			return nil, err
+		}
+		preflight := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, NormalizedBundle: normalized}
+		if key, keyErr := explorer.CompilationKey(preflight); keyErr == nil {
+			if prior, lookupErr := explorerService.CompilationReceiptByCompilationKey(ctx, request.Project, request.ExplorerID, key); lookupErr == nil && prior != nil && prior.ReceiptFormatVersion == explorer.CurrentReceiptFormatVersion && prior.CompilerContractVersion == explorer.CurrentCompilerContractVersion {
+				logger.Info("Explorer receipt compile hit", "project", projectid.Canonical(request.Project), "explorer_id", request.ExplorerID, "receipt_id", prior.ID, "duration_ms", time.Since(started).Milliseconds())
+				return prior, nil
+			}
+		}
+		translated, err := explorercompilation.Compile(ctx, request.Project, request.ExplorerID, request.Document, snapshot)
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode})
+		if err != nil {
+			return nil, err
+		}
+		emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
+		for _, column := range translated.EmittedColumns {
+			emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, PublicColumn: column.PublicColumn, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+		}
+		mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
+		for _, mapping := range translated.IdentityMappings {
+			mappings = append(mappings, explorer.IdentityMapping{CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
+		}
+		contract, err := json.Marshal(translated.OutputContract)
+		if err != nil {
+			return nil, err
+		}
+		contractDigest, err := explorer.CompilationArtifactDigest(contract)
+		if err != nil {
+			return nil, err
+		}
+		resolvedRecipeDigest, err := resolved.Bundle.Digest()
+		if err != nil {
+			return nil, err
+		}
+		compiledConfig, err := compiledExplorerConfigV2(request.Project, request.ExplorerID, translated)
+		if err != nil {
+			return nil, err
+		}
+		fingerprints := resolvedOutputFingerprints(resolved)
+		receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+		receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(receipt)
+		if err != nil {
+			return nil, err
+		}
+		stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+		if err != nil {
+			return nil, err
+		}
+		receiptBytes := 0
+		if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
+			receiptBytes = len(raw)
+		}
+		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
+		return stored, nil
+	}
+	lifecycleConfig := ExplorerV2LifecycleConfig{
+		Compile:        explorerV2Compiler(recipeEngine, explorerCatalog),
+		CompileReceipt: compileReceipt,
+		Catalog:        explorerCatalog,
+		Capability: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
+			return capabilityResolver.Resolve(ctx, project, generation)
+		},
+		CapabilityToken:               capabilityResolver.ResolveToken,
+		AuthorizedCapabilityCompile:   capabilityResolver.ResolveForCompilation,
+		AuthorizedCapabilityExecution: capabilityResolver.ResolveForExecution,
+		Logger:                        logger,
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+		},
+		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
+			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
+		},
+		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (engine.PreviewSummary, error) {
+			if receipt == nil {
+				return engine.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := recipeEngine.CompileResolvedBundle(ctx, receipt.Bundle, bindings)
+			if err != nil {
+				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+			}
+			if err := validateReceiptResolution(receipt, resolved); err != nil {
+				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+			}
+			if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
+				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+			}
+			output := ""
+			if len(bindings.OutputNames) > 0 {
+				output = bindings.OutputNames[0]
+			}
+			return recipeEngine.PreviewOutput(ctx, resolved, engine.PreviewRequest{Output: output, Limit: bindings.PreviewLimit}, visit)
+		},
+		Materialize:               explorerMaterializer,
+		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
+		ActivateRelease:           activateExplorerRelease,
+		AuthoringCompile:          authoringCompile,
+	}
+	if serverConfig.Server.MigrateExplorerAuthoring {
+		legacyConfig, configErr := optionalMigrationInput(serverConfig.Server.MigrationConfigPath, "legacy Explorer config")
+		if configErr != nil {
+			return configErr
+		}
+		legacyMapping, mappingErr := optionalMigrationInput(serverConfig.Server.MigrationMappingPath, "frontend authoring mapping")
+		if mappingErr != nil {
+			return mappingErr
+		}
+		migrationResolver, resolverErr := newExplorerCapabilityResolver(catalogStore, nil, activeManifestResolver, capabilitySnapshots)
+		if resolverErr != nil {
+			return fmt.Errorf("create Explorer migration capability resolver: %w", resolverErr)
+		}
+		migrationCatalog := explorerV2CatalogReader(func(ctx context.Context, project, _ string, requestedGeneration string) (explorer.CatalogSnapshot, error) {
+			snapshot, resolveErr := migrationResolver.Resolve(ctx, project, requestedGeneration)
+			if resolveErr != nil {
+				return incompleteExplorerCatalog(projectid.Canonical(project), requestedGeneration, "", resolveErr)
+			}
+			return legacyCatalogSnapshot(snapshot), nil
+		})
+		migrationConfig := lifecycleConfig
+		migrationConfig.Catalog = migrationCatalog
+		migrationConfig.AuthoringCompile = func(ctx context.Context, request ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error) {
+			request.RequestID = firstNonEmpty(request.RequestID, "loom-authoring-migration")
+			return compileExplorerAuthoringV1(ctx, recipeEngine, migrationCatalog, request)
+		}
+		report, migrationErr := MigrateLegacyExplorerAuthoring(ctx, explorerService, migrationConfig, ExplorerAuthoringMigrationOptions{
+			Project: serverConfig.Server.MigrationProject, ExplorerID: serverConfig.Server.MigrationExplorerID,
+			Actor: "loom-authoring-migration", RequestID: "loom-authoring-migration-" + serverConfig.Server.MigrationProject,
+			LegacyConfig: legacyConfig, LegacyMapping: legacyMapping, AuditOnly: serverConfig.Server.MigrationAuditOnly,
+		})
+		if migrationErr != nil {
+			logger.Error("Explorer authoring migration failed", "report", report, "error", migrationErr)
+			return fmt.Errorf("Explorer authoring migration failed: %w", migrationErr)
+		}
+		logger.Info("Explorer authoring migration complete", "report", report)
+		return nil
+	}
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
 			return lifecycleClient.QueryRows(ctx, "RETURN {ready: true}", 1, nil, func(map[string]any) error { return nil })
@@ -375,22 +564,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		if scopeResolver == nil {
 			return nil
 		}
-		scope, err := scopeResolver.ResolveReadScope(ctx, principal, project, nil)
-		if err != nil || (!scope.Unrestricted() && len(scope.AuthResourcePaths) == 0) {
-			return authscope.ErrForbidden
-		}
-		return nil
-	}, explorerService, explorerMaterializer, ExplorerV2LifecycleConfig{
-		Compile: explorerV2Compiler(recipeEngine, explorerCatalog),
-		Catalog: explorerCatalog,
-		Logger:  logger,
-		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
-			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
-		},
-		Materialize:               explorerMaterializer,
-		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
-		ActivateRelease:           activateExplorerRelease,
-	})
+		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
+	}, explorerService, explorerMaterializer, lifecycleConfig)
 	if publicationWorker != nil {
 		go func() {
 			err := publicationWorker.Run(ctx, time.Second, func(workerErr error) {
@@ -422,4 +597,18 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	return nil
+}
+
+func optionalMigrationInput(path, description string) ([]byte, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s %q: %w", description, path, err)
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, fmt.Errorf("read %s %q: file is empty", description, path)
+	}
+	return raw, nil
 }

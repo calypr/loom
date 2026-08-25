@@ -17,9 +17,16 @@ type Compilation struct {
 }
 
 type EmittedColumn struct {
-	OutputID, NodeID, SelectionID, PublicColumn string
-	LogicalType                                 string
-	Filterable, Chartable                       bool
+	EmissionID   string `json:"emissionId"`
+	OutputID     string `json:"outputId"`
+	NodeID       string `json:"nodeId,omitempty"`
+	SelectionID  string `json:"selectionId,omitempty"`
+	CandidateID  string `json:"candidateId,omitempty"`
+	OccurrenceID string `json:"occurrenceId,omitempty"`
+	PublicColumn string `json:"publicColumn"`
+	LogicalType  string `json:"logicalType"`
+	Filterable   bool   `json:"filterable"`
+	Chartable    bool   `json:"chartable"`
 }
 
 func OpaqueID(prefix, identity string) string {

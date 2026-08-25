@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -18,6 +19,10 @@ type LoadOptions struct {
 	BatchSize        int
 	ProgressEvery    int
 	WriterCount      int
+	WorkerCount      int
+	LineQueueSize    int
+	WriteQueueSize   int
+	CatalogLimits    catalog.ProfileLimits
 	Truncate         bool
 	FailFast         bool
 	UseGeneric       bool
@@ -83,6 +88,16 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 	if opts.WriterCount <= 0 {
 		opts.WriterCount = 8
 	}
+	if opts.WorkerCount <= 0 {
+		opts.WorkerCount = opts.WriterCount
+	}
+	if opts.LineQueueSize <= 0 {
+		opts.LineQueueSize = 1024
+	}
+	if opts.WriteQueueSize <= 0 {
+		opts.WriteQueueSize = 16
+	}
+	opts.CatalogLimits = catalog.NormalizeProfileLimits(opts.CatalogLimits)
 	if opts.WriteAPI == "" {
 		opts.WriteAPI = "import"
 	}

@@ -43,7 +43,11 @@ func (g RowGrain) Validate() error {
 // RowGrainResource so every valid semantic request still carries a stable row
 // identity.
 func InferRowGrain(resourceType string) (RowGrain, bool) {
-	switch strings.TrimSpace(resourceType) {
+	canonical, ok := fhirschema.CanonicalResourceType(resourceType)
+	if !ok {
+		return "", false
+	}
+	switch canonical {
 	case "Patient":
 		return RowGrainPatient, true
 	case "Specimen":
@@ -57,10 +61,7 @@ func InferRowGrain(resourceType string) (RowGrain, bool) {
 	case "ResearchSubject":
 		return RowGrainStudyEnrollment, true
 	default:
-		if fhirschema.HasResource(resourceType) {
-			return RowGrainResource, true
-		}
-		return "", false
+		return RowGrainResource, true
 	}
 }
 
@@ -98,15 +99,16 @@ func ValidateRootGrain(resourceType string, grain RowGrain) error {
 	if err := grain.Validate(); err != nil {
 		return err
 	}
-	if !fhirschema.HasResource(resourceType) {
+	canonical, ok := fhirschema.ConcreteResourceType(resourceType)
+	if !ok {
 		return fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", resourceType)
 	}
 	expected, ok := RootResourceForGrain(grain)
 	if !ok {
 		return fmt.Errorf("unsupported row grain %q", grain)
 	}
-	if expected != "" && resourceType != expected {
-		return fmt.Errorf("row grain %q requires root resource type %q, got %q", grain, expected, resourceType)
+	if expected != "" && canonical != expected {
+		return fmt.Errorf("row grain %q requires root resource type %q, got %q", grain, expected, canonical)
 	}
 	return nil
 }

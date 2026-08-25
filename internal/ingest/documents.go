@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/bmeg/jsonschemagraph/model"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 var validKeyPart = regexp.MustCompile(`[^A-Za-z0-9_\-:.@()+,=;$!*'%]`)
@@ -36,6 +37,10 @@ type EdgeDocument struct {
 }
 
 func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs map[string]any) (VertexDocument, error) {
+	canonicalType, ok := fhirschema.ConcreteResourceType(resourceType)
+	if !ok {
+		return VertexDocument{}, fmt.Errorf("unsupported FHIR graph resource type %q", resourceType)
+	}
 	id, ok := payload["id"].(string)
 	if !ok || strings.TrimSpace(id) == "" {
 		return VertexDocument{}, fmt.Errorf("%s payload missing string id", resourceType)
@@ -53,7 +58,7 @@ func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs ma
 		ID:               id,
 		Project:          project,
 		ProjectID:        project,
-		ResourceType:     resourceType,
+		ResourceType:     canonicalType,
 		AuthResourcePath: authResourcePath,
 		Payload:          payloadCopy,
 	}, nil
@@ -62,6 +67,10 @@ func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs ma
 func EdgeFromGrip(project, sourceType string, edge *model.Edge) (EdgeDocument, error) {
 	if edge == nil {
 		return EdgeDocument{}, fmt.Errorf("nil edge")
+	}
+	canonicalSourceType, ok := fhirschema.ConcreteResourceType(sourceType)
+	if !ok {
+		return EdgeDocument{}, fmt.Errorf("edge %q has unsupported source resource type %q", edge.Id, sourceType)
 	}
 	if strings.TrimSpace(edge.From) == "" {
 		return EdgeDocument{}, fmt.Errorf("edge %q missing source id", edge.Id)
@@ -80,14 +89,18 @@ func EdgeFromGrip(project, sourceType string, edge *model.Edge) (EdgeDocument, e
 			return EdgeDocument{}, fmt.Errorf("edge %q target type: %w", edge.Id, err)
 		}
 	}
+	canonicalTargetType, ok := fhirschema.ConcreteResourceType(targetType)
+	if !ok {
+		return EdgeDocument{}, fmt.Errorf("edge %q has unsupported target resource type %q", edge.Id, targetType)
+	}
 	return EdgeDocument{
 		Key:      SanitizeKey(edge.Id),
-		From:     collectionID(sourceType, edge.From),
-		To:       collectionID(targetType, targetID),
+		From:     collectionID(canonicalSourceType, edge.From),
+		To:       collectionID(canonicalTargetType, targetID),
 		Label:    edge.Label,
 		Project:  project,
-		FromType: sourceType,
-		ToType:   targetType,
+		FromType: canonicalSourceType,
+		ToType:   canonicalTargetType,
 	}, nil
 }
 

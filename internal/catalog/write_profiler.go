@@ -12,18 +12,33 @@ import (
 )
 
 func NewShapePlanCache() *ShapePlanCache {
-	return &ShapePlanCache{plans: make(map[string]*shapePlan)}
+	return NewShapePlanCacheWithLimit(DefaultProfileLimits().MaxShapePlans)
+}
+
+func NewShapePlanCacheWithLimit(maxPlans int) *ShapePlanCache {
+	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans}
 }
 
 // NewProfilerForGeneration constructs a profiler whose catalog documents are
 // bound to one immutable dataset generation. A blank (or whitespace-only)
 // generation intentionally selects the legacy namespace for compatibility.
 func NewProfilerForGeneration(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
+	return NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType, cache, DefaultProfileLimits())
+}
+
+// NewProfilerForGenerationWithLimits constructs a profiler with explicit
+// bounds for every write-side catalog structure.
+func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache, limits ProfileLimits) *Profiler {
+	limits = limits.normalized()
+	if cache == nil {
+		cache = NewShapePlanCacheWithLimit(limits.MaxShapePlans)
+	}
 	return &Profiler{
 		project:           project,
 		datasetGeneration: NormalizeDatasetGeneration(datasetGeneration),
 		authResourcePath:  authResourcePath,
 		resourceType:      resourceType,
+		limits:            limits,
 		shapeCache:        cache,
 		stats:             make(map[string]*fieldCatalogStats),
 	}
@@ -48,20 +63,23 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 			continue
 		}
 		stat := p.ensureStat(field)
+		if stat == nil {
+			continue
+		}
 		stat.docCount++
 		switch field.Kind {
 		case fieldKindScalar:
 			for _, value := range values {
 				if text, ok := scalarStringValue(value); ok {
-					stat.addDistinct(text)
+					stat.addDistinctWithLimits(text, p.limits)
 				}
 			}
 		case fieldKindCodeableConcept:
 			for _, value := range values {
 				if cc, ok := value.(map[string]any); ok {
 					for _, col := range codeableConceptColumns(cc) {
-						stat.addPivotColumn(col)
-						stat.addDistinct(col)
+						stat.addPivotColumnWithLimits(col, p.limits)
+						stat.addDistinctWithLimits(col, p.limits)
 					}
 				}
 			}
@@ -124,6 +142,9 @@ func (p *Profiler) Merge(other *Profiler) error {
 	for path, otherStat := range other.stats {
 		stat, ok := p.stats[path]
 		if !ok {
+			if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+				continue
+			}
 			stat = &fieldCatalogStats{
 				path:                  otherStat.path,
 				kind:                  otherStat.kind,
@@ -146,13 +167,13 @@ func (p *Profiler) Merge(other *Profiler) error {
 		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
 		stat.setPivotScope(otherStat.pivotItemSource, otherStat.pivotItemResourceType, otherStat.pivotValueSelectors)
 		for _, value := range otherStat.distinctValues {
-			stat.addDistinct(value)
+			stat.addDistinctWithLimits(value, p.limits)
 		}
 		for _, value := range otherStat.pivotColumns {
-			stat.addPivotColumn(value)
+			stat.addPivotColumnWithLimits(value, p.limits)
 		}
 		for _, observation := range otherStat.extensionValues {
-			stat.addExtensionValue(observation)
+			stat.addExtensionValueWithLimits(observation, p.limits)
 		}
 	}
 	return nil
@@ -216,6 +237,9 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	if stat, ok := p.stats[field.Path]; ok {
 		return stat
 	}
+	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+		return nil
+	}
 	stat := &fieldCatalogStats{
 		path:              field.Path,
 		kind:              field.Kind,
@@ -240,11 +264,20 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 }
 
 func (s *fieldCatalogStats) addDistinct(value string) {
+	s.addDistinctWithLimits(value, DefaultProfileLimits())
+}
+
+func (s *fieldCatalogStats) addDistinctWithLimits(value string, limits ProfileLimits) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return
 	}
+	limits = limits.normalized()
 	if _, ok := s.distinctSet[value]; ok {
+		return
+	}
+	if len(value) > limits.MaxDistinctValueBytes || len(s.distinctValues) >= limits.MaxDistinctValuesPerField {
+		s.distinctTruncated = true
 		return
 	}
 	s.distinctSet[value] = struct{}{}
@@ -252,11 +285,20 @@ func (s *fieldCatalogStats) addDistinct(value string) {
 }
 
 func (s *fieldCatalogStats) addPivotColumn(value string) {
+	s.addPivotColumnWithLimits(value, DefaultProfileLimits())
+}
+
+func (s *fieldCatalogStats) addPivotColumnWithLimits(value string, limits ProfileLimits) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return
 	}
+	limits = limits.normalized()
 	if _, ok := s.pivotColumnSet[value]; ok {
+		return
+	}
+	if len(value) > limits.MaxDistinctValueBytes || len(s.pivotColumns) >= limits.MaxPivotColumnsPerField {
+		s.distinctTruncated = true
 		return
 	}
 	s.pivotColumnSet[value] = struct{}{}
@@ -264,6 +306,11 @@ func (s *fieldCatalogStats) addPivotColumn(value string) {
 }
 
 func (s *fieldCatalogStats) addExtensionValue(observation ExtensionValueObservation) {
+	s.addExtensionValueWithLimits(observation, DefaultProfileLimits())
+}
+
+func (s *fieldCatalogStats) addExtensionValueWithLimits(observation ExtensionValueObservation, limits ProfileLimits) {
+	limits = limits.normalized()
 	observation.URL = strings.TrimSpace(observation.URL)
 	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
 	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
@@ -271,11 +318,25 @@ func (s *fieldCatalogStats) addExtensionValue(observation ExtensionValueObservat
 	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
 		return
 	}
+	if len(observation.URL) > limits.MaxDistinctValueBytes || len(observation.SourcePath) > limits.MaxDistinctValueBytes || len(observation.ValuePath) > limits.MaxDistinctValueBytes {
+		s.distinctTruncated = true
+		return
+	}
+	for _, ancestor := range observation.URLPath {
+		if len(ancestor) > limits.MaxDistinctValueBytes {
+			s.distinctTruncated = true
+			return
+		}
+	}
 	if s.extensionValueSet == nil {
 		s.extensionValueSet = make(map[string]struct{})
 	}
 	key := observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
 	if _, ok := s.extensionValueSet[key]; ok {
+		return
+	}
+	if len(s.extensionValues) >= limits.MaxExtensionValuesPerField {
+		s.distinctTruncated = true
 		return
 	}
 	s.extensionValueSet[key] = struct{}{}
@@ -296,12 +357,15 @@ func walkExtensionValuesWithAncestors(value any, path string, profiler *Profiler
 		isExtension := strings.HasSuffix(path, "extension[]")
 		if url, ok := typed["url"].(string); ok && strings.TrimSpace(url) != "" && isExtension {
 			stat := profiler.ensureExtensionURLStat(path + ".url")
+			if stat == nil {
+				return
+			}
 			for key, raw := range typed {
 				if !strings.HasPrefix(key, "value") || len(key) == len("value") || raw == nil {
 					continue
 				}
 				valuePath, valueType := extensionValueMapping(key, raw)
-				stat.addExtensionValue(ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)})
+				stat.addExtensionValueWithLimits(ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)}, profiler.limits)
 			}
 		}
 		for _, key := range sortedKeys(typed) {
@@ -333,6 +397,9 @@ func walkExtensionValuesWithAncestors(value any, path string, profiler *Profiler
 func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 	if stat, ok := p.stats[path]; ok {
 		return stat
+	}
+	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+		return nil
 	}
 	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{})}
 	p.stats[path] = stat
@@ -413,6 +480,9 @@ func (c *ShapePlanCache) getOrBuild(fingerprint string, payload map[string]any) 
 		return plan
 	}
 	plan = buildShapePlan(payload)
+	if c.maxPlans > 0 && len(c.plans) >= c.maxPlans {
+		return plan
+	}
 	c.plans[fingerprint] = plan
 	return plan
 }
@@ -552,6 +622,9 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	}
 	stat, ok := p.stats["code"]
 	if !ok {
+		if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+			return
+		}
 		stat = &fieldCatalogStats{
 			path:           "code",
 			kind:           fieldKindCodeableConcept,
@@ -570,7 +643,7 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	}
 	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
 	for _, col := range codeableConceptColumns(codeValue) {
-		stat.addPivotColumn(col)
+		stat.addPivotColumnWithLimits(col, p.limits)
 	}
 }
 

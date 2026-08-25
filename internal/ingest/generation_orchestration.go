@@ -218,12 +218,13 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		}
 		merged := catalogs[key]
 		if merged == nil {
-			merged = catalog.NewProfilerForGeneration(
+			merged = catalog.NewProfilerForGenerationWithLimits(
 				key.project,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCache(),
+				catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans),
+				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
 		}

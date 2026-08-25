@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -10,6 +11,59 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
+
+const maxLoggedErrorResponseBytes = 32 * 1024
+
+// errorResponseLogAttrs extracts the useful, server-owned diagnostic fields
+// from responses that were already written by a handler. Authoring routes
+// intentionally write their 4xx response and return nil, so the Fiber error
+// handler cannot log the underlying diagnostic. Keeping this extraction in
+// the request middleware gives every route the same failure visibility while
+// bounding the raw packet retained in logs.
+func errorResponseLogAttrs(body []byte) []any {
+	if len(body) == 0 {
+		return nil
+	}
+	logged := body
+	truncated := false
+	if len(logged) > maxLoggedErrorResponseBytes {
+		logged = logged[:maxLoggedErrorResponseBytes]
+		truncated = true
+	}
+	attrs := []any{"response_body", string(logged)}
+	if truncated {
+		attrs = append(attrs, "response_body_truncated", true, "response_body_bytes", len(body))
+	}
+
+	var envelope struct {
+		Error struct {
+			Code       string          `json:"code"`
+			Message    string          `json:"message"`
+			RequestID  string          `json:"requestId"`
+			Diagnostic json.RawMessage `json:"diagnostic"`
+		} `json:"error"`
+		Diagnostics json.RawMessage `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return attrs
+	}
+	if envelope.Error.Code != "" {
+		attrs = append(attrs, "error_code", envelope.Error.Code)
+	}
+	if envelope.Error.Message != "" {
+		attrs = append(attrs, "error_message", envelope.Error.Message)
+	}
+	if envelope.Error.RequestID != "" {
+		attrs = append(attrs, "error_request_id", envelope.Error.RequestID)
+	}
+	if len(envelope.Error.Diagnostic) > 0 && string(envelope.Error.Diagnostic) != "null" {
+		attrs = append(attrs, "error_diagnostic", string(envelope.Error.Diagnostic))
+	}
+	if len(envelope.Diagnostics) > 0 && string(envelope.Diagnostics) != "null" {
+		attrs = append(attrs, "error_diagnostics", string(envelope.Diagnostics))
+	}
+	return attrs
+}
 
 func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 	requestID := c.Get("X-Request-ID")
@@ -40,7 +94,24 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 			c.Status(MapDataframeError(err, requestIDFromCtx(c)).Status)
 		}
 	}
-	s.logger.Info("http request", "request_id", requestIDFromCtx(c), "method", c.Method(), "path", c.Path(), "status", c.Response().StatusCode(), "duration_ms", time.Since(start).Milliseconds())
+	status := c.Response().StatusCode()
+	duration := time.Since(start).Milliseconds()
+	if status >= 400 {
+		attrs := []any{
+			"request_id", requestIDFromCtx(c),
+			"method", c.Method(),
+			"path", c.Path(),
+			"url", c.OriginalURL(),
+			"status", status,
+			"duration_ms", duration,
+		}
+		attrs = append(attrs, errorResponseLogAttrs(c.Response().Body())...)
+		if err != nil {
+			attrs = append(attrs, "handler_error", err)
+		}
+		s.logger.Error("http request failed", attrs...)
+	}
+	s.logger.Info("http request", "request_id", requestIDFromCtx(c), "method", c.Method(), "path", c.Path(), "status", status, "duration_ms", duration)
 	return err
 }
 

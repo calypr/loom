@@ -34,6 +34,12 @@ type ServerConfig struct {
 	SnapshotRetention          time.Duration               `yaml:"snapshot_retention"`
 	PublicationWorkerLease     time.Duration               `yaml:"publication_worker_lease"`
 	PublicationMaxAttempts     int                         `yaml:"publication_max_attempts"`
+	MigrateExplorerAuthoring   bool                        `yaml:"-"`
+	MigrationProject           string                      `yaml:"-"`
+	MigrationExplorerID        string                      `yaml:"-"`
+	MigrationConfigPath        string                      `yaml:"-"`
+	MigrationMappingPath       string                      `yaml:"-"`
+	MigrationAuditOnly         bool                        `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -93,6 +99,12 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		dataframerRecipe   string
 		recipeBatchRows    int
 		recipeBatchBytes   int
+		migrateAuthoring   bool
+		migrationProject   string
+		migrationExplorer  string
+		migrationConfig    string
+		migrationMapping   string
+		migrationAuditOnly bool
 	)
 	fs := flag.NewFlagSet("arango-fhir-server", handling)
 	fs.StringVar(&configPath, "config", "", "YAML server configuration file")
@@ -108,6 +120,12 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.StringVar(&dataframerRecipe, "dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
 	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
+	fs.BoolVar(&migrateAuthoring, "migrate-explorer-authoring", false, "run the one-shot legacy Explorer authoring migration and exit")
+	fs.StringVar(&migrationProject, "migration-project", "HTAN_INT-BForePC", "project for the one-shot Explorer authoring migration")
+	fs.StringVar(&migrationExplorer, "migration-explorer", "default", "Explorer identity for the one-shot authoring migration")
+	fs.StringVar(&migrationConfig, "migration-config", "", "legacy ExplorerConfigV2 JSON to import when the Explorer has no active config")
+	fs.StringVar(&migrationMapping, "migration-mapping", "", "frontend Builder mapping JSON containing the translated authoring bundle")
+	fs.BoolVar(&migrationAuditOnly, "migration-audit-only", false, "validate and report the Explorer authoring migration without materializing or activating it")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -125,6 +143,12 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
 		}
+		cfg.Server.MigrateExplorerAuthoring = migrateAuthoring
+		cfg.Server.MigrationProject = migrationProject
+		cfg.Server.MigrationExplorerID = migrationExplorer
+		cfg.Server.MigrationConfigPath = migrationConfig
+		cfg.Server.MigrationMappingPath = migrationMapping
+		cfg.Server.MigrationAuditOnly = migrationAuditOnly
 		if err := cfg.Validate(); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
 		}
@@ -146,6 +170,12 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	cfg.Server.Dataframer.Recipe = dataframerRecipe
 	cfg.Server.RecipeBatchRows = recipeBatchRows
 	cfg.Server.RecipeBatchBytes = recipeBatchBytes
+	cfg.Server.MigrateExplorerAuthoring = migrateAuthoring
+	cfg.Server.MigrationProject = migrationProject
+	cfg.Server.MigrationExplorerID = migrationExplorer
+	cfg.Server.MigrationConfigPath = migrationConfig
+	cfg.Server.MigrationMappingPath = migrationMapping
+	cfg.Server.MigrationAuditOnly = migrationAuditOnly
 	if noAuth {
 		cfg.Server.AllowUnauthenticated = true
 		cfg.Auth.AllowUnauthenticated = true

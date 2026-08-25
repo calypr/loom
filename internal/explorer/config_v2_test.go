@@ -46,3 +46,41 @@ func TestDecodeConfigV2RejectsLegacyAndUnknownFields(t *testing.T) {
 		}
 	}
 }
+
+func TestRepairConfigV2PresentationRemovesStaleReferences(t *testing.T) {
+	cfg := ConfigV2{
+		APIVersion: ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   ConfigExplorer{ID: "custom", Title: "Custom", Management: "interactive"},
+		Views: []ConfigView{{
+			ID: "patient", Title: "Patients", Output: "Patient", RowLabel: "stale",
+			Table:        ConfigTable{Columns: []ConfigColumn{{Column: "id"}, {Column: "stale"}}},
+			Filters:      []ConfigFilter{{Column: "id"}, {Column: "stale"}},
+			Charts:       []ConfigChart{{Column: "id"}, {Column: "stale"}},
+			FixedFilters: map[string][]string{"id": {"x"}, "stale": {"x"}},
+			Actions:      []ConfigAction{{Type: "download", Title: "Download", Columns: []string{"id", "stale"}}},
+		}},
+		SharedFilters: map[string][]SharedFilter{"patient": {{Output: "Patient", Column: "id"}, {Output: "Patient", Column: "stale"}}},
+		FileActions:   FileActions{Extensions: map[string][]string{"csv": {"id", "stale"}}},
+	}
+	repaired, diagnostics, err := RepairConfigV2Presentation(cfg, map[string]map[string]bool{"Patient": {"id": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := repaired.Views[0]
+	if len(view.Table.Columns) != 1 || len(view.Filters) != 1 || len(view.Charts) != 1 || view.RowLabel != "" {
+		t.Fatalf("stale view references were not repaired: %#v", view)
+	}
+	if _, ok := view.FixedFilters["stale"]; ok || len(view.Actions[0].Columns) != 1 || len(repaired.SharedFilters["patient"]) != 1 || len(repaired.FileActions.Extensions["csv"]) != 1 {
+		t.Fatalf("stale secondary references were not repaired: %#v %#v %#v", view, repaired.SharedFilters, repaired.FileActions)
+	}
+	if len(diagnostics) != 8 {
+		t.Fatalf("diagnostics = %d, want 8: %#v", len(diagnostics), diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != "STALE_PRESENTATION_REFERENCE" || diagnostic.Severity != "WARN" {
+			t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+		}
+	}
+}

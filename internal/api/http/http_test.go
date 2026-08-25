@@ -1,14 +1,18 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/gofiber/fiber/v3"
 )
 
 func TestHealthDoesNotRequireAuthentication(t *testing.T) {
@@ -148,5 +152,59 @@ func TestHealthRetainsDegradedClickHouseCompatibility(t *testing.T) {
 func TestNewHTTPServerRequiresAuthorizer(t *testing.T) {
 	if _, err := NewHTTPServer(HTTPConfig{}); err == nil {
 		t.Fatal("expected missing authorizer error")
+	}
+}
+
+func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.App().Put("/authoring-failure", func(c fiber.Ctx) error {
+		return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error": fiber.Map{
+				"code":    "UNSUPPORTED_ROW_GRAIN",
+				"message": "the selected base resource has no supported row grain",
+			},
+			"diagnostics": []fiber.Map{{
+				"stage":        "lower",
+				"code":         "UNSUPPORTED_ROW_GRAIN",
+				"jsonPath":     "$.document.baseNodeId",
+				"resourceType": "patient",
+			}},
+		})
+	})
+
+	request := httptest.NewRequest(http.MethodPut, "/authoring-failure?auth_resource_path=%2Fprograms%2FHTAN_INT%2Fprojects%2FBForePC", nil)
+	request.Header.Set("X-Request-ID", "request-diagnostic")
+	response, err := server.App().Test(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", response.StatusCode)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		"http request failed",
+		"request_id=request-diagnostic",
+		"error_code=UNSUPPORTED_ROW_GRAIN",
+		"error_message=",
+		"supported row grain",
+		"error_diagnostics=",
+		"resourceType",
+		"patient",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("logs missing %q:\n%s", want, logText)
+		}
 	}
 }

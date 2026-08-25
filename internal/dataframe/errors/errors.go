@@ -61,6 +61,9 @@ const (
 	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
 	CodeFederationIncompatible      ErrorCode = "FEDERATION_INCOMPATIBLE"
 	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
+	CodeReceiptStoreUnavailable     ErrorCode = "RECEIPT_STORE_UNAVAILABLE"
+	CodePreviewTimeout              ErrorCode = "PREVIEW_TIMEOUT"
+	CodePreviewResponseTooLarge     ErrorCode = "PREVIEW_RESPONSE_TOO_LARGE"
 )
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -249,7 +252,7 @@ func SanitizePersistedFailure(raw string) (message, code string, retryable bool)
 }
 
 func IsRetryableCode(code ErrorCode) bool {
-	return code == CodeBackendUnavailable || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost || code == CodePublicationFailed
+	return code == CodeBackendUnavailable || code == CodeReceiptStoreUnavailable || code == CodePreviewTimeout || code == CodePublicationInProgress || code == CodePublicationConflict || code == CodePublicationLeaseLost || code == CodePublicationFailed
 }
 
 func defaultMessage(code ErrorCode) string {
@@ -350,6 +353,12 @@ func defaultMessage(code ErrorCode) string {
 		return "published sources cannot share a logical schema"
 	case CodeInvalidSelector:
 		return "a complete dataframe selector is required"
+	case CodeReceiptStoreUnavailable:
+		return "the compilation receipt store is temporarily unavailable"
+	case CodePreviewTimeout:
+		return "the preview took too long to complete"
+	case CodePreviewResponseTooLarge:
+		return "the preview response is too large"
 	default:
 		return "internal server error"
 	}

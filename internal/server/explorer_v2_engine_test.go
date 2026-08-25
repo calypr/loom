@@ -57,7 +57,7 @@ func TestExplorerV2CompilerUsesActiveGenerationWithoutSnapshotToken(t *testing.T
 	}
 	configV2.Views = []explorer.ConfigView{{
 		ID: "documents", Title: "Documents", Output: "DocumentReference",
-		Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "id", Label: "ID", Visible: true}}},
+		Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "id", Label: "ID", Visible: true}, {Column: "category_coding_code", Label: "Legacy", Visible: true}}},
 	}}
 	config, err := json.Marshal(configV2)
 	if err != nil {
@@ -73,6 +73,16 @@ func TestExplorerV2CompilerUsesActiveGenerationWithoutSnapshotToken(t *testing.T
 	}
 	if result.SourceGeneration != "generation-live" || resolvedGeneration != "generation-live" {
 		t.Fatalf("compiler generation = %q, resolver generation = %q; want generation-live", result.SourceGeneration, resolvedGeneration)
+	}
+	var repaired explorer.ConfigV2
+	if err := json.Unmarshal(result.Config, &repaired); err != nil {
+		t.Fatal(err)
+	}
+	if len(repaired.Views) != 1 || len(repaired.Views[0].Table.Columns) != 1 || repaired.Views[0].Table.Columns[0].Column != "id" {
+		t.Fatalf("stale presentation was not removed: %#v", repaired.Views)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "STALE_PRESENTATION_REFERENCE" {
+		t.Fatalf("repair diagnostics = %#v", result.Diagnostics)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -15,8 +16,11 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -26,6 +30,7 @@ import (
 type ExplorerV2CompileRequest struct {
 	Project                    string
 	ExplorerID                 string
+	RequestID                  string
 	Config                     []byte
 	SnapshotToken              string
 	SelectedCandidateIDsByNode map[string][]string
@@ -46,30 +51,77 @@ type ExplorerV2CompileResult struct {
 type ExplorerV2Compiler func(context.Context, ExplorerV2CompileRequest) (ExplorerV2CompileResult, error)
 type ExplorerV2Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
 type ExplorerV2Materializer = graphresolver.ExplorerBundleMaterializer
+
+// ExplorerV2ReceiptCompileRequest is the native V2 compile request. The
+// compiler owns canonicalization, capability validation, and persistence of
+// the immutable receipt before returning it to the HTTP layer.
+type ExplorerV2ReceiptCompileRequest struct {
+	Project       string
+	ExplorerID    string
+	Document      authoringv2.Document
+	SnapshotToken string
+	RequestID     string
+	// Authorized is the exact active capability already resolved by the HTTP
+	// boundary. Production compilation reuses it so idempotent editor compiles
+	// do not repeat manifest and authorization discovery.
+	Authorized AuthorizedCapability
+}
+
+type ExplorerV2ReceiptCompiler func(context.Context, ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error)
+type ExplorerV2ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
+
+// ExplorerV2ReceiptPreviewer is the bounded transport seam. The
+// engine invokes visitor once per public row and returns summary metadata;
+// handlers can encode rows without retaining an unbounded result map.
+type ExplorerV2ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (engine.PreviewSummary, error)
+
+type ExplorerV2ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error)
 type ExplorerV2GenerationValidator func(context.Context, string, string) error
 type ExplorerV2ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
+type ExplorerAuthoringV1Compiler func(context.Context, ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error)
 
 // ExplorerV2LifecycleConfig contains explicit capabilities for the REST
 // surface. The HTTP layer does not reach into catalog, compiler, or storage
 // internals.
 type ExplorerV2LifecycleConfig struct {
-	Compile     ExplorerV2Compiler
-	Catalog     explorerV2CatalogReader
-	Preview     ExplorerV2Previewer
-	Materialize ExplorerV2Materializer
-	Logger      *slog.Logger
+	Compile ExplorerV2Compiler
+	// CompileReceipt is the production V2 authoring compiler. It returns only
+	// after the receipt has been durably persisted.
+	CompileReceipt ExplorerV2ReceiptCompiler
+	Catalog        explorerV2CatalogReader
+	// Capability and CapabilityToken expose the compiler-owned immutable V2
+	// snapshot. Catalog remains an internal V1 migration projection only.
+	Capability                    ExplorerCapabilityReader
+	CapabilityToken               ExplorerCapabilityTokenReader
+	AuthorizedCapabilityCompile   ExplorerAuthorizedCapabilityCompilationReader
+	AuthorizedCapabilityExecution ExplorerAuthorizedCapabilityExecutionReader
+	Preview                       ExplorerV2Previewer
+	PreviewReceipt                ExplorerV2ReceiptPreviewer
+	Materialize                   ExplorerV2Materializer
+	MaterializeReceipt            ExplorerV2ReceiptMaterializer
+	// ReceiptLookup must enforce project and Explorer tenancy in the backing
+	// repository. The legacy service lookup remains a compatibility fallback
+	// for older tests and stored-document migration.
+	ReceiptLookup ExplorerV2ReceiptReader
+	Logger        *slog.Logger
 	// ValidateReleaseGeneration preflights the immutable snapshot required by
 	// release activation before Publish performs expensive materialization.
 	ValidateReleaseGeneration ExplorerV2GenerationValidator
 	// Publish invokes ActivateRelease when the draft requires outputs that are
 	// not already present in the active dataset release.
 	ActivateRelease ExplorerV2ReleaseActivator
+	// AuthoringCompile accepts only V1 authoring intent. It is separate from
+	// Compile, which remains the repository/ETL packet seam.
+	AuthoringCompile ExplorerAuthoringV1Compiler
 }
 
 type explorerV2State struct {
-	Project    string                  `json:"project"`
-	ExplorerID string                  `json:"explorerId"`
-	Management explorer.ManagementMode `json:"management"`
+	Project               string                  `json:"project"`
+	ExplorerID            string                  `json:"explorerId"`
+	Title                 string                  `json:"-"`
+	Management            explorer.ManagementMode `json:"management"`
+	ActiveAuthoringBundle json.RawMessage         `json:"-"`
+	ActiveIntentDigest    string                  `json:"-"`
 	// BaselineConfig is present for the repository default. It is the
 	// presentation-free recipe/schema projection of the current default draft.
 	BaselineConfig json.RawMessage `json:"baselineConfig,omitempty"`
@@ -93,13 +145,13 @@ type explorerV2State struct {
 	UpdatedAt            time.Time                    `json:"updatedAt"`
 }
 
-func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, capabilities ExplorerV2LifecycleConfig) {
+func registerLegacyExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, capabilities ExplorerV2LifecycleConfig) {
 	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil {
 		return
 	}
 
 	app.Get("/api/v1/projects/:project/explorers", func(c fiber.Ctx) error {
-		project := strings.TrimSpace(c.Params("project"))
+		project := explorerProjectParam(c)
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		}
@@ -107,11 +159,15 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "EXPLORER_READ_FAILED", err.Error())
 		}
-		return c.JSON(values)
+		states := make([]explorer.ExplorerStateV1, 0, len(values))
+		for _, value := range values {
+			states = append(states, stateV1FromExplorerV2State(value))
+		}
+		return c.JSON(states)
 	})
 
 	app.Get("/api/v1/projects/:project/explorers/:explorerId", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		}
@@ -122,10 +178,10 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "EXPLORER_READ_FAILED", err.Error())
 		}
-		return c.JSON(value)
+		return c.JSON(stateV1FromExplorerV2State(value))
 	})
 	app.Get("/api/v1/projects/:project/explorers/:explorerId/authoring/catalog", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		}
@@ -163,7 +219,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 	})
 
 	app.Post("/api/v1/projects/:project/explorers", func(c fiber.Ctx) error {
-		project := strings.TrimSpace(c.Params("project"))
+		project := explorerProjectParam(c)
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -224,7 +280,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 	})
 
 	app.Put("/api/v1/projects/:project/explorers/:explorerId/draft", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -239,9 +295,25 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			}
 			return explorerV2Error(c, http.StatusBadRequest, "MALFORMED_REQUEST", err.Error())
 		}
-		_, _, canonical, _, err := explorer.CanonicalConfigV2(request.Config, project, id, explorer.ConfigManagementForID(id))
+		cfg, _, canonical, _, err := explorer.CanonicalConfigV2(request.Config, project, id, explorer.ConfigManagementForID(id))
 		if err != nil {
 			return explorerV2Error(c, http.StatusUnprocessableEntity, "INVALID_CONFIG", err.Error())
+		}
+		var repairDiagnostics []explorer.Diagnostic
+		if owner, ownerErr := explorers.Get(c.Context(), project, id); ownerErr == nil {
+			if repaired, diagnostics, repairErr := explorer.RepairConfigV2Presentation(cfg, emittedColumnsByOutput(*owner)); repairErr != nil {
+				return explorerV2ErrorFromCause(c, http.StatusUnprocessableEntity, "INVALID_CONFIG", repairErr)
+			} else if len(diagnostics) > 0 {
+				repairDiagnostics = diagnostics
+				repairedRaw, marshalErr := json.Marshal(repaired)
+				if marshalErr != nil {
+					return explorerV2Error(c, http.StatusInternalServerError, "CONFIG_REPAIR_FAILED", marshalErr.Error())
+				}
+				_, _, canonical, _, err = explorer.CanonicalConfigV2(repairedRaw, project, id, explorer.ConfigManagementForID(id))
+				if err != nil {
+					return explorerV2Error(c, http.StatusUnprocessableEntity, "INVALID_CONFIG", err.Error())
+				}
+			}
 		}
 		value, err := explorers.SaveDraftV2(c.Context(), project, id, canonical, *request.ExpectedDraftVersion, request.ExpectedDraftDigest, subjectFromFiber(c))
 		if errors.Is(err, explorer.ErrDraftConflict) {
@@ -253,11 +325,13 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err != nil {
 			return explorerV2Error(c, http.StatusUnprocessableEntity, "DRAFT_SAVE_FAILED", err.Error())
 		}
-		return c.JSON(stateFromExplorer(value))
+		state := stateFromExplorer(value)
+		state.Diagnostics = append(state.Diagnostics, repairDiagnostics...)
+		return c.JSON(state)
 	})
 
 	app.Post("/api/v1/projects/:project/explorers/:explorerId/authoring/compile", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -271,9 +345,9 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err := decodeStrict(c.Body(), &request); err != nil {
 			return explorerV2Error(c, http.StatusBadRequest, "MALFORMED_REQUEST", err.Error())
 		}
-		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, Config: request.Config, SnapshotToken: request.SnapshotToken, SelectedCandidateIDsByNode: request.SelectedCandidateIDsByNode, Output: request.Output})
+		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, RequestID: requestIDFromFiber(c), Config: request.Config, SnapshotToken: request.SnapshotToken, SelectedCandidateIDsByNode: request.SelectedCandidateIDsByNode, Output: request.Output})
 		if err != nil {
-			return explorerV2Error(c, http.StatusUnprocessableEntity, "COMPILE_FAILED", err.Error())
+			return explorerV2ErrorFromCause(c, http.StatusUnprocessableEntity, "COMPILE_FAILED", err)
 		}
 		diagnostics := result.Diagnostics
 		if diagnostics == nil {
@@ -287,7 +361,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 	})
 
 	app.Post("/api/v1/projects/:project/explorers/:explorerId/preview", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		}
@@ -306,7 +380,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if request.Limit < 1 || request.Limit > 1000 {
 			return explorerV2Error(c, http.StatusBadRequest, "INVALID_LIMIT", "limit must be between 1 and 1000")
 		}
-		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, Config: request.Config, Output: request.Output})
+		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, RequestID: requestIDFromFiber(c), Config: request.Config, Output: request.Output})
 		if err != nil {
 			return previewFailure(c, digest, err)
 		}
@@ -316,16 +390,16 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if capabilities.Preview == nil {
 			return previewFailure(c, digest, fmt.Errorf("preview executor is not configured"))
 		}
-		rows, err := capabilities.Preview(c.Context(), result.Bundle, recipe.RuntimeBindings{Project: project, PreviewLimit: request.Limit, DatasetGeneration: result.SourceGeneration, OutputNames: []string{request.Output}})
+		rows, err := capabilities.Preview(c.Context(), result.Bundle, recipe.RuntimeBindings{Project: projectid.Legacy(project), PreviewLimit: request.Limit, DatasetGeneration: result.SourceGeneration, OutputNames: []string{request.Output}})
 		if err != nil {
 			return previewFailure(c, digest, err)
 		}
 		selected := rows[request.Output]
-		return c.JSON(fiber.Map{"project": project, "explorerId": id, "output": request.Output, "columns": columnsForOutput(result, request.Output), "rows": selected, "rowCount": len(selected), "digest": digest, "diagnostics": result.Diagnostics})
+		return c.JSON(fiber.Map{"project": project, "explorerId": id, "output": request.Output, "config": json.RawMessage(result.Config), "columns": columnsForOutput(result, request.Output), "rows": selected, "rowCount": len(selected), "digest": digest, "diagnostics": result.Diagnostics})
 	})
 
 	app.Post("/api/v1/projects/:project/explorers/:explorerId/publish", func(c fiber.Ctx) error {
-		project, id := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("explorerId"))
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
 		}
@@ -358,14 +432,14 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err != nil {
 			return explorerV2Error(c, http.StatusInternalServerError, "EXPLORER_READ_FAILED", err.Error())
 		}
-		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, Config: owner.DraftConfig})
+		result, digest, err := compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, RequestID: requestIDFromFiber(c), Config: owner.DraftConfig})
 		if err != nil {
 			// A persisted canonical draft should compile. Retry against the
 			// latest draft once so a concurrent last-write-wins save or a
 			// transient catalog update does not become a user-facing 422.
 			if latest, readErr := explorers.Get(c.Context(), project, id); readErr == nil {
 				owner = latest
-				result, digest, err = compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, Config: owner.DraftConfig})
+				result, digest, err = compileExplorerV2(c.Context(), capabilities.Compile, ExplorerV2CompileRequest{Project: project, ExplorerID: id, RequestID: requestIDFromFiber(c), Config: owner.DraftConfig})
 			}
 			if err != nil {
 				return publishFailure(http.StatusInternalServerError, "PUBLISH_PIPELINE_FAILED", "the current Explorer draft could not be compiled", "COMPILE", fiber.Map{"draftVersion": owner.DraftVersion, "draftDigest": owner.DraftDigest, "cause": err.Error()})
@@ -409,7 +483,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 				return publishFailure(http.StatusServiceUnavailable, "DATASET_BUILD_UNAVAILABLE", "publishing this Explorer requires a dataset build that is not configured", "MATERIALIZE_UNAVAILABLE", activeDatasetErrorDetails(activeErr, result.Bundle))
 			}
 			if capabilities.ValidateReleaseGeneration != nil {
-				if validateErr := capabilities.ValidateReleaseGeneration(c.Context(), project, generation); validateErr != nil {
+				if validateErr := capabilities.ValidateReleaseGeneration(c.Context(), projectid.Legacy(project), generation); validateErr != nil {
 					status, code, message := explorerReleaseFailure(validateErr, true)
 					return publishFailure(status, code, message, "VALIDATE_DATASET_RELEASE", fiber.Map{"generation": generation, "cause": validateErr.Error()})
 				}
@@ -417,7 +491,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			var executions []graphresolver.RecipeExecution
 			for _, output := range changedOutputs {
 				publishInfo("Explorer output materialization started", "output", output.Name)
-				execution, materializeErr := capabilities.Materialize(c.Context(), result.Bundle, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, OutputNames: []string{output.Name}})
+				execution, materializeErr := capabilities.Materialize(c.Context(), result.Bundle, recipe.RuntimeBindings{Project: projectid.Legacy(project), DatasetGeneration: generation, OutputNames: []string{output.Name}})
 				if materializeErr != nil {
 					return publishFailure(http.StatusServiceUnavailable, "DATASET_BUILD_FAILED", "the dataset could not be built for this Explorer", "MATERIALIZE", fiber.Map{"generation": generation, "output": output.Name, "cause": materializeErr.Error(), "details": activeDatasetErrorDetails(activeErr, result.Bundle)})
 				}
@@ -428,7 +502,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 				executions = append(executions, execution)
 			}
 			publishInfo("Explorer dataset release activation started", "outputs", recipeOutputNames(changedOutputs))
-			if err := activateExplorerReleaseWithRetry(c.Context(), capabilities.ActivateRelease, project, generation, selectorsForOutputs(changedOutputs, result.Bundle)); err != nil {
+			if err := activateExplorerReleaseWithRetry(c.Context(), capabilities.ActivateRelease, projectid.Legacy(project), generation, selectorsForOutputs(changedOutputs, result.Bundle)); err != nil {
 				status, code, message := explorerReleaseFailure(err, false)
 				return publishFailure(status, code, message, "ACTIVATE_DATASET_RELEASE", fiber.Map{"generation": generation, "cause": err.Error(), "outputs": recipeOutputNames(changedOutputs)})
 			}
@@ -899,6 +973,21 @@ func explorerV2Error(c fiber.Ctx, status int, code, message string) error {
 	return c.Status(status).JSON(fiber.Map{"error": fiber.Map{"code": code, "message": message}})
 }
 
+func explorerV2ErrorFromCause(c fiber.Ctx, status int, code string, cause error) error {
+	var repairErr *explorer.PresentationRepairError
+	if errors.As(cause, &repairErr) {
+		diagnostic := repairErr.Diagnostic
+		if diagnostic.RequestID == "" {
+			diagnostic.RequestID = requestIDFromFiber(c)
+		}
+		return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error":       fiber.Map{"code": diagnostic.Code, "message": diagnostic.Message, "fieldPath": diagnostic.FieldPath, "details": diagnostic.Details, "requestId": diagnostic.RequestID},
+			"diagnostics": []explorer.Diagnostic{diagnostic},
+		})
+	}
+	return explorerV2Error(c, status, code, cause.Error())
+}
+
 func explorerV2ErrorWithDetails(c fiber.Ctx, status int, code, message string, details any) error {
 	body := fiber.Map{"code": code, "message": message, "details": details}
 	if status == http.StatusServiceUnavailable || status == http.StatusConflict {
@@ -989,10 +1078,16 @@ func compileExplorerV2(ctx context.Context, compiler ExplorerV2Compiler, request
 		if len(result.Config) == 0 {
 			result.Config = canonical
 		}
-		if _, _, normalized, _, err := explorer.CanonicalConfigV2(result.Config, request.Project, request.ExplorerID, management); err != nil {
+		if _, _, normalized, normalizedDigest, err := explorer.CanonicalConfigV2(result.Config, request.Project, request.ExplorerID, management); err != nil {
 			return ExplorerV2CompileResult{}, digest, err
 		} else {
 			result.Config = normalized
+			digest = normalizedDigest
+		}
+		for index := range result.Diagnostics {
+			if result.Diagnostics[index].RequestID == "" {
+				result.Diagnostics[index].RequestID = request.RequestID
+			}
 		}
 		if result.Bundle.Name == "" {
 			result.Bundle = bundle
@@ -1011,6 +1106,14 @@ func compileExplorerV2(ctx context.Context, compiler ExplorerV2Compiler, request
 func mustBundleDigest(bundle recipe.Bundle) string { digest, _ := bundle.Digest(); return digest }
 
 func previewFailure(c fiber.Ctx, digest string, err error) error {
+	var repairErr *explorer.PresentationRepairError
+	if errors.As(err, &repairErr) {
+		diagnostic := repairErr.Diagnostic
+		if diagnostic.RequestID == "" {
+			diagnostic.RequestID = requestIDFromFiber(c)
+		}
+		return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"outputColumns": []string{}, "rows": []map[string]any{}, "rowCount": 0, "digest": digest, "diagnostics": []explorer.Diagnostic{diagnostic}})
+	}
 	return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"outputColumns": []string{}, "rows": []map[string]any{}, "rowCount": 0, "digest": digest, "diagnostics": []explorer.Diagnostic{{Severity: "ERROR", Code: "PREVIEW_FAILED", Message: err.Error()}}})
 }
 
@@ -1042,6 +1145,36 @@ func columnsForOutput(result ExplorerV2CompileResult, output string) []string {
 		}
 		for _, field := range item.Fields {
 			columns = append(columns, field.Name)
+		}
+	}
+	return columns
+}
+
+func emittedColumnsByOutput(value explorer.Explorer) map[string]map[string]bool {
+	columns := make(map[string]map[string]bool)
+	for _, emitted := range value.EmittedColumns {
+		if emitted.OutputID == "" || emitted.PublicColumn == "" {
+			continue
+		}
+		if columns[emitted.OutputID] == nil {
+			columns[emitted.OutputID] = make(map[string]bool)
+		}
+		columns[emitted.OutputID][emitted.PublicColumn] = true
+	}
+	if len(columns) != 0 {
+		return columns
+	}
+	for _, output := range value.Dataset.Outputs {
+		if output.Name == "" {
+			continue
+		}
+		if columns[output.Name] == nil {
+			columns[output.Name] = make(map[string]bool)
+		}
+		for _, column := range output.Columns {
+			if column.Name != "" {
+				columns[output.Name][column.Name] = true
+			}
 		}
 	}
 	return columns
@@ -1108,12 +1241,18 @@ func forkRepositoryConfig(raw []byte, project, id, title string) ([]byte, error)
 func getExplorerV2State(ctx context.Context, service *explorer.Service, project, id string) (*explorerV2State, error) {
 	value, err := service.Get(ctx, project, id)
 	if err == nil {
+		var repairDiagnostics []explorer.Diagnostic
+		if repaired, diagnostics, repairErr := repairExplorerDraftOnLoad(ctx, service, value); repairErr == nil {
+			value, repairDiagnostics = repaired, diagnostics
+		}
 		state := stateFromExplorer(value)
 		if value.ActiveRevisionID != "" {
 			if revision, revisionErr := service.Revision(ctx, value.ActiveRevisionID); revisionErr == nil {
 				state = mergeRevisionState(state, revision)
 			}
 		}
+		state.Diagnostics = append(state.Diagnostics, repairDiagnostics...)
+		state = repairActiveExplorerPresentation(state)
 		return state, nil
 	}
 	if id != "default" || !errors.Is(err, explorer.ErrNotFound) {
@@ -1131,7 +1270,95 @@ func getExplorerV2State(ctx context.Context, service *explorer.Service, project,
 	if version == 0 {
 		version = 1
 	}
-	return &explorerV2State{Project: project, ExplorerID: "default", Management: explorer.ManagementRepository, BaselineConfig: repositoryBaselineConfig(repository.Config), DraftConfig: cloneRaw(repository.Config), DraftVersion: version, DraftDigest: digest, ActiveConfig: cloneRaw(repository.Config), ActiveRevisionID: repository.ActiveRevisionID, SourceGeneration: repository.SourceGeneration, Materializations: repository.Materializations, Dataset: repository.Dataset, Publication: repository.Publication, Diagnostics: repository.Diagnostics, PublicationState: repository.Publication.State, ActiveURL: explorerURL(project, "default"), UpdatedAt: repository.UpdatedAt}, nil
+	state := &explorerV2State{Project: project, ExplorerID: "default", Title: configV2Title(repository.Config), Management: explorer.ManagementRepository, BaselineConfig: repositoryBaselineConfig(repository.Config), DraftConfig: cloneRaw(repository.Config), DraftVersion: version, DraftDigest: digest, ActiveConfig: cloneRaw(repository.Config), ActiveRevisionID: repository.ActiveRevisionID, SourceGeneration: repository.SourceGeneration, Materializations: repository.Materializations, Dataset: repository.Dataset, Publication: repository.Publication, Diagnostics: repository.Diagnostics, PublicationState: repository.Publication.State, ActiveURL: explorerURL(project, "default"), UpdatedAt: repository.UpdatedAt}
+	return repairActiveExplorerPresentation(state), nil
+}
+
+func repairExplorerDraftOnLoad(ctx context.Context, service *explorer.Service, value *explorer.Explorer) (*explorer.Explorer, []explorer.Diagnostic, error) {
+	if value == nil || len(value.DraftConfig) == 0 {
+		return value, nil, nil
+	}
+	available := emittedColumnsByOutput(*value)
+	if len(available) == 0 {
+		return value, nil, nil
+	}
+	cfg, _, _, _, err := explorer.CanonicalConfigV2(value.DraftConfig, value.Project, value.ExplorerID, explorer.ConfigManagementForID(value.ExplorerID))
+	if err != nil {
+		return value, nil, nil
+	}
+	repaired, diagnostics, repairErr := explorer.RepairConfigV2Presentation(cfg, available)
+	if repairErr != nil || len(diagnostics) == 0 {
+		return value, nil, repairErr
+	}
+	raw, err := json.Marshal(repaired)
+	if err != nil {
+		return value, nil, err
+	}
+	_, _, canonical, _, err := explorer.CanonicalConfigV2(raw, value.Project, value.ExplorerID, explorer.ConfigManagementForID(value.ExplorerID))
+	if err != nil {
+		return value, nil, err
+	}
+	saved, err := service.SaveDraftV2(ctx, value.Project, value.ExplorerID, canonical, value.DraftVersion, value.DraftDigest, "loom-presentation-repair")
+	if err != nil {
+		return value, nil, err
+	}
+	return saved, diagnostics, nil
+}
+
+func repairActiveExplorerPresentation(state *explorerV2State) *explorerV2State {
+	if state == nil || len(state.ActiveConfig) == 0 {
+		return state
+	}
+	available := make(map[string]map[string]bool)
+	for _, emitted := range state.EmittedColumns {
+		if emitted.OutputID == "" || emitted.PublicColumn == "" {
+			continue
+		}
+		if available[emitted.OutputID] == nil {
+			available[emitted.OutputID] = make(map[string]bool)
+		}
+		available[emitted.OutputID][emitted.PublicColumn] = true
+	}
+	if len(available) == 0 {
+		for _, output := range state.Dataset.Outputs {
+			if output.Name == "" {
+				continue
+			}
+			if available[output.Name] == nil {
+				available[output.Name] = make(map[string]bool)
+			}
+			for _, column := range output.Columns {
+				if column.Name != "" {
+					available[output.Name][column.Name] = true
+				}
+			}
+		}
+	}
+	if len(available) == 0 {
+		return state
+	}
+	cfg, _, _, _, err := explorer.CanonicalConfigV2(state.ActiveConfig, state.Project, state.ExplorerID, explorer.ConfigManagementForID(state.ExplorerID))
+	if err != nil {
+		return state
+	}
+	repaired, diagnostics, repairErr := explorer.RepairConfigV2Presentation(cfg, available)
+	if repairErr != nil {
+		var presentationErr *explorer.PresentationRepairError
+		if errors.As(repairErr, &presentationErr) {
+			state.Diagnostics = append(state.Diagnostics, presentationErr.Diagnostic)
+		}
+		return state
+	}
+	if len(diagnostics) == 0 {
+		return state
+	}
+	raw, err := json.Marshal(repaired)
+	if err != nil {
+		return state
+	}
+	state.ActiveConfig = raw
+	state.Diagnostics = append(state.Diagnostics, diagnostics...)
+	return state
 }
 
 func listExplorerV2States(ctx context.Context, service *explorer.Service, project string) ([]*explorerV2State, error) {
@@ -1182,14 +1409,17 @@ func listExplorerV2States(ctx context.Context, service *explorer.Service, projec
 }
 
 func stateFromExplorer(value *explorer.Explorer) *explorerV2State {
+	project := projectid.Canonical(value.Project)
 	if value.ManagementMode == explorer.ManagementRepository {
-		return &explorerV2State{Project: value.Project, ExplorerID: value.ExplorerID, Management: value.ManagementMode, BaselineConfig: repositoryBaselineConfig(value.DraftConfig), DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: value.Publication.State, ActiveURL: explorerURL(value.Project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
+		return &explorerV2State{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, BaselineConfig: repositoryBaselineConfig(value.DraftConfig), DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: value.Publication.State, ActiveURL: explorerURL(project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
 	}
-	return &explorerV2State{Project: value.Project, ExplorerID: value.ExplorerID, Management: value.ManagementMode, DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: publicationState(value.ActiveRevisionID), ActiveURL: explorerURL(value.Project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
+	return &explorerV2State{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, DraftConfig: cloneRaw(value.DraftConfig), DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest, ActiveConfig: cloneRaw(value.ActiveConfig), ActiveRevisionID: value.ActiveRevisionID, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Materializations: append([]explorer.Materialization(nil), value.Materializations...), Dataset: value.Dataset, Publication: value.Publication, Diagnostics: append([]explorer.Diagnostic(nil), value.Diagnostics...), PublicationState: publicationState(value.ActiveRevisionID), ActiveURL: explorerURL(project, value.ExplorerID), UpdatedBy: value.UpdatedBy, UpdatedAt: value.UpdatedAt}
 }
 
 func mergeRevisionState(state *explorerV2State, revision *explorer.Revision) *explorerV2State {
 	state.ActiveConfig = cloneRaw(revision.Config)
+	state.ActiveAuthoringBundle = cloneOptionalRaw(revision.AuthoringBundle)
+	state.ActiveIntentDigest = revision.IntentDigest
 	state.RecipeDigest, state.ResolvedSchemaDigest, state.SourceGeneration = revision.RecipeDigest, revision.ResolvedSchemaDigest, revision.SourceGeneration
 	state.EmittedColumns, state.Diagnostics = append([]explorer.EmittedColumn(nil), revision.EmittedColumns...), append([]explorer.Diagnostic(nil), revision.Diagnostics...)
 	state.Materializations, state.Dataset = explorer.WithDataframeSelectors(revision.Recipe, revision.Materializations, revision.Dataset)
@@ -1205,13 +1435,503 @@ func publicationState(id string) string {
 	return string(explorer.RevisionActive)
 }
 func explorerURL(project, id string) string {
-	return "/api/v1/projects/" + project + "/explorers/" + id
+	return "/api/v1/projects/" + url.PathEscape(project) + "/explorers/" + url.PathEscape(id)
 }
 func cloneRaw(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return json.RawMessage("null")
 	}
 	return append(json.RawMessage(nil), raw...)
+}
+
+func cloneOptionalRaw(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
+}
+
+func stateV1FromExplorerV2State(state *explorerV2State) explorer.ExplorerStateV1 {
+	result := explorer.ExplorerStateV1{
+		APIVersion: explorer.ExplorerStateV1APIVersion,
+		Kind:       explorer.ExplorerStateV1Kind,
+		Project:    state.Project,
+		ExplorerID: state.ExplorerID,
+		Title:      state.Title,
+		Management: state.Management,
+		ActiveURL:  state.ActiveURL,
+		UpdatedBy:  state.UpdatedBy,
+		UpdatedAt:  state.UpdatedAt,
+	}
+	result.Draft = explorer.ExplorerStateV1Draft{
+		Bundle:       nil,
+		Version:      state.DraftVersion,
+		Digest:       state.DraftDigest,
+		IntentDigest: "",
+		ReceiptID:    "",
+	}
+	result.Active = explorer.ExplorerStateV1Active{
+		Bundle:       canonicalAuthoringBundle(state.ActiveAuthoringBundle),
+		RevisionID:   state.ActiveRevisionID,
+		IntentDigest: state.ActiveIntentDigest,
+		Status:       state.Publication.State,
+	}
+	result.Generated = explorer.ExplorerStateV1Generated{
+		RecipeDigest:         state.RecipeDigest,
+		ResolvedSchemaDigest: state.ResolvedSchemaDigest,
+		SourceGeneration:     state.SourceGeneration,
+		EmittedColumns:       append([]explorer.EmittedColumn(nil), state.EmittedColumns...),
+		Materializations:     append([]explorer.Materialization(nil), state.Materializations...),
+		Dataset:              state.Dataset,
+		Publication:          state.Publication,
+		Diagnostics:          append([]explorer.Diagnostic(nil), state.Diagnostics...),
+	}
+	result.Runtime = runtimeV1FromExplorerV2State(state)
+	return result
+}
+
+type runtimeProjectionState struct {
+	ActiveConfig         json.RawMessage
+	SourceGeneration     string
+	ResolvedSchemaDigest string
+	EmittedColumns       []explorer.EmittedColumn
+	Materializations     []explorer.Materialization
+	Dataset              explorer.DatasetMetadata
+	Publication          explorer.PublicationMetadata
+	Diagnostics          []explorer.Diagnostic
+}
+
+func runtimeV1FromPublishedRevision(revision *explorer.Revision) *explorer.ExplorerRuntimeV1 {
+	if revision == nil {
+		return nil
+	}
+	return runtimeV1FromProjection(runtimeProjectionState{
+		ActiveConfig:         revision.Config,
+		SourceGeneration:     revision.SourceGeneration,
+		ResolvedSchemaDigest: revision.ResolvedSchemaDigest,
+		EmittedColumns:       revision.EmittedColumns,
+		Materializations:     revision.Materializations,
+		Dataset:              revision.Dataset,
+		Publication:          revision.Publication,
+		Diagnostics:          revision.Diagnostics,
+	})
+}
+
+// runtimeV1FromExplorerV2State is retained only for legacy lifecycle tests and
+// migration helpers. Registered runtime reads use runtimeV1FromPublishedRevision.
+func runtimeV1FromExplorerV2State(legacy *explorerV2State) *explorer.ExplorerRuntimeV1 {
+	if legacy == nil {
+		return nil
+	}
+	return runtimeV1FromProjection(runtimeProjectionState{
+		ActiveConfig:         legacy.ActiveConfig,
+		SourceGeneration:     legacy.SourceGeneration,
+		ResolvedSchemaDigest: legacy.ResolvedSchemaDigest,
+		EmittedColumns:       legacy.EmittedColumns,
+		Materializations:     legacy.Materializations,
+		Dataset:              legacy.Dataset,
+		Publication:          legacy.Publication,
+		Diagnostics:          legacy.Diagnostics,
+	})
+}
+
+func runtimeV1FromProjection(state runtimeProjectionState) *explorer.ExplorerRuntimeV1 {
+	if len(state.ActiveConfig) == 0 {
+		return nil
+	}
+	var config explorer.ConfigV2
+	if err := json.Unmarshal(state.ActiveConfig, &config); err != nil || len(config.Views) == 0 {
+		return nil
+	}
+	recipeLabels := explorerRecipeColumnLabels(config.Recipe)
+
+	datasetOutputs := make(map[string]explorer.DatasetOutput, len(state.Dataset.Outputs))
+	physicalColumns := make(map[string]map[string]publication.PhysicalColumn, len(state.Dataset.Outputs))
+	for _, output := range state.Dataset.Outputs {
+		datasetOutputs[output.Name] = output
+		physicalColumns[output.Name] = make(map[string]publication.PhysicalColumn, len(output.Columns))
+		for _, column := range output.Columns {
+			physicalColumns[output.Name][column.Name] = column
+		}
+	}
+	materializations := make(map[string]explorer.Materialization, len(state.Materializations))
+	for _, materialization := range state.Materializations {
+		outputID := firstNonEmpty(materialization.OutputID, materialization.Output)
+		materializations[outputID] = materialization
+		if physicalColumns[outputID] == nil {
+			physicalColumns[outputID] = make(map[string]publication.PhysicalColumn, len(materialization.Columns))
+		}
+		for _, column := range materialization.Columns {
+			physicalColumns[outputID][column.Name] = column
+		}
+	}
+	emittedColumns := make(map[string]map[string]explorer.EmittedColumn)
+	for _, emitted := range state.EmittedColumns {
+		if emitted.OutputID == "" || emitted.PublicColumn == "" {
+			continue
+		}
+		if emittedColumns[emitted.OutputID] == nil {
+			emittedColumns[emitted.OutputID] = make(map[string]explorer.EmittedColumn)
+		}
+		emittedColumns[emitted.OutputID][emitted.PublicColumn] = emitted
+	}
+	// Authoring emissions use stable logical names (c_<hash>), while the
+	// publication layer may qualify those names for the physical dataframe
+	// schema (for example patient_c_<hash>). Resolve that boundary from the
+	// authoritative published column list instead of asking the renderer to
+	// guess physical names. A suffix match is accepted only when it is
+	// unambiguous for the output.
+	publicToPhysical := make(map[string]map[string]string)
+	for outputID, emitted := range emittedColumns {
+		physical := physicalColumns[outputID]
+		if len(physical) == 0 {
+			continue
+		}
+		aliases := make(map[string]string)
+		for publicName, emission := range emitted {
+			logicalNames := []string{publicName}
+			// Authoring revisions compiled before PublicColumn was aligned with
+			// the lowered recipe field used an emission-derived hash here. The
+			// persisted candidate/occurrence identity still lets us recover the
+			// actual logical field name without rewriting durable state.
+			if emission.CandidateID != "" && emission.OccurrenceID != "" {
+				legacyLogicalName := generatedFieldName(emission.CandidateID, emission.OccurrenceID)
+				if legacyLogicalName != publicName {
+					logicalNames = append(logicalNames, legacyLogicalName)
+				}
+			}
+			matches := make([]string, 0, 1)
+			for physicalName := range physical {
+				for _, logicalName := range logicalNames {
+					if physicalName == logicalName || strings.HasSuffix(physicalName, "_"+logicalName) {
+						matches = append(matches, physicalName)
+						break
+					}
+				}
+			}
+			if len(matches) == 1 {
+				aliases[publicName] = matches[0]
+			}
+		}
+		if len(aliases) > 0 {
+			publicToPhysical[outputID] = aliases
+		}
+	}
+
+	runtime := &explorer.ExplorerRuntimeV1{
+		Generation:    firstNonEmpty(state.Dataset.Generation, state.SourceGeneration, state.Publication.Generation),
+		Publication:   state.Publication,
+		Schema:        explorer.ExplorerRuntimeSchemaV1{Digest: firstNonEmpty(state.Dataset.SchemaDigest, state.ResolvedSchemaDigest), Version: explorer.ConfigV2APIVersion},
+		Outputs:       make([]explorer.ExplorerRuntimeOutputV1, 0, len(config.Views)),
+		SharedFilters: map[string][]explorer.ExplorerRuntimeBindingV1{},
+		Diagnostics:   append(make([]explorer.Diagnostic, 0, len(state.Diagnostics)), state.Diagnostics...),
+	}
+	emissionByOutputColumn := make(map[string]map[string]string)
+	// Seed the authoritative output/column identity map before walking views.
+	// Shared filters are allowed to target a valid emitted column that is not
+	// repeated in a table, filter, chart, or fixed-filter presentation binding.
+	// Keeping this map complete prevents those bindings from disappearing from
+	// the renderer projection.
+	for outputID, columns := range physicalColumns {
+		if emissionByOutputColumn[outputID] == nil {
+			emissionByOutputColumn[outputID] = map[string]string{}
+		}
+		for name := range columns {
+			emitted := emittedColumns[outputID][name]
+			if emitted.EmissionID == "" {
+				for publicName, physicalName := range publicToPhysical[outputID] {
+					if physicalName == name {
+						emitted = emittedColumns[outputID][publicName]
+						break
+					}
+				}
+			}
+			emissionID := emitted.EmissionID
+			if emissionID == "" {
+				emissionID = explorer.OpaqueID("em_", outputID+"\x00"+name)
+			}
+			emissionByOutputColumn[outputID][name] = emissionID
+		}
+	}
+	for _, view := range config.Views {
+		physicalNameFor := func(name string) string {
+			if aliases := publicToPhysical[view.Output]; aliases != nil {
+				if physicalName := aliases[name]; physicalName != "" {
+					return physicalName
+				}
+			}
+			return name
+		}
+		selector := (*dataset.DataframeSelector)(nil)
+		if output, ok := datasetOutputs[view.Output]; ok && output.Selector != nil {
+			copy := *output.Selector
+			selector = &copy
+		} else if materialization, ok := materializations[view.Output]; ok && materialization.Selector != nil {
+			copy := *materialization.Selector
+			selector = &copy
+		}
+		if selector == nil || selector.Validate() != nil {
+			return nil
+		}
+
+		columnsByName := map[string]explorer.ExplorerRuntimeColumnV1{}
+		ensureColumn := func(name string) (explorer.ExplorerRuntimeColumnV1, bool) {
+			physicalName := physicalNameFor(name)
+			if column, ok := columnsByName[physicalName]; ok {
+				return column, true
+			}
+			physical, ok := physicalColumns[view.Output][physicalName]
+			if !ok {
+				// A compiled authoring emission is intent metadata. It is not
+				// queryable until the active materialization publishes the same
+				// physical column. Do not leak such a column into the runtime
+				// packet: the dataframe API correctly rejects it otherwise.
+				return explorer.ExplorerRuntimeColumnV1{}, false
+			}
+			emitted := emittedColumns[view.Output][name]
+			if emitted.PublicColumn == "" {
+				emitted = emittedColumns[view.Output][physicalName]
+			}
+			emissionID := emitted.EmissionID
+			if emissionID == "" {
+				emissionID = explorer.OpaqueID("em_", view.Output+"\x00"+name)
+			}
+			logicalType := firstNonEmpty(emitted.LogicalType, physical.LogicalType, physical.ClickHouse, "string")
+			filterable := emitted.Filterable
+			chartable := emitted.Chartable
+			if emitted.PublicColumn == "" {
+				filterable = !physical.Repeated
+				chartable = !physical.Repeated
+			}
+			label := recipeLabels[view.Output][name]
+			column := explorer.ExplorerRuntimeColumnV1{
+				EmissionID: emissionID, Name: physicalName, Label: firstNonEmpty(label, physicalName), LogicalType: logicalType,
+				Repeated: physical.Repeated, Filterable: filterable, Sortable: !physical.Repeated,
+				Chartable: chartable, Aggregatable: filterable,
+			}
+			columnsByName[physicalName] = column
+			if emissionByOutputColumn[view.Output] == nil {
+				emissionByOutputColumn[view.Output] = map[string]string{}
+			}
+			emissionByOutputColumn[view.Output][physicalName] = emissionID
+			return column, true
+		}
+
+		orderedNames := make([]string, 0, len(physicalColumns[view.Output])+len(emittedColumns[view.Output]))
+		seenNames := map[string]bool{}
+		appendName := func(name string) {
+			logicalName := name
+			physicalName := physicalNameFor(name)
+			if physicalName == "" || seenNames[physicalName] {
+				return
+			}
+			if _, ok := ensureColumn(logicalName); !ok {
+				return
+			}
+			seenNames[physicalName] = true
+			orderedNames = append(orderedNames, physicalName)
+		}
+		for _, binding := range view.Table.Columns {
+			appendName(binding.Column)
+		}
+		remainingNames := make([]string, 0, len(physicalColumns[view.Output])+len(emittedColumns[view.Output]))
+		for name := range physicalColumns[view.Output] {
+			if !seenNames[name] {
+				remainingNames = append(remainingNames, name)
+			}
+		}
+		for name := range emittedColumns[view.Output] {
+			if !seenNames[name] {
+				remainingNames = append(remainingNames, name)
+			}
+		}
+		sort.Strings(remainingNames)
+		for _, name := range remainingNames {
+			appendName(name)
+		}
+
+		table := explorer.ExplorerRuntimeTableV1{Columns: make([]explorer.ExplorerRuntimeTableColumnV1, 0, len(view.Table.Columns))}
+		for index, binding := range view.Table.Columns {
+			column, ok := ensureColumn(binding.Column)
+			if !ok {
+				continue
+			}
+			label := binding.Label
+			if label == "" || label == binding.Column || label == physicalNameFor(binding.Column) {
+				label = recipeLabels[view.Output][binding.Column]
+			}
+			column.Label = firstNonEmpty(label, column.Label, binding.Column)
+			column.Visible = binding.Visible
+			column.Order = index
+			columnsByName[physicalNameFor(binding.Column)] = column
+			table.Columns = append(table.Columns, explorer.ExplorerRuntimeTableColumnV1{EmissionID: column.EmissionID, Visible: binding.Visible})
+		}
+		filters := make([]explorer.ExplorerRuntimeBindingV1, 0, len(view.Filters))
+		for _, binding := range view.Filters {
+			column, ok := ensureColumn(binding.Column)
+			if !ok {
+				continue
+			}
+			filters = append(filters, explorer.ExplorerRuntimeBindingV1{EmissionID: column.EmissionID, OutputID: view.Output, Label: firstNonEmpty(binding.Label, column.Label)})
+		}
+		charts := make([]explorer.ExplorerRuntimeBindingV1, 0, len(view.Charts))
+		for _, binding := range view.Charts {
+			column, ok := ensureColumn(binding.Column)
+			if !ok {
+				continue
+			}
+			charts = append(charts, explorer.ExplorerRuntimeBindingV1{EmissionID: column.EmissionID, OutputID: view.Output, Type: binding.Type, Title: binding.Title})
+		}
+		fixedFilters := make(map[string][]string, len(view.FixedFilters))
+		for columnName, values := range view.FixedFilters {
+			column, ok := ensureColumn(columnName)
+			if !ok {
+				continue
+			}
+			fixedFilters[column.EmissionID] = append([]string(nil), values...)
+		}
+		columns := make([]explorer.ExplorerRuntimeColumnV1, 0, len(orderedNames))
+		for index, name := range orderedNames {
+			column := columnsByName[name]
+			if index >= len(view.Table.Columns) {
+				column.Order = index
+			}
+			columns = append(columns, column)
+		}
+		// A migrated legacy view can legitimately have no surviving presentation
+		// bindings (for example when its old field names no longer match the
+		// published physical schema). Keep the renderer usable in that case by
+		// projecting every published column into the table. Explicit table
+		// bindings still win, including an intentionally hidden table.
+		if len(view.Table.Columns) == 0 {
+			table.Columns = make([]explorer.ExplorerRuntimeTableColumnV1, 0, len(columns))
+			order := 0
+			for index := range columns {
+				if runtimeColumnIsInternal(columns[index].Name) {
+					continue
+				}
+				columns[index].Visible = true
+				columns[index].Order = order
+				table.Columns = append(table.Columns, explorer.ExplorerRuntimeTableColumnV1{EmissionID: columns[index].EmissionID, Visible: true})
+				order++
+			}
+		}
+		output := explorer.ExplorerRuntimeOutputV1{
+			OutputID: view.Output, Name: firstNonEmpty(view.ID, view.Output), Title: view.Title,
+			RowLabel: firstNonEmpty(view.RowLabel, view.Title), Selector: *selector, Columns: columns,
+			Table: table, Filters: filters, Charts: charts, FixedFilters: fixedFilters,
+		}
+		if materialization, ok := materializations[view.Output]; ok {
+			copy := materialization
+			output.Materialization = &copy
+		}
+		runtime.Outputs = append(runtime.Outputs, output)
+	}
+	for name, filters := range config.SharedFilters {
+		bindings := make([]explorer.ExplorerRuntimeBindingV1, 0, len(filters))
+		for _, filter := range filters {
+			columnName := filter.Column
+			if aliases := publicToPhysical[filter.Output]; aliases != nil {
+				if physicalName := aliases[columnName]; physicalName != "" {
+					columnName = physicalName
+				}
+			}
+			emissionID := emissionByOutputColumn[filter.Output][columnName]
+			if emissionID == "" {
+				continue
+			}
+			bindings = append(bindings, explorer.ExplorerRuntimeBindingV1{EmissionID: emissionID, OutputID: filter.Output})
+		}
+		if len(bindings) > 0 {
+			runtime.SharedFilters[name] = bindings
+		}
+	}
+	return runtime
+}
+
+func runtimeColumnIsInternal(name string) bool {
+	return name == "auth_resource_path" || strings.HasPrefix(name, "__loom_")
+}
+
+func explorerRecipeColumnLabels(raw json.RawMessage) map[string]map[string]string {
+	labels := map[string]map[string]string{}
+	var bundle recipe.Bundle
+	if len(raw) == 0 || json.Unmarshal(raw, &bundle) != nil {
+		return labels
+	}
+	var collectFields func(string, []recipe.Field, []recipe.Traversal)
+	collectFields = func(output string, fields []recipe.Field, traversals []recipe.Traversal) {
+		if labels[output] == nil {
+			labels[output] = map[string]string{}
+		}
+		for _, field := range fields {
+			if field.Name == "" || field.FieldRef == "" {
+				continue
+			}
+			labels[output][field.Name] = humanizeExplorerFieldRef(field.FieldRef)
+		}
+		for _, traversal := range traversals {
+			collectFields(output, traversal.Fields, traversal.Traversals)
+		}
+	}
+	for _, output := range bundle.Outputs {
+		collectFields(output.Name, output.Fields, output.Traversals)
+	}
+	return labels
+}
+
+func humanizeExplorerFieldRef(fieldRef string) string {
+	value := strings.TrimSpace(fieldRef)
+	if index := strings.IndexByte(value, '.'); index >= 0 && index+1 < len(value) {
+		value = value[index+1:]
+	}
+	var words []string
+	var current strings.Builder
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		word := current.String()
+		lower := strings.ToLower(word)
+		switch lower {
+		case "id", "url", "uri", "uuid":
+			word = strings.ToUpper(lower)
+		default:
+			word = strings.ToUpper(word[:1]) + word[1:]
+		}
+		words = append(words, word)
+		current.Reset()
+	}
+	for index, char := range value {
+		if char == '.' || char == '_' || char == '-' || char == '[' || char == ']' {
+			flush()
+			continue
+		}
+		if index > 0 && char >= 'A' && char <= 'Z' && current.Len() > 0 {
+			flush()
+		}
+		current.WriteRune(char)
+	}
+	flush()
+	if len(words) == 0 {
+		return fieldRef
+	}
+	return strings.Join(words, " ")
+}
+
+func canonicalAuthoringBundle(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	bundle, err := explorer.DecodeAuthoringBundleV1ForMigration(raw)
+	if err != nil {
+		return nil
+	}
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		return nil
+	}
+	return canonical
 }
 
 func repositoryBaselineConfig(raw json.RawMessage) json.RawMessage {
@@ -1227,6 +1947,14 @@ func repositoryBaselineConfig(raw json.RawMessage) json.RawMessage {
 		return cloneRaw(raw)
 	}
 	return baseline
+}
+
+func configV2Title(raw json.RawMessage) string {
+	var cfg explorer.ConfigV2
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "Default"
+	}
+	return cfg.Explorer.Title
 }
 
 func stateErrorResponse(c fiber.Ctx, err error) error {

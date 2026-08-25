@@ -25,6 +25,15 @@ func TestRelationshipCountsRequireCompleteCommittedEdgeShape(t *testing.T) {
 	}
 }
 
+func TestRelationshipCountsRejectNonConcreteResourceEndpoints(t *testing.T) {
+	for _, endpoint := range []string{"PractitionerQualification", "qualification", "issuer", "Resource", "CustomResource"} {
+		raw := json.RawMessage(`{"project":"P1","from_type":"Practitioner","label":"link","to_type":"` + endpoint + `"}`)
+		if _, err := RelationshipCountsFromRawEdges([]json.RawMessage{raw}); err == nil {
+			t.Fatalf("relationship endpoint %q was accepted", endpoint)
+		}
+	}
+}
+
 func TestRelationshipCatalogDocumentsHaveStableGenerationSafeKeys(t *testing.T) {
 	counts := map[RelationshipKey]int64{
 		{Project: "P1", DatasetGeneration: "gen/a", AuthResourcePath: "path", FromType: "Patient", Label: "subject", ToType: "Specimen"}: 3,

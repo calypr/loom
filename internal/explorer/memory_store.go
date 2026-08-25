@@ -2,6 +2,8 @@ package explorer
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -13,12 +15,13 @@ type MemoryStore struct {
 	mu                sync.Mutex
 	explorers         map[string]Explorer
 	revisions         map[string]Revision
+	receipts          map[string]CompilationReceipt
 	configs           map[string]RepositoryConfig
 	repositoryConfigs map[string]RepositoryConfig
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{explorers: map[string]Explorer{}, revisions: map[string]Revision{}, configs: map[string]RepositoryConfig{}, repositoryConfigs: map[string]RepositoryConfig{}}
+	return &MemoryStore{explorers: map[string]Explorer{}, revisions: map[string]Revision{}, receipts: map[string]CompilationReceipt{}, configs: map[string]RepositoryConfig{}, repositoryConfigs: map[string]RepositoryConfig{}}
 }
 func configKey(project, id string) string { return project + "\x00" + id }
 func (s *MemoryStore) ListConfigs(_ context.Context, project string) ([]RepositoryConfig, error) {
@@ -121,6 +124,258 @@ func (s *MemoryStore) SaveDraft(_ context.Context, e Explorer, expected int64, e
 	s.explorers[k] = e
 	return &e, nil
 }
+func (s *MemoryStore) InsertCompilationReceipt(_ context.Context, receipt CompilationReceipt) (*CompilationReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateCompilationReceipt(receipt); err != nil {
+		return nil, err
+	}
+	if prior, ok := s.receipts[receipt.ID]; ok {
+		if !sameCompilationReceipt(prior, receipt) {
+			return nil, ErrCorruptReceipt
+		}
+		copy := cloneReceipt(prior)
+		return &copy, nil
+	}
+	s.receipts[receipt.ID] = cloneReceipt(receipt)
+	copy := cloneReceipt(receipt)
+	return &copy, nil
+}
+func (s *MemoryStore) GetCompilationReceipt(_ context.Context, id string) (*CompilationReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receipt, ok := s.receipts[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if err := validateCompilationReceipt(receipt); err != nil {
+		return nil, err
+	}
+	copy := cloneReceipt(receipt)
+	return &copy, nil
+}
+
+func (s *MemoryStore) GetCompilationReceiptForExplorer(_ context.Context, project, explorerID, id string) (*CompilationReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receipt, ok := s.receipts[id]
+	if !ok || receipt.Project != project || receipt.ExplorerID != explorerID {
+		return nil, ErrNotFound
+	}
+	if err := validateCompilationReceipt(receipt); err != nil {
+		return nil, err
+	}
+	copy := cloneReceipt(receipt)
+	return &copy, nil
+}
+
+func (s *MemoryStore) GetCompilationReceiptByCompilationKey(_ context.Context, project, explorerID, compilationKey string) (*CompilationReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var found *CompilationReceipt
+	for _, receipt := range s.receipts {
+		if receipt.Project != project || receipt.ExplorerID != explorerID || receiptCompilationKey(receipt) != compilationKey {
+			continue
+		}
+		if err := validateCompilationReceipt(receipt); err != nil {
+			return nil, err
+		}
+		candidate := cloneReceipt(receipt)
+		if found == nil || candidate.ID < found.ID {
+			found = &candidate
+		}
+	}
+	if found == nil {
+		return nil, ErrNotFound
+	}
+	return found, nil
+}
+
+func (s *MemoryStore) CompilationReceiptStats(_ context.Context, project string) (ReceiptStoreStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stats := ReceiptStoreStats{}
+	referenced := map[string]bool{}
+	for _, revision := range s.revisions {
+		if revision.CompilationReceiptID != "" {
+			referenced[revision.CompilationReceiptID] = true
+		}
+	}
+	for id, receipt := range s.receipts {
+		if project != "" && receipt.Project != project {
+			continue
+		}
+		if err := validateCompilationReceipt(receipt); err != nil {
+			return ReceiptStoreStats{}, err
+		}
+		stats.Count++
+		if raw, err := json.Marshal(receipt); err == nil {
+			stats.ApproxBytes += int64(len(raw))
+		}
+		if stats.OldestCreatedAt.IsZero() || (!receipt.CreatedAt.IsZero() && receipt.CreatedAt.Before(stats.OldestCreatedAt)) {
+			stats.OldestCreatedAt = receipt.CreatedAt
+		}
+		if !referenced[id] {
+			stats.UnreferencedCount++
+		}
+	}
+	return stats, nil
+}
+
+func (s *MemoryStore) PublishAuthoring(_ context.Context, receipt CompilationReceipt, revision Revision) (*Revision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := explorerKey(revision.Project, revision.ExplorerID)
+	owner, ok := s.explorers[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if existing, ok := s.revisions[revision.ID]; ok && owner.ActiveRevisionID == revision.ID {
+		copy := existing
+		return &copy, nil
+	}
+	if receipt.ID == "" || revision.CompilationReceiptID != receipt.ID {
+		return nil, ErrImmutableRevision
+	}
+	if err := validateCompilationReceipt(receipt); err != nil {
+		return nil, err
+	}
+	if prior, ok := s.receipts[receipt.ID]; ok && !sameCompilationReceipt(prior, receipt) {
+		return nil, ErrCorruptReceipt
+	}
+	now := time.Now().UTC()
+	if owner.ActiveRevisionID != "" {
+		prior := s.revisions[owner.ActiveRevisionID]
+		prior.Status = RevisionSuperseded
+		s.revisions[prior.ID] = prior
+	}
+	revision.Status = RevisionActive
+	revision.ActivatedAt = &now
+	revision.Publication.State = string(RevisionActive)
+	revision.Publication.RevisionID = revision.ID
+	revision.Publication.UpdatedAt = now
+	if _, ok := s.receipts[receipt.ID]; !ok {
+		s.receipts[receipt.ID] = cloneReceipt(receipt)
+	}
+	s.revisions[revision.ID] = revision
+	owner.ActiveRevisionID = revision.ID
+	owner.ActiveConfig = append([]byte(nil), revision.Config...)
+	owner.RecipeDigest = revision.RecipeDigest
+	owner.ResolvedSchemaDigest = revision.ResolvedSchemaDigest
+	owner.SourceGeneration = revision.SourceGeneration
+	owner.Materializations = append([]Materialization(nil), revision.Materializations...)
+	owner.EmittedColumns = append([]EmittedColumn(nil), revision.EmittedColumns...)
+	owner.Dataset = revision.Dataset
+	owner.Publication = revision.Publication
+	owner.Diagnostics = append([]Diagnostic(nil), revision.Diagnostics...)
+	owner.UpdatedAt = now
+	s.explorers[key] = owner
+	copy := revision
+	return &copy, nil
+}
+func cloneReceipt(in CompilationReceipt) CompilationReceipt {
+	return cloneReflect(reflect.ValueOf(in)).Interface().(CompilationReceipt)
+}
+
+var timeType = reflect.TypeOf(time.Time{})
+
+// cloneReflect keeps the memory adapter honest as the immutable receipt grows:
+// nested recipe slices/maps and raw JSON must never alias caller-owned state.
+func cloneReflect(v reflect.Value) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
+	if v.Type() == timeType {
+		return v
+	}
+	switch v.Kind() {
+	case reflect.Interface:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		out := reflect.New(v.Type()).Elem()
+		value := cloneReflect(v.Elem())
+		out.Set(value)
+		return out
+	case reflect.Ptr:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		out := reflect.New(v.Type().Elem())
+		out.Elem().Set(cloneReflect(v.Elem()))
+		return out
+	case reflect.Slice:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(cloneReflect(v.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(v.Type()).Elem()
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(cloneReflect(v.Index(i)))
+		}
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(cloneReflect(iter.Key()), cloneReflect(iter.Value()))
+		}
+		return out
+	case reflect.Struct:
+		out := reflect.New(v.Type()).Elem()
+		out.Set(v)
+		for i := 0; i < v.NumField(); i++ {
+			if out.Field(i).CanSet() && v.Field(i).CanInterface() {
+				out.Field(i).Set(cloneReflect(v.Field(i)))
+			}
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func receiptCompilationKey(receipt CompilationReceipt) string {
+	value := reflect.ValueOf(receipt)
+	field := value.FieldByName("CompilationKey")
+	if field.IsValid() && field.Kind() == reflect.String && field.String() != "" {
+		return field.String()
+	}
+	// IntentDigest was the pre-receipt compilation key and is retained as a
+	// compatibility fallback while old documents are being migrated.
+	return receipt.IntentDigest
+}
+
+func (s *MemoryStore) PurgeDraftAuthoring(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	referenced := map[string]bool{}
+	for _, revision := range s.revisions {
+		if revision.CompilationReceiptID != "" {
+			referenced[revision.CompilationReceiptID] = true
+		}
+	}
+	for id := range s.receipts {
+		if !referenced[id] {
+			delete(s.receipts, id)
+		}
+	}
+	for key, value := range s.explorers {
+		value.DraftConfig = nil
+		value.DraftVersion = 0
+		value.DraftDigest = ""
+		s.explorers[key] = value
+	}
+	return nil
+}
 func (s *MemoryStore) InsertRevision(_ context.Context, r Revision) (*Revision, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,8 +425,11 @@ func (s *MemoryStore) ActivateInteractive(_ context.Context, p, id, revisionID s
 	if !ok {
 		return ErrNotFound
 	}
-	if r.Status != RevisionReady {
+	if r.Status != RevisionReady && !(r.Status == RevisionActive && e.ActiveRevisionID == revisionID) {
 		return ErrImmutableRevision
+	}
+	if r.Status == RevisionActive && e.ActiveRevisionID == revisionID {
+		return nil
 	}
 	if e.ActiveRevisionID != "" {
 		prior := s.revisions[e.ActiveRevisionID]

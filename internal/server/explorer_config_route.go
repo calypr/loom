@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -26,7 +27,7 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		return
 	}
 	app.Post("/api/v1/projects/:project/generations/:generation/explorer-config", func(c fiber.Ctx) error {
-		project, generation := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("generation"))
+		project, generation := explorerProjectParam(c), strings.TrimSpace(c.Params("generation"))
 		if project == "" || generation == "" {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "project and generation are required"})
 		}
@@ -48,7 +49,10 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		if commit == "" {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "X-Loom-Source-Commit is required"})
 		}
-		bundle.Name = "explorer_" + project + "_default"
+		// Recipe names are storage/execution identifiers, not public project
+		// URLs. Keep the historical hyphenated form so a canonical slash in the
+		// route never becomes an invalid name containing '/'.
+		bundle.Name = "explorer_" + projectid.Legacy(project) + "_default"
 		bundle.TranslationVersion = "repository-" + commit
 		if err := bundle.Validate(); err != nil {
 			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("invalid recipe: %v", err)})
@@ -57,7 +61,7 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		if err != nil {
 			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
 		}
-		execution, err := materialize(c.Context(), bundle, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+		execution, err := materialize(c.Context(), bundle, recipe.RuntimeBindings{Project: projectid.Legacy(project), DatasetGeneration: generation})
 		if err != nil {
 			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("materialize ExplorerConfigV2: %v", err)})
 		}
@@ -77,7 +81,7 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		if len(lifecycle) == 0 || lifecycle[0].ActivateRelease == nil {
 			return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "release activation is not configured", "executionId": execution.ID})
 		}
-		if err := lifecycle[0].ActivateRelease(c.Context(), project, generation, selectorsForBundle(bundle)); err != nil {
+		if err := lifecycle[0].ActivateRelease(c.Context(), projectid.Legacy(project), generation, selectorsForBundle(bundle)); err != nil {
 			_, _ = explorers.FailRevision(c.Context(), revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": fmt.Sprintf("activate published ExplorerConfigV2: %v", err), "executionId": execution.ID})
 		}
@@ -93,7 +97,7 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		return c.Status(http.StatusOK).JSON(fiber.Map{"project": project, "generation": generation, "explorerId": "default", "executionId": execution.ID, "recipe": bundle.Name, "translationVersion": bundle.TranslationVersion, "activated": true})
 	})
 	app.Get("/api/v1/projects/:project/explorer-config", func(c fiber.Ctx) error {
-		project := strings.TrimSpace(c.Params("project"))
+		project := explorerProjectParam(c)
 		principal, _ := c.Locals("principal").(*authscope.Principal)
 		if err := authorizeRead(c.Context(), principal, project); err != nil {
 			return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
@@ -111,6 +115,7 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		lifecycle = []ExplorerV2LifecycleConfig{{Materialize: materialize}}
 	}
 	RegisterExplorerLifecycleRoutes(app, authorizer, authorizeRead, explorers, lifecycle[0])
+	RegisterExplorerAuthoringV2Routes(app, authorizer, authorizeRead, explorers, lifecycle[0])
 }
 
 func explorerMaterializations(bundle recipe.Bundle, execution graphresolver.RecipeExecution) []explorer.Materialization {

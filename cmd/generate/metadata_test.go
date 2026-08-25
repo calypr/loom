@@ -56,3 +56,27 @@ func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
 		t.Fatal("checked-in generated/fhirschema/generated.go is stale; run make generate-fhir")
 	}
 }
+
+func TestFHIRSchemaMetadataOmitsNonResourceTraversals(t *testing.T) {
+	schema := loadCheckedInGraphFHIRSchema(t)
+	generatedPath := filepath.Join(t.TempDir(), "generated.go")
+	if err := generateFHIRSchema(schema, generatedPath); err != nil {
+		t.Fatalf("generate FHIR schema metadata: %v", err)
+	}
+	got, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read generated metadata: %v", err)
+	}
+	for _, key := range []string{
+		`"PractitionerQualification|issuer|Organization"`,
+		`"Organization|issuer|PractitionerQualification"`,
+		`"OrganizationQualification|issuer|Organization"`,
+	} {
+		if bytes.Contains(got, []byte(key)) {
+			t.Fatalf("generated traversal metadata contains non-resource key %s", key)
+		}
+	}
+	if !bytes.Contains(got, []byte(`"Practitioner|qualification_issuer|Organization"`)) {
+		t.Fatalf("generated traversal metadata omitted valid Practitioner relationship")
+	}
+}

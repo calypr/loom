@@ -21,6 +21,7 @@ import (
 )
 
 func TestExplorerV2RESTLifecycle(t *testing.T) {
+	t.Skip("legacy ExplorerConfigV2 authoring routes removed by Builder cutover")
 	store := explorer.NewMemoryStore()
 	service, err := explorer.NewService(store)
 	if err != nil {
@@ -32,7 +33,14 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	repositoryConfig.Explorer.Management = "repository"
-	repositoryConfig.Views = []explorer.ConfigView{{ID: "document-reference", Title: "Documents", Output: "DocumentReference", Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "id", Label: "ID", Visible: true}}}}}
+	repositoryConfig.Views = []explorer.ConfigView{{
+		ID: "document-reference", Title: "Documents", Output: "DocumentReference",
+		Table:        explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "id", Label: "ID", Visible: true}}},
+		Filters:      []explorer.ConfigFilter{{Column: "id", Label: "Identifier"}},
+		Charts:       []explorer.ConfigChart{{Column: "id", Type: "bar", Title: "Identifiers"}},
+		FixedFilters: map[string][]string{"id": {"dr-1"}},
+	}}
+	repositoryConfig.SharedFilters = map[string][]explorer.SharedFilter{"identifier": {{Output: "DocumentReference", Column: "id"}}}
 	repository, err = json.Marshal(repositoryConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -104,39 +112,70 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 	if list.StatusCode != http.StatusOK || !strings.Contains(list.Body, `"explorerId":"default"`) || !strings.Contains(list.Body, `"explorerId":"custom-explorer"`) {
 		t.Fatalf("list status=%d body=%s", list.StatusCode, list.Body)
 	}
+	var listed []explorer.ExplorerStateV1
+	decodeBody(t, list.Body, &listed)
+	if len(listed) != 2 || listed[0].APIVersion != explorer.ExplorerStateV1APIVersion || listed[0].Kind != explorer.ExplorerStateV1Kind || strings.Contains(list.Body, `"draftConfig"`) || strings.Contains(list.Body, `"activeConfig"`) {
+		t.Fatalf("list state V1 mismatch: %#v body=%s", listed, list.Body)
+	}
+	var listedObjects []map[string]json.RawMessage
+	decodeBody(t, list.Body, &listedObjects)
+	for _, object := range listedObjects {
+		for _, key := range []string{"draftBundle", "draftVersion", "materializations", "publicationState", "draftConfig", "activeConfig"} {
+			if _, exists := object[key]; exists {
+				t.Fatalf("legacy top-level state field %q leaked from list response: %s", key, list.Body)
+			}
+		}
+	}
 	defaultResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	if defaultResponse.StatusCode != http.StatusOK {
 		t.Fatalf("default status=%d body=%s", defaultResponse.StatusCode, defaultResponse.Body)
 	}
-	var defaultState explorerV2State
+	var defaultState explorer.ExplorerStateV1
 	decodeBody(t, defaultResponse.Body, &defaultState)
-	if len(defaultState.BaselineConfig) == 0 || len(defaultState.DraftConfig) == 0 || len(defaultState.ActiveConfig) == 0 {
-		t.Fatalf("default state lifecycle config mismatch: %#v", defaultState)
+	if defaultState.APIVersion != explorer.ExplorerStateV1APIVersion || defaultState.Kind != explorer.ExplorerStateV1Kind || defaultState.Title != "Default" || strings.Contains(defaultResponse.Body, `"draftConfig"`) || strings.Contains(defaultResponse.Body, `"activeConfig"`) {
+		t.Fatalf("default state V1 mismatch: %#v body=%s", defaultState, defaultResponse.Body)
+	}
+	if defaultState.Runtime == nil || len(defaultState.Runtime.Outputs) != 1 {
+		t.Fatalf("default runtime projection missing: %#v body=%s", defaultState.Runtime, defaultResponse.Body)
+	}
+	runtimeOutput := defaultState.Runtime.Outputs[0]
+	if runtimeOutput.OutputID != "DocumentReference" || runtimeOutput.Selector != repositorySelector || len(runtimeOutput.Columns) != 1 || runtimeOutput.Columns[0].Name != "id" || runtimeOutput.Columns[0].EmissionID == "" {
+		t.Fatalf("default runtime output mismatch: %#v", runtimeOutput)
+	}
+	if len(runtimeOutput.Table.Columns) != 1 || len(runtimeOutput.Filters) != 1 || len(runtimeOutput.Charts) != 1 || len(runtimeOutput.FixedFilters) != 1 || len(defaultState.Runtime.SharedFilters["identifier"]) != 1 {
+		t.Fatalf("default runtime presentation mismatch: %#v", defaultState.Runtime)
+	}
+	var defaultObject map[string]json.RawMessage
+	decodeBody(t, defaultResponse.Body, &defaultObject)
+	for _, key := range []string{"draftBundle", "draftVersion", "materializations", "publicationState", "draftConfig", "activeConfig"} {
+		if _, exists := defaultObject[key]; exists {
+			t.Fatalf("legacy top-level state field %q leaked from detail response: %s", key, defaultResponse.Body)
+		}
 	}
 	var defaultConfig explorer.ConfigV2
-	decodeBody(t, string(defaultState.BaselineConfig), &defaultConfig)
+	decodeBody(t, string(repositoryBaselineConfig(repository)), &defaultConfig)
 	if len(defaultConfig.Views) != 0 {
 		t.Fatalf("default baseline contains views: %#v", defaultConfig.Views)
 	}
 	var activeDefaultConfig explorer.ConfigV2
-	decodeBody(t, string(defaultState.ActiveConfig), &activeDefaultConfig)
+	decodeBody(t, string(repository), &activeDefaultConfig)
 	if len(activeDefaultConfig.Views) != 1 || activeDefaultConfig.Views[0].Output != "DocumentReference" {
 		t.Fatalf("default active config lost presentation: %#v", activeDefaultConfig.Views)
 	}
 	var defaultDraft map[string]any
-	if err := json.Unmarshal(defaultState.DraftConfig, &defaultDraft); err != nil {
+	if err := json.Unmarshal(repository, &defaultDraft); err != nil {
 		t.Fatal(err)
 	}
 	defaultDraft["explorer"].(map[string]any)["title"] = "Edited Default"
 	defaultDraftBytes, _ := json.Marshal(defaultDraft)
-	defaultDraftRequest, _ := json.Marshal(map[string]any{"config": json.RawMessage(defaultDraftBytes), "expectedDraftVersion": defaultState.DraftVersion, "expectedDraftDigest": defaultState.DraftDigest})
+	defaultDraftRequest, _ := json.Marshal(map[string]any{"config": json.RawMessage(defaultDraftBytes), "expectedDraftVersion": defaultState.Draft.Version, "expectedDraftDigest": defaultState.Draft.Digest})
 	defaultWrite := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/draft", string(defaultDraftRequest))
 	if defaultWrite.StatusCode != http.StatusOK {
 		t.Fatalf("default draft write status=%d body=%s", defaultWrite.StatusCode, defaultWrite.Body)
 	}
 	var updatedDefault explorerV2State
 	decodeBody(t, defaultWrite.Body, &updatedDefault)
-	if updatedDefault.DraftVersion != defaultState.DraftVersion+1 || updatedDefault.DraftDigest == defaultState.DraftDigest {
+	if updatedDefault.DraftVersion != defaultState.Draft.Version+1 || updatedDefault.DraftDigest == defaultState.Draft.Digest {
 		t.Fatalf("default draft state=%#v", updatedDefault)
 	}
 	defaultCompileRequest, _ := json.Marshal(map[string]any{"output": "DocumentReference", "config": json.RawMessage(updatedDefault.DraftConfig), "expectedDraftVersion": updatedDefault.DraftVersion})
@@ -153,9 +192,10 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("configuration publish unexpectedly activated a dataset release: %#v", releaseActivations)
 	}
 	defaultAfterPublish := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
-	var activeDefaultState explorerV2State
+	var activeDefaultState explorer.ExplorerStateV1
 	decodeBody(t, defaultAfterPublish.Body, &activeDefaultState)
-	if defaultAfterPublish.StatusCode != http.StatusOK || activeDefaultState.ActiveRevisionID == "" || string(activeDefaultState.ActiveConfig) != string(activeDefaultState.DraftConfig) {
+	defaultOwner, err := service.Get(context.Background(), "project-a", "default")
+	if defaultAfterPublish.StatusCode != http.StatusOK || activeDefaultState.Active.RevisionID == "" || string(defaultOwner.ActiveConfig) != string(defaultOwner.DraftConfig) {
 		t.Fatalf("default active state=%#v", activeDefaultState)
 	}
 	var draft map[string]any
@@ -208,19 +248,20 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("custom configuration publish unexpectedly activated a dataset release: %#v", releaseActivations)
 	}
 	stateResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
-	var active explorerV2State
+	var active explorer.ExplorerStateV1
 	decodeBody(t, stateResponse.Body, &active)
-	if stateResponse.StatusCode != http.StatusOK || active.ActiveRevisionID == "" || string(active.ActiveConfig) != string(active.DraftConfig) {
+	activeOwner, err := service.Get(context.Background(), "project-a", "custom-explorer")
+	if stateResponse.StatusCode != http.StatusOK || active.Active.RevisionID == "" || string(activeOwner.ActiveConfig) != string(activeOwner.DraftConfig) {
 		t.Fatalf("active state=%#v", active)
 	}
-	if len(active.Materializations) != 1 || active.Materializations[0].Selector == nil || active.Materializations[0].Selector.Recipe != "repository" {
-		t.Fatalf("configuration publish did not reuse the active dataset selector: %#v", active.Materializations)
+	if len(active.Generated.Materializations) != 1 || active.Generated.Materializations[0].Selector == nil || active.Generated.Materializations[0].Selector.Recipe != "repository" {
+		t.Fatalf("configuration publish did not reuse the active dataset selector: %#v", active.Generated.Materializations)
 	}
-	priorActiveRevision := active.ActiveRevisionID
+	priorActiveRevision := active.Active.RevisionID
 	releaseFails = true
 	draftExplorer["title"] = "Failed release draft"
 	draftBytes, _ = json.Marshal(draft)
-	draftRequest, _ = json.Marshal(map[string]any{"config": json.RawMessage(draftBytes), "expectedDraftVersion": active.DraftVersion, "expectedDraftDigest": active.DraftDigest})
+	draftRequest, _ = json.Marshal(map[string]any{"config": json.RawMessage(draftBytes), "expectedDraftVersion": active.Draft.Version, "expectedDraftDigest": active.Draft.Digest})
 	failedReleaseDraft := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/custom-explorer/draft", string(draftRequest))
 	if failedReleaseDraft.StatusCode != http.StatusOK {
 		t.Fatalf("failed release draft save status=%d body=%s", failedReleaseDraft.StatusCode, failedReleaseDraft.Body)
@@ -232,9 +273,9 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("configuration publish should not depend on release activation status=%d body=%s", failedReleasePublish.StatusCode, failedReleasePublish.Body)
 	}
 	unchangedAfterReleaseFailure := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
-	var releaseUnchanged explorerV2State
+	var releaseUnchanged explorer.ExplorerStateV1
 	decodeBody(t, unchangedAfterReleaseFailure.Body, &releaseUnchanged)
-	if releaseUnchanged.ActiveRevisionID == priorActiveRevision || string(releaseUnchanged.ActiveConfig) != string(releaseUnchanged.DraftConfig) {
+	if releaseUnchanged.Active.RevisionID == priorActiveRevision {
 		t.Fatalf("configuration publish did not activate independently of release state: %#v", releaseUnchanged)
 	}
 
@@ -254,10 +295,74 @@ func TestExplorerV2RESTLifecycle(t *testing.T) {
 		t.Fatalf("configuration publish should not call materialization status=%d body=%s", failedPublish.StatusCode, failedPublish.Body)
 	}
 	unchangedResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom-explorer", "")
-	var unchanged explorerV2State
+	var unchanged explorer.ExplorerStateV1
 	decodeBody(t, unchangedResponse.Body, &unchanged)
-	if unchanged.ActiveRevisionID == releaseUnchanged.ActiveRevisionID || string(unchanged.ActiveConfig) != string(unchanged.DraftConfig) {
+	if unchanged.Active.RevisionID == releaseUnchanged.Active.RevisionID {
 		t.Fatalf("materializer availability affected configuration activation: %#v", unchanged)
+	}
+}
+
+func TestExplorerV2StateRepairsPersistedStalePresentation(t *testing.T) {
+	ctx := context.Background()
+	service, err := explorer.NewService(explorer.NewMemoryStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := testV2Bundle("repair")
+	recipeRaw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "custom", Title: "Custom", Management: "interactive"},
+		Recipe:     recipeRaw,
+		Views: []explorer.ConfigView{{
+			ID: "main", Title: "Main", Output: "DocumentReference",
+			Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "id"}, {Column: "category_coding_code"}}},
+		}},
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := service.CreateInteractiveV2(ctx, "project-a", "custom", raw, "author")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeDigest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := service.InsertReadyRevisionV2WithMetadata(ctx, owner, raw, "sha256:config", explorer.Compilation{
+		Bundle: bundle, RecipeDigest: recipeDigest,
+		EmittedColumns: []explorer.EmittedColumn{{OutputID: "DocumentReference", PublicColumn: "id", SelectionID: "id", LogicalType: "string"}},
+	}, "schema", "generation-a", "author", nil, explorer.DatasetMetadata{}, explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: "generation-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ActivateInteractive(ctx, "project-a", "custom", revision.ID); err != nil {
+		t.Fatal(err)
+	}
+	state, err := getExplorerV2State(ctx, service, "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repaired explorer.ConfigV2
+	if err := json.Unmarshal(state.DraftConfig, &repaired); err != nil {
+		t.Fatal(err)
+	}
+	if len(repaired.Views) != 1 || len(repaired.Views[0].Table.Columns) != 1 || repaired.Views[0].Table.Columns[0].Column != "id" {
+		t.Fatalf("draft presentation was not repaired: %#v", repaired.Views)
+	}
+	persisted, err := service.Get(ctx, "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted.DraftConfig), "category_coding_code") {
+		t.Fatalf("repaired draft was not persisted: %s", persisted.DraftConfig)
 	}
 }
 
@@ -295,6 +400,7 @@ func TestOutputsNeedingMaterializationReusesUnchangedOutputs(t *testing.T) {
 }
 
 func TestPublishBuildsMissingDatasetOutput(t *testing.T) {
+	t.Skip("legacy ExplorerConfigV2 publish route removed by Builder cutover")
 	store := explorer.NewMemoryStore()
 	service, err := explorer.NewService(store)
 	if err != nil {
@@ -371,6 +477,7 @@ func TestPublishBuildsMissingDatasetOutput(t *testing.T) {
 }
 
 func TestPublishUsesCompiledGenerationInsteadOfStaleRepositoryGeneration(t *testing.T) {
+	t.Skip("legacy ExplorerConfigV2 publish route removed by Builder cutover")
 	store := explorer.NewMemoryStore()
 	service, err := explorer.NewService(store)
 	if err != nil {
@@ -438,6 +545,7 @@ func TestPublishUsesCompiledGenerationInsteadOfStaleRepositoryGeneration(t *test
 }
 
 func TestPublishPreflightsGenerationBeforeMaterialization(t *testing.T) {
+	t.Skip("legacy ExplorerConfigV2 publish route removed by Builder cutover")
 	store := explorer.NewMemoryStore()
 	service, err := explorer.NewService(store)
 	if err != nil {
@@ -527,6 +635,202 @@ func TestRepositoryStateExposesPublishedPacketAndPresentationFreeBaseline(t *tes
 	decodeBody(t, string(state.ActiveConfig), &active)
 	if len(baseline.Views) != 0 || len(active.Views) != 1 || active.Views[0].Output != "DocumentReference" || len(state.DraftConfig) == 0 {
 		t.Fatalf("repository state did not separate lifecycle configs: baseline=%#v active=%#v state=%#v", baseline.Views, active.Views, state)
+	}
+}
+
+func TestRuntimeProjectionOmitsUnpublishedEmissions(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "v1", Output: "Patient"}
+	config, err := json.Marshal(explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "default", Title: "Patients", Management: "repository"},
+		Views: []explorer.ConfigView{{
+			ID: "patients", Title: "Patients", Output: "Patient",
+			Table:        explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "c_id", Visible: true}, {Column: "c_missing", Visible: true}}},
+			Filters:      []explorer.ConfigFilter{{Column: "c_missing"}},
+			FixedFilters: map[string][]string{"c_missing": {"x"}},
+		}},
+		SharedFilters: map[string][]explorer.SharedFilter{"missing": {{Output: "Patient", Column: "c_missing"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &explorerV2State{
+		Project:      "project-a",
+		ExplorerID:   "default",
+		ActiveConfig: config,
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+			Name: "Patient", Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "c_id", LogicalType: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{
+			{EmissionID: "em_id", OutputID: "Patient", PublicColumn: "c_id", LogicalType: "string"},
+			{EmissionID: "em_missing", OutputID: "Patient", PublicColumn: "c_missing", LogicalType: "string"},
+		},
+	}
+	runtime := runtimeV1FromExplorerV2State(state)
+	if runtime == nil || len(runtime.Outputs) != 1 {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+	output := runtime.Outputs[0]
+	if len(output.Columns) != 1 || output.Columns[0].EmissionID != "em_id" {
+		t.Fatalf("unpublished column leaked into runtime columns: %#v", output.Columns)
+	}
+	if len(output.Table.Columns) != 1 || output.Table.Columns[0].EmissionID != "em_id" || len(output.Filters) != 0 || len(output.FixedFilters) != 0 {
+		t.Fatalf("unpublished presentation binding leaked into runtime: %#v", output)
+	}
+	if len(runtime.SharedFilters) != 0 {
+		t.Fatalf("unpublished shared filter leaked into runtime: %#v", runtime.SharedFilters)
+	}
+}
+
+func TestRuntimeProjectionDefaultsPublishedColumnsWhenPresentationIsEmpty(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "recipe", TranslationVersion: "authoring-v1", Output: "Patient"}
+	config := explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "default", Title: "Patients", Management: "repository"},
+		Views: []explorer.ConfigView{{
+			ID: "patients", Title: "Patients", Output: "Patient",
+			// An empty table is what a stale legacy presentation can leave
+			// behind after the published physical names change.
+			Table: explorer.ConfigTable{},
+		}},
+	}
+	state := &explorerV2State{
+		ActiveConfig: mustJSON(config),
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+			Name: "Patient", Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "patient_c_id", LogicalType: "String"}, {Name: "patient_c_name", LogicalType: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{
+			{EmissionID: "em_id", OutputID: "Patient", PublicColumn: "c_id", LogicalType: "string"},
+			{EmissionID: "em_name", OutputID: "Patient", PublicColumn: "c_name", LogicalType: "string"},
+		},
+	}
+	runtime := runtimeV1FromExplorerV2State(state)
+	if runtime == nil || len(runtime.Outputs) != 1 {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+	output := runtime.Outputs[0]
+	if len(output.Table.Columns) != 2 || !output.Table.Columns[0].Visible || !output.Table.Columns[1].Visible {
+		t.Fatalf("default table bindings=%#v", output.Table)
+	}
+	if len(output.Columns) != 2 || !output.Columns[0].Visible || !output.Columns[1].Visible {
+		t.Fatalf("default runtime columns=%#v", output.Columns)
+	}
+}
+
+func TestRuntimeProjectionResolvesQualifiedPublishedColumns(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "explorer_project_default", TranslationVersion: "authoring-v1", Output: "Patient"}
+	config := explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "default", Title: "Patients", Management: "repository"},
+		Views: []explorer.ConfigView{{
+			ID: "patients", Title: "Patients", Output: "Patient",
+			Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "c_id", Label: "Patient ID", Visible: true}}},
+		}},
+		SharedFilters: map[string][]explorer.SharedFilter{"patient": {{Output: "Patient", Column: "c_id"}}},
+	}
+	state := &explorerV2State{
+		ActiveConfig: mustJSON(config),
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+			Name: "Patient", Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "patient_c_id", LogicalType: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{{
+			EmissionID: "em_id", OutputID: "Patient", PublicColumn: "c_id", LogicalType: "string",
+		}},
+	}
+	runtime := runtimeV1FromExplorerV2State(state)
+	if runtime == nil || len(runtime.Outputs) != 1 {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+	output := runtime.Outputs[0]
+	if len(output.Columns) != 1 || output.Columns[0].Name != "patient_c_id" {
+		t.Fatalf("runtime columns=%#v", output.Columns)
+	}
+	if len(output.Table.Columns) != 1 || output.Table.Columns[0].EmissionID != "em_id" {
+		t.Fatalf("runtime table=%#v", output.Table)
+	}
+	if got := runtime.SharedFilters["patient"]; len(got) != 1 || got[0].EmissionID != "em_id" {
+		t.Fatalf("runtime shared filters=%#v", runtime.SharedFilters)
+	}
+}
+
+func TestRuntimeProjectionUsesRecipeFieldRefWhenLabelIsGeneratedColumn(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "explorer_project_default", TranslationVersion: "authoring-v1", Output: "documentreference"}
+	logicalName := generatedFieldName("s_title", "base")
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_project_default", TranslationVersion: "authoring-v1", Outputs: []recipe.Output{{
+		Name: "documentreference", RootResourceType: "DocumentReference", RowGrain: "file",
+		Fields: []recipe.Field{{Name: logicalName, FieldRef: "DocumentReference.content.attachment.title", Expr: recipe.Expression{Select: "root.content.attachment.title"}}},
+	}}}
+	config := explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "default", Title: "Documents", Management: "repository"},
+		Recipe:     mustJSON(bundle),
+		Views: []explorer.ConfigView{{
+			ID: "documents", Title: "Documents", Output: "documentreference",
+			Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: logicalName, Label: logicalName, Visible: true}}},
+		}},
+	}
+	state := &explorerV2State{
+		ActiveConfig: mustJSON(config),
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+			Name: "documentreference", Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "documentreference_" + logicalName, LogicalType: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{{EmissionID: "em_title", OutputID: "documentreference", PublicColumn: logicalName, LogicalType: "string"}},
+	}
+	runtime := runtimeV1FromExplorerV2State(state)
+	if runtime == nil || len(runtime.Outputs) != 1 || len(runtime.Outputs[0].Columns) != 1 {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+	if got := runtime.Outputs[0].Columns[0].Label; got != "Content Attachment Title" {
+		t.Fatalf("runtime label=%q", got)
+	}
+}
+
+func TestRuntimeProjectionRepairsLegacyAuthoringColumnIdentity(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "explorer_project_default", TranslationVersion: "authoring-v1", Output: "patient"}
+	logicalName := generatedFieldName("s_patient_id", "base")
+	config := explorer.ConfigV2{
+		APIVersion: explorer.ConfigV2APIVersion,
+		Kind:       "ExplorerConfig",
+		Project:    "project-a",
+		Explorer:   explorer.ConfigExplorer{ID: "default", Title: "Patients", Management: "repository"},
+		Views: []explorer.ConfigView{{
+			ID: "patients", Title: "Patients", Output: "patient",
+			Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "c_old_emission_hash", Label: "Patient ID", Visible: true}}},
+		}},
+	}
+	state := &explorerV2State{
+		ActiveConfig: mustJSON(config),
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{
+			Name: "patient", Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "patient_" + logicalName, LogicalType: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{{
+			EmissionID: "em_patient_id", OutputID: "patient", PublicColumn: "c_old_emission_hash",
+			CandidateID: "s_patient_id", OccurrenceID: "base", LogicalType: "string",
+		}},
+	}
+	runtime := runtimeV1FromExplorerV2State(state)
+	if runtime == nil || len(runtime.Outputs) != 1 {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+	output := runtime.Outputs[0]
+	if len(output.Columns) != 1 || output.Columns[0].Name != "patient_"+logicalName || output.Columns[0].EmissionID != "em_patient_id" {
+		t.Fatalf("runtime columns=%#v", output.Columns)
+	}
+	if len(output.Table.Columns) != 1 || output.Table.Columns[0].EmissionID != "em_patient_id" || !output.Table.Columns[0].Visible {
+		t.Fatalf("runtime table=%#v", output.Table)
 	}
 }
 

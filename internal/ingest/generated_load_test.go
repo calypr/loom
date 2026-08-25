@@ -61,6 +61,43 @@ func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
 	}
 }
 
+func TestGeneratedNestedLinkUsesConcreteRuntimeEndpoints(t *testing.T) {
+	_, edges, _, err := loadRowGenerated("Practitioner", []byte(`{
+  "resourceType": "Practitioner",
+  "id": "practitioner-1",
+  "qualification": [{"code": {"text": "board-certified"}, "issuer": {"reference": "Organization/org-1"}}]
+}`), "project-1", map[string]float64{})
+	if err != nil {
+		t.Fatalf("loadRowGenerated(Practitioner): %v", err)
+	}
+	want := map[string]struct {
+		from, to, fromType, toType string
+	}{
+		"qualification_issuer":       {"Practitioner/practitioner-1", "Organization/org-1", "Practitioner", "Organization"},
+		"practitioner_qualification": {"Organization/org-1", "Practitioner/practitioner-1", "Organization", "Practitioner"},
+	}
+	found := map[string]bool{}
+	for _, raw := range edges {
+		var edge fhir.EdgeDocument
+		if err := json.Unmarshal(raw, &edge); err != nil {
+			t.Fatalf("decode generated edge: %v", err)
+		}
+		wantEdge, ok := want[edge.Label]
+		if !ok {
+			continue
+		}
+		found[edge.Label] = true
+		if edge.From != wantEdge.from || edge.To != wantEdge.to || edge.FromType != wantEdge.fromType || edge.ToType != wantEdge.toType {
+			t.Errorf("%s edge = %#v, want %s/%s %s -> %s", edge.Label, edge, wantEdge.fromType, wantEdge.toType, wantEdge.from, wantEdge.to)
+		}
+	}
+	for label := range want {
+		if !found[label] {
+			t.Errorf("generated Practitioner edges missing %s", label)
+		}
+	}
+}
+
 func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
 	project := "HTAN_INT-BForePC"
 	vertex, _, _, err := loadRowGenerated("Patient", []byte(`{

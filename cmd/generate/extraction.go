@@ -23,6 +23,7 @@ func generateExtract(schema *Schema, path string) error {
 	sb.WriteString("\t\"sync\"\n")
 	sb.WriteString("\t\"github.com/google/uuid\"\n")
 	sb.WriteString("\t\"github.com/bytedance/sonic\"\n")
+	sb.WriteString("\tfhirschema \"github.com/calypr/loom/internal/fhir/schema\"\n")
 	sb.WriteString(")\n\n")
 
 	// 1. Write EdgeDocument struct definition
@@ -158,14 +159,6 @@ func splitFHIRReference(ref string) (string, string, bool) {
 	return targetType, targetID, true
 }
 
-func targetTypeFromLabel(label string) string {
-	parts := strings.Split(label, "_")
-	if len(parts) == 0 {
-		return ""
-	}
-	return parts[len(parts)-1]
-}
-
 func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string) json.RawMessage {
 	var buf bytes.Buffer
 	buf.Grow(256)
@@ -201,13 +194,10 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 	for _, k := range keys {
 		def := schema.Defs[k]
 
-		// Check if it's a top-level resource (typically has resourceType const)
-		var hasResourceType bool
-		if prop, ok := def.Properties["resourceType"]; ok && prop.Const != nil {
-			hasResourceType = true
-		}
-
-		if !hasResourceType {
+		// Only concrete FHIR roots get graph loaders. Backbone definitions and
+		// abstract Resource remain available to field/selector generation but
+		// never become graph collections or row grains.
+		if !isFHIRRootResourceDefinition(k, def) {
 			continue
 		}
 
@@ -288,6 +278,8 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		sb.WriteString(fmt.Sprintf("%srefVal := %s\n", indent, varName))
 		sb.WriteString(fmt.Sprintf("%srefType, targetID, ok := splitFHIRReference(refVal)\n", indent))
 		sb.WriteString(fmt.Sprintf("%sif ok {\n", indent))
+		sb.WriteString(fmt.Sprintf("%s\trefType, ok = fhirschema.ConcreteResourceType(refType)\n", indent))
+		sb.WriteString(fmt.Sprintf("%s\tif ok {\n", indent))
 
 		// Match prefix check
 		allowAnyMatch := false
@@ -300,62 +292,56 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 			}
 		}
 
+		bodyIndent := indent + "\t\t"
 		if !allowAnyMatch && matchPrefix != "" {
-			sb.WriteString(fmt.Sprintf("%s\tif refType == %q {\n", indent, matchPrefix))
-			indent += "\t"
+			sb.WriteString(fmt.Sprintf("%sif refType == %q {\n", bodyIndent, matchPrefix))
+			bodyIndent += "\t"
 		}
 
-		// Calculate UUIDs and append EdgeDocuments. Most generated forward edge
-		// targets retain the long-standing label-derived convention. The one
-		// compiler-owned exception is ResearchSubject.study: its bare label
-		// cannot encode a target type, while the checked-in schema proves its
-		// concrete ResearchStudy target. Keep this narrow until each other bare
-		// label has an equivalent storage-route proof.
-		forwardTargetType := generatedForwardTargetType(structName, link)
-		sb.WriteString(fmt.Sprintf("%s\tforwardKey := getEdgeUUID(targetID, id, %q)\n", indent, link.Rel))
-		sb.WriteString(fmt.Sprintf("%s\tif seen == nil {\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\tseen = make(map[string]struct{}, 4)\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\tif _, exists := seen[forwardKey]; !exists {\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\tseen[forwardKey] = struct{}{}\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\tedges = append(edges, buildEdgeRawJSON(\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\t\tforwardKey,\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\t\tcollectionID(sourceType, id),\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\t\tcollectionID(%q, targetID),\n", indent, forwardTargetType))
-		sb.WriteString(fmt.Sprintf("%s\t\t\t%q,\n", indent, link.Rel))
-		sb.WriteString(fmt.Sprintf("%s\t\t\tprojectJSON,\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\t\tsourceType,\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t\t\t%q,\n", indent, forwardTargetType))
-		sb.WriteString(fmt.Sprintf("%s\t\t))\n", indent))
-		sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+		sb.WriteString(fmt.Sprintf("%sforwardKey := getEdgeUUID(targetID, id, %q)\n", bodyIndent, link.Rel))
+		sb.WriteString(fmt.Sprintf("%sif seen == nil {\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\tseen = make(map[string]struct{}, 4)\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%sif _, exists := seen[forwardKey]; !exists {\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\tseen[forwardKey] = struct{}{}\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\tedges = append(edges, buildEdgeRawJSON(\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tforwardKey,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(sourceType, id),\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(refType, targetID),\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\t%q,\n", bodyIndent, link.Rel))
+		sb.WriteString(fmt.Sprintf("%s\t\tprojectJSON,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tsourceType,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\trefType,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 
 		// Check if backref exists
 		if len(link.TargetHints.Backref) > 0 && link.TargetHints.Backref[0] != "" {
 			backref := link.TargetHints.Backref[0]
-			backrefTargetType := targetTypeFromLabel(backref)
-			sb.WriteString(fmt.Sprintf("%s\tbackrefKey := getEdgeUUID(id, targetID, %q)\n", indent, backref))
-			sb.WriteString(fmt.Sprintf("%s\tif seen == nil {\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\tseen = make(map[string]struct{}, 4)\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\tif _, exists := seen[backrefKey]; !exists {\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\tseen[backrefKey] = struct{}{}\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\tedges = append(edges, buildEdgeRawJSON(\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\t\tbackrefKey,\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\t\tcollectionID(sourceType, targetID),\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\t\tcollectionID(%q, id),\n", indent, backrefTargetType))
-			sb.WriteString(fmt.Sprintf("%s\t\t\t%q,\n", indent, backref))
-			sb.WriteString(fmt.Sprintf("%s\t\t\tprojectJSON,\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\t\tsourceType,\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t\t\t%q,\n", indent, backrefTargetType))
-			sb.WriteString(fmt.Sprintf("%s\t\t))\n", indent))
-			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%sbackrefKey := getEdgeUUID(id, targetID, %q)\n", bodyIndent, backref))
+			sb.WriteString(fmt.Sprintf("%sif seen == nil {\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\tseen = make(map[string]struct{}, 4)\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%sif _, exists := seen[backrefKey]; !exists {\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\tseen[backrefKey] = struct{}{}\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\tedges = append(edges, buildEdgeRawJSON(\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\tbackrefKey,\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(refType, targetID),\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(sourceType, id),\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%q,\n", bodyIndent, backref))
+			sb.WriteString(fmt.Sprintf("%s\t\tprojectJSON,\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\trefType,\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t\tsourceType,\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
+			sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 		}
 
 		if !allowAnyMatch && matchPrefix != "" {
-			indent = indent[:len(indent)-1]
-			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			bodyIndent = bodyIndent[:len(bodyIndent)-1]
+			sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 		}
 
+		sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
 		sb.WriteString(fmt.Sprintf("%s}\n", indent))
 		return sb.String(), nil
 	}
