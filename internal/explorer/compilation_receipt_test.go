@@ -25,7 +25,7 @@ func testReceipt() CompilationReceipt {
 		NormalizedBundle:         json.RawMessage(`{"documents":[]}`),
 		Bundle:                   recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "receipt-test", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Patient", RowGrain: "patient"}}},
 		CompiledConfig:           json.RawMessage(`{"views":[]}`),
-		PublicOutputContract:     json.RawMessage(`{"outputId":"out","columns":[]}`),
+		PublicOutputContract:     json.RawMessage(`{"outputs":[{"outputId":"out","columns":[]}]}`),
 		Warnings:                 []CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "output has no selected fields"}},
 	}
 	r.ResolvedRecipeDigest, _ = r.Bundle.Digest()

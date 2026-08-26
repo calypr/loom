@@ -15,6 +15,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -57,22 +58,25 @@ func fail(stage, code, path, message string, details map[string]any, cause error
 // one candidate occurrence. It intentionally mirrors the useful subset of
 // explorer.EmittedColumn without importing the parent Explorer package.
 type EmittedColumn struct {
-	EmissionID   string `json:"emissionId"`
-	OutputID     string `json:"outputId"`
-	NodeID       string `json:"nodeId,omitempty"`
-	SelectionID  string `json:"selectionId,omitempty"`
-	CandidateID  string `json:"candidateId,omitempty"`
-	OccurrenceID string `json:"occurrenceId,omitempty"`
-	PublicColumn string `json:"publicColumn"`
-	LogicalType  string `json:"logicalType"`
-	Filterable   bool   `json:"filterable"`
-	Chartable    bool   `json:"chartable"`
+	EmissionID     string `json:"emissionId"`
+	OutputID       string `json:"outputId"`
+	NodeID         string `json:"nodeId,omitempty"`
+	SelectionID    string `json:"selectionId,omitempty"`
+	CandidateID    string `json:"candidateId,omitempty"`
+	OccurrenceID   string `json:"occurrenceId,omitempty"`
+	ProjectionMode string `json:"projectionMode"`
+	PublicColumn   string `json:"publicColumn"`
+	LogicalType    string `json:"logicalType"`
+	Filterable     bool   `json:"filterable"`
+	Chartable      bool   `json:"chartable"`
 }
 
 type IdentityMapping struct {
-	CandidateID  string   `json:"candidateId"`
-	OccurrenceID string   `json:"occurrenceId"`
-	EmissionIDs  []string `json:"emissionIds"`
+	OutputID       string   `json:"outputId"`
+	CandidateID    string   `json:"candidateId"`
+	OccurrenceID   string   `json:"occurrenceId"`
+	ProjectionMode string   `json:"projectionMode"`
+	EmissionIDs    []string `json:"emissionIds"`
 }
 
 // PresentationConfig is compiler-owned presentation data. The Builder may
@@ -88,21 +92,14 @@ type PresentationColumn struct {
 	Label        string `json:"label"`
 	Visible      bool   `json:"visible"`
 	Order        int    `json:"order"`
+	Pinned       bool   `json:"pinned"`
+	FilterLabel  string `json:"filterLabel,omitempty"`
+	ChartType    string `json:"chartType,omitempty"`
+	ChartTitle   string `json:"chartTitle,omitempty"`
 }
 
-type OutputColumn struct {
-	EmissionID   string `json:"emissionId"`
-	PublicColumn string `json:"publicColumn"`
-	CandidateID  string `json:"candidateId"`
-	OccurrenceID string `json:"occurrenceId"`
-	LogicalType  string `json:"logicalType"`
-	Filterable   bool   `json:"filterable"`
-	Chartable    bool   `json:"chartable"`
-}
-type OutputContract struct {
-	OutputID string         `json:"outputId"`
-	Columns  []OutputColumn `json:"columns"`
-}
+type OutputColumn = explorer.PublicOutputColumn
+type OutputContract = explorer.PublicOutputContract
 
 // Result is a complete, deterministic native compilation artifact.
 type Result struct {
@@ -112,6 +109,71 @@ type Result struct {
 	IdentityMappings []IdentityMapping
 	Presentation     PresentationConfig
 	OutputContract   OutputContract
+}
+
+type WorkspaceResult struct {
+	Bundle           recipe.Bundle
+	RecipeDigest     string
+	EmittedColumns   []EmittedColumn
+	IdentityMappings []IdentityMapping
+	Presentations    []PresentationConfig
+	OutputContracts  []OutputContract
+	Workspace        authoringv2.Workspace
+}
+
+func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (WorkspaceResult, error) {
+	wire := catalogFromCapability(snapshot, explorerID)
+	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
+		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
+	}
+	result := WorkspaceResult{Workspace: workspace, Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion}, EmittedColumns: []EmittedColumn{}, IdentityMappings: []IdentityMapping{}, Presentations: []PresentationConfig{}, OutputContracts: []OutputContract{}}
+	for i, document := range workspace.Documents {
+		compiled, err := Compile(ctx, project, explorerID, document, snapshot)
+		if err != nil {
+			return WorkspaceResult{}, fail("compile", "DOCUMENT_COMPILE_FAILED", fmt.Sprintf("$.workspace.documents[%d]", i), err.Error(), nil, err)
+		}
+		result.Bundle.Outputs = append(result.Bundle.Outputs, compiled.Bundle.Outputs...)
+		result.EmittedColumns = append(result.EmittedColumns, compiled.EmittedColumns...)
+		result.IdentityMappings = append(result.IdentityMappings, compiled.IdentityMappings...)
+		result.Presentations = append(result.Presentations, compiled.Presentation)
+		result.OutputContracts = append(result.OutputContracts, compiled.OutputContract)
+	}
+	if err := result.Bundle.Validate(); err != nil {
+		return WorkspaceResult{}, err
+	}
+	digest, err := result.Bundle.Digest()
+	if err != nil {
+		return WorkspaceResult{}, err
+	}
+	result.RecipeDigest = digest
+	return result, nil
+}
+
+func catalogFromCapability(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
+	c := authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: explorerID, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, ResolvedSchemaDigest: snapshot.Identity.SchemaDigest, SnapshotToken: snapshot.Token, Complete: snapshot.Complete, RoutePolicy: authoringv2.RoutePolicy{Unbounded: snapshot.Policy.Route.MaxHops == 0, AllowRepeatedEdges: snapshot.Policy.Route.AllowsRepeatedEdges, AllowSelfLoops: snapshot.Policy.Route.AllowsSelfLoops}}
+	if snapshot.Policy.Route.MaxHops > 0 {
+		max := snapshot.Policy.Route.MaxHops
+		c.RoutePolicy.MaxHops = &max
+	}
+	for _, n := range snapshot.Nodes {
+		count := n.DocumentCount
+		c.Nodes = append(c.Nodes, authoringv2.CatalogNode{ID: n.ID, ResourceType: n.ResourceType, RowRootEligible: n.RowRootEligible, RowGrain: n.RowGrain, Populated: n.Populated, DocumentCount: &count})
+	}
+	for _, e := range snapshot.Edges {
+		c.Edges = append(c.Edges, authoringv2.CatalogEdge{ID: e.ID, FromNodeID: e.FromNodeID, ToNodeID: e.ToNodeID, Label: e.Label, Populated: e.ObservedEdgeCount > 0})
+	}
+	for _, candidate := range snapshot.Candidates {
+		modes := make([]string, len(candidate.ProjectionModes))
+		for i, mode := range candidate.ProjectionModes {
+			modes[i] = wireProjectionMode(mode)
+		}
+		defaultMode := ""
+		if len(modes) > 0 {
+			defaultMode = modes[0]
+		}
+		c.Candidates = append(c.Candidates, authoringv2.CatalogCandidate{ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType, Repeated: candidate.Cardinality != "scalar", Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart), ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated})
+	}
+	return c
 }
 
 // Compilation is a descriptive alias for callers that use the domain term
@@ -165,7 +227,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 			occurrenceID = occurrences[len(occurrences)-1].ID
 		}
 		candidate, _ := snapshot.Candidate(selection.CandidateID)
-		key := selection.CandidateID + "\x00" + occurrenceID
+		key := selection.CandidateID + "\x00" + occurrenceID + "\x00" + strings.ToUpper(selection.ProjectionMode)
 		if seenPairs[key] {
 			return Result{}, fail("intent", "DUPLICATE_SELECTION", fmt.Sprintf("$.selections[%d]", i), "candidate occurrence is selected more than once", map[string]any{"candidateId": selection.CandidateID, "occurrenceId": occurrenceID}, nil)
 		}
@@ -187,13 +249,21 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	byPair := map[string]*IdentityMapping{}
 	fieldsByOccurrence := map[string][]recipe.Field{}
 	for _, a := range assignments {
-		public := generatedID("c_", a.Candidate.ID+"\x00"+a.OccurrenceID)
-		emission := generatedID("em_", document.Output.ID+"\x00"+a.OccurrenceID+"\x00"+a.Candidate.ID)
-		column := EmittedColumn{EmissionID: emission, OutputID: document.Output.ID, NodeID: a.Candidate.NodeID, SelectionID: a.Candidate.ID, CandidateID: a.Candidate.ID, OccurrenceID: a.OccurrenceID, PublicColumn: public, LogicalType: a.Candidate.LogicalType, Filterable: supportsOperation(a.Candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(a.Candidate.SupportedOperations, capability.OperationChart)}
+		fieldName := generatedID("c_", a.Candidate.ID+"\x00"+a.OccurrenceID+"\x00"+a.Selection.ProjectionMode)
+		public := fieldName
+		if occurrence := occurrenceIndex(occurrences, a.OccurrenceID); occurrence > 0 {
+			aliases := make([]string, occurrence)
+			for i := range aliases {
+				aliases[i] = routeAlias(i)
+			}
+			public = strings.Join(aliases, "__") + "__" + fieldName
+		}
+		emission := generatedID("em_", document.Output.ID+"\x00"+a.OccurrenceID+"\x00"+a.Candidate.ID+"\x00"+a.Selection.ProjectionMode)
+		column := EmittedColumn{EmissionID: emission, OutputID: document.Output.ID, NodeID: a.Candidate.NodeID, SelectionID: a.Candidate.ID, CandidateID: a.Candidate.ID, OccurrenceID: a.OccurrenceID, ProjectionMode: a.Selection.ProjectionMode, PublicColumn: public, LogicalType: a.Candidate.LogicalType, Filterable: supportsOperation(a.Candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(a.Candidate.SupportedOperations, capability.OperationChart)}
 		emitted = append(emitted, column)
-		pair := a.Candidate.ID + "\x00" + a.OccurrenceID
+		pair := a.Candidate.ID + "\x00" + a.OccurrenceID + "\x00" + a.Selection.ProjectionMode
 		if byPair[pair] == nil {
-			mappings = append(mappings, IdentityMapping{CandidateID: a.Candidate.ID, OccurrenceID: a.OccurrenceID})
+			mappings = append(mappings, IdentityMapping{OutputID: document.Output.ID, CandidateID: a.Candidate.ID, OccurrenceID: a.OccurrenceID, ProjectionMode: a.Selection.ProjectionMode})
 			byPair[pair] = &mappings[len(mappings)-1]
 		}
 		byPair[pair].EmissionIDs = append(byPair[pair].EmissionIDs, emission)
@@ -202,7 +272,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 			alias = routeAlias(idx - 1)
 		}
 		fieldPath := strings.TrimPrefix(strings.TrimSpace(a.Candidate.FieldPath), "root.")
-		fieldsByOccurrence[a.OccurrenceID] = append(fieldsByOccurrence[a.OccurrenceID], recipe.Field{Name: public, FieldRef: a.Candidate.FieldPath, Expr: recipe.Expression{Select: alias + "." + fieldPath}, ValueMode: projectionValueMode(a.Selection.ProjectionMode)})
+		fieldsByOccurrence[a.OccurrenceID] = append(fieldsByOccurrence[a.OccurrenceID], recipe.Field{Name: fieldName, FieldRef: a.Candidate.FieldPath, Expr: recipe.Expression{Select: alias + "." + fieldPath}, ValueMode: projectionValueMode(a.Selection.ProjectionMode)})
 	}
 
 	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.ResourceType, RowGrain: string(rowGrain), Fields: fieldsByOccurrence[authoringv2.RootOccurrenceID]}
@@ -230,13 +300,13 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err != nil {
 		return Result{}, fail("lower", "RECIPE_DIGEST_FAILED", "$.recipe", "recipe digest could not be calculated", nil, err)
 	}
-	presentation, err := makePresentation(document, emitted)
+	presentation, err := makePresentation(document, emitted, snapshot)
 	if err != nil {
 		return Result{}, err
 	}
 	contract := OutputContract{OutputID: document.Output.ID}
 	for _, c := range emitted {
-		contract.Columns = append(contract.Columns, OutputColumn{EmissionID: c.EmissionID, PublicColumn: c.PublicColumn, CandidateID: c.CandidateID, OccurrenceID: c.OccurrenceID, LogicalType: c.LogicalType, Filterable: c.Filterable, Chartable: c.Chartable})
+		contract.Columns = append(contract.Columns, OutputColumn{EmissionID: c.EmissionID, PublicColumn: c.PublicColumn, CandidateID: c.CandidateID, OccurrenceID: c.OccurrenceID, ProjectionMode: c.ProjectionMode, Label: presentation.Columns[len(contract.Columns)].Label, LogicalType: c.LogicalType, Filterable: c.Filterable, Chartable: c.Chartable})
 	}
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
 }
@@ -368,7 +438,7 @@ func validateSelections(d authoringv2.Document, s capability.Snapshot, occ []occ
 		}
 		allowed := false
 		for _, m := range c.ProjectionModes {
-			if strings.EqualFold(string(m), sel.ProjectionMode) {
+			if strings.EqualFold(wireProjectionMode(m), sel.ProjectionMode) || strings.EqualFold(string(m), sel.ProjectionMode) {
 				allowed = true
 				break
 			}
@@ -401,12 +471,23 @@ func projectionValueMode(mode string) recipe.ValueMode {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case string(capability.ProjectionFirst):
 		return recipe.ValueModeFirst
-	case string(capability.ProjectionArray):
+	case "ALL", string(capability.ProjectionArray):
 		return recipe.ValueModeAll
 	case string(capability.ProjectionDistinctArray):
 		return recipe.ValueModeDistinct
 	default:
 		return recipe.ValueModeAuto
+	}
+}
+
+func wireProjectionMode(mode capability.ProjectionMode) string {
+	switch mode {
+	case capability.ProjectionScalar:
+		return "VALUE"
+	case capability.ProjectionArray, capability.ProjectionDistinctArray:
+		return "ALL"
+	default:
+		return string(mode)
 	}
 }
 
@@ -441,6 +522,16 @@ func shortHash(s string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 func generatedID(prefix, s string) string { return prefix + shortHash(s) }
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
 		return nil
@@ -453,27 +544,22 @@ func contextErr(ctx context.Context) error {
 	}
 }
 
-func makePresentation(d authoringv2.Document, emitted []EmittedColumn) (PresentationConfig, error) {
-	result := PresentationConfig{OutputID: d.Output.ID, Title: d.Output.Title, Columns: make([]PresentationColumn, 0, len(emitted))}
-	byKey := map[string][]int{}
-	for i, c := range emitted {
-		byKey[c.EmissionID] = append(byKey[c.EmissionID], i)
-		byKey[c.CandidateID] = append(byKey[c.CandidateID], i)
-		byKey[c.CandidateID+"\x00"+c.OccurrenceID] = append(byKey[c.CandidateID+"\x00"+c.OccurrenceID], i)
+func makePresentation(d authoringv2.Document, emitted []EmittedColumn, snapshot capability.Snapshot) (PresentationConfig, error) {
+	candidates := make(map[string]capability.Candidate, len(snapshot.Candidates))
+	for _, candidate := range snapshot.Candidates {
+		candidates[candidate.ID] = candidate
 	}
+	result := PresentationConfig{OutputID: d.Output.ID, Title: d.Output.Title, Columns: make([]PresentationColumn, 0, len(emitted))}
 	for i, c := range emitted {
 		p := authoringv2.Presentation{}
-		if raw, ok := d.Presentation[c.EmissionID]; ok {
-			p = raw
-		} else if raw, ok := d.Presentation[c.CandidateID+"\x00"+c.OccurrenceID]; ok {
-			p = raw
-		} else if raw, ok := d.Presentation[c.CandidateID]; ok {
-			if len(byKey[c.CandidateID]) > 1 {
-				return PresentationConfig{}, fail("presentation", "AMBIGUOUS_PRESENTATION", "$.presentation."+c.CandidateID, "presentation key matches multiple candidate occurrences", nil, nil)
-			}
+		key := authoringv2.PresentationKey(c.CandidateID, c.OccurrenceID, c.ProjectionMode)
+		if raw, ok := d.Presentation[key]; ok {
 			p = raw
 		}
 		label := c.PublicColumn
+		if candidate, ok := candidates[c.CandidateID]; ok {
+			label = firstNonEmpty(candidate.Label, candidate.FieldPath, label)
+		}
 		if strings.TrimSpace(p.Label) != "" {
 			label = p.Label
 		}
@@ -485,12 +571,22 @@ func makePresentation(d authoringv2.Document, emitted []EmittedColumn) (Presenta
 		if p.Order != nil {
 			order = *p.Order
 		}
-		result.Columns = append(result.Columns, PresentationColumn{EmissionID: c.EmissionID, PublicColumn: c.PublicColumn, Label: label, Visible: visible, Order: order})
+		column := PresentationColumn{EmissionID: c.EmissionID, PublicColumn: c.PublicColumn, Label: label, Visible: visible, Order: order}
+		if p.Table != nil {
+			column.Pinned = p.Table.Pinned
+		}
+		if p.Filter != nil {
+			column.FilterLabel = p.Filter.Label
+		}
+		if p.Chart != nil {
+			column.ChartType, column.ChartTitle = p.Chart.Type, p.Chart.Title
+		}
+		result.Columns = append(result.Columns, column)
 	}
 	for key := range d.Presentation {
 		found := false
 		for _, c := range emitted {
-			if key == c.EmissionID || key == c.CandidateID || key == c.CandidateID+"\x00"+c.OccurrenceID {
+			if key == authoringv2.PresentationKey(c.CandidateID, c.OccurrenceID, c.ProjectionMode) {
 				found = true
 				break
 			}

@@ -1,9 +1,15 @@
-# Frontend Explorer V2 Migration
+# Historical: Frontend Explorer V2 Migration
 
-This guide describes the frontend contract for Loom's REST Explorer lifecycle.
-The Builder should use these REST routes for Explorer management and authoring.
-It should not depend on the legacy GraphQL Explorer mutations or on generated
-GraphQL candidate-input types.
+> This document describes the superseded V2 recipe/config packet. It is kept
+> for compatibility and ETL migration context. New Builder work must use the
+> [current Explorer authoring V2 contract](EXPLORER_AUTHORING.md), which sends
+> intent-only documents and receipt-bound preview/save/publish requests. Do not
+> copy the V2 request shapes below into new frontend code.
+
+This guide records the former frontend contract for Loom's REST Explorer
+lifecycle. It explains the V2 packet for compatibility and migration work; it
+is not a recommendation for new Builder code. The current intent-only contract
+is documented in [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md).
 
 ## The important model change
 

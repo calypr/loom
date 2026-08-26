@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -82,13 +81,11 @@ func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputI
 	if outputID == "" {
 		return receiptExecutionContractError("output is required")
 	}
-	var contract struct {
-		OutputID string `json:"outputId"`
-	}
-	if err := json.Unmarshal(receipt.PublicOutputContract, &contract); err != nil {
+	contract, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
 		return receiptExecutionContractError("public output contract is invalid: %v", err)
 	}
-	if strings.TrimSpace(contract.OutputID) != outputID {
+	if _, ok := contract.Output(outputID); !ok {
 		return receiptExecutionContractError("requested output %q is not in the receipt public contract", outputID)
 	}
 	for _, output := range receipt.Bundle.Outputs {

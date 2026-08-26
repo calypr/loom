@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
+	explorerv2api "github.com/calypr/loom/generated/explorerv2"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
@@ -27,7 +29,7 @@ func (e *receiptPreviewResolutionError) Unwrap() error { return e.Err }
 
 func previewRouteFailure(c fiber.Ctx, err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
-		return authoringHTTPError(c, &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err})
+		return authoringHTTPError(c, &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err})
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return authoringHTTPError(c, &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err})
@@ -48,19 +50,52 @@ func previewRouteFailure(c fiber.Ctx, err error) error {
 		case string(dataframeerrors.CodeBackendUnavailable), string(dataframeerrors.CodeReceiptStoreUnavailable):
 			return authoringHTTPError(c, &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err})
 		case string(dataframeerrors.CodeRecipeContractViolation), string(dataframeerrors.CodeDynamicSchemaDrift):
-			return authoringHTTPError(c, explorerConflict("preview", "RECEIPT_RECOMPILE_REQUIRED", "receipt deterministic lowering no longer matches the stored artifact", nil))
+			return authoringHTTPError(c, receiptPreviewConflict(err))
 		default:
 			return authoringHTTPError(c, &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err})
 		}
 	}
 	if errors.As(err, new(*receiptPreviewResolutionError)) {
-		return authoringHTTPError(c, explorerConflict("preview", "RECEIPT_RECOMPILE_REQUIRED", "receipt deterministic lowering no longer matches the stored artifact", nil))
+		return authoringHTTPError(c, receiptPreviewConflict(err))
 	}
 	return authoringHTTPError(c, &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err})
 }
 
+func receiptPreviewConflict(cause error) error {
+	return &explorer.AuthoringError{
+		Status: http.StatusConflict,
+		Diagnostic: explorer.AuthoringDiagnostic{
+			Severity: "ERROR",
+			Stage:    "preview",
+			Code:     "RECEIPT_RECOMPILE_REQUIRED",
+			Message:  "receipt deterministic lowering no longer matches the stored artifact",
+		},
+		Cause: cause,
+	}
+}
+
 type previewResponseTooLargeError struct {
 	Limit int
+}
+
+type v2EmissionWire = explorerv2api.Emission
+
+func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
+	out := make([]v2EmissionWire, 0, len(columns))
+	for _, column := range columns {
+		label := column.Label
+		if label == "" {
+			label = column.PublicColumn
+		}
+		out = append(out, v2EmissionWire{
+			OutputId: column.OutputID, CandidateId: column.CandidateID,
+			OccurrenceId: column.OccurrenceID, ProjectionMode: column.ProjectionMode,
+			EmissionId: column.EmissionID, PublicColumn: column.PublicColumn,
+			Label: label, LogicalType: column.LogicalType,
+			Filterable: column.Filterable, Chartable: column.Chartable,
+		})
+	}
+	return out
 }
 
 func (e *previewResponseTooLargeError) Error() string {
@@ -94,7 +129,7 @@ func encodeExplorerPreviewResponse(receipt *explorer.CompilationReceipt, outputI
 		}
 		return write(raw)
 	}
-	if err := write([]byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerPreviewResult","receiptId":`)); err != nil {
+	if err := write([]byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderPreview","receiptId":`)); err != nil {
 		return nil, err
 	}
 	if err := writeString(receipt.ID); err != nil {
@@ -106,7 +141,7 @@ func encodeExplorerPreviewResponse(receipt *explorer.CompilationReceipt, outputI
 	if err := writeString(outputID); err != nil {
 		return nil, err
 	}
-	encodedColumns, err := json.Marshal(columns)
+	encodedColumns, err := json.Marshal(v2EmissionColumns(columns))
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +178,7 @@ func encodeExplorerPreviewResponse(receipt *explorer.CompilationReceipt, outputI
 	if err := write(count); err != nil {
 		return nil, err
 	}
-	if err := write([]byte("}")); err != nil {
+	if err := write([]byte(`,"diagnostics":[]}`)); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
@@ -162,7 +197,7 @@ func newPreviewResponseEncoder(receipt *explorer.CompilationReceipt, outputID st
 	encoder := &previewResponseEncoder{firstRow: true}
 	encoder.out.limit = limit
 	write := func(raw []byte) error { _, err := encoder.out.Write(raw); return err }
-	if err := write([]byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerPreviewResult","receiptId":`)); err != nil {
+	if err := write([]byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderPreview","receiptId":`)); err != nil {
 		return nil, err
 	}
 	receiptID, err := json.Marshal(receipt.ID)
@@ -182,7 +217,7 @@ func newPreviewResponseEncoder(receipt *explorer.CompilationReceipt, outputID st
 	if err := write(outputRaw); err != nil {
 		return nil, err
 	}
-	encodedColumns, err := json.Marshal(columns)
+	encodedColumns, err := json.Marshal(v2EmissionColumns(columns))
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +265,7 @@ func (e *previewResponseEncoder) Finish() ([]byte, error) {
 	if _, err := e.out.Write(count); err != nil {
 		return nil, err
 	}
-	if _, err := e.out.Write([]byte("}")); err != nil {
+	if _, err := e.out.Write([]byte(`,"diagnostics":[]}`)); err != nil {
 		return nil, err
 	}
 	return e.out.Bytes(), nil

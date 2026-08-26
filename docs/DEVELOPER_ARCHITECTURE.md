@@ -31,9 +31,10 @@ they do not live in `generated/`.
 ## Runtime surfaces
 
 The Builder integration contract is documented in
-[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md).
-The Builder uses the REST Explorer lifecycle. GraphQL does not expose Explorer
-lifecycle or authoring types; REST V2 is the only Explorer contract.
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). The Builder uses the REST
+Explorer lifecycle and submits V1 intent; GraphQL does not expose Explorer
+lifecycle or authoring types. The old V2 packet guide is retained for
+compatibility and ETL migration context, not as the current Builder contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
 owns persistence-neutral observed facts; `catalog/arango` owns catalog
@@ -47,6 +48,14 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
 
 - `load` for the temporary mutable compatibility load;
 - `load-generation` for a complete immutable dataset generation;
+- `audit-relationship-edges` for a read-only scan of invalid graph endpoint
+  types;
+- `rebuild-relationship-catalog` for an explicit catalog rebuild after an
+  edge repair or backfill;
+- `repair-generation` for staging a corrected immutable generation from the
+  original source files; activation requires its explicit `--activate` flag;
+- `activate-generation` for validating and activating a previously staged
+  generation;
 - `discover-populated-references` and `discover-populated-fields` for
   catalog diagnostics.
 
@@ -54,15 +63,19 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
 developer GraphQL tools, and the primary project/resourceType upload endpoint.
 Complete immutable generations remain an explicit CLI/load workflow.
 
-The GraphQL dataframe mutation is the live compiler transport. Do not add a
-second query compiler or hand-maintained AQL path behind another endpoint.
+The GraphQL dataframe mutation is the live compiler transport. Explorer V1
+authoring adds an intent-to-native-recipe lowering phase, then calls the same
+recipe resolver/compiler and AQL renderer. Do not add a second query compiler
+or hand-maintained AQL path behind another endpoint. See
+[`EXPLORER_COMPILATION_ARCHITECTURE.md`](EXPLORER_COMPILATION_ARCHITECTURE.md)
+for the complete Builder-to-AQL sequence.
 
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
 Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
 reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
-compiler endpoint. Published ClickHouse dataframe discovery and reads follow the stable-GraphQL,
-dynamic-data contract defined in
-[`CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md`](CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md).
+compiler endpoint. Published ClickHouse dataframe discovery and reads follow the
+stable-GraphQL, dynamic-data contract described in
+[`DATAFRAME_FEDERATION.md`](DATAFRAME_FEDERATION.md).
 Only registered READY publication outputs are exposed; adding a dataset or
 column must not require GraphQL regeneration or a Loom restart. Publication
 and published-data reads are ClickHouse-only; Loom has no Elasticsearch
@@ -97,6 +110,69 @@ and schema identity; the active pointer selects one READY generation per
 project.
 The generation-qualified physical keys and mandatory generation predicates are
 part of the query correctness contract, not an optional filter.
+
+Graph resource identity is schema-owned. Only concrete FHIR root types may
+appear as vertex collections, edge endpoints, row grains, or relationship
+catalog types. Backbone and other nested definitions remain available to
+field/selector resolution but are rejected at graph boundaries. Use
+`arango-fhir-proto audit-relationship-edges` to inspect historical generations
+for invalid endpoint types. A catalog rebuild filters those rows from the
+rebuilt catalog, but does not rewrite `fhir_edge`; malformed generations must
+be re-ingested into a new immutable generation before activation. The
+`repair-generation` command performs that workflow: it audits the source,
+loads the supplied source directory into a distinct staged generation, audits
+the result, and leaves the old active generation untouched unless
+`--activate` is explicitly supplied.
+
+For example:
+
+```bash
+./bin/arango-fhir-proto repair-generation \
+  --project ARANGODB_PROTO \
+  --source-generation load:old \
+  --generation load:repaired \
+  --meta-dir META
+```
+
+The command stages the target and reports its audit. Activate it separately
+after reviewing that the target audit reports zero invalid edges:
+
+```bash
+./bin/arango-fhir-proto activate-generation \
+  --project ARANGODB_PROTO \
+  --generation load:repaired \
+  --url http://127.0.0.1:8529 \
+  --database fhir_proto
+```
+
+For an automated one-shot repair, `repair-generation --activate` performs the
+same validation before activation.
+
+Generation repair is deliberately memory-bounded. The loader caps catalog
+distinct values, pivot columns, extension observations, cached payload shapes,
+and retained field paths; it also bounds parser workers and queued input/write
+batches. The CLI applies a Go soft memory limit by default and exposes the
+operational controls explicitly:
+
+```bash
+./bin/arango-fhir-proto repair-generation \
+  --project ARANGODB_PROTO \
+  --source-generation load:old \
+  --generation load:repaired \
+  --meta-dir META \
+  --memory-limit 4GiB \
+  --workers 2 \
+  --writers 2 \
+  --line-queue-size 1024 \
+  --write-queue-size 8
+```
+
+The Go limit is a GC target, not a substitute for a Kubernetes cgroup limit.
+Run the operator binary as a separate one-shot migration workload with an
+explicit memory request and limit; do not run a large repair inside the
+long-lived server container. The Docker image includes `/app/arango-fhir-proto`
+for that purpose, and the image target architecture is used so local arm64
+clusters do not invoke Rosetta for the migration process.
 
 ## Compiler path
 
@@ -163,10 +239,9 @@ When adding code, use this lookup table:
 | AQL text or bind emission | `internal/dataframe/compiler/render/aql` |
 | Catalog, auth, generation, cursor, or profiling | `internal/dataframe/runtime` |
 
-For the complete ownership map and move history, see
-[`DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md`](DATAFRAME_PACKAGE_REORGANIZATION_PLAN.md)
-and the current compiler split plan
-[`DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md`](DATAFRAME_PACKAGE_REORGANIZATION_ROUND_2.md).
+For the complete ownership map, see the package guide in this document and the
+[documentation index](README.md). Historical package-reorganization plans may
+exist outside this checkout, but they are not runtime contract references.
 
 ## Compatibility tracks
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -17,6 +18,7 @@ import (
 const (
 	APIVersion                   = "loom.calypr.org/explorer-authoring/v2"
 	Kind                         = "ExplorerBuilderDocument"
+	WorkspaceKind                = "ExplorerBuilderWorkspace"
 	StateKind                    = "ExplorerBuilderState"
 	CatalogKind                  = "ExplorerBuilderCatalog"
 	AuthoringV2APIVersion        = APIVersion
@@ -30,6 +32,7 @@ const (
 // names inside this package.
 type AuthoringDocumentV2 = Document
 type ExplorerBuilderDocumentV2 = Document
+type ExplorerBuilderWorkspaceV2 = Workspace
 type BuilderStateV2 = BuilderState
 type ExplorerBuilderStateV2 = BuilderState
 type CatalogProjectionV2 = CatalogSnapshot
@@ -47,7 +50,7 @@ type CatalogCandidateV2 = CatalogCandidate
 // path from RootNodeID. Its root occurrence is always "base" and its tail is
 // computed from the path; neither is a second authored node identity.
 type Document struct {
-	APIVersion   string                  `json:"apiVersion"`
+	APIVersion   string                  `json:"-"`
 	Kind         string                  `json:"kind"`
 	Output       Output                  `json:"output"`
 	RootNodeID   string                  `json:"rootNodeId"`
@@ -72,28 +75,64 @@ type Selection struct {
 	ProjectionMode string `json:"projectionMode"`
 }
 
+// Workspace is the atomic authoring unit. Documents are independent table
+// intents; tabs provide their ordered, visible runtime presentation.
+type Workspace struct {
+	APIVersion string     `json:"apiVersion"`
+	Kind       string     `json:"kind"`
+	Documents  []Document `json:"documents"`
+	Tabs       []Tab      `json:"tabs"`
+}
+
+type Tab struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	OutputID string `json:"outputId"`
+	Order    int    `json:"order"`
+	Visible  bool   `json:"visible"`
+}
+
 // Presentation contains display intent only. In particular, it has no
 // selector, expression, physical collection, or generated-column fields.
 type Presentation struct {
-	Label   string `json:"label,omitempty"`
-	Visible *bool  `json:"visible,omitempty"`
-	Order   *int   `json:"order,omitempty"`
+	Label   string              `json:"label,omitempty"`
+	Visible *bool               `json:"visible,omitempty"`
+	Order   *int                `json:"order,omitempty"`
+	Table   *TablePresentation  `json:"table,omitempty"`
+	Filter  *FilterPresentation `json:"filter,omitempty"`
+	Chart   *ChartPresentation  `json:"chart,omitempty"`
+}
+
+type TablePresentation struct {
+	Pinned bool `json:"pinned"`
+}
+type FilterPresentation struct {
+	Label string `json:"label,omitempty"`
+}
+type ChartPresentation struct {
+	Type  string `json:"type"`
+	Title string `json:"title,omitempty"`
+}
+
+func PresentationKey(candidateID, occurrenceID, projectionMode string) string {
+	encode := func(value string) string { return strings.ReplaceAll(url.QueryEscape(value), "+", "%20") }
+	return encode(candidateID) + "::" + encode(occurrenceID) + "::" + encode(projectionMode)
 }
 
 // CatalogSnapshot is an immutable, authorization-scoped projection. The
 // token identifies the exact snapshot used to validate a document.
 type CatalogSnapshot struct {
-	APIVersion               string              `json:"apiVersion"`
-	Kind                     string              `json:"kind"`
-	Project                  string              `json:"project"`
-	ExplorerID               string              `json:"explorerId"`
-	SourceGeneration         string              `json:"sourceGeneration"`
+	APIVersion               string              `json:"-"`
+	Kind                     string              `json:"-"`
+	Project                  string              `json:"-"`
+	ExplorerID               string              `json:"-"`
+	SourceGeneration         string              `json:"generation"`
 	AuthorizationScopeDigest string              `json:"authorizationScopeDigest"`
 	ResolvedSchemaDigest     string              `json:"resolvedSchemaDigest,omitempty"`
 	SnapshotToken            string              `json:"snapshotToken"`
 	Complete                 bool                `json:"complete"`
-	Truncated                bool                `json:"truncated"`
-	Diagnostics              []CatalogDiagnostic `json:"diagnostics"`
+	Truncated                bool                `json:"-"`
+	Diagnostics              []CatalogDiagnostic `json:"-"`
 	Nodes                    []CatalogNode       `json:"nodes"`
 	Edges                    []CatalogEdge       `json:"edges"`
 	Candidates               []CatalogCandidate  `json:"candidates"`
@@ -120,6 +159,7 @@ type CatalogEdge struct {
 	FromNodeID string `json:"fromNodeId"`
 	ToNodeID   string `json:"toNodeId"`
 	Label      string `json:"label"`
+	Populated  bool   `json:"populated"`
 }
 
 type CatalogCandidate struct {
@@ -127,36 +167,39 @@ type CatalogCandidate struct {
 	NodeID                string   `json:"nodeId"`
 	Label                 string   `json:"label"`
 	LogicalType           string   `json:"logicalType"`
+	Repeated              bool     `json:"repeated"`
 	Filterable            bool     `json:"filterable"`
 	Chartable             bool     `json:"chartable"`
 	ProjectionModes       []string `json:"projectionModes"`
 	DefaultProjectionMode string   `json:"defaultProjectionMode"`
-	FilterOperators       []string `json:"filterOperators"`
-	ChartOperations       []string `json:"chartOperations"`
-	Cardinality           string   `json:"cardinality,omitempty"`
-	Populated             bool     `json:"populated"`
-	Count                 *int64   `json:"count,omitempty"`
-	SuggestionsAvailable  bool     `json:"suggestionsAvailable"`
-	SuggestionsComplete   bool     `json:"suggestionsComplete"`
-	SuggestionsTruncated  bool     `json:"suggestionsTruncated"`
-	SuggestionCount       int      `json:"suggestionCount"`
+	FilterOperators       []string `json:"-"`
+	ChartOperations       []string `json:"-"`
+	Cardinality           string   `json:"-"`
+	Populated             bool     `json:"-"`
+	Count                 *int64   `json:"-"`
+	SuggestionsAvailable  bool     `json:"-"`
+	SuggestionsComplete   bool     `json:"-"`
+	SuggestionsTruncated  bool     `json:"-"`
+	SuggestionCount       int      `json:"-"`
 }
 
 // RoutePolicy has no default hop ceiling: nil MaxHops means every finite
 // route is valid. Repeated edges and self-loops are explicit capabilities.
 type RoutePolicy struct {
-	MaxHops            *int `json:"maxHops,omitempty"`
-	Unbounded          bool `json:"unbounded"`
+	MaxHops            *int `json:"maxSteps"`
+	Unbounded          bool `json:"-"`
 	AllowRepeatedEdges bool `json:"allowRepeatedEdges"`
 	AllowSelfLoops     bool `json:"allowSelfLoops"`
 }
 
-// BuilderState joins one document to the one catalog snapshot that proves it.
+// BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
-	APIVersion string          `json:"apiVersion"`
-	Kind       string          `json:"kind"`
-	Document   *Document       `json:"document,omitempty"`
-	Catalog    CatalogSnapshot `json:"catalog"`
+	APIVersion string     `json:"apiVersion"`
+	Kind       string     `json:"kind"`
+	Workspace  *Workspace `json:"workspace,omitempty"`
+	// Document is retained only as a source-compatible internal migration aid.
+	Document *Document       `json:"-"`
+	Catalog  CatalogSnapshot `json:"catalog"`
 }
 
 // RouteOccurrence is derived, never wire-authored. The first occurrence has
@@ -214,7 +257,7 @@ func DerivedOccurrenceID(stepIndex int) string {
 }
 
 func (d Document) Validate() error {
-	if d.APIVersion != APIVersion || d.Kind != Kind {
+	if d.Kind != Kind {
 		return fmt.Errorf("unsupported V2 document protocol or kind")
 	}
 	if emptyID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
@@ -228,6 +271,10 @@ func (d Document) Validate() error {
 		if emptyID(step.EdgeID) {
 			return fmt.Errorf("routeSteps[%d].edgeId is required", i)
 		}
+		occurrenceID := step.OccurrenceID
+		if occurrenceID == "" {
+			occurrenceID = DerivedOccurrenceID(i)
+		}
 		if step.OccurrenceID != "" {
 			if step.OccurrenceID == RootOccurrenceID {
 				return fmt.Errorf("routeSteps[%d] cannot author the derived base occurrence", i)
@@ -235,11 +282,11 @@ func (d Document) Validate() error {
 			if emptyID(step.OccurrenceID) {
 				return fmt.Errorf("routeSteps[%d].occurrenceId is invalid", i)
 			}
-			if seenOccurrences[step.OccurrenceID] {
-				return fmt.Errorf("duplicate route occurrence id %q", step.OccurrenceID)
-			}
-			seenOccurrences[step.OccurrenceID] = true
 		}
+		if seenOccurrences[occurrenceID] {
+			return fmt.Errorf("duplicate route occurrence id %q", occurrenceID)
+		}
+		seenOccurrences[occurrenceID] = true
 	}
 	seenSelections := map[string]bool{}
 	for i, selection := range d.Selections {
@@ -254,7 +301,7 @@ func (d Document) Validate() error {
 		if selection.OccurrenceID != "" && emptyID(selection.OccurrenceID) {
 			return fmt.Errorf("selections[%d].occurrenceId is invalid", i)
 		}
-		key := selection.CandidateID + "\x00" + selection.OccurrenceID
+		key := selection.CandidateID + "\x00" + selection.OccurrenceID + "\x00" + selection.ProjectionMode
 		if seenSelections[key] {
 			return fmt.Errorf("duplicate selection %q", selection.CandidateID)
 		}
@@ -266,6 +313,77 @@ func (d Document) Validate() error {
 		}
 		if p.Order != nil && *p.Order < 0 {
 			return fmt.Errorf("presentation[%q].order must not be negative", key)
+		}
+	}
+	return nil
+}
+
+func (w Workspace) Validate() error {
+	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
+		return fmt.Errorf("unsupported V2 workspace protocol or kind")
+	}
+	outputs, tabs, tabOutputs, orders := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[int]bool{}
+	for i, d := range w.Documents {
+		if err := d.Validate(); err != nil {
+			return fmt.Errorf("documents[%d]: %w", i, err)
+		}
+		if outputs[d.Output.ID] {
+			return fmt.Errorf("DUPLICATE_OUTPUT_ID: documents[%d].output.id", i)
+		}
+		outputs[d.Output.ID] = true
+	}
+	for i, tab := range w.Tabs {
+		if emptyID(tab.ID) || strings.TrimSpace(tab.Title) == "" || emptyID(tab.OutputID) || tab.Order < 0 {
+			return fmt.Errorf("tabs[%d] is invalid", i)
+		}
+		if tabs[tab.ID] {
+			return fmt.Errorf("DUPLICATE_TAB_ID: tabs[%d].id", i)
+		}
+		if tabOutputs[tab.OutputID] || !outputs[tab.OutputID] {
+			return fmt.Errorf("INVALID_TAB_OUTPUT_MAPPING: tabs[%d].outputId", i)
+		}
+		if orders[tab.Order] {
+			return fmt.Errorf("INVALID_TAB_ORDER: tabs[%d].order", i)
+		}
+		tabs[tab.ID], tabOutputs[tab.OutputID], orders[tab.Order] = true, true, true
+	}
+	if len(w.Tabs) != len(w.Documents) {
+		return fmt.Errorf("INVALID_TAB_OUTPUT_MAPPING: exactly one tab is required per document")
+	}
+	for output := range outputs {
+		if !tabOutputs[output] {
+			return fmt.Errorf("INVALID_TAB_OUTPUT_MAPPING: output %q has no tab", output)
+		}
+	}
+	for i := 0; i < len(orders); i++ {
+		if !orders[i] {
+			return fmt.Errorf("INVALID_TAB_ORDER: orders must be contiguous from zero")
+		}
+	}
+	return nil
+}
+
+// ValidateForPublication applies constraints that are intentionally too strict
+// for mutable Builder state. Changing a table root or route temporarily clears
+// its selections; that intermediate workspace remains compilable, but a visible
+// table must have at least one visible column before publication.
+func (w Workspace) ValidateForPublication() error {
+	visibleOutputs := make(map[string]bool, len(w.Tabs))
+	for _, tab := range w.Tabs {
+		visibleOutputs[tab.OutputID] = tab.Visible
+	}
+	for i, document := range w.Documents {
+		if !visibleOutputs[document.Output.ID] {
+			continue
+		}
+		hidden := 0
+		for _, presentation := range document.Presentation {
+			if presentation.Visible != nil && !*presentation.Visible {
+				hidden++
+			}
+		}
+		if len(document.Selections) == 0 || hidden == len(document.Selections) {
+			return fmt.Errorf("NO_VISIBLE_COLUMNS: documents[%d]", i)
 		}
 	}
 	return nil
@@ -362,19 +480,43 @@ func (s BuilderState) Validate() error {
 	if err := s.Catalog.Validate(); err != nil {
 		return err
 	}
-	if s.Document == nil {
+	workspace := s.Workspace
+	if workspace == nil && s.Document != nil {
+		workspace = &Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Documents: []Document{*s.Document}, Tabs: []Tab{{ID: s.Document.Output.ID, Title: s.Document.Output.Title, OutputID: s.Document.Output.ID, Order: 0, Visible: true}}}
+	}
+	if workspace == nil {
 		return nil
 	}
-	if err := s.Document.Validate(); err != nil {
+	if err := workspace.Validate(); err != nil {
 		return err
 	}
+	for i := range workspace.Documents {
+		document := workspace.Documents[i]
+		one := s
+		one.Workspace = nil
+		one.Document = &document
+		if err := one.validateDocument(); err != nil {
+			return fmt.Errorf("documents[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func (s BuilderState) validateDocument() error {
+	d := s.Document
+	if d == nil {
+		return nil
+	}
 	edges, candidates, nodes := s.Catalog.edgeIndex(), s.Catalog.candidateIndex(), s.Catalog.nodeIndex()
-	if nodes[s.Document.RootNodeID].ID == "" {
-		return fmt.Errorf("document rootNodeId %q is stale", s.Document.RootNodeID)
+	if nodes[d.RootNodeID].ID == "" {
+		return fmt.Errorf("document rootNodeId %q is stale", d.RootNodeID)
+	}
+	if !nodes[d.RootNodeID].RowRootEligible {
+		return fmt.Errorf("ROW_ROOT_NOT_ELIGIBLE: rootNodeId %q", d.RootNodeID)
 	}
 	seenEdges := map[string]bool{}
-	current := s.Document.RootNodeID
-	for i, step := range s.Document.RouteSteps {
+	current := d.RootNodeID
+	for i, step := range d.RouteSteps {
 		e, ok := edges[step.EdgeID]
 		if !ok {
 			return fmt.Errorf("routeSteps[%d] references stale edge %q", i, step.EdgeID)
@@ -388,10 +530,10 @@ func (s BuilderState) Validate() error {
 		seenEdges[e.ID] = true
 		current = e.ToNodeID
 	}
-	if s.Catalog.RoutePolicy.MaxHops != nil && len(s.Document.RouteSteps) > *s.Catalog.RoutePolicy.MaxHops {
+	if s.Catalog.RoutePolicy.MaxHops != nil && len(d.RouteSteps) > *s.Catalog.RoutePolicy.MaxHops {
 		return fmt.Errorf("route exceeds routePolicy.maxHops")
 	}
-	occ, err := s.Document.Occurrences(s.Catalog)
+	occ, err := d.Occurrences(s.Catalog)
 	if err != nil {
 		return err
 	}
@@ -399,7 +541,7 @@ func (s BuilderState) Validate() error {
 	for _, item := range occ {
 		occByID[item.ID] = item
 	}
-	for i, selection := range s.Document.Selections {
+	for i, selection := range d.Selections {
 		candidate, ok := candidates[selection.CandidateID]
 		if !ok {
 			return fmt.Errorf("selections[%d] references stale candidate %q", i, selection.CandidateID)
@@ -426,7 +568,48 @@ func (s BuilderState) Validate() error {
 			return fmt.Errorf("selection %q projection mode %q is not advertised", selection.CandidateID, selection.ProjectionMode)
 		}
 	}
+	seenResolvedSelections := map[string]bool{}
+	for i, selection := range d.Selections {
+		occurrenceID := effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID)
+		key := selection.CandidateID + "\x00" + occurrenceID + "\x00" + selection.ProjectionMode
+		if seenResolvedSelections[key] {
+			return fmt.Errorf("duplicate selection at selections[%d]", i)
+		}
+		seenResolvedSelections[key] = true
+	}
+	selectionKeys := map[string]bool{}
+	for _, selection := range d.Selections {
+		selectionKeys[PresentationKey(selection.CandidateID, effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID), selection.ProjectionMode)] = true
+	}
+	for key, p := range d.Presentation {
+		if !selectionKeys[key] {
+			return fmt.Errorf("presentation %q does not resolve to a selection", key)
+		}
+		for _, selection := range d.Selections {
+			if PresentationKey(selection.CandidateID, effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID), selection.ProjectionMode) != key {
+				continue
+			}
+			candidate := candidates[selection.CandidateID]
+			if p.Filter != nil && !candidate.Filterable {
+				return fmt.Errorf("UNSUPPORTED_FILTER: presentation %q", key)
+			}
+			if p.Chart != nil && !candidate.Chartable {
+				return fmt.Errorf("UNSUPPORTED_CHART: presentation %q", key)
+			}
+		}
+	}
 	return nil
+}
+
+func effectiveOccurrence(d Document, c CatalogSnapshot, authored string) string {
+	if authored != "" {
+		return authored
+	}
+	occ, err := d.Occurrences(c)
+	if err != nil || len(occ) == 0 {
+		return authored
+	}
+	return occ[len(occ)-1].ID
 }
 
 func (c CatalogSnapshot) nodeIndex() map[string]CatalogNode {
@@ -482,6 +665,49 @@ func (d Document) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(n)
 }
 
+func (w Workspace) CanonicalJSON() ([]byte, error) {
+	if err := w.Validate(); err != nil {
+		return nil, err
+	}
+	n := w
+	n.Documents = append([]Document(nil), w.Documents...)
+	for i := range n.Documents {
+		n.Documents[i].APIVersion = ""
+		n.Documents[i].Selections = append([]Selection(nil), n.Documents[i].Selections...)
+		sort.SliceStable(n.Documents[i].Selections, func(a, b int) bool {
+			left := n.Documents[i].Selections[a]
+			right := n.Documents[i].Selections[b]
+			return left.CandidateID+"\x00"+left.OccurrenceID+"\x00"+left.ProjectionMode < right.CandidateID+"\x00"+right.OccurrenceID+"\x00"+right.ProjectionMode
+		})
+		if n.Documents[i].RouteSteps == nil {
+			n.Documents[i].RouteSteps = []RouteStep{}
+		}
+		if n.Documents[i].Selections == nil {
+			n.Documents[i].Selections = []Selection{}
+		}
+		if n.Documents[i].Presentation == nil {
+			n.Documents[i].Presentation = map[string]Presentation{}
+		}
+	}
+	n.Tabs = append([]Tab(nil), w.Tabs...)
+	if n.Documents == nil {
+		n.Documents = []Document{}
+	}
+	if n.Tabs == nil {
+		n.Tabs = []Tab{}
+	}
+	return json.Marshal(n)
+}
+
+func (w Workspace) Digest() (string, error) {
+	raw, err := w.CanonicalJSON()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
 func (d Document) Digest() (string, error) {
 	raw, err := d.CanonicalJSON()
 	if err != nil {
@@ -533,12 +759,12 @@ func (s BuilderState) CanonicalJSON() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	var document []byte
+	var workspace []byte
 	var err error
-	if s.Document == nil {
-		document = []byte("null")
+	if s.Workspace == nil {
+		workspace = []byte("null")
 	} else {
-		document, err = s.Document.CanonicalJSON()
+		workspace, err = s.Workspace.CanonicalJSON()
 		if err != nil {
 			return nil, err
 		}
@@ -550,9 +776,9 @@ func (s BuilderState) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		APIVersion string          `json:"apiVersion"`
 		Kind       string          `json:"kind"`
-		Document   json.RawMessage `json:"document"`
+		Workspace  json.RawMessage `json:"workspace"`
 		Catalog    json.RawMessage `json:"catalog"`
-	}{s.APIVersion, s.Kind, document, catalog})
+	}{s.APIVersion, s.Kind, workspace, catalog})
 }
 
 func (s BuilderState) Digest() (string, error) {
@@ -565,7 +791,27 @@ func (s BuilderState) Digest() (string, error) {
 }
 
 func DecodeDocument(raw []byte) (Document, error) {
-	var out Document
+	var wire struct {
+		APIVersion   string                  `json:"apiVersion,omitempty"`
+		Kind         string                  `json:"kind"`
+		Output       Output                  `json:"output"`
+		RootNodeID   string                  `json:"rootNodeId"`
+		RouteSteps   []RouteStep             `json:"routeSteps"`
+		Selections   []Selection             `json:"selections"`
+		Presentation map[string]Presentation `json:"presentation"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return Document{}, err
+	}
+	out := Document{APIVersion: wire.APIVersion, Kind: wire.Kind, Output: wire.Output, RootNodeID: wire.RootNodeID, RouteSteps: wire.RouteSteps, Selections: wire.Selections, Presentation: wire.Presentation}
+	if err := out.Validate(); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func DecodeWorkspace(raw []byte) (Workspace, error) {
+	var out Workspace
 	if err := strictDecode(raw, &out); err != nil {
 		return out, err
 	}

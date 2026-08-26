@@ -14,9 +14,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY cmd ./cmd
-COPY generated/fhir ./generated/fhir
-COPY generated/fhirschema ./generated/fhirschema
-COPY generated/graphql ./generated/graphql
+COPY generated ./generated
 COPY internal ./internal
 COPY schemas ./schemas
 

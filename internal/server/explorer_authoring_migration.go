@@ -73,8 +73,15 @@ func MigrateLegacyExplorerAuthoring(ctx context.Context, service *explorer.Servi
 	if options.RequestID == "" {
 		options.RequestID = "loom-authoring-migration-" + options.Project + "-" + options.ExplorerID
 	}
-	if service == nil || capabilities.Catalog == nil || capabilities.AuthoringCompile == nil || capabilities.Materialize == nil || capabilities.ValidateReleaseGeneration == nil || capabilities.ActivateRelease == nil {
-		return ExplorerAuthoringMigrationReport{}, errors.New("Explorer authoring migration requires catalog, compiler, materializer, generation validator, and release activation")
+	if service == nil || capabilities.Catalog == nil || capabilities.ValidateReleaseGeneration == nil || capabilities.ActivateRelease == nil {
+		return ExplorerAuthoringMigrationReport{}, errors.New("Explorer authoring migration requires catalog, generation validator, and release activation")
+	}
+	if options.AuditOnly {
+		if capabilities.AuthoringCompile == nil {
+			return ExplorerAuthoringMigrationReport{}, errors.New("Explorer authoring migration audit requires the legacy intent compiler")
+		}
+	} else if capabilities.Capability == nil || capabilities.CompileReceipt == nil || capabilities.MaterializeReceipt == nil {
+		return ExplorerAuthoringMigrationReport{}, errors.New("Explorer authoring migration requires the native V2 capability compiler and receipt materializer")
 	}
 
 	mode := "apply"
@@ -98,9 +105,11 @@ func MigrateLegacyExplorerAuthoring(ctx context.Context, service *explorer.Servi
 	report.SourceGeneration = snapshot.Generation
 
 	var activeBundle json.RawMessage
+	var activeRevision *explorer.Revision
 	if owner.ActiveRevisionID != "" {
-		if activeRevision, revisionErr := service.Revision(ctx, owner.ActiveRevisionID); revisionErr == nil {
-			activeBundle = activeRevision.AuthoringBundle
+		if storedRevision, revisionErr := service.Revision(ctx, owner.ActiveRevisionID); revisionErr == nil {
+			activeRevision = storedRevision
+			activeBundle = storedRevision.AuthoringBundle
 		}
 	}
 	var migrationDiagnostics []string
@@ -114,11 +123,42 @@ func MigrateLegacyExplorerAuthoring(ctx context.Context, service *explorer.Servi
 	report.TabCount = len(bundle.AuthoringTabs())
 	report.OutputCount = len(bundle.AuthoringDocuments())
 
-	compiled, err := capabilities.AuthoringCompile(ctx, ExplorerAuthoringV1CompileRequest{Bundle: bundle, SnapshotToken: snapshot.Token, RequestID: options.RequestID})
-	if err != nil {
-		return report, fmt.Errorf("compile migrated Explorer authoring intent: %w", err)
+	var receipt explorer.CompilationReceipt
+	if options.AuditOnly {
+		compiled, compileErr := capabilities.AuthoringCompile(ctx, ExplorerAuthoringV1CompileRequest{Bundle: bundle, SnapshotToken: snapshot.Token, RequestID: options.RequestID})
+		if compileErr != nil {
+			return report, fmt.Errorf("audit migrated Explorer authoring intent: %w", compileErr)
+		}
+		receipt = compiled.Receipt
+	} else {
+		capabilitySnapshot, capabilityErr := capabilities.Capability(ctx, options.Project, options.ExplorerID, snapshot.Generation)
+		if capabilityErr != nil {
+			return report, fmt.Errorf("load native V2 capability snapshot: %w", capabilityErr)
+		}
+		if !capabilitySnapshot.Usable() || capabilitySnapshot.Identity.Generation != snapshot.Generation {
+			return report, fmt.Errorf("native V2 capability snapshot does not match migration generation %q", snapshot.Generation)
+		}
+		wire := authoringV2Catalog(capabilitySnapshot, options.ExplorerID)
+		emitted := []explorer.EmittedColumn(nil)
+		if activeRevision != nil {
+			emitted = activeRevision.EmittedColumns
+		}
+		workspace, migrateErr := migrateV1WorkspaceToCapability(bundle, capabilitySnapshot, wire, emitted)
+		if migrateErr != nil {
+			return report, fmt.Errorf("convert stored V1 workspace to V2: %w", migrateErr)
+		}
+		compiled, compileErr := capabilities.CompileReceipt(ctx, ExplorerV2ReceiptCompileRequest{
+			Project: options.Project, ExplorerID: options.ExplorerID, Workspace: workspace,
+			SnapshotToken: capabilitySnapshot.Token, RequestID: options.RequestID,
+		})
+		if compileErr != nil {
+			return report, fmt.Errorf("compile migrated V2 workspace: %w", compileErr)
+		}
+		if compiled == nil {
+			return report, errors.New("compile migrated V2 workspace: compiler returned no receipt")
+		}
+		receipt = *compiled
 	}
-	receipt := compiled.Receipt
 	report.IntentDigest, report.ReceiptID = receipt.IntentDigest, receipt.ID
 	if options.AuditOnly {
 		return report, nil
@@ -147,7 +187,7 @@ func MigrateLegacyExplorerAuthoring(ctx context.Context, service *explorer.Servi
 	if err := capabilities.ValidateReleaseGeneration(ctx, storageProject, receipt.SourceGeneration); err != nil {
 		return report, fmt.Errorf("validate migrated Explorer generation: %w", err)
 	}
-	execution, err := capabilities.Materialize(ctx, receipt.Bundle, recipe.RuntimeBindings{Project: storageProject, DatasetGeneration: receipt.SourceGeneration})
+	execution, err := capabilities.MaterializeReceipt(ctx, &receipt, recipe.RuntimeBindings{Project: storageProject, DatasetGeneration: receipt.SourceGeneration})
 	if err != nil {
 		return report, fmt.Errorf("materialize migrated Explorer receipt: %w", err)
 	}

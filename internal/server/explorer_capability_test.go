@@ -282,7 +282,7 @@ func TestExplorerAuthoringV2HardCutCompilesAndPreviewsReceipt(t *testing.T) {
 	if suggestions.StatusCode != http.StatusOK || !strings.Contains(suggestions.Body, `"patient-1"`) {
 		t.Fatalf("candidate suggestions status=%d body=%s", suggestions.StatusCode, suggestions.Body)
 	}
-	body := `{"document":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}},"snapshotToken":"` + snapshot.Token + `"}`
+	body := `{"workspace":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.WorkspaceKind + `","documents":[{"kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}}],"tabs":[{"id":"patients-tab","title":"Patients","outputId":"patients","order":0,"visible":true}]},"snapshotToken":"` + snapshot.Token + `"}`
 	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", body)
 	if compiled.StatusCode != http.StatusOK {
 		t.Fatalf("POST builder status=%d body=%s", compiled.StatusCode, compiled.Body)

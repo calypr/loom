@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -44,13 +45,25 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 		t.Fatalf("calls=%d", len(client.calls))
 	}
 	call := client.calls[0]
+	assertOnlyDeclaredCapabilityBinds(t, call)
 	if !strings.Contains(call.query, "INSERT @doc") || !strings.Contains(call.query, `overwriteMode: "ignore"`) || strings.Contains(call.query, "UPDATE") {
 		t.Fatalf("Put query is not immutable insert-if-absent:\n%s", call.query)
+	}
+	if _, exists := call.binds["key"]; exists {
+		t.Fatalf("Put supplied undeclared key bind: %#v", call.binds)
+	}
+	if len(call.binds) != 2 || call.binds["@c"] != CapabilitySnapshotCollection {
+		t.Fatalf("Put binds = %#v", call.binds)
 	}
 	doc := call.binds["doc"].(map[string]any)
 	if doc["token"] != snapshot.Token || doc["identity"] == nil || doc["status"] != string(snapshot.Status) {
 		t.Fatalf("canonical full document=%#v", doc)
 	}
+
+	if _, err := adapter.GetByToken(context.Background(), snapshot.Token); err != nil {
+		t.Fatal(err)
+	}
+	assertOnlyDeclaredCapabilityBinds(t, client.calls[len(client.calls)-1])
 
 	client.row, err = canonicalSnapshotDocument(snapshot, capabilitySnapshotKey(snapshot.Token))
 	if err != nil {
@@ -60,6 +73,7 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	identityCall := client.calls[len(client.calls)-1]
+	assertOnlyDeclaredCapabilityBinds(t, identityCall)
 	for _, required := range []string{
 		"d.identity.project == @project", "d.identity.generation == @generation",
 		"d.identity.authorizationScopeDigest == @authorizationScopeDigest",
@@ -75,6 +89,16 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 	}
 	if got := identityCall.binds["generation"]; got != snapshot.Identity.Generation {
 		t.Fatalf("generation bind=%v", got)
+	}
+}
+
+func assertOnlyDeclaredCapabilityBinds(t *testing.T, call queryCall) {
+	t.Helper()
+	for name := range call.binds {
+		pattern := "@" + regexp.QuoteMeta(name) + `\b`
+		if !regexp.MustCompile(pattern).MatchString(call.query) {
+			t.Errorf("bind variable %q is not declared in query", name)
+		}
 	}
 }
 

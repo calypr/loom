@@ -68,6 +68,7 @@ type ConfigColumn struct {
 	Column  string `json:"column"`
 	Label   string `json:"label,omitempty"`
 	Visible bool   `json:"visible"`
+	Pinned  bool   `json:"pinned,omitempty"`
 }
 type ConfigFilter struct {
 	Column string `json:"column"`

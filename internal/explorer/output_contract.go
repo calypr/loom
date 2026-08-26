@@ -11,78 +11,141 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// PublicOutputContract is the current, transport-neutral public output
-// contract persisted inside a compilation receipt. It describes the one
-// output selected by the V2 Builder; executable selectors and physical names
-// are deliberately absent.
+// PublicOutputContracts is the current, transport-neutral public output
+// contract persisted inside a compilation receipt. Outputs retain workspace
+// order; executable selectors and physical names are deliberately absent.
+type PublicOutputContracts struct {
+	Outputs []PublicOutputContract `json:"outputs"`
+}
+
+// PublicOutputContract describes one compiled workspace output.
 type PublicOutputContract struct {
 	OutputID string               `json:"outputId"`
 	Columns  []PublicOutputColumn `json:"columns"`
 }
 
 type PublicOutputColumn struct {
-	EmissionID   string `json:"emissionId"`
-	PublicColumn string `json:"publicColumn"`
-	CandidateID  string `json:"candidateId,omitempty"`
-	OccurrenceID string `json:"occurrenceId,omitempty"`
-	LogicalType  string `json:"logicalType"`
-	Filterable   bool   `json:"filterable"`
-	Chartable    bool   `json:"chartable"`
+	EmissionID     string `json:"emissionId"`
+	PublicColumn   string `json:"publicColumn"`
+	CandidateID    string `json:"candidateId"`
+	OccurrenceID   string `json:"occurrenceId"`
+	ProjectionMode string `json:"projectionMode"`
+	Label          string `json:"label"`
+	LogicalType    string `json:"logicalType"`
+	Filterable     bool   `json:"filterable"`
+	Chartable      bool   `json:"chartable"`
 }
 
-// DecodePublicOutputContract strictly decodes the current contract shape.
+// DecodePublicOutputContracts strictly decodes the current contract shape.
 // Null columns are accepted because an empty V2 selection is a valid mutable
 // editor state and the current compiler serializes its nil slice as null.
-// Missing columns, unknown fields, duplicate keys, and trailing JSON are not
-// accepted.
-func DecodePublicOutputContract(raw json.RawMessage) (PublicOutputContract, error) {
+// Missing fields, unknown fields, duplicate keys, and trailing JSON are not accepted.
+func DecodePublicOutputContracts(raw json.RawMessage) (PublicOutputContracts, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return PublicOutputContract{}, invalidOutputContract("contract is required")
+		return PublicOutputContracts{}, invalidOutputContract("contract is required")
 	}
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
-		return PublicOutputContract{}, invalidOutputContract("duplicate or malformed JSON key: %v", err)
+		return PublicOutputContracts{}, invalidOutputContract("duplicate or malformed JSON key: %v", err)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		if err == nil {
 			err = errors.New("contract must be a JSON object")
 		}
-		return PublicOutputContract{}, invalidOutputContract("malformed JSON object: %v", err)
+		return PublicOutputContracts{}, invalidOutputContract("malformed JSON object: %v", err)
 	}
-	if _, ok := fields["outputId"]; !ok {
-		return PublicOutputContract{}, invalidOutputContract("outputId is required")
+	if _, ok := fields["outputs"]; !ok {
+		return PublicOutputContracts{}, invalidOutputContract("outputs is required")
 	}
-	if _, ok := fields["columns"]; !ok {
-		return PublicOutputContract{}, invalidOutputContract("columns is required")
+	if bytes.Equal(bytes.TrimSpace(fields["outputs"]), []byte("null")) {
+		return PublicOutputContracts{}, invalidOutputContract("outputs must be an array")
 	}
-	var contract PublicOutputContract
+	var outputFields []map[string]json.RawMessage
+	if err := json.Unmarshal(fields["outputs"], &outputFields); err != nil {
+		return PublicOutputContracts{}, invalidOutputContract("outputs must be an array: %v", err)
+	}
+	for i, output := range outputFields {
+		if _, ok := output["outputId"]; !ok {
+			return PublicOutputContracts{}, invalidOutputContract("outputs[%d].outputId is required", i)
+		}
+		if _, ok := output["columns"]; !ok {
+			return PublicOutputContracts{}, invalidOutputContract("outputs[%d].columns is required", i)
+		}
+	}
+	var contracts PublicOutputContracts
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&contract); err != nil {
-		return PublicOutputContract{}, invalidOutputContract("decode failed: %v", err)
+	if err := decoder.Decode(&contracts); err != nil {
+		return PublicOutputContracts{}, invalidOutputContract("decode failed: %v", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
 			err = errors.New("trailing JSON value")
 		}
-		return PublicOutputContract{}, invalidOutputContract("trailing JSON: %v", err)
+		return PublicOutputContracts{}, invalidOutputContract("trailing JSON: %v", err)
 	}
-	if strings.TrimSpace(contract.OutputID) == "" {
-		return PublicOutputContract{}, invalidOutputContract("outputId is required")
+	seen := make(map[string]struct{}, len(contracts.Outputs))
+	for outputIndex, contract := range contracts.Outputs {
+		if strings.TrimSpace(contract.OutputID) == "" {
+			return PublicOutputContracts{}, invalidOutputContract("outputs[%d].outputId is required", outputIndex)
+		}
+		if _, exists := seen[contract.OutputID]; exists {
+			return PublicOutputContracts{}, invalidOutputContract("duplicate outputId %q", contract.OutputID)
+		}
+		seen[contract.OutputID] = struct{}{}
+		for columnIndex, column := range contract.Columns {
+			path := fmt.Sprintf("outputs[%d].columns[%d]", outputIndex, columnIndex)
+			for _, field := range []struct{ name, value string }{
+				{"emissionId", column.EmissionID}, {"publicColumn", column.PublicColumn},
+				{"candidateId", column.CandidateID}, {"occurrenceId", column.OccurrenceID},
+				{"projectionMode", column.ProjectionMode}, {"label", column.Label},
+				{"logicalType", column.LogicalType},
+			} {
+				if strings.TrimSpace(field.value) == "" {
+					return PublicOutputContracts{}, invalidOutputContract("%s.%s is required", path, field.name)
+				}
+			}
+		}
 	}
-	for i, column := range contract.Columns {
-		if strings.TrimSpace(column.EmissionID) == "" {
-			return PublicOutputContract{}, invalidOutputContract("columns[%d].emissionId is required", i)
-		}
-		if strings.TrimSpace(column.PublicColumn) == "" {
-			return PublicOutputContract{}, invalidOutputContract("columns[%d].publicColumn is required", i)
-		}
-		if strings.TrimSpace(column.LogicalType) == "" {
-			return PublicOutputContract{}, invalidOutputContract("columns[%d].logicalType is required", i)
+	return contracts, nil
+}
+
+func (c PublicOutputContracts) Output(outputID string) (PublicOutputContract, bool) {
+	for _, output := range c.Outputs {
+		if output.OutputID == outputID {
+			return output, true
 		}
 	}
-	return contract, nil
+	return PublicOutputContract{}, false
+}
+
+// ValidateAgainst proves that the ordered contract set exactly matches the
+// recipe outputs and each output's ordered emitted columns.
+func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
+	if len(c.Outputs) != len(bundle.Outputs) {
+		return invalidOutputContract("output count %d does not match recipe output count %d", len(c.Outputs), len(bundle.Outputs))
+	}
+	emittedByOutput := make(map[string][]EmittedColumn, len(c.Outputs))
+	for i, column := range emitted {
+		if strings.TrimSpace(column.OutputID) == "" {
+			return invalidOutputContract("emittedColumns[%d].outputId is required", i)
+		}
+		emittedByOutput[column.OutputID] = append(emittedByOutput[column.OutputID], column)
+	}
+	for i, contract := range c.Outputs {
+		if contract.OutputID != bundle.Outputs[i].Name {
+			return invalidOutputContract("outputs[%d].outputId %q does not match recipe output %q", i, contract.OutputID, bundle.Outputs[i].Name)
+		}
+		if err := contract.ValidateAgainst(bundle, emittedByOutput[contract.OutputID]); err != nil {
+			return err
+		}
+		delete(emittedByOutput, contract.OutputID)
+	}
+	for outputID := range emittedByOutput {
+		return invalidOutputContract("emitted columns reference unknown output %q", outputID)
+	}
+	return nil
 }
 
 // ValidateAgainst proves that the typed public contract is exactly the
@@ -124,7 +187,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		seenEmission[column.EmissionID] = struct{}{}
 		seenPublic[column.PublicColumn] = struct{}{}
 		actual := c.Columns[i]
-		if actual.EmissionID != column.EmissionID || actual.PublicColumn != column.PublicColumn || actual.CandidateID != column.CandidateID || actual.OccurrenceID != column.OccurrenceID || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.EmissionID != column.EmissionID || actual.PublicColumn != column.PublicColumn || actual.CandidateID != column.CandidateID || actual.OccurrenceID != column.OccurrenceID || actual.ProjectionMode != column.ProjectionMode || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}

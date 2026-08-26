@@ -50,7 +50,7 @@ func TestReceiptArangoStoreUsesImmutableTenantScopedQueries(t *testing.T) {
 		Project:                 "project-a", ExplorerID: "explorer-a", IntentDigest: "intent", SnapshotToken: "snapshot",
 		AuthorizationScopeDigest: "scope", CapabilitySchemaDigest: "schema",
 		SourceGeneration: "generation", RecipeDigest: "recipe", ResolvedSchemaDigest: "resolved-schema",
-		Bundle: bundle, PublicOutputContract: json.RawMessage(`{"outputId":"output","columns":[]}`),
+		Bundle: bundle, PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"output","columns":[]}]}`),
 	}
 	receipt.ResolvedRecipeDigest, _ = bundle.Digest()
 	receipt.OutputContractDigest, _ = explorer.CompilationArtifactDigest(receipt.PublicOutputContract)

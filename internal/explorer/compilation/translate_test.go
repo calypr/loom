@@ -17,7 +17,7 @@ func fixtureSnapshot() capability.Snapshot {
 	nodes := []capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}, {ID: "n_encounter", ResourceType: "Encounter", RowRootEligible: true, RowGrain: "resource"}}
 	edges := []capability.Edge{{ID: "e_encounter", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters"}, {ID: "e_self", FromNodeID: "n_encounter", ToNodeID: "n_encounter", Label: "revisits"}}
 	ops := []capability.Operation{capability.OperationSelect, capability.OperationFilter, capability.OperationChart}
-	candidates := []capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops}, {ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops}}
+	candidates := []capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops}, {ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops}}
 	return capability.NewSnapshot(identity, policy, capability.StatusReady, true, false, nodes, edges, candidates, nil)
 }
 
@@ -55,7 +55,7 @@ func BenchmarkCompileRepresentativeBuilderState(b *testing.B) {
 }
 
 func fixtureDocument() authoringv2.Document {
-	return authoringv2.Document{APIVersion: authoringv2.APIVersion, Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootNodeID: "n_patient", RouteSteps: []authoringv2.RouteStep{{EdgeID: "e_encounter", OccurrenceID: "encounter"}, {EdgeID: "e_self", OccurrenceID: "encounter_again"}}, Selections: []authoringv2.Selection{{CandidateID: "c_patient_id", OccurrenceID: "base", ProjectionMode: "SCALAR"}, {CandidateID: "c_encounter_code", OccurrenceID: "encounter_again", ProjectionMode: "DISTINCT_ARRAY"}}, Presentation: map[string]authoringv2.Presentation{"c_patient_id": {Label: "Patient ID"}}}
+	return authoringv2.Document{APIVersion: authoringv2.APIVersion, Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootNodeID: "n_patient", RouteSteps: []authoringv2.RouteStep{{EdgeID: "e_encounter", OccurrenceID: "encounter"}, {EdgeID: "e_self", OccurrenceID: "encounter_again"}}, Selections: []authoringv2.Selection{{CandidateID: "c_patient_id", OccurrenceID: "base", ProjectionMode: "SCALAR"}, {CandidateID: "c_encounter_code", OccurrenceID: "encounter_again", ProjectionMode: "DISTINCT_ARRAY"}}, Presentation: map[string]authoringv2.Presentation{authoringv2.PresentationKey("c_patient_id", "base", "SCALAR"): {Label: "Patient ID"}}}
 }
 
 func TestCompileNativeV2BuildsNestedRouteAndStableColumns(t *testing.T) {
@@ -73,12 +73,31 @@ func TestCompileNativeV2BuildsNestedRouteAndStableColumns(t *testing.T) {
 	if len(result.EmittedColumns) != 2 || result.EmittedColumns[0].EmissionID == result.EmittedColumns[1].EmissionID {
 		t.Fatalf("emissions=%#v", result.EmittedColumns)
 	}
+	nestedField := result.Bundle.Outputs[0].Traversals[0].Traversals[0].Fields[0].Name
+	if got, want := result.EmittedColumns[1].PublicColumn, "route_0__route_1__"+nestedField; got != want {
+		t.Fatalf("nested public column=%q, want engine-flattened name %q", got, want)
+	}
 	if result.Presentation.Columns[0].Label != "Patient ID" || !result.Presentation.Columns[0].Visible {
 		t.Fatalf("presentation=%#v", result.Presentation)
 	}
 	again, err := Compile(context.Background(), "project-a", "explorer-a", fixtureDocument(), snapshot)
 	if err != nil || again.RecipeDigest != result.RecipeDigest || again.EmittedColumns[0].EmissionID != result.EmittedColumns[0].EmissionID {
 		t.Fatalf("compile is not stable: first=%#v again=%#v err=%v", result, again, err)
+	}
+}
+
+func TestCompileNativeV2DefaultsPresentationToCandidateLabel(t *testing.T) {
+	document := fixtureDocument()
+	document.Presentation = map[string]authoringv2.Presentation{}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := result.Presentation.Columns[0].Label, "Patient.id"; got != want {
+		t.Fatalf("default presentation label=%q, want candidate label %q", got, want)
+	}
+	if got, want := result.Presentation.Columns[1].Label, "Encounter.code.coding[].code"; got != want {
+		t.Fatalf("nested default presentation label=%q, want candidate label %q", got, want)
 	}
 }
 

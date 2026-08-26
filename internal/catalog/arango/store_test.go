@@ -17,10 +17,25 @@ type fakeClient struct {
 }
 
 type evidenceClient struct {
-	queries []string
-	vars    []map[string]any
-	rows    map[string][]map[string]any
-	err     error
+	queries          []string
+	vars             []map[string]any
+	rows             map[string][]map[string]any
+	rowsByCollection map[string][]map[string]any
+	collections      map[string]bool
+	collectionChecks []string
+	collectionErr    error
+	err              error
+}
+
+func (f *evidenceClient) CollectionExists(_ context.Context, name string) (bool, error) {
+	f.collectionChecks = append(f.collectionChecks, name)
+	if f.collectionErr != nil {
+		return false, f.collectionErr
+	}
+	if f.collections == nil {
+		return true, nil
+	}
+	return f.collections[name], nil
 }
 
 func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars map[string]any, visit store.RowVisitor) error {
@@ -33,7 +48,11 @@ func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars 
 	if f.err != nil {
 		return f.err
 	}
-	for _, row := range f.rows[query] {
+	rows := f.rows[query]
+	if query == resourceInventoryAQL && f.rowsByCollection != nil {
+		rows = f.rowsByCollection[stringValue(vars["@resource_collection"])]
+	}
+	for _, row := range rows {
 		if err := visit(row); err != nil {
 			return err
 		}
@@ -45,6 +64,8 @@ func (*evidenceClient) InsertBatchRaw(context.Context, string, []json.RawMessage
 }
 func (*evidenceClient) ExecuteAQL(context.Context, string, map[string]any) error { return nil }
 func (*evidenceClient) Bootstrap(context.Context, store.BootstrapSpec) error     { return nil }
+
+func (*fakeClient) CollectionExists(context.Context, string) (bool, error) { return true, nil }
 
 func (f *fakeClient) QueryRows(_ context.Context, query string, _ int, _ map[string]any, visit store.RowVisitor) error {
 	f.queries = append(f.queries, query)
@@ -170,13 +191,54 @@ func TestCapabilityEvidenceInventoryBindsCollectionAndIdentity(t *testing.T) {
 		t.Fatalf("inventory = %#v err=%v", result, err)
 	}
 	vars := client.vars[0]
-	if vars["project"] != "p" || vars["dataset_generation"] != "g" || vars["resource_collection"] != "Patient" || vars["auth_resource_paths_unrestricted"] != false {
+	if vars["project"] != "p" || vars["dataset_generation"] != "g" || vars["@resource_collection"] != "Patient" || vars["auth_resource_paths_unrestricted"] != false {
 		t.Fatalf("inventory binds = %#v", vars)
+	}
+	if _, exists := vars["resource_collection"]; exists {
+		t.Fatalf("collection bind used value-variable syntax: %#v", vars)
 	}
 	for _, name := range []string{"@@resource_collection", "@project", "@dataset_generation", "@auth_resource_paths", "@auth_resource_paths_unrestricted", "COLLECT WITH COUNT"} {
 		if !strings.Contains(client.queries[0], name) {
 			t.Fatalf("inventory query missing %q: %s", name, client.queries[0])
 		}
+	}
+}
+
+func TestCapabilityEvidenceInventoryTreatsMissingCollectionAsEmpty(t *testing.T) {
+	client := &evidenceClient{
+		collections: map[string]bool{"Patient": true},
+		rowsByCollection: map[string][]map[string]any{"Patient": {{
+			"project": "p", "dataset_generation": "g", "resource_type": "Patient", "document_count": int64(7),
+		}}},
+	}
+	adapter, _ := New(client)
+	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{
+		Project: "p", DatasetGeneration: "g", ResourceTypes: []string{"Patient", "DiagnosticReport"},
+	})
+	if err != nil || !result.Available || !result.Complete || len(result.Values) != 2 {
+		t.Fatalf("inventory = %#v err=%v", result, err)
+	}
+	counts := map[string]int64{}
+	for _, value := range result.Values {
+		counts[value.ResourceType] = value.DocumentCount
+	}
+	if counts["Patient"] != 7 || counts["DiagnosticReport"] != 0 {
+		t.Fatalf("inventory counts = %#v", counts)
+	}
+	if len(client.collectionChecks) != 2 || len(client.queries) != 1 {
+		t.Fatalf("collection checks=%#v queries=%d", client.collectionChecks, len(client.queries))
+	}
+}
+
+func TestCapabilityEvidenceInventoryCollectionLookupFailureIsUnavailable(t *testing.T) {
+	client := &evidenceClient{collectionErr: errors.New("database unavailable")}
+	adapter, _ := New(client)
+	result, err := adapter.DiscoverResourceInventory(context.Background(), catalog.ResourceInventoryOptions{Project: "p", ResourceTypes: []string{"Patient"}})
+	if err == nil || result.Available || result.Complete || result.Status != catalog.EvidenceUnavailable {
+		t.Fatalf("inventory = %#v err=%v", result, err)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "RESOURCE_INVENTORY_UNAVAILABLE" {
+		t.Fatalf("diagnostics = %#v", result.Diagnostics)
 	}
 }
 

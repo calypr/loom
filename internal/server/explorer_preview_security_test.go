@@ -74,11 +74,24 @@ func TestValidateReceiptOutputContract(t *testing.T) {
 	if err := validateReceiptOutputContract(receipt, "patients"); err != nil {
 		t.Fatal(err)
 	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contracts.Outputs = append(contracts.Outputs, explorer.PublicOutputContract{OutputID: "specimens", Columns: []explorer.PublicOutputColumn{}})
+	receipt.PublicOutputContract, err = json.Marshal(contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.Bundle.Outputs = append(receipt.Bundle.Outputs, recipe.Output{Name: "specimens", RootResourceType: "Specimen", RowGrain: "resource"})
+	if err := validateReceiptOutputContract(receipt, "specimens"); err != nil {
+		t.Fatal(err)
+	}
 	if err := validateReceiptOutputContract(receipt, "observations"); !errors.Is(err, ErrReceiptExecutionContract) {
 		t.Fatalf("unknown output error=%v, want contract mismatch", err)
 	}
 	malformed := *receipt
-	malformed.PublicOutputContract = json.RawMessage(`{"outputId":"observations"}`)
+	malformed.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"observations","columns":[]}]}`)
 	if err := validateReceiptOutputContract(&malformed, "patients"); !errors.Is(err, ErrReceiptExecutionContract) {
 		t.Fatalf("forged output contract error=%v, want contract mismatch", err)
 	}
@@ -109,14 +122,14 @@ func testSecurityReceipt(t *testing.T, snapshot capability.Snapshot, output stri
 	t.Helper()
 	fields := make([]recipe.Field, 0, len(columns))
 	emitted := make([]explorer.EmittedColumn, 0, len(columns))
-	contractColumns := make([]map[string]string, 0, len(columns))
+	contractColumns := make([]explorer.PublicOutputColumn, 0, len(columns))
 	for _, column := range columns {
 		fields = append(fields, recipe.Field{Name: column, Expr: recipe.Expression{Select: "root." + column}})
-		emitted = append(emitted, explorer.EmittedColumn{EmissionID: "em_" + column, OutputID: output, PublicColumn: column, LogicalType: "string"})
-		contractColumns = append(contractColumns, map[string]string{"publicColumn": column})
+		emitted = append(emitted, explorer.EmittedColumn{EmissionID: "em_" + column, OutputID: output, CandidateID: "c_" + column, OccurrenceID: "base", ProjectionMode: "VALUE", PublicColumn: column, Label: column, LogicalType: "string"})
+		contractColumns = append(contractColumns, explorer.PublicOutputColumn{EmissionID: "em_" + column, PublicColumn: column, CandidateID: "c_" + column, OccurrenceID: "base", ProjectionMode: "VALUE", Label: column, LogicalType: "string"})
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "security", TranslationVersion: "test", Outputs: []recipe.Output{{Name: output, RootResourceType: "Patient", RowGrain: "resource", Fields: fields}}}
-	contract, err := json.Marshal(map[string]any{"outputId": output, "columns": contractColumns})
+	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{{OutputID: output, Columns: contractColumns}}})
 	if err != nil {
 		t.Fatal(err)
 	}

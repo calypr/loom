@@ -1,9 +1,11 @@
 # Dataframer recipe reference and operating manual
 
-This is the field-by-field reference for Loom dataframer recipes.  Read the
-[authoring guide](DATAFRAMER_RECIPES.md) first for the short workflow; use this
-document when making a real change, reviewing one, or diagnosing an unexpected
-column.
+This is the field-by-field reference for Loom's native dataframer recipes.
+Read the [recipe authoring guide](DATAFRAMER_RECIPES.md) first for the short
+workflow; use this document when making a real change, reviewing one, or
+diagnosing an unexpected column. Browser Builder authoring is documented in
+[EXPLORER_AUTHORING.md](EXPLORER_AUTHORING.md) and should not construct these
+recipe packets directly.
 
 The goal of a recipe is to describe a stable, reviewable mapping from FHIR
 resources and relationships to dataframe rows.  It is deliberately independent

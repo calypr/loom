@@ -57,7 +57,6 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 	var out *capability.Snapshot
 	err = s.client.QueryRows(ctx, capabilitySnapshotPutAQL, 1, map[string]any{
 		"@c":  CapabilitySnapshotCollection,
-		"key": capabilitySnapshotKey(snapshot.Token),
 		"doc": doc,
 	}, func(row map[string]any) error {
 		value, decodeErr := decode[capability.Snapshot](row)

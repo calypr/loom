@@ -493,11 +493,41 @@ func authoringHTTPError(c fiber.Ctx, err error) error {
 	var value *explorer.AuthoringError
 	if errors.As(err, &value) {
 		value.Diagnostic.RequestID = requestID
-		slog.Error("Explorer authoring request failed", "request_id", requestID, "project", explorerProjectParam(c), "explorer_id", strings.TrimSpace(c.Params("explorerId")), "stage", value.Diagnostic.Stage, "code", value.Diagnostic.Code, "json_path", value.Diagnostic.JSONPath, "message", value.Diagnostic.Message, "details", value.Diagnostic.Details, "cause", value.Cause)
-		return c.Status(value.Status).JSON(fiber.Map{"error": fiber.Map{"code": value.Diagnostic.Code, "message": value.Diagnostic.Message, "requestId": requestID, "diagnostic": value.Diagnostic}, "diagnostics": []explorer.AuthoringDiagnostic{value.Diagnostic}})
+		cause := value.Cause
+		if cause == nil {
+			cause = err
+		}
+		logAuthoringRequestFailure(c, requestID, value.Status, value.Diagnostic.Stage, value.Diagnostic.Code, value.Diagnostic.JSONPath, value.Diagnostic.Message, value.Diagnostic.Details, cause)
+		details := value.Diagnostic.Details
+		if details == nil {
+			details = map[string]any{}
+		}
+		diagnostic := fiber.Map{"severity": strings.ToLower(value.Diagnostic.Severity), "stage": value.Diagnostic.Stage, "code": value.Diagnostic.Code, "path": value.Diagnostic.JSONPath, "message": value.Diagnostic.Message, "requestId": requestID}
+		return c.Status(value.Status).JSON(fiber.Map{"code": value.Diagnostic.Code, "message": value.Diagnostic.Message, "diagnostics": []fiber.Map{diagnostic}, "requestId": requestID, "details": details})
 	}
 	if errors.Is(err, explorer.ErrNotFound) {
-		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Explorer resource not found", "requestId": requestID}})
+		return c.Status(404).JSON(fiber.Map{"code": "NOT_FOUND", "message": "Explorer resource not found", "diagnostics": []any{}, "requestId": requestID, "details": fiber.Map{}})
 	}
-	return c.Status(500).JSON(fiber.Map{"error": fiber.Map{"code": "INTERNAL_ERROR", "message": "internal server error", "requestId": requestID}})
+	logAuthoringRequestFailure(c, requestID, 500, "internal", "INTERNAL_ERROR", "", "internal server error", nil, err)
+	return c.Status(500).JSON(fiber.Map{"code": "INTERNAL_ERROR", "message": "internal server error", "diagnostics": []any{}, "requestId": requestID, "details": fiber.Map{}})
+}
+
+func logAuthoringRequestFailure(c fiber.Ctx, requestID string, status int, stage, code, jsonPath, message string, details map[string]any, cause error) {
+	attrs := []any{
+		"request_id", requestID,
+		"method", c.Method(),
+		"path", c.Path(),
+		"status", status,
+		"project", explorerProjectParam(c),
+		"explorer_id", strings.TrimSpace(c.Params("explorerId")),
+		"stage", stage,
+		"code", code,
+		"json_path", jsonPath,
+		"message", message,
+		"details", details,
+	}
+	if cause != nil {
+		attrs = append(attrs, "cause", cause, "cause_type", fmt.Sprintf("%T", cause))
+	}
+	slog.Error("Explorer authoring request failed", attrs...)
 }

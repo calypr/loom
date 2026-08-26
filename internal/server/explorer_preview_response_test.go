@@ -65,7 +65,7 @@ func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
 	}{
 		{"timeout", context.DeadlineExceeded, http.StatusGatewayTimeout, "PREVIEW_TIMEOUT"},
 		{"canceled", context.Canceled, 499, "CLIENT_CANCELED"},
-		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "PREVIEW_RESPONSE_TOO_LARGE"},
+		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "private", dataframeerrors.WithRetryable(true)), http.StatusServiceUnavailable, "BACKEND_UNAVAILABLE"},
 		{"receipt", &receiptPreviewResolutionError{Err: errors.New("private")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},

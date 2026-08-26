@@ -37,6 +37,7 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/ingest"
@@ -392,11 +393,15 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 			return nil, capability.ErrStaleSnapshot
 		}
-		intentDigest, err := request.Document.Digest()
+		workspace := request.Workspace
+		if workspace.APIVersion == "" && request.Document.Kind != "" {
+			workspace = authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{request.Document}, Tabs: []authoringv2.Tab{{ID: request.Document.Output.ID, Title: request.Document.Output.Title, OutputID: request.Document.Output.ID, Order: 0, Visible: true}}}
+		}
+		intentDigest, err := workspace.Digest()
 		if err != nil {
 			return nil, err
 		}
-		normalized, err := request.Document.CanonicalJSON()
+		normalized, err := workspace.CanonicalJSON()
 		if err != nil {
 			return nil, err
 		}
@@ -407,7 +412,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return prior, nil
 			}
 		}
-		translated, err := explorercompilation.Compile(ctx, request.Project, request.ExplorerID, request.Document, snapshot)
+		translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -416,14 +421,20 @@ func run(ctx context.Context, serverConfig Config) error {
 			return nil, err
 		}
 		emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
+		presentationByEmission := map[string]explorercompilation.PresentationColumn{}
+		for _, presentation := range translated.Presentations {
+			for _, column := range presentation.Columns {
+				presentationByEmission[column.EmissionID] = column
+			}
+		}
 		for _, column := range translated.EmittedColumns {
-			emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, PublicColumn: column.PublicColumn, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+			emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: column.ProjectionMode, PublicColumn: column.PublicColumn, Label: presentationByEmission[column.EmissionID].Label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
 		}
 		mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
 		for _, mapping := range translated.IdentityMappings {
-			mappings = append(mappings, explorer.IdentityMapping{CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
+			mappings = append(mappings, explorer.IdentityMapping{OutputID: mapping.OutputID, CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, ProjectionMode: mapping.ProjectionMode, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
 		}
-		contract, err := json.Marshal(translated.OutputContract)
+		contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +446,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return nil, err
 		}
-		compiledConfig, err := compiledExplorerConfigV2(request.Project, request.ExplorerID, translated)
+		compiledConfig, err := compiledExplorerWorkspaceConfigV2(request.Project, request.ExplorerID, translated)
 		if err != nil {
 			return nil, err
 		}
@@ -481,14 +492,8 @@ func run(ctx context.Context, serverConfig Config) error {
 			if receipt == nil {
 				return engine.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
 			}
-			resolved, err := recipeEngine.CompileResolvedBundle(ctx, receipt.Bundle, bindings)
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
-				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
-			}
-			if err := validateReceiptResolution(receipt, resolved); err != nil {
-				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
-			}
-			if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
 				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
 			}
 			output := ""

@@ -20,10 +20,10 @@ import (
 const (
 	// CompilationReceiptFormatVersion changes when the persisted receipt shape
 	// or its execution invariants change incompatibly.
-	CompilationReceiptFormatVersion = 1
+	CompilationReceiptFormatVersion = 2
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v2"
+	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v4"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -84,9 +84,11 @@ type CompilationReceipt struct {
 }
 
 type IdentityMapping struct {
-	CandidateID  string   `json:"candidateId"`
-	OccurrenceID string   `json:"occurrenceId"`
-	EmissionIDs  []string `json:"emissionIds"`
+	OutputID       string   `json:"outputId,omitempty"`
+	CandidateID    string   `json:"candidateId"`
+	OccurrenceID   string   `json:"occurrenceId"`
+	ProjectionMode string   `json:"projectionMode,omitempty"`
+	EmissionIDs    []string `json:"emissionIds"`
 }
 
 // CompilationWarning is the deterministic, request-independent diagnostic
@@ -250,7 +252,7 @@ func (r CompilationReceipt) Validate() error {
 		if r.ResolvedRecipeDigest != resolvedDigest {
 			return fmt.Errorf("receipt resolved recipe digest mismatch: got %q want %q", r.ResolvedRecipeDigest, resolvedDigest)
 		}
-		contract, contractErr := DecodePublicOutputContract(r.PublicOutputContract)
+		contract, contractErr := DecodePublicOutputContracts(r.PublicOutputContract)
 		if contractErr != nil {
 			return contractErr
 		}

@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-explorer-v2 generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -6,6 +6,7 @@ GO_TOOLCHAIN ?= go$(GO_VERSION)
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=
 SCHEMA_PATH ?= schemas/graph-fhir.json
+OAPI_CODEGEN_VERSION ?= v2.8.0
 IMAGE ?= arango-fhir-proto:local
 GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/dataframe
 DATAFRAME_REPEAT ?= 1
@@ -18,6 +19,8 @@ DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
 build: build-cli build-server
+
+generate: generate-fhir generate-graphql generate-explorer-v2
 
 build-cli:
 	mkdir -p bin $(GOCACHE_DIR)
@@ -36,6 +39,10 @@ generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out generated/fhir -metadata-out generated/fhirschema/generated.go
 	gofmt -w generated/fhir/*.go generated/fhirschema/generated.go
+
+generate-explorer-v2:
+	mkdir -p generated/explorerv2 $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) --config schemas/explorer-authoring-v2/oapi-codegen.yaml schemas/explorer-authoring-v2/openapi.yaml
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)

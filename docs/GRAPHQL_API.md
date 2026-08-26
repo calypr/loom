@@ -33,11 +33,13 @@ typed FHIR reads, discovery, and recipe control operations.
 
 ### Explorer authoring and catalog discovery
 
-The Builder uses the REST V2 Explorer lifecycle documented in
-[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md).
-GraphQL Explorer lifecycle and Builder-introspection fields are not part of
-the current contract; the REST authoring compiler resolves catalog selections
-and the active dataset generation through one server-owned path.
+Explorer authoring is not a GraphQL operation. The Builder uses the versioned
+REST V1 intent contract documented in
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). GraphQL Explorer lifecycle
+and Builder-introspection fields are not part of the current contract; the REST
+authoring compiler resolves catalog selections and the active dataset
+generation through one server-owned path. The native recipe compiler remains
+the shared execution backend after authoring intent has been lowered.
 
 ### FHIR dataframe compilation
 

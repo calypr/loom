@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestMappingAuthoringBundleCanonicalizesIdentityAndDigest(t *testing.T) {
@@ -184,6 +189,100 @@ func TestResolvedAuthoringBindingSerializesEmptyCandidateEmissionsAsArray(t *tes
 	emissions, ok := payload["candidateEmissions"].([]any)
 	if !ok || len(emissions) != 0 {
 		t.Fatalf("candidateEmissions serialized as %s", raw)
+	}
+}
+
+func TestMigrationPublishesNativeV2WorkspaceRevision(t *testing.T) {
+	ctx := context.Background()
+	store := explorer.NewMemoryStore()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := service.EnsureRepositoryExplorer(ctx, "project-a", "default", "Default", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyCandidateID := explorer.OpaqueID("s_", "Patient\x00id")
+	visible := true
+	order := 0
+	legacyBundle := explorer.ExplorerAuthoringBundleV1{
+		APIVersion: explorer.ExplorerAuthoringV1APIVersion, Kind: explorer.ExplorerAuthoringV1Kind,
+		Project: "project-a", ExplorerID: "default", Title: "Default",
+		Documents: []explorer.ExplorerBuilderDocumentV1{{
+			Kind:       explorer.ExplorerBuilderV1Kind,
+			Output:     explorer.ExplorerOutputIdentityV1{ID: "patients", Title: "Patients"},
+			BaseNodeID: explorer.OpaqueID("n_", "Patient"), RowNodeID: explorer.OpaqueID("n_", "Patient"),
+			CandidateIDs:         []string{legacyCandidateID},
+			CandidateOccurrences: []explorer.ExplorerCandidateOccurrenceV1{{CandidateID: legacyCandidateID, OccurrenceID: "base", ProjectionMode: "SCALAR"}},
+			Presentation:         map[string]explorer.ExplorerPresentationBindingV1{legacyCandidateID + "\x00base": {Label: "Identifier", Visible: &visible, Order: &order}},
+		}},
+		Tabs: []explorer.ExplorerTabV1{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: &visible}},
+	}
+	legacyRaw := mustAuthoringJSON(t, legacyBundle)
+	if _, err := service.PublishAuthoring(ctx,
+		explorer.CompilationReceipt{ID: "legacy-receipt", Project: "project-a", ExplorerID: "default", NormalizedBundle: legacyRaw},
+		explorer.Revision{ID: "legacy-revision", Project: owner.Project, ExplorerID: "default", CompilationReceiptID: "legacy-receipt", IntentDigest: "legacy-intent", AuthoringBundle: legacyRaw, Status: explorer.RevisionReady},
+	); err != nil {
+		t.Fatal(err)
+	}
+	rawMapping, err := json.Marshal(map[string]any{"bundle": legacyBundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyCatalog := explorer.Catalog{
+		Nodes:      []explorer.CatalogNode{{ID: explorer.OpaqueID("n_", "Patient"), ResourceType: "Patient"}},
+		Selections: map[string]explorer.CatalogSelection{legacyCandidateID: {ID: legacyCandidateID, NodeID: explorer.OpaqueID("n_", "Patient"), FieldRef: "Patient.id", Select: "id", ProjectionModes: []string{"SCALAR"}, DefaultProjectionMode: "SCALAR"}},
+	}
+	legacySnapshot := explorer.CatalogSnapshot{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope-a", Catalog: legacyCatalog, Complete: true, Token: "legacy-snapshot"}
+	nativeSnapshot := capability.Snapshot{
+		Identity: capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope-a"},
+		Policy:   capability.Policy{Route: capability.RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
+		Status:   capability.StatusReady, Complete: true, Token: "native-snapshot",
+		Nodes:      []capability.Node{{ID: "patient-node", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient", Populated: true, DocumentCount: 1}},
+		Candidates: []capability.Candidate{{ID: "patient-id", NodeID: "patient-node", ResourceType: "Patient", FieldPath: "id", Label: "Identifier", LogicalType: "string", Cardinality: "scalar", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true}},
+	}
+	compiledWorkspace := authoringv2.Workspace{}
+	config := ExplorerV2LifecycleConfig{
+		Catalog: func(context.Context, string, string, string) (explorer.CatalogSnapshot, error) {
+			return legacySnapshot, nil
+		},
+		Capability: func(context.Context, string, string, string) (capability.Snapshot, error) { return nativeSnapshot, nil },
+		CompileReceipt: func(_ context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+			compiledWorkspace = request.Workspace
+			normalized, marshalErr := request.Workspace.CanonicalJSON()
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			return &explorer.CompilationReceipt{
+				ID: "native-v2-receipt", Project: "project-a", ExplorerID: "default", IntentDigest: "v2-intent",
+				SnapshotToken: nativeSnapshot.Token, SourceGeneration: "generation-a", NormalizedBundle: normalized,
+				Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "migrated", Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}},
+			}, nil
+		},
+		MaterializeReceipt: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+			return graphresolver.RecipeExecution{ID: "migration-execution", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []graphresolver.RecipeExecutionOutput{{Name: "patients", State: "PUBLISHED"}}}, nil
+		},
+		ValidateReleaseGeneration: func(context.Context, string, string) error { return nil },
+		ActivateRelease:           func(context.Context, string, string, []dataset.DataframeSelector) error { return nil },
+	}
+	report, err := MigrateLegacyExplorerAuthoring(ctx, service, config, ExplorerAuthoringMigrationOptions{Project: "project-a", ExplorerID: "default", LegacyMapping: rawMapping})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ExplorerActivated == false || len(compiledWorkspace.Documents) != 1 {
+		t.Fatalf("report=%#v workspace=%#v", report, compiledWorkspace)
+	}
+	active, err := service.ActiveRevision(ctx, "project-a", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedWorkspace, err := authoringv2.DecodeWorkspace(active.AuthoringBundle)
+	if err != nil {
+		t.Fatalf("active authoring bundle is not V2: %v\n%s", err, active.AuthoringBundle)
+	}
+	if len(storedWorkspace.Documents) != 1 || storedWorkspace.Documents[0].Selections[0].CandidateID != "patient-id" {
+		t.Fatalf("stored workspace=%#v", storedWorkspace)
 	}
 }
 

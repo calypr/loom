@@ -50,6 +50,7 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 | --- | --- | --- |
 | `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphql/graph/schema/fhir_schema.graphqls` |
 | `internal/api/graphql/graph/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` and `internal/api/graphql/graph/resolver/` |
+| `schemas/explorer-authoring-v2/openapi.yaml` and its oapi-codegen config | `make generate-explorer-v2` | Explorer V2 wire models and Fiber v3 strict-server interfaces under `generated/explorerv2/` |
 
 `generated/graphql/graph/executor/fhir_schema.generated.go` and
 `generated/graphql/graph/executor/root_.generated.go` are

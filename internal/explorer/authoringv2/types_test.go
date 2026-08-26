@@ -7,8 +7,8 @@ import (
 
 func testCatalog() CatalogSnapshot {
 	nodes := []CatalogNode{
-		{ID: "patient", ResourceType: "Patient"},
-		{ID: "encounter", ResourceType: "Encounter"},
+		{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+		{ID: "encounter", ResourceType: "Encounter", RowRootEligible: true},
 	}
 	edges := []CatalogEdge{
 		{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"},
@@ -31,7 +31,7 @@ func testDocument() Document {
 		APIVersion: APIVersion, Kind: Kind, Output: Output{ID: "out", Title: "Patients"}, RootNodeID: "patient",
 		RouteSteps:   []RouteStep{{EdgeID: "patient-encounter", OccurrenceID: "first"}, {EdgeID: "encounter-self", OccurrenceID: "second"}, {EdgeID: "encounter-self", OccurrenceID: "third"}},
 		Selections:   []Selection{{CandidateID: "patient-id", OccurrenceID: "base", ProjectionMode: "SCALAR"}, {CandidateID: "encounter-id", OccurrenceID: "third", ProjectionMode: "SCALAR"}},
-		Presentation: map[string]Presentation{"patient-id": {Label: "Patient ID"}},
+		Presentation: map[string]Presentation{PresentationKey("patient-id", "base", "SCALAR"): {Label: "Patient ID"}},
 	}
 }
 
@@ -89,8 +89,8 @@ func TestCanonicalizationAndDigestAreStableAcrossUnorderedCollections(t *testing
 	first := testDocument()
 	second := testDocument()
 	first.Selections = []Selection{first.Selections[1], first.Selections[0]}
-	second.Presentation = map[string]Presentation{"patient-id": {Label: "Patient ID"}}
-	first.Presentation = map[string]Presentation{"patient-id": {Label: "Patient ID"}}
+	second.Presentation = map[string]Presentation{PresentationKey("patient-id", "base", "SCALAR"): {Label: "Patient ID"}}
+	first.Presentation = map[string]Presentation{PresentationKey("patient-id", "base", "SCALAR"): {Label: "Patient ID"}}
 	a, err := first.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)

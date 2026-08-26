@@ -98,15 +98,21 @@ open http://127.0.0.1:8080/apollo
 
 ## 5. Inspect and author an Explorer
 
-Explorer authoring is a REST V2 workflow. Start with the project Explorer
-list/detail routes, then use the server-owned catalog compiler and preview
-endpoints. The frontend migration guide has the request and response shapes:
+Current Builder authoring is the versioned REST V1 publish-only workflow. Use
+the project Explorer summaries for selection, then load the selected Explorer's
+combined `/authoring/v1/builder` model. Edit its canonical bundle locally and
+send only that intent plus its snapshot token to preview or publish. Loom owns
+catalog resolution, recipe lowering, compilation, materialization, persistence,
+and diagnostics; there is no persisted browser draft or receipt protocol.
 
-[`FRONTEND_EXPLORER_V2_MIGRATION.md`](FRONTEND_EXPLORER_V2_MIGRATION.md)
+Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
+request/response shapes, route rules, diagnostics, and the offline default
+conversion command. The [V2 migration guide](FRONTEND_EXPLORER_V2_MIGRATION.md)
+is retained only for legacy packet and ETL migration context.
 
 The workflow is deliberately not a GraphQL introspection query: Loom validates
 catalog selections, dataset generation, recipe compilation, preview, and
-publication through the same REST capability path.
+publication through the same server-owned REST capability path.
 
 ## 6. Run a sample dataframe query
 

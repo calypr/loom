@@ -493,14 +493,14 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		})
 	}
 	for _, edge := range snapshot.Edges {
-		result.Edges = append(result.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label})
+		result.Edges = append(result.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label, Populated: edge.ObservedEdgeCount > 0})
 	}
 	for _, candidate := range snapshot.Candidates {
 		projectionModes := stringProjectionModes(candidate.ProjectionModes)
 		count := candidate.ObservedDocumentCount
 		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
-			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
@@ -525,7 +525,14 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 func stringProjectionModes(values []capability.ProjectionMode) []string {
 	out := make([]string, len(values))
 	for i, value := range values {
-		out[i] = string(value)
+		switch value {
+		case capability.ProjectionScalar:
+			out[i] = "VALUE"
+		case capability.ProjectionArray, capability.ProjectionDistinctArray:
+			out[i] = "ALL"
+		default:
+			out[i] = string(value)
+		}
 	}
 	return out
 }
@@ -544,7 +551,7 @@ func stringChartOperations(values []capability.ChartAggregation) []string {
 	return out
 }
 func defaultProjectionMode(values []string) string {
-	for _, preferred := range []string{string(capability.ProjectionScalar), string(capability.ProjectionFirst), string(capability.ProjectionArray), string(capability.ProjectionDistinctArray)} {
+	for _, preferred := range []string{"VALUE", "FIRST", "ALL", "COUNT"} {
 		for _, value := range values {
 			if value == preferred {
 				return value

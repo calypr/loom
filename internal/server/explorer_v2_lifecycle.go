@@ -58,6 +58,8 @@ type ExplorerV2Materializer = graphresolver.ExplorerBundleMaterializer
 type ExplorerV2ReceiptCompileRequest struct {
 	Project       string
 	ExplorerID    string
+	Workspace     authoringv2.Workspace
+	// Document remains for internal legacy tests and migration callers.
 	Document      authoringv2.Document
 	SnapshotToken string
 	RequestID     string

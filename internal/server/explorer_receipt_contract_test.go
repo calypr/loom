@@ -38,6 +38,59 @@ func TestCompiledExplorerConfigV2UsesCompilerOwnedPresentation(t *testing.T) {
 	}
 }
 
+func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
+	recipeEngine, err := engine.New(engine.Config{
+		Registry: compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "multi-output-preview",
+		TranslationVersion:  explorercompilation.TranslationVersion,
+		Outputs: []recipe.Output{
+			{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}}},
+			{Name: "specimens", RootResourceType: "Specimen", RowGrain: "resource", Fields: []recipe.Field{{Name: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}}},
+		},
+	}
+	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
+	compiled, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedDigest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := &explorer.CompilationReceipt{
+		Bundle:               bundle,
+		RecipeDigest:         compiled.StoredRecipeDigest,
+		ResolvedRecipeDigest: resolvedDigest,
+		ResolvedSchemaDigest: compiled.ResolvedSchemaDigest,
+		OutputFingerprints:   resolvedOutputFingerprints(compiled),
+		EmittedColumns: []explorer.EmittedColumn{
+			{OutputID: "patients", PublicColumn: "patient_id"},
+			{OutputID: "specimens", PublicColumn: "specimen_id"},
+		},
+	}
+	previewBindings := bindings
+	previewBindings.OutputNames = []string{"patients"}
+	resolved, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, receipt, previewBindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Compiled.Outputs) != 2 {
+		t.Fatalf("validated outputs=%d, want complete receipt with 2 outputs", len(resolved.Compiled.Outputs))
+	}
+	if len(previewBindings.OutputNames) != 1 || previewBindings.OutputNames[0] != "patients" {
+		t.Fatalf("preview execution selection was mutated: %#v", previewBindings.OutputNames)
+	}
+}
+
 func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -85,7 +138,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	}
 	app := fiber.New()
 	RegisterExplorerAuthoringV2Routes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
-	body := `{"document":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}},"snapshotToken":"` + snapshot.Token + `"}`
+	body := `{"workspace":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.WorkspaceKind + `","documents":[{"kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}}],"tabs":[{"id":"patients-tab","title":"Patients","outputId":"patients","order":0,"visible":true}]},"snapshotToken":"` + snapshot.Token + `"}`
 	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/compile", body)
 	if compiled.StatusCode != http.StatusOK {
 		t.Fatalf("compile status=%d body=%s", compiled.StatusCode, compiled.Body)
@@ -112,13 +165,13 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 		"/api/v1/projects/project-a/explorers/other/authoring/v2/preview",
 	} {
 		foreign := requestJSON(t, app, http.MethodPost, path, `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
-		if foreign.StatusCode != http.StatusNotFound || !strings.Contains(foreign.Body, `"code":"RECEIPT_NOT_FOUND"`) || previewCalls != 1 {
+		if foreign.StatusCode != http.StatusNotFound || !strings.Contains(foreign.Body, `"code":"COMPILE_RECEIPT_NOT_FOUND"`) || previewCalls != 1 {
 			t.Fatalf("foreign receipt path=%s status=%d calls=%d body=%s", path, foreign.StatusCode, previewCalls, foreign.Body)
 		}
 	}
 	executionScope = authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
 	widened := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
-	if widened.StatusCode != http.StatusConflict || !strings.Contains(widened.Body, `"code":"RECEIPT_INPUT_UNAVAILABLE"`) || previewCalls != 1 {
+	if widened.StatusCode != http.StatusConflict || !strings.Contains(widened.Body, `"code":"RECEIPT_STALE"`) || previewCalls != 1 {
 		t.Fatalf("scope mismatch status=%d calls=%d body=%s", widened.StatusCode, previewCalls, widened.Body)
 	}
 	stats, err := service.CompilationReceiptStats(context.Background(), "project-a")
@@ -156,18 +209,22 @@ func TestBuilderReadRestoresPublishedNativeV2Document(t *testing.T) {
 	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Document == nil || state.Document.Output.ID != document.Output.ID || state.Document.Selections[0].CandidateID != document.Selections[0].CandidateID {
-		t.Fatalf("restored document = %#v", state.Document)
+	if state.Workspace == nil || len(state.Workspace.Documents) != 1 || state.Workspace.Documents[0].Output.ID != document.Output.ID || state.Workspace.Documents[0].Selections[0].CandidateID != document.Selections[0].CandidateID {
+		t.Fatalf("restored workspace = %#v", state.Workspace)
 	}
 }
 
 func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request ExplorerV2ReceiptCompileRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
 	t.Helper()
-	normalized, err := request.Document.CanonicalJSON()
+	workspace := request.Workspace
+	if workspace.APIVersion == "" {
+		workspace = authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{request.Document}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: request.Document.Output.Title, OutputID: request.Document.Output.ID, Order: 0, Visible: true}}}
+	}
+	normalized, err := workspace.CanonicalJSON()
 	if err != nil {
 		return nil, err
 	}
-	intentDigest, err := request.Document.Digest()
+	intentDigest, err := workspace.Digest()
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +233,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 	if err != nil {
 		return nil, err
 	}
-	contract := json.RawMessage(`{"outputId":"patients","columns":[{"emissionId":"em_patient","publicColumn":"c_patient","candidateId":"c_patient_id","occurrenceId":"base","logicalType":"string","filterable":true,"chartable":true}]}`)
+	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"emissionId":"em_patient","publicColumn":"c_patient","candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
 	contractDigest, err := explorer.CompilationArtifactDigest(contract)
 	if err != nil {
 		return nil, err
@@ -188,7 +245,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
 		NormalizedBundle: normalized, Bundle: bundle, PublicOutputContract: contract,
-		EmittedColumns:     []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, PublicColumn: "c_patient", LogicalType: "string", Filterable: true, Chartable: true}},
+		EmittedColumns:     []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
 		OutputFingerprints: map[string]string{"patients": "fingerprint"}, CreatedAt: time.Now().UTC(),
 	}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)

@@ -15,6 +15,7 @@ import (
 )
 
 type client interface {
+	CollectionExists(context.Context, string) (bool, error)
 	QueryRows(context.Context, string, int, map[string]any, store.RowVisitor) error
 	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
 	ExecuteAQL(context.Context, string, map[string]any) error
@@ -165,10 +166,25 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 		"auth_resource_paths_unrestricted": catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted),
 	}
 	for _, resourceType := range resourceTypes {
-		vars["resource_collection"] = resourceType
+		collectionExists, err := s.client.CollectionExists(ctx, resourceType)
+		if err != nil {
+			err = fmt.Errorf("check resource collection %s: %w", resourceType, err)
+			result.Available, result.Complete, result.Status = false, false, catalog.EvidenceUnavailable
+			result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "RESOURCE_INVENTORY_UNAVAILABLE", Message: err.Error(), ResourceType: resourceType})
+			return result, err
+		}
+		if !collectionExists {
+			result.Values = append(result.Values, catalog.ResourceInventoryObservation{
+				Project: opts.Project, DatasetGeneration: catalog.NormalizeDatasetGeneration(opts.DatasetGeneration), ResourceType: resourceType, DocumentCount: 0,
+			})
+			continue
+		}
+		// Arango collection bind parameters use @@name in AQL and require the
+		// corresponding bind-var map key to retain one leading @.
+		vars["@resource_collection"] = resourceType
 		vars["resource_type"] = resourceType
 		var rowSeen bool
-		err := s.client.QueryRows(ctx, resourceInventoryAQL, opts.CursorBatch, vars, func(row map[string]any) error {
+		err = s.client.QueryRows(ctx, resourceInventoryAQL, opts.CursorBatch, vars, func(row map[string]any) error {
 			rowSeen = true
 			count, err := decodeInt64(row["document_count"])
 			if err != nil {
