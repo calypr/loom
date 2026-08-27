@@ -37,7 +37,6 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/ingest"
@@ -308,13 +307,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("create Explorer service: %w", err)
 	}
 	explorerMaterializer := explorerBundleMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes)
-	explorerCatalog := explorerV2CatalogReader(func(ctx context.Context, project, _ string, requestedGeneration string) (explorer.CatalogSnapshot, error) {
-		snapshot, resolveErr := capabilityResolver.Resolve(ctx, project, requestedGeneration)
-		if resolveErr != nil {
-			return incompleteExplorerCatalog(projectid.Canonical(project), requestedGeneration, "", resolveErr)
-		}
-		return legacyCatalogSnapshot(snapshot), nil
-	})
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -371,12 +363,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	} else if len(deletedGenerations) != 0 {
 		logger.Info("snapshot retention cleanup complete", "deleted_generations", len(deletedGenerations))
 	}
-	authoringCompile := func(ctx context.Context, request ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error) {
-		request.RequestID = firstNonEmpty(request.RequestID, "loom-authoring-migration")
-		return compileExplorerAuthoringV1(ctx, recipeEngine, explorerCatalog, request)
-	}
-	// CompileReceipt is the native V2 path. V1 remains below only for the
-	// startup migration of already-stored legacy documents.
+	// CompileReceipt is the native V2 path.
 	compileReceipt := func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
 		started := time.Now()
 		authorized := request.Authorized.Clone()
@@ -394,9 +381,6 @@ func run(ctx context.Context, serverConfig Config) error {
 			return nil, capability.ErrStaleSnapshot
 		}
 		workspace := request.Workspace
-		if workspace.APIVersion == "" && request.Document.Kind != "" {
-			workspace = authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{request.Document}, Tabs: []authoringv2.Tab{{ID: request.Document.Output.ID, Title: request.Document.Output.Title, OutputID: request.Document.Output.ID, Order: 0, Visible: true}}}
-		}
 		intentDigest, err := workspace.Digest()
 		if err != nil {
 			return nil, err
@@ -472,9 +456,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return stored, nil
 	}
 	lifecycleConfig := ExplorerV2LifecycleConfig{
-		Compile:        explorerV2Compiler(recipeEngine, explorerCatalog),
 		CompileReceipt: compileReceipt,
-		Catalog:        explorerCatalog,
 		Capability: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 			return capabilityResolver.Resolve(ctx, project, generation)
 		},
@@ -506,45 +488,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
 		ActivateRelease:           activateExplorerRelease,
-		AuthoringCompile:          authoringCompile,
-	}
-	if serverConfig.Server.MigrateExplorerAuthoring {
-		legacyConfig, configErr := optionalMigrationInput(serverConfig.Server.MigrationConfigPath, "legacy Explorer config")
-		if configErr != nil {
-			return configErr
-		}
-		legacyMapping, mappingErr := optionalMigrationInput(serverConfig.Server.MigrationMappingPath, "frontend authoring mapping")
-		if mappingErr != nil {
-			return mappingErr
-		}
-		migrationResolver, resolverErr := newExplorerCapabilityResolver(catalogStore, nil, activeManifestResolver, capabilitySnapshots)
-		if resolverErr != nil {
-			return fmt.Errorf("create Explorer migration capability resolver: %w", resolverErr)
-		}
-		migrationCatalog := explorerV2CatalogReader(func(ctx context.Context, project, _ string, requestedGeneration string) (explorer.CatalogSnapshot, error) {
-			snapshot, resolveErr := migrationResolver.Resolve(ctx, project, requestedGeneration)
-			if resolveErr != nil {
-				return incompleteExplorerCatalog(projectid.Canonical(project), requestedGeneration, "", resolveErr)
-			}
-			return legacyCatalogSnapshot(snapshot), nil
-		})
-		migrationConfig := lifecycleConfig
-		migrationConfig.Catalog = migrationCatalog
-		migrationConfig.AuthoringCompile = func(ctx context.Context, request ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error) {
-			request.RequestID = firstNonEmpty(request.RequestID, "loom-authoring-migration")
-			return compileExplorerAuthoringV1(ctx, recipeEngine, migrationCatalog, request)
-		}
-		report, migrationErr := MigrateLegacyExplorerAuthoring(ctx, explorerService, migrationConfig, ExplorerAuthoringMigrationOptions{
-			Project: serverConfig.Server.MigrationProject, ExplorerID: serverConfig.Server.MigrationExplorerID,
-			Actor: "loom-authoring-migration", RequestID: "loom-authoring-migration-" + serverConfig.Server.MigrationProject,
-			LegacyConfig: legacyConfig, LegacyMapping: legacyMapping, AuditOnly: serverConfig.Server.MigrationAuditOnly,
-		})
-		if migrationErr != nil {
-			logger.Error("Explorer authoring migration failed", "report", report, "error", migrationErr)
-			return fmt.Errorf("Explorer authoring migration failed: %w", migrationErr)
-		}
-		logger.Info("Explorer authoring migration complete", "report", report)
-		return nil
 	}
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
@@ -602,18 +545,4 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	return nil
-}
-
-func optionalMigrationInput(path, description string) ([]byte, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s %q: %w", description, path, err)
-	}
-	if len(strings.TrimSpace(string(raw))) == 0 {
-		return nil, fmt.Errorf("read %s %q: file is empty", description, path)
-	}
-	return raw, nil
 }

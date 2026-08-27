@@ -27,7 +27,7 @@ func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
 			t.Fatalf("emission[%d]=%#v", i, emission)
 		}
 		contract := result.OutputContracts[i]
-		if contract.OutputID != emission.OutputID || len(contract.Columns) != 1 || contract.Columns[0].ProjectionMode != emission.ProjectionMode || contract.Columns[0].Label == "" {
+		if contract.OutputID != emission.OutputID || len(contract.Columns) != 1 || contract.Columns[0].Column != emission.PublicColumn || contract.Columns[0].Label == "" {
 			t.Fatalf("contract[%d]=%#v emission=%#v", i, contract, emission)
 		}
 	}

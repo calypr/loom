@@ -104,18 +104,6 @@ func TestActivationUsesTransactionsAndSingleModificationQueries(t *testing.T) {
 		call func(context.Context, *Store) error
 	}{
 		{
-			name: "interactive",
-			call: func(ctx context.Context, store *Store) error {
-				return store.ActivateInteractive(ctx, "project-a", "explorer-a", "revision-a")
-			},
-		},
-		{
-			name: "repository",
-			call: func(ctx context.Context, store *Store) error {
-				return store.ActivateRepository(ctx, "project-a", "revision-a")
-			},
-		},
-		{
 			name: "repository generation",
 			call: func(ctx context.Context, store *Store) error {
 				return store.ActivateRepositoryGeneration(ctx, "project-a", "generation-a", "revision-a")

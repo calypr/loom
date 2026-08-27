@@ -14,21 +14,25 @@ import (
 // authoring aggregate: the repository packet carries the executable baseline;
 // live schema/readiness and publication metadata are stored alongside it.
 type RepositoryConfig struct {
-	Project          string              `json:"project"`
-	ExplorerID       string              `json:"explorerId"`
-	Management       ManagementMode      `json:"management"`
-	Config           json.RawMessage     `json:"config"`
-	ConfigDigest     string              `json:"configDigest,omitempty"`
-	SourceGeneration string              `json:"sourceGeneration"`
-	SourceCommit     string              `json:"sourceCommit"`
-	ExecutionID      string              `json:"executionId"`
-	ActiveRevisionID string              `json:"activeRevisionId,omitempty"`
-	DraftVersion     int64               `json:"-"`
-	Materializations []Materialization   `json:"materializations"`
-	Dataset          DatasetMetadata     `json:"dataset"`
-	Publication      PublicationMetadata `json:"publication"`
-	Diagnostics      []Diagnostic        `json:"diagnostics,omitempty"`
-	UpdatedAt        time.Time           `json:"updatedAt"`
+	Project              string              `json:"project"`
+	ExplorerID           string              `json:"explorerId"`
+	Management           ManagementMode      `json:"management"`
+	Config               json.RawMessage     `json:"config"`
+	Workspace            json.RawMessage     `json:"workspace"`
+	ConfigDigest         string              `json:"configDigest,omitempty"`
+	IntentDigest         string              `json:"intentDigest,omitempty"`
+	CompilationReceiptID string              `json:"compilationReceiptId,omitempty"`
+	PublicOutputContract json.RawMessage     `json:"publicOutputContract,omitempty"`
+	SourceGeneration     string              `json:"sourceGeneration"`
+	SourceCommit         string              `json:"sourceCommit"`
+	ExecutionID          string              `json:"executionId"`
+	ActiveRevisionID     string              `json:"activeRevisionId,omitempty"`
+	DraftVersion         int64               `json:"-"`
+	Materializations     []Materialization   `json:"materializations"`
+	Dataset              DatasetMetadata     `json:"dataset"`
+	Publication          PublicationMetadata `json:"publication"`
+	Diagnostics          []Diagnostic        `json:"diagnostics,omitempty"`
+	UpdatedAt            time.Time           `json:"updatedAt"`
 }
 
 type ManagementMode string
@@ -94,9 +98,9 @@ type Explorer struct {
 	ManagementMode ManagementMode `json:"managementMode"`
 	// DraftConfig is the lossless, canonical ExplorerConfigV2 packet used by
 	// the Builder.
-	DraftConfig          json.RawMessage     `json:"-"`
-	DraftVersion         int64               `json:"-"`
-	DraftDigest          string              `json:"-"`
+	DraftConfig          json.RawMessage     `json:"draftConfig,omitempty"`
+	DraftVersion         int64               `json:"draftVersion"`
+	DraftDigest          string              `json:"draftDigest,omitempty"`
 	ActiveRevisionID     string              `json:"activeRevisionId,omitempty"`
 	ActiveConfig         json.RawMessage     `json:"activeConfig,omitempty"`
 	RecipeDigest         string              `json:"recipeDigest,omitempty"`
@@ -138,6 +142,7 @@ type Revision struct {
 	AuthoringBundle      json.RawMessage     `json:"authoringBundle,omitempty"`
 	IntentDigest         string              `json:"intentDigest,omitempty"`
 	CompilationReceiptID string              `json:"compilationReceiptId,omitempty"`
+	PublicOutputContract json.RawMessage     `json:"publicOutputContract,omitempty"`
 	Recipe               recipe.Bundle       `json:"canonicalRecipe"`
 	RecipeDigest         string              `json:"recipeDigest"`
 	ResolvedSchemaDigest string              `json:"resolvedSchemaDigest"`

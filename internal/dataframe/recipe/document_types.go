@@ -338,7 +338,7 @@ type DynamicColumn struct {
 	// ColumnSourceKeys decouples a public frozen column name from the runtime
 	// keyed-map lookup key. Extension columns use this for parent__child names
 	// while matching the leaf Extension.url segment inside its scoped source.
-	ColumnSourceKeys map[string]string `json:"-"`
+	ColumnSourceKeys map[string]string `json:"columnSourceKeys,omitempty"`
 	Discovered       bool              `json:"-"`
 }
 

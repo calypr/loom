@@ -15,7 +15,6 @@ import (
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/capabilitystore"
@@ -24,11 +23,18 @@ import (
 )
 
 const (
-	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v2"
+	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v3"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
 	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
 	explorerProjectionPolicyVersion   = "compiler-probed-v1"
 )
+
+func explorerScopeDigest(scope authscope.ReadScope) string {
+	paths := append([]string(nil), scope.AuthResourcePaths...)
+	sort.Strings(paths)
+	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
 
 // explorerCapabilityResolver is the one construction boundary for Builder
 // capabilities. Catalog observations are evidence only; every public item is
@@ -177,27 +183,6 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	return value.(capability.Snapshot).Clone(), nil
 }
 
-// ResolveActiveAuthorized is the scope-preserving form of Resolve. It is used
-// by capability/catalog reads that select the active generation directly. The
-// legacy Resolve method remains available for adapters that only need the
-// public snapshot projection.
-func (r *explorerCapabilityResolver) ResolveActiveAuthorized(ctx context.Context, project, requestedGeneration string) (AuthorizedCapability, error) {
-	snapshot, err := r.Resolve(ctx, project, requestedGeneration)
-	if err != nil {
-		return AuthorizedCapability{}, err
-	}
-	canonicalProject := projectid.Canonical(project)
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := r.resolveScope(ctx, principal, projectid.Legacy(canonicalProject), snapshot.Identity.Generation)
-	if err != nil {
-		return AuthorizedCapability{}, err
-	}
-	if explorerScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
-	}
-	return AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
-}
-
 // ResolveToken loads an exact retained snapshot. It never substitutes the
 // current active generation, and it re-authorizes the caller against the
 // snapshot's generation and exact authorization-scope digest.
@@ -335,15 +320,27 @@ func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capability
 	}
 	relationships := map[string]capability.RelationshipObservation{}
 	for _, item := range value.Relationships.Values {
-		key := strings.Join([]string{item.BuilderFromType, item.Label, item.BuilderToType, item.BuilderDirection}, "\x00")
-		observation := relationships[key]
-		observation.SourceResourceType = item.BuilderFromType
-		observation.TargetResourceType = item.BuilderToType
-		observation.Label = item.Label
-		observation.StorageDirection = item.BuilderDirection
-		observation.ObservedEdgeCount += item.EdgeCount
-		observation.AllowsRepeatedTarget = true
-		relationships[key] = observation
+		// A stored FHIR reference is navigable in both directions. Catalog
+		// evidence retains the physical OUTBOUND orientation, while the
+		// dataframe compiler proves whether either generated traversal is
+		// legal. Publish both observations here and let ProbeEdge remove any
+		// direction the generated schema cannot lower.
+		for _, route := range []struct {
+			from, to, direction string
+		}{
+			{item.StorageFromType, item.StorageToType, "OUTBOUND"},
+			{item.StorageToType, item.StorageFromType, "INBOUND"},
+		} {
+			key := strings.Join([]string{route.from, item.Label, route.to, route.direction}, "\x00")
+			observation := relationships[key]
+			observation.SourceResourceType = route.from
+			observation.TargetResourceType = route.to
+			observation.Label = item.Label
+			observation.StorageDirection = route.direction
+			observation.ObservedEdgeCount += item.EdgeCount
+			observation.AllowsRepeatedTarget = true
+			relationships[key] = observation
+		}
 	}
 	for _, item := range relationships {
 		out.relationships = append(out.relationships, item)
@@ -435,41 +432,6 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	return proof, nil
 }
 
-func legacyCatalogSnapshot(snapshot capability.Snapshot) explorer.CatalogSnapshot {
-	catalogValue := explorer.Catalog{Selections: map[string]explorer.CatalogSelection{}}
-	for _, node := range snapshot.Nodes {
-		catalogValue.Nodes = append(catalogValue.Nodes, explorer.CatalogNode{ID: node.ID, ResourceType: node.ResourceType})
-	}
-	for _, edge := range snapshot.Edges {
-		catalogValue.Edges = append(catalogValue.Edges, explorer.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label})
-	}
-	for _, candidate := range snapshot.Candidates {
-		catalogValue.Selections[candidate.ID] = explorer.CatalogSelection{
-			ID: candidate.ID, NodeID: candidate.NodeID,
-			FieldRef: explorerFieldRef(candidate.ResourceType, candidate.FieldPath), Select: candidate.FieldPath,
-			LogicalType:           candidate.LogicalType,
-			Cardinality:           candidate.Cardinality,
-			ProjectionModes:       stringProjectionModes(candidate.ProjectionModes),
-			DefaultProjectionMode: defaultProjectionMode(stringProjectionModes(candidate.ProjectionModes)),
-			FilterOperators:       stringFilterOperators(candidate.FilterOperators),
-			ChartOperations:       stringChartOperations(candidate.ChartAggregations),
-			Filterable:            len(candidate.FilterOperators) > 0,
-			Chartable:             len(candidate.ChartAggregations) > 0,
-		}
-	}
-	diagnostics := make([]explorer.Diagnostic, 0, len(snapshot.Diagnostics))
-	for _, diagnostic := range snapshot.Diagnostics {
-		diagnostics = append(diagnostics, explorer.Diagnostic{Severity: diagnostic.Severity, Code: diagnostic.Code, Message: diagnostic.Message, Retryable: diagnostic.Retryable})
-	}
-	return explorer.CatalogSnapshot{
-		Project: snapshot.Identity.Project, Generation: snapshot.Identity.Generation,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		ResolvedSchemaDigest:     snapshot.Identity.SchemaDigest,
-		Catalog:                  catalogValue, Complete: snapshot.Complete, Truncated: snapshot.Truncated,
-		Diagnostics: diagnostics, Token: snapshot.Token,
-	}
-}
-
 func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
 	result := authoringv2.CatalogSnapshot{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
@@ -500,6 +462,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		count := candidate.ObservedDocumentCount
 		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
+			FieldPath:   candidate.FieldPath,
 			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),

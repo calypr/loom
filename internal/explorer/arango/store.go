@@ -40,50 +40,6 @@ func explorerKey(project, id string) string { return "explorer_" + key(project, 
 func repositoryConfigKey(project string) string {
 	return "repository_config_" + key(project, "default")
 }
-func configKey(project, id string) string { return "explorer_config_" + key(project, id) }
-func (s *Store) ListConfigs(ctx context.Context, project string) ([]explorer.RepositoryConfig, error) {
-	out := []explorer.RepositoryConfig{}
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project SORT d.explorerId RETURN d`, 1000, map[string]any{"@c": RepositoryConfigsCollection, "project": project}, func(row map[string]any) error {
-		v, err := decode[explorer.RepositoryConfig](row)
-		if err == nil {
-			out = append(out, v)
-		}
-		return err
-	})
-	for i := range out {
-		if out[i].ExplorerID == "" {
-			out[i].ExplorerID, out[i].Management = "default", explorer.ManagementRepository
-		}
-	}
-	return out, err
-}
-func (s *Store) GetConfig(ctx context.Context, project, id string) (*explorer.RepositoryConfig, error) {
-	var out *explorer.RepositoryConfig
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": configKey(project, id)}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
-	if err != nil {
-		return nil, err
-	}
-	if out == nil {
-		return nil, explorer.ErrNotFound
-	}
-	if out.ExplorerID == "" {
-		out.ExplorerID, out.Management = "default", explorer.ManagementRepository
-	}
-	return out, nil
-}
-func (s *Store) SaveConfig(ctx context.Context, value explorer.RepositoryConfig) (*explorer.RepositoryConfig, error) {
-	value.UpdatedAt = time.Now().UTC()
-	doc, err := document(value, configKey(value.Project, value.ExplorerID))
-	if err != nil {
-		return nil, err
-	}
-	var out *explorer.RepositoryConfig
-	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE @doc IN @@c RETURN NEW`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": configKey(value.Project, value.ExplorerID), "doc": doc}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
 func (s *Store) GetRepositoryConfig(ctx context.Context, project string) (*explorer.RepositoryConfig, error) {
 	var out *explorer.RepositoryConfig
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RepositoryConfigsCollection, "key": repositoryConfigKey(project)}, func(row map[string]any) error { v, err := decode[explorer.RepositoryConfig](row); out = &v; return err })
@@ -158,8 +114,12 @@ func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int
 	if err != nil {
 		return nil, err
 	}
+	digest := ""
+	if len(expectedDigest) > 0 {
+		digest = strings.TrimSpace(expectedDigest[0])
+	}
 	var out *explorer.Explorer
-	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH MERGE(@doc, { draftVersion: d.draftVersion + 1 }) IN @@c RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(e.Project, e.ExplorerID), "doc": raw}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
+	err = s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0)) AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest) UPDATE d WITH MERGE(@doc, { draftVersion: NOT_NULL(d.draftVersion, 0) + 1 }) IN @@c RETURN NEW`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(e.Project, e.ExplorerID), "expected": expected, "expectedDigest": digest, "doc": raw}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
 	if err != nil {
 		return nil, err
 	}
@@ -187,11 +147,7 @@ func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.C
 	if receipt.Project != "" && receipt.ExplorerID != "" {
 		return s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 	}
-	return s.GetCompilationReceipt(ctx, receipt.ID)
-}
-
-func (s *Store) GetCompilationReceipt(ctx context.Context, id string) (*explorer.CompilationReceipt, error) {
-	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, map[string]any{"@c": CompilationReceiptsCollection, "key": id})
+	return s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 }
 
 func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
@@ -248,43 +204,6 @@ func sameReceipt(a, b explorer.CompilationReceipt) bool {
 	left, leftErr := explorer.ReceiptID(a)
 	right, rightErr := explorer.ReceiptID(b)
 	return leftErr == nil && rightErr == nil && left == right
-}
-
-func (s *Store) CompilationReceiptStats(ctx context.Context, project string) (explorer.ReceiptStoreStats, error) {
-	var row struct {
-		Count             int    `json:"count"`
-		ApproxBytes       int64  `json:"approxBytes"`
-		OldestCreatedAt   string `json:"oldestCreatedAt"`
-		UnreferencedCount int    `json:"unreferencedCount"`
-	}
-	err := s.client.QueryRows(ctx, `LET referenced = (FOR r IN @@revisions FILTER r.compilationReceiptId != null AND (@project == "" OR r.project == @project) RETURN r.compilationReceiptId) LET receipts = (FOR d IN @@receipts FILTER @project == "" OR d.project == @project RETURN d) RETURN {count: LENGTH(receipts), approxBytes: SUM(FOR d IN receipts RETURN LENGTH(TO_STRING(d))), oldestCreatedAt: MIN(FOR d IN receipts RETURN d.createdAt), unreferencedCount: LENGTH(FOR d IN receipts FILTER d._key NOT IN referenced RETURN 1)}`, 1, map[string]any{"@receipts": CompilationReceiptsCollection, "@revisions": RevisionsCollection, "project": project}, func(value map[string]any) error {
-		decoded, err := decode[struct {
-			Count             int    `json:"count"`
-			ApproxBytes       int64  `json:"approxBytes"`
-			OldestCreatedAt   string `json:"oldestCreatedAt"`
-			UnreferencedCount int    `json:"unreferencedCount"`
-		}](value)
-		if err != nil {
-			return err
-		}
-		row.Count, row.ApproxBytes, row.OldestCreatedAt, row.UnreferencedCount = decoded.Count, decoded.ApproxBytes, decoded.OldestCreatedAt, decoded.UnreferencedCount
-		return nil
-	})
-	if err != nil {
-		return explorer.ReceiptStoreStats{}, err
-	}
-	stats := explorer.ReceiptStoreStats{Count: row.Count, ApproxBytes: row.ApproxBytes, UnreferencedCount: row.UnreferencedCount}
-	if row.OldestCreatedAt != "" {
-		parsed, parseErr := time.Parse(time.RFC3339Nano, row.OldestCreatedAt)
-		if parseErr != nil {
-			parsed, parseErr = time.Parse(time.RFC3339, row.OldestCreatedAt)
-		}
-		if parseErr != nil {
-			return explorer.ReceiptStoreStats{}, fmt.Errorf("invalid receipt oldestCreatedAt: %w", parseErr)
-		}
-		stats.OldestCreatedAt = parsed
-	}
-	return stats, nil
 }
 
 func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision) (*explorer.Revision, error) {
@@ -348,19 +267,6 @@ func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.Compilati
 		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
 	})
 	return out, err
-}
-
-func (s *Store) PurgeDraftAuthoring(ctx context.Context) error {
-	return s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{ExplorersCollection, CompilationReceiptsCollection}, Read: []string{RevisionsCollection}}, func(txCtx context.Context, tx store.Transaction) error {
-		// UNSET returns the complete cleaned document. Use REPLACE here: UPDATE
-		// merges that result back into the original document, which leaves every
-		// retired draft field in place and makes the cutover appear to succeed
-		// while preserving the legacy state.
-		if err := tx.QueryRows(txCtx, `FOR d IN @@explorers REPLACE d WITH UNSET(d, "draftConfig", "draftVersion", "draftDigest", "draftAuthoringBundle", "draftIntentDigest", "draftReceiptId", "draftIdentityMappings", "draftDefinition", "authoringBundle", "intentDigest", "receiptPointer", "identityMappings", "version", "digest") IN @@explorers RETURN {purged: true}`, 100000, map[string]any{"@explorers": ExplorersCollection}, func(map[string]any) error { return nil }); err != nil {
-			return err
-		}
-		return tx.QueryRows(txCtx, `LET referenced = (FOR r IN @@revisions FILTER r.compilationReceiptId != null RETURN DISTINCT r.compilationReceiptId) FOR receipt IN @@receipts FILTER receipt._key NOT IN referenced REMOVE receipt IN @@receipts RETURN {purged: true}`, 100000, map[string]any{"@revisions": RevisionsCollection, "@receipts": CompilationReceiptsCollection}, func(map[string]any) error { return nil })
-	})
 }
 
 func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) (*explorer.Revision, error) {
@@ -446,35 +352,6 @@ type activationState struct {
 	owner     map[string]any
 	candidate map[string]any
 	prior     map[string]any
-}
-
-func (s *Store) ActivateInteractive(ctx context.Context, project, explorerID, revisionID string) error {
-	return s.activateOwnerRevision(ctx, project, explorerID, revisionID, explorer.ManagementInteractive, []string{ExplorersCollection, RevisionsCollection})
-}
-
-func (s *Store) ActivateRepository(ctx context.Context, project, revisionID string) error {
-	return s.activateOwnerRevision(ctx, project, "default", revisionID, explorer.ManagementRepository, []string{ExplorersCollection, RevisionsCollection})
-}
-
-func (s *Store) activateOwnerRevision(ctx context.Context, project, explorerID, revisionID string, management explorer.ManagementMode, writeCollections []string) error {
-	return s.client.WithTransaction(ctx, store.TransactionCollections{Write: writeCollections}, func(txCtx context.Context, tx store.Transaction) error {
-		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{
-			"@explorers": ExplorersCollection, "@revisions": RevisionsCollection,
-			"explorerKey": explorerKey(project, explorerID), "revisionKey": revisionID,
-			"project": project, "explorerId": explorerID, "management": management,
-		})
-		if err != nil {
-			return err
-		}
-		if !found {
-			return explorer.ErrDraftConflict
-		}
-		state, err := activationStateFromRow(row)
-		if err != nil {
-			return err
-		}
-		return activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC())
-	})
 }
 
 // ActivateRepositoryGeneration is the repository-only composite visibility

@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-const TranslationVersion = "authoring-v2-native-1"
+const TranslationVersion = "authoring-v2-native-3"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // are intentionally transport-neutral so an HTTP adapter can map it to its
@@ -206,6 +206,9 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err := validateSnapshot(snapshot); err != nil {
 		return Result{}, err
 	}
+	if document.UsesSemanticColumns() {
+		return compileSemanticDocument(ctx, project, explorerID, document, snapshot)
+	}
 	occurrences, routeEdges, err := resolveRoute(document, snapshot)
 	if err != nil {
 		return Result{}, err
@@ -306,13 +309,9 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	}
 	contract := OutputContract{OutputID: document.Output.ID}
 	for _, c := range emitted {
-		contract.Columns = append(contract.Columns, OutputColumn{EmissionID: c.EmissionID, PublicColumn: c.PublicColumn, CandidateID: c.CandidateID, OccurrenceID: c.OccurrenceID, ProjectionMode: c.ProjectionMode, Label: presentation.Columns[len(contract.Columns)].Label, LogicalType: c.LogicalType, Filterable: c.Filterable, Chartable: c.Chartable})
+		contract.Columns = append(contract.Columns, OutputColumn{Column: c.PublicColumn, Label: presentation.Columns[len(contract.Columns)].Label, LogicalType: c.LogicalType, Filterable: c.Filterable, Chartable: c.Chartable})
 	}
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
-}
-
-func Translate(project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
-	return Compile(context.Background(), project, explorerID, document, snapshot)
 }
 
 type occurrence struct {

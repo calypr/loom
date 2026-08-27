@@ -23,7 +23,7 @@ const (
 	CompilationReceiptFormatVersion = 2
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v4"
+	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v6"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -303,23 +303,4 @@ func (r CompilationReceipt) ValidateID() error {
 		return fmt.Errorf("receipt id mismatch: got %q want %q", r.ID, expected)
 	}
 	return nil
-}
-
-// ValidateID is also available as a package helper for repository code that
-// prefers functional validation.
-func ValidateID(r CompilationReceipt) error { return r.ValidateID() }
-
-// CloneCompilationReceipt returns a deep copy suitable for memory stores and
-// tests. JSON round-tripping also clones nested recipe slices and maps while
-// retaining the persisted wire shape.
-func CloneCompilationReceipt(in CompilationReceipt) (CompilationReceipt, error) {
-	raw, err := json.Marshal(in)
-	if err != nil {
-		return CompilationReceipt{}, err
-	}
-	var out CompilationReceipt
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return CompilationReceipt{}, err
-	}
-	return out, nil
 }

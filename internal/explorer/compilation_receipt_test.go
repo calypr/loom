@@ -84,7 +84,7 @@ func TestCompilationReceiptValidateRejectsArtifactlessLegacyReceipt(t *testing.T
 	}
 }
 
-func TestCompilationReceiptValidateIDAndDeepClone(t *testing.T) {
+func TestCompilationReceiptValidateID(t *testing.T) {
 	r := testReceipt()
 	var err error
 	r.ID, err = ReceiptID(r)
@@ -94,17 +94,8 @@ func TestCompilationReceiptValidateIDAndDeepClone(t *testing.T) {
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	clone, err := CloneCompilationReceipt(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clone.OutputFingerprints = map[string]string{"out": "fingerprint"}
-	clone.Warnings[0].Details = map[string]any{"source": "test"}
-	if r.OutputFingerprints != nil || r.Warnings[0].Details != nil {
-		t.Fatal("clone mutation changed original receipt")
-	}
-	clone.ID = "receipt_wrong"
-	if err := clone.ValidateID(); err == nil {
+	r.ID = "receipt_wrong"
+	if err := r.ValidateID(); err == nil {
 		t.Fatal("accepted mismatched receipt ID")
 	}
 }

@@ -96,10 +96,10 @@ func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputI
 	return receiptExecutionContractError("requested output %q is not in the receipt recipe", outputID)
 }
 
-// validateReceiptEnginePublicColumns compares the engine's authoritative
-// ordered public projection schema with the receipt's ordered emitted-column
-// contract. Internal identity/provenance projections are excluded from both
-// the public contract and this comparison.
+// validateReceiptEnginePublicColumns proves that the engine and receipt expose
+// exactly the same public columns. Column order is deliberately not compared:
+// the compiler owns execution order while the receipt's output contract owns
+// presentation order. Internal identity/provenance projections are excluded.
 func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved engine.Resolved) error {
 	if receipt == nil {
 		return receiptExecutionContractError("receipt is required")
@@ -120,7 +120,7 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 				actual = append(actual, column.Name)
 			}
 		}
-		if !sameOrderedStrings(actual, want[output.Name]) {
+		if !sameUniqueStrings(actual, want[output.Name]) {
 			return receiptExecutionContractError("engine public columns for output %q differ from receipt", output.Name)
 		}
 	}
@@ -132,12 +132,24 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 	return nil
 }
 
-func sameOrderedStrings(left, right []string) bool {
+func sameUniqueStrings(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
 	}
-	for index := range left {
-		if left[index] != right[index] {
+	values := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		if _, duplicate := values[value]; duplicate {
+			return false
+		}
+		values[value] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		if _, duplicate := seen[value]; duplicate {
+			return false
+		}
+		seen[value] = struct{}{}
+		if _, ok := values[value]; !ok {
 			return false
 		}
 	}

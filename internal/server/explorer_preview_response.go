@@ -78,7 +78,7 @@ type previewResponseTooLargeError struct {
 	Limit int
 }
 
-type v2EmissionWire = explorerv2api.Emission
+type v2EmissionWire = explorerv2api.ContractColumn
 
 func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 	out := make([]v2EmissionWire, 0, len(columns))
@@ -88,10 +88,7 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 			label = column.PublicColumn
 		}
 		out = append(out, v2EmissionWire{
-			OutputId: column.OutputID, CandidateId: column.CandidateID,
-			OccurrenceId: column.OccurrenceID, ProjectionMode: column.ProjectionMode,
-			EmissionId: column.EmissionID, PublicColumn: column.PublicColumn,
-			Label: label, LogicalType: column.LogicalType,
+			Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType,
 			Filterable: column.Filterable, Chartable: column.Chartable,
 		})
 	}

@@ -24,7 +24,7 @@ func (v routePublicationVerifier) VerifyPublication(context.Context, string, str
 }
 
 func TestSnapshotHTTPContractCreateUploadFinalizeStatusAndAbort(t *testing.T) {
-	store := dataset.NewMemoryLifecycleStore()
+	store := newMemoryLifecycleStore()
 	runner := &snapshotRunnerFixture{}
 	snapshots := &SnapshotService{Repository: store, Blobs: LocalSnapshotBlobs{Root: t.TempDir()}, Runner: runner}
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}

@@ -93,48 +93,6 @@ type CompilerProbe interface {
 	ProbeCandidate(context.Context, Candidate) (CandidateProof, error)
 }
 
-// Function adapters keep tests and small integrations free of boilerplate.
-type ProbeFuncs struct {
-	Node      func(context.Context, Node) (NodeProof, error)
-	Edge      func(context.Context, Edge) (EdgeProof, error)
-	Candidate func(context.Context, Candidate) (CandidateProof, error)
-}
-
-func (p ProbeFuncs) ProbeNode(ctx context.Context, n Node) (NodeProof, error) {
-	if p.Node == nil {
-		return NodeProof{}, fmt.Errorf("node probe is not configured")
-	}
-	return p.Node(ctx, n)
-}
-func (p ProbeFuncs) ProbeEdge(ctx context.Context, e Edge) (EdgeProof, error) {
-	if p.Edge == nil {
-		return EdgeProof{}, fmt.Errorf("edge probe is not configured")
-	}
-	return p.Edge(ctx, e)
-}
-func (p ProbeFuncs) ProbeCandidate(ctx context.Context, c Candidate) (CandidateProof, error) {
-	if p.Candidate == nil {
-		return CandidateProof{}, fmt.Errorf("candidate probe is not configured")
-	}
-	return p.Candidate(ctx, c)
-}
-
-type SliceObserver struct {
-	Resources     []ResourceObservation
-	Relationships []RelationshipObservation
-	Fields        []FieldObservation
-}
-
-func (s SliceObserver) ListResources(context.Context) ([]ResourceObservation, error) {
-	return append([]ResourceObservation(nil), s.Resources...), nil
-}
-func (s SliceObserver) ListRelationships(context.Context) ([]RelationshipObservation, error) {
-	return append([]RelationshipObservation(nil), s.Relationships...), nil
-}
-func (s SliceObserver) ListFields(context.Context) ([]FieldObservation, error) {
-	return append([]FieldObservation(nil), s.Fields...), nil
-}
-
 type Builder struct {
 	Identity  SnapshotIdentity
 	Policy    Policy

@@ -39,15 +39,3 @@ func TestFieldEnrichmentDigestIncludesExactCanonicalRecord(t *testing.T) {
 		t.Fatalf("field enrichment clone lost values: %#v", got)
 	}
 }
-
-func TestEvidenceStatusesDistinguishEmptyFailureAndTruncation(t *testing.T) {
-	if got := newEvidenceStatus(true, true, false, 0); got != EvidenceEmpty {
-		t.Fatalf("empty status = %q", got)
-	}
-	if got := newEvidenceStatus(false, false, false, 0); got != EvidenceUnavailable {
-		t.Fatalf("failure status = %q", got)
-	}
-	if got := newEvidenceStatus(true, false, true, 1); got != EvidenceTruncated {
-		t.Fatalf("truncated status = %q", got)
-	}
-}

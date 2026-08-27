@@ -105,15 +105,6 @@ type CostPolicy interface {
 	Allow(context.Context, CostEstimate) error
 }
 
-type CostPolicyFunc func(context.Context, CostEstimate) error
-
-func (f CostPolicyFunc) Allow(ctx context.Context, estimate CostEstimate) error {
-	if f == nil {
-		return nil
-	}
-	return f(ctx, estimate)
-}
-
 // Options controls the explicitly authorized physical rewrite and cost
 // policy. The default is the same conservative policy used by normal recipe
 // compilation.
@@ -300,93 +291,6 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	}
 	metadata.Rendered = rendered
 	return Result{Candidate: &metadata, Rendered: rendered}, nil
-}
-
-// Request groups probes for snapshot construction. Unsupported entries are
-// returned as diagnostics so a caller can retain audit evidence while only
-// publishing successful capabilities.
-type Request struct {
-	Scope            Scope
-	RootResourceType string
-	Roots            []string
-	Traversals       []Traversal
-	Candidates       []CandidateRequest
-}
-
-type Diagnostic struct {
-	Kind    string
-	Message string
-}
-
-type Snapshot struct {
-	Roots       []RootCapability
-	Traversals  []TraversalCapability
-	Candidates  []CandidateCapability
-	Diagnostics []Diagnostic
-}
-
-func ProbeCapabilities(ctx context.Context, request Request, options ...Options) (Snapshot, error) {
-	optionsValue := optionsFor(options)
-	roots := append([]string(nil), request.Roots...)
-	if len(roots) == 0 && strings.TrimSpace(request.RootResourceType) != "" {
-		roots = []string{request.RootResourceType}
-	}
-	if optionsValue.Cost != nil {
-		if err := optionsValue.Cost.Allow(ctx, CostEstimate{TraversalCount: len(request.Traversals), CandidateCount: len(request.Candidates)}); err != nil {
-			return Snapshot{}, err
-		}
-	}
-	snapshot := Snapshot{}
-	for _, root := range roots {
-		result, err := ProbeRoot(ctx, RootRequest{Scope: request.Scope, ResourceType: root}, optionsValue)
-		if err != nil {
-			snapshot.Diagnostics = append(snapshot.Diagnostics, Diagnostic{Kind: "root", Message: err.Error()})
-			continue
-		}
-		snapshot.Roots = append(snapshot.Roots, *result.Root)
-	}
-	for _, route := range request.Traversals {
-		result, err := ProbeTraversal(ctx, TraversalRequest{Scope: request.Scope, RootResourceType: request.RootResourceType, Traversal: route}, optionsValue)
-		if err != nil {
-			snapshot.Diagnostics = append(snapshot.Diagnostics, Diagnostic{Kind: "traversal", Message: err.Error()})
-			continue
-		}
-		snapshot.Traversals = append(snapshot.Traversals, *result.Traversal)
-	}
-	for _, candidate := range request.Candidates {
-		if candidate.Project == "" {
-			candidate.Scope = request.Scope
-		}
-		result, err := ProbeCandidate(ctx, candidate, optionsValue)
-		if err != nil {
-			snapshot.Diagnostics = append(snapshot.Diagnostics, Diagnostic{Kind: "candidate", Message: err.Error()})
-			continue
-		}
-		snapshot.Candidates = append(snapshot.Candidates, *result.Candidate)
-	}
-	return snapshot, nil
-}
-
-// Probe is the concise entry point for callers constructing a capability
-// snapshot. The named ProbeCapabilities form remains useful at call sites
-// where the distinction from the individual probes matters.
-func Probe(ctx context.Context, request Request, options ...Options) (Snapshot, error) {
-	return ProbeCapabilities(ctx, request, options...)
-}
-
-// ProbeZeroHop and ProbeOneHop are descriptive aliases for the primitive
-// probes, kept small so backend adapters do not need to know the package's
-// internal naming choices.
-func ProbeZeroHop(ctx context.Context, request RootRequest, options ...Options) (Result, error) {
-	return ProbeRoot(ctx, request, options...)
-}
-
-func ProbeOneHop(ctx context.Context, request TraversalRequest, options ...Options) (Result, error) {
-	return ProbeTraversal(ctx, request, options...)
-}
-
-func ProbeSelection(ctx context.Context, request CandidateRequest, options ...Options) (Result, error) {
-	return ProbeCandidate(ctx, request, options...)
 }
 
 type preparedCandidate struct {

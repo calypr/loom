@@ -9,8 +9,7 @@ import (
 	"time"
 )
 
-// MemoryLifecycleStore is a concurrency-correct reference implementation used
-// by contract tests and embedders that do not need durable persistence.
+// MemoryLifecycleStore is a concurrency-correct test implementation.
 type MemoryLifecycleStore struct {
 	mu             sync.RWMutex
 	snapshots      map[Ref]SnapshotGeneration
@@ -207,15 +206,6 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
-}
-
-func sortedSet(values map[string]struct{}) []string {
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
 }
 
 var _ SnapshotRepository = (*MemoryLifecycleStore)(nil)

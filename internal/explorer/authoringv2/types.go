@@ -50,18 +50,27 @@ type CatalogCandidateV2 = CatalogCandidate
 // path from RootNodeID. Its root occurrence is always "base" and its tail is
 // computed from the path; neither is a second authored node identity.
 type Document struct {
-	APIVersion   string                  `json:"-"`
-	Kind         string                  `json:"kind"`
-	Output       Output                  `json:"output"`
-	RootNodeID   string                  `json:"rootNodeId"`
-	RouteSteps   []RouteStep             `json:"routeSteps"`
-	Selections   []Selection             `json:"selections"`
-	Presentation map[string]Presentation `json:"presentation"`
+	APIVersion       string        `json:"-"`
+	Kind             string        `json:"kind"`
+	Output           Output        `json:"output"`
+	RootResourceType string        `json:"rootResourceType,omitempty"`
+	Route            RouteNode     `json:"route,omitempty"`
+	Columns          []Column      `json:"columns,omitempty"`
+	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
+	Actions          []Action      `json:"actions,omitempty"`
+
+	// The opaque, linear authoring model is retained only for source-compatible
+	// internal tests while the hard-cut wire decoder rejects those fields.
+	RootNodeID   string                  `json:"-"`
+	RouteSteps   []RouteStep             `json:"-"`
+	Selections   []Selection             `json:"-"`
+	Presentation map[string]Presentation `json:"-"`
 }
 
 type Output struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	RowLabel string `json:"rowLabel,omitempty"`
 }
 
 type RouteStep struct {
@@ -78,10 +87,13 @@ type Selection struct {
 // Workspace is the atomic authoring unit. Documents are independent table
 // intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
-	APIVersion string     `json:"apiVersion"`
-	Kind       string     `json:"kind"`
-	Documents  []Document `json:"documents"`
-	Tabs       []Tab      `json:"tabs"`
+	APIVersion    string                           `json:"apiVersion"`
+	Kind          string                           `json:"kind"`
+	Explorer      ExplorerMetadata                 `json:"explorer"`
+	Documents     []Document                       `json:"documents"`
+	Tabs          []Tab                            `json:"tabs"`
+	SharedFilters map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions   *FileActions                     `json:"fileActions,omitempty"`
 }
 
 type Tab struct {
@@ -104,14 +116,19 @@ type Presentation struct {
 }
 
 type TablePresentation struct {
-	Pinned bool `json:"pinned"`
+	Visible      *bool  `json:"visible,omitempty"`
+	Order        *int   `json:"order,omitempty"`
+	Pinned       bool   `json:"pinned,omitempty"`
+	CellRenderer string `json:"cellRenderer,omitempty"`
 }
 type FilterPresentation struct {
 	Label string `json:"label,omitempty"`
+	Order *int   `json:"order,omitempty"`
 }
 type ChartPresentation struct {
 	Type  string `json:"type"`
 	Title string `json:"title,omitempty"`
+	Order *int   `json:"order,omitempty"`
 }
 
 func PresentationKey(candidateID, occurrenceID, projectionMode string) string {
@@ -165,6 +182,7 @@ type CatalogEdge struct {
 type CatalogCandidate struct {
 	ID                    string   `json:"candidateId"`
 	NodeID                string   `json:"nodeId"`
+	FieldPath             string   `json:"fieldPath"`
 	Label                 string   `json:"label"`
 	LogicalType           string   `json:"logicalType"`
 	Repeated              bool     `json:"repeated"`
@@ -194,9 +212,10 @@ type RoutePolicy struct {
 
 // BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
-	APIVersion string     `json:"apiVersion"`
-	Kind       string     `json:"kind"`
-	Workspace  *Workspace `json:"workspace,omitempty"`
+	APIVersion     string     `json:"apiVersion"`
+	Kind           string     `json:"kind"`
+	LifecycleState string     `json:"lifecycleState"`
+	Workspace      *Workspace `json:"workspace"`
 	// Document is retained only as a source-compatible internal migration aid.
 	Document *Document       `json:"-"`
 	Catalog  CatalogSnapshot `json:"catalog"`
@@ -263,6 +282,9 @@ func (d Document) Validate() error {
 	if emptyID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
 		return fmt.Errorf("output id and title are required")
 	}
+	if d.semantic() {
+		return d.validateSemantic()
+	}
 	if emptyID(d.RootNodeID) {
 		return fmt.Errorf("rootNodeId is required")
 	}
@@ -322,6 +344,13 @@ func (w Workspace) Validate() error {
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
+	semanticWorkspace := false
+	for _, document := range w.Documents {
+		semanticWorkspace = semanticWorkspace || document.semantic()
+	}
+	if semanticWorkspace && strings.TrimSpace(w.Explorer.Title) == "" {
+		return fmt.Errorf("explorer.title is required")
+	}
 	outputs, tabs, tabOutputs, orders := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[int]bool{}
 	for i, d := range w.Documents {
 		if err := d.Validate(); err != nil {
@@ -360,6 +389,9 @@ func (w Workspace) Validate() error {
 			return fmt.Errorf("INVALID_TAB_ORDER: orders must be contiguous from zero")
 		}
 	}
+	if err := w.validateSemanticBindings(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -374,6 +406,18 @@ func (w Workspace) ValidateForPublication() error {
 	}
 	for i, document := range w.Documents {
 		if !visibleOutputs[document.Output.ID] {
+			continue
+		}
+		if document.semantic() {
+			visible := 0
+			for _, column := range document.Columns {
+				if column.Table != nil && (column.Table.Visible == nil || *column.Table.Visible) {
+					visible++
+				}
+			}
+			if visible == 0 {
+				return fmt.Errorf("NO_VISIBLE_COLUMNS: documents[%d]", i)
+			}
 			continue
 		}
 		hidden := 0
@@ -480,6 +524,22 @@ func (s BuilderState) Validate() error {
 	if err := s.Catalog.Validate(); err != nil {
 		return err
 	}
+	if s.LifecycleState == "" {
+		if s.Workspace == nil {
+			s.LifecycleState = LifecycleNew
+		} else {
+			s.LifecycleState = LifecycleReady
+		}
+	}
+	if s.LifecycleState != LifecycleNew && s.LifecycleState != LifecycleReady {
+		return fmt.Errorf("unsupported lifecycleState %q", s.LifecycleState)
+	}
+	if s.LifecycleState == LifecycleNew && s.Workspace != nil {
+		return fmt.Errorf("NEW Builder state must have workspace null")
+	}
+	if s.LifecycleState == LifecycleReady && s.Workspace == nil {
+		return fmt.Errorf("READY Builder state requires workspace")
+	}
 	workspace := s.Workspace
 	if workspace == nil && s.Document != nil {
 		workspace = &Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Documents: []Document{*s.Document}, Tabs: []Tab{{ID: s.Document.Output.ID, Title: s.Document.Output.Title, OutputID: s.Document.Output.ID, Order: 0, Visible: true}}}
@@ -492,6 +552,9 @@ func (s BuilderState) Validate() error {
 	}
 	for i := range workspace.Documents {
 		document := workspace.Documents[i]
+		if document.semantic() {
+			continue
+		}
 		one := s
 		one.Workspace = nil
 		one.Document = &document
@@ -819,38 +882,6 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		return out, err
 	}
 	return out, nil
-}
-
-func DecodeExplorerBuilderDocumentV2(raw []byte) (ExplorerBuilderDocumentV2, error) {
-	return DecodeDocument(raw)
-}
-func DecodeCatalog(raw []byte) (CatalogSnapshot, error) {
-	var out CatalogSnapshot
-	if err := strictDecode(raw, &out); err != nil {
-		return out, err
-	}
-	if err := out.Validate(); err != nil {
-		return out, err
-	}
-	return out, nil
-}
-
-func DecodeExplorerBuilderCatalogV2(raw []byte) (ExplorerBuilderCatalogV2, error) {
-	return DecodeCatalog(raw)
-}
-func DecodeBuilderState(raw []byte) (BuilderState, error) {
-	var out BuilderState
-	if err := strictDecode(raw, &out); err != nil {
-		return out, err
-	}
-	if err := out.Validate(); err != nil {
-		return out, err
-	}
-	return out, nil
-}
-
-func DecodeExplorerBuilderStateV2(raw []byte) (ExplorerBuilderStateV2, error) {
-	return DecodeBuilderState(raw)
 }
 
 func strictDecode(raw []byte, target any) error {

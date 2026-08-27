@@ -44,14 +44,3 @@ func TestRecipeScopeDigestDistinguishesRestrictedEmptyScope(t *testing.T) {
 		t.Fatal("restricted-empty and unrestricted bindings shared a scope digest")
 	}
 }
-
-func TestCanonicalExplorerCatalogResourceTypeCanonicalizesFHIRCase(t *testing.T) {
-	if got := canonicalExplorerCatalogResourceType(" specimen "); got != "Specimen" {
-		t.Fatalf("canonical resource type = %q, want Specimen", got)
-	}
-	for _, invalid := range []string{"CustomResource", "PractitionerQualification", "qualification", "issuer", "Resource"} {
-		if got := canonicalExplorerCatalogResourceType(invalid); got != "" {
-			t.Fatalf("non-resource type %q was exposed as %q", invalid, got)
-		}
-	}
-}

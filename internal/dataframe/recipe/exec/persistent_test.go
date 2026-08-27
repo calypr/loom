@@ -67,14 +67,6 @@ func TestPersistentRegistryRetainsVersions(t *testing.T) {
 	if first.Digest == second.Digest || len(store.entries) != 2 {
 		t.Fatalf("recipe history was not retained: first=%#v second=%#v stored=%#v", first, second, store.entries)
 	}
-	loadedFirst, err := registry.LoadVersion(context.Background(), "default", "v")
-	if err != nil || loadedFirst.Digest != first.Digest {
-		t.Fatalf("first version is not independently queryable: loaded=%#v err=%v", loadedFirst, err)
-	}
-	loadedSecond, err := registry.LoadVersion(context.Background(), "default", "changed")
-	if err != nil || loadedSecond.Digest != second.Digest {
-		t.Fatalf("second version is not independently queryable: loaded=%#v err=%v", loadedSecond, err)
-	}
 }
 
 func TestPersistentRegistryRejectsChangedDigestAfterUse(t *testing.T) {

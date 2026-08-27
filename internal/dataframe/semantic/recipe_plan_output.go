@@ -287,7 +287,7 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
-		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, Discovered: dynamic.Discovered}
+		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: len(dynamic.ColumnSourceKeys) > 0, Discovered: dynamic.Discovered}
 		if dynamic.ColumnPrefix != nil {
 			prefix := *dynamic.ColumnPrefix
 			item.ColumnPrefix = &prefix

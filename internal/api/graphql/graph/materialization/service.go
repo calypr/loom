@@ -481,26 +481,6 @@ func readerUnavailable() error {
 	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
 
-func (s *Service) authorizePublished(ctx context.Context, value dfmaterialization.Materialization) error {
-	principal, err := s.principal(ctx)
-	if err != nil {
-		return err
-	}
-	if err := authscope.AuthorizeProject(principal, value.Project, false); err != nil {
-		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	if s.scopeResolver != nil {
-		scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, value.Project, value.DatasetGeneration, value.AuthResourcePaths)
-		if err != nil {
-			return err
-		}
-		if !value.ScopeUnrestricted && scope.Unrestricted() {
-			return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-		}
-	}
-	return nil
-}
-
 func federatedMaterialization(dataset dfmaterialization.FederatedDataset) dfmaterialization.Materialization {
 	return dfmaterialization.Materialization{ID: "federated:" + dataset.Selector.Key(), Name: dataset.Name, Revision: dataset.Revision, DatasetGeneration: "federated:" + dataset.Revision, State: dfmaterialization.StateReady, Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete, Selector: dataset.Selector, Availability: dataset.Availability, IncludedProjects: len(dataset.Sources), ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: append([]dfmaterialization.ProjectStatus(nil), dataset.ProjectStatuses...)}
 }

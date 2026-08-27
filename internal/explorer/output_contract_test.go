@@ -17,11 +17,11 @@ func contractFixture() (recipe.Bundle, []EmittedColumn, PublicOutputContracts) {
 	}
 	contract := PublicOutputContracts{Outputs: []PublicOutputContract{
 		{OutputID: "patients", Columns: []PublicOutputColumn{
-			{EmissionID: "em_id", PublicColumn: "c_id_base", CandidateID: "c_id", OccurrenceID: "base", ProjectionMode: "VALUE", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: false},
-			{EmissionID: "em_name", PublicColumn: "c_name_base", CandidateID: "c_name", OccurrenceID: "base", ProjectionMode: "FIRST", Label: "Patient name", LogicalType: "string", Filterable: false, Chartable: true},
+			{Column: "c_id_base", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: false},
+			{Column: "c_name_base", Label: "Patient name", LogicalType: "string", Filterable: false, Chartable: true},
 		}},
 		{OutputID: "specimens", Columns: []PublicOutputColumn{
-			{EmissionID: "em_specimen", PublicColumn: "c_specimen_base", CandidateID: "c_specimen", OccurrenceID: "base", ProjectionMode: "VALUE", Label: "Specimen ID", LogicalType: "string", Filterable: true, Chartable: true},
+			{Column: "c_specimen_base", Label: "Specimen ID", LogicalType: "string", Filterable: true, Chartable: true},
 		}},
 	}}
 	return bundle, emitted, contract
@@ -64,8 +64,8 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 		"column order": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0], c.Outputs[0].Columns[1] = c.Outputs[0].Columns[1], c.Outputs[0].Columns[0]
 		},
-		"projection metadata": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
-			c.Outputs[0].Columns[0].ProjectionMode = "FIRST"
+		"physical column": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
+			c.Outputs[0].Columns[0].Column = "forged"
 		},
 		"label metadata": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0].Label = "forged"
@@ -73,7 +73,6 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 		"column count": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns = c.Outputs[0].Columns[:1]
 		},
-		"duplicate emission": func(_ *recipe.Bundle, e []EmittedColumn, _ *PublicOutputContracts) { e[1].EmissionID = e[0].EmissionID },
 		"duplicate public column": func(_ *recipe.Bundle, e []EmittedColumn, _ *PublicOutputContracts) {
 			e[1].PublicColumn = e[0].PublicColumn
 		},
@@ -95,7 +94,7 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 
 func TestCompilationReceiptValidateRejectsMismatchedPublicContract(t *testing.T) {
 	r := testReceipt()
-	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"out","columns":[{"emissionId":"em_bad","publicColumn":"c_bad","candidateId":"c_bad","occurrenceId":"base","projectionMode":"VALUE","label":"Bad","logicalType":"string","filterable":false,"chartable":false}]}]}`)
+	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"out","columns":[{"column":"c_bad","label":"Bad","logicalType":"string","filterable":false,"chartable":false}]}]}`)
 	r.OutputContractDigest, _ = CompilationArtifactDigest(r.PublicOutputContract)
 	r.CompilationKey, _ = CompilationKey(r)
 	r.ID = ""

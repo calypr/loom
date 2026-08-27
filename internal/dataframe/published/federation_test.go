@@ -151,6 +151,22 @@ func TestFederatedUnionSynthesizesProjectIDForLegacySource(t *testing.T) {
 	}
 }
 
+func TestFederatedColumnsRejectsUnknownTableColumnAsInvalidRequest(t *testing.T) {
+	_, _, err := federatedColumns(FederatedDataset{
+		Columns: []Column{{Name: "patient_id", ClickHouse: "String"}},
+	}, []string{"stale_column"}, nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		t.Fatalf("error = %v, want typed user error", err)
+	}
+	if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+		t.Fatalf("error code = %q, want INVALID_REQUEST", userErr.Code())
+	}
+	if userErr.Retryable() {
+		t.Fatal("unknown table column must not be retryable")
+	}
+}
+
 type federationCatalog struct {
 	bundlepublication.BundleCatalog
 	executions []bundlepublication.BundleExecution

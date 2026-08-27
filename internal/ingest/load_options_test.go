@@ -21,17 +21,17 @@ func TestNormalizeLoadOptionsUsesBoundedConcurrencyDefaults(t *testing.T) {
 
 func TestNormalizeLoadOptionsPreservesExplicitConcurrencyAndCatalogLimits(t *testing.T) {
 	got := normalizeLoadOptions(LoadOptions{
-		WriterCount:   1,
-		WorkerCount:   1,
-		LineQueueSize: 32,
+		WriterCount:    1,
+		WorkerCount:    1,
+		LineQueueSize:  32,
 		WriteQueueSize: 4,
 		CatalogLimits: catalog.ProfileLimits{
-			MaxFields:                 4,
-			MaxDistinctValuesPerField: 2,
-			MaxDistinctValueBytes:     8,
-			MaxPivotColumnsPerField:   2,
+			MaxFields:                  4,
+			MaxDistinctValuesPerField:  2,
+			MaxDistinctValueBytes:      8,
+			MaxPivotColumnsPerField:    2,
 			MaxExtensionValuesPerField: 2,
-			MaxShapePlans:             1,
+			MaxShapePlans:              1,
 		},
 	})
 	if got.WorkerCount != 1 || got.LineQueueSize != 32 || got.WriteQueueSize != 4 {

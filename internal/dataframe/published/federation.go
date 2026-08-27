@@ -1033,10 +1033,10 @@ func federatedNormalizedUnion(dataset FederatedDataset, columns []string, access
 func validateReaderColumns(columns []string, allowed map[string]struct{}) error {
 	for _, column := range columns {
 		if column == "__loom_row_id" || column == "__loom_global_row_id" {
-			return fmt.Errorf("column %q is internal to dataframe pagination", column)
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("column %q is internal to dataframe pagination", column))
 		}
 		if _, ok := allowed[column]; !ok {
-			return fmt.Errorf("column %q is not in federated dataset schema", column)
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("column %q is not in federated dataset schema", column))
 		}
 	}
 	return nil

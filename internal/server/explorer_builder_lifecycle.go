@@ -1,15 +1,12 @@
 package server
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -40,7 +37,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		}
-		state, err := loadExplorerRuntimeState(c.Context(), explorers, project, id)
+		state, err := explorers.LoadExplorerState(c.Context(), project, id)
 		if errors.Is(err, explorer.ErrNotFound) {
 			return explorerV2Error(c, 404, "EXPLORER_NOT_FOUND", "Explorer not found")
 		}
@@ -79,89 +76,4 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		}
 		return c.Status(http.StatusCreated).JSON(explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, UpdatedAt: value.UpdatedAt})
 	})
-}
-
-// loadExplorerRuntimeState reads the Explorer identity and its immutable active
-// revision directly. The selected runtime endpoint must not pass through the
-// retired ExplorerConfigV2 reconciliation state: the revision is the sole
-// source of published configuration, materializations, and diagnostics.
-func loadExplorerRuntimeState(ctx context.Context, service *explorer.Service, project, id string) (explorer.ExplorerStateV1, error) {
-	project = projectid.Canonical(project)
-	id = strings.TrimSpace(id)
-	owner, err := service.Get(ctx, project, id)
-	if errors.Is(err, explorer.ErrNotFound) && id == "default" {
-		// Repository bootstrap can briefly expose its repository record before
-		// the Explorer identity is created. Preserve the read contract for that
-		// window without manufacturing editable authoring state.
-		repository, repositoryErr := service.RepositoryConfig(ctx, project)
-		if repositoryErr != nil {
-			return explorer.ExplorerStateV1{}, err
-		}
-		owner = &explorer.Explorer{
-			Project:          projectid.Legacy(project),
-			ExplorerID:       "default",
-			Title:            configV2Title(repository.Config),
-			ManagementMode:   explorer.ManagementRepository,
-			ActiveRevisionID: repository.ActiveRevisionID,
-			Publication:      repository.Publication,
-			UpdatedAt:        repository.UpdatedAt,
-		}
-		err = nil
-	}
-	if err != nil {
-		return explorer.ExplorerStateV1{}, err
-	}
-	if owner == nil {
-		return explorer.ExplorerStateV1{}, fmt.Errorf("Explorer %s/%s resolved to an empty identity", project, id)
-	}
-
-	state := explorerStateV1FromIdentity(owner)
-	if owner.ActiveRevisionID == "" {
-		return state, nil
-	}
-	revision, err := service.Revision(ctx, owner.ActiveRevisionID)
-	if err != nil {
-		return explorer.ExplorerStateV1{}, fmt.Errorf("load active Explorer revision %q: %w", owner.ActiveRevisionID, err)
-	}
-	state.Active.RevisionID = revision.ID
-	state.Active.IntentDigest = revision.IntentDigest
-	state.Active.Status = string(revision.Status)
-	state.Generated.RecipeDigest = revision.RecipeDigest
-	state.Generated.ResolvedSchemaDigest = revision.ResolvedSchemaDigest
-	state.Generated.SourceGeneration = revision.SourceGeneration
-	state.Generated.EmittedColumns = append([]explorer.EmittedColumn(nil), revision.EmittedColumns...)
-	state.Generated.Materializations, state.Generated.Dataset = explorer.WithDataframeSelectors(revision.Recipe, revision.Materializations, revision.Dataset)
-	state.Generated.Publication = revision.Publication
-	state.Generated.Publication.State = string(revision.Status)
-	state.Generated.Publication.RevisionID = revision.ID
-	state.Generated.Diagnostics = append([]explorer.Diagnostic(nil), revision.Diagnostics...)
-	state.Runtime = runtimeV1FromPublishedRevision(revision)
-	return state, nil
-}
-
-func explorerStateV1FromIdentity(owner *explorer.Explorer) explorer.ExplorerStateV1 {
-	project := projectid.Canonical(owner.Project)
-	return explorer.ExplorerStateV1{
-		APIVersion: explorer.ExplorerStateV1APIVersion,
-		Kind:       explorer.ExplorerStateV1Kind,
-		Project:    project,
-		ExplorerID: owner.ExplorerID,
-		Title:      owner.Title,
-		Management: owner.ManagementMode,
-		Draft:      explorer.ExplorerStateV1Draft{},
-		Active:     explorer.ExplorerStateV1Active{},
-		Generated: explorer.ExplorerStateV1Generated{
-			RecipeDigest:         owner.RecipeDigest,
-			ResolvedSchemaDigest: owner.ResolvedSchemaDigest,
-			SourceGeneration:     owner.SourceGeneration,
-			EmittedColumns:       append([]explorer.EmittedColumn(nil), owner.EmittedColumns...),
-			Materializations:     append([]explorer.Materialization(nil), owner.Materializations...),
-			Dataset:              owner.Dataset,
-			Publication:          owner.Publication,
-			Diagnostics:          append([]explorer.Diagnostic(nil), owner.Diagnostics...),
-		},
-		ActiveURL: explorerURL(project, owner.ExplorerID),
-		UpdatedBy: owner.UpdatedBy,
-		UpdatedAt: owner.UpdatedAt,
-	}
 }

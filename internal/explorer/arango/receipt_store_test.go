@@ -28,9 +28,6 @@ func (c *receiptClient) QueryRows(_ context.Context, query string, _ int, binds 
 		}
 		return visit(c.doc)
 	}
-	if strings.Contains(query, "oldestCreatedAt") {
-		return visit(map[string]any{"count": 1, "approxBytes": 128, "oldestCreatedAt": "2026-01-01T00:00:00Z", "unreferencedCount": 1})
-	}
 	if c.doc != nil {
 		return visit(c.doc)
 	}
@@ -77,21 +74,6 @@ func TestReceiptArangoStoreUsesImmutableTenantScopedQueries(t *testing.T) {
 	}
 	if !strings.Contains(client.calls[len(client.calls)-1].query, "d.compilationKey == @compilationKey") {
 		t.Fatalf("compilation key query missing: %s", client.calls[len(client.calls)-1].query)
-	}
-}
-
-func TestReceiptArangoStats(t *testing.T) {
-	client := &receiptClient{}
-	adapter, err := New(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stats, err := adapter.CompilationReceiptStats(context.Background(), "project-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.Count != 1 || stats.ApproxBytes != 128 || stats.UnreferencedCount != 1 {
-		t.Fatalf("stats=%+v", stats)
 	}
 }
 

@@ -18,26 +18,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func TestCompiledExplorerConfigV2UsesCompilerOwnedPresentation(t *testing.T) {
-	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "compiled", TranslationVersion: explorercompilation.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "c_one", Expr: recipe.Expression{Select: "root.id"}}}}}}
-	compiled := explorercompilation.Result{
-		Bundle:         bundle,
-		EmittedColumns: []explorercompilation.EmittedColumn{{EmissionID: "em_one", OutputID: "patients", PublicColumn: "c_one"}},
-		Presentation:   explorercompilation.PresentationConfig{OutputID: "patients", Title: "Patients", Columns: []explorercompilation.PresentationColumn{{EmissionID: "em_one", PublicColumn: "c_one", Label: "Patient ID", Visible: true}}},
-	}
-	raw, err := compiledExplorerConfigV2("project-a", "custom", compiled)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config, decoded, err := explorer.DecodeInteractiveConfigV2(raw, "project-a", "custom")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Name != bundle.Name || len(config.Views) != 1 || config.Views[0].Table.Columns[0].Label != "Patient ID" {
-		t.Fatalf("compiled config = %#v, recipe = %#v", config, decoded)
-	}
-}
-
 func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
 	recipeEngine, err := engine.New(engine.Config{
 		Registry: compilerTestRegistry{},
@@ -53,7 +33,10 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		Name:                "multi-output-preview",
 		TranslationVersion:  explorercompilation.TranslationVersion,
 		Outputs: []recipe.Output{
-			{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}}},
+			{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{
+				{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+				{Name: "patient_gender", Expr: recipe.Expression{Select: "root.gender"}},
+			}},
 			{Name: "specimens", RootResourceType: "Specimen", RowGrain: "resource", Fields: []recipe.Field{{Name: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}}},
 		},
 	}
@@ -73,6 +56,9 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		ResolvedSchemaDigest: compiled.ResolvedSchemaDigest,
 		OutputFingerprints:   resolvedOutputFingerprints(compiled),
 		EmittedColumns: []explorer.EmittedColumn{
+			// Presentation order is intentionally different from compiler field
+			// order. It must not invalidate an otherwise identical receipt.
+			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},
 		},
@@ -95,8 +81,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	executionScope := scope
-	store := explorer.NewMemoryStore()
-	service, err := explorer.NewService(store)
+	service, err := explorer.NewService(newTestExplorerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,10 +123,17 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	}
 	app := fiber.New()
 	RegisterExplorerAuthoringV2Routes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
-	body := `{"workspace":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.WorkspaceKind + `","documents":[{"kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}}],"tabs":[{"id":"patients-tab","title":"Patients","outputId":"patients","order":0,"visible":true}]},"snapshotToken":"` + snapshot.Token + `"}`
+	body := `{"workspace":` + string(baselineExplorerWorkspaceV2()) + `,"snapshotToken":"` + snapshot.Token + `"}`
 	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/compile", body)
 	if compiled.StatusCode != http.StatusOK {
 		t.Fatalf("compile status=%d body=%s", compiled.StatusCode, compiled.Body)
+	}
+	ownerAfterCompile, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerAfterCompile.ActiveRevisionID != "" || len(ownerAfterCompile.DraftConfig) != 0 {
+		t.Fatalf("compile mutated active or draft state: %#v", ownerAfterCompile)
 	}
 	var result struct {
 		ReceiptID string `json:"receiptId"`
@@ -152,6 +144,13 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
 	if preview.StatusCode != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", preview.StatusCode, preview.Body)
+	}
+	ownerAfterPreview, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerAfterPreview.ActiveRevisionID != "" || len(ownerAfterPreview.DraftConfig) != 0 {
+		t.Fatalf("preview mutated active or draft state: %#v", ownerAfterPreview)
 	}
 	if compileCalls != 1 || previewCalls != 1 {
 		t.Fatalf("compile calls=%d preview calls=%d", compileCalls, previewCalls)
@@ -174,52 +173,11 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	if widened.StatusCode != http.StatusConflict || !strings.Contains(widened.Body, `"code":"RECEIPT_STALE"`) || previewCalls != 1 {
 		t.Fatalf("scope mismatch status=%d calls=%d body=%s", widened.StatusCode, previewCalls, widened.Body)
 	}
-	stats, err := service.CompilationReceiptStats(context.Background(), "project-a")
-	if err != nil || stats.Count != 1 {
-		t.Fatalf("receipt stats=%+v err=%v", stats, err)
-	}
-}
-
-func TestBuilderReadRestoresPublishedNativeV2Document(t *testing.T) {
-	snapshot := testAuthoringV2CapabilitySnapshot()
-	store := explorer.NewMemoryStore()
-	service, err := explorer.NewService(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "custom", "Custom", "test"); err != nil {
-		t.Fatal(err)
-	}
-	document := authoringv2.Document{APIVersion: authoringv2.APIVersion, Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootNodeID: "n_patient", RouteSteps: []authoringv2.RouteStep{}, Selections: []authoringv2.Selection{{CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST"}}, Presentation: map[string]authoringv2.Presentation{}}
-	receipt, err := persistTestNativeReceipt(context.Background(), t, service, ExplorerV2ReceiptCompileRequest{Project: "project-a", ExplorerID: "custom", Document: document, SnapshotToken: snapshot.Token}, snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	if _, err := service.PublishAuthoring(context.Background(), *receipt, explorer.Revision{ID: "native-v2-revision", Project: "project-a", ExplorerID: "custom", CompilationReceiptID: receipt.ID, IntentDigest: receipt.IntentDigest, AuthoringBundle: receipt.NormalizedBundle, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Status: explorer.RevisionReady, CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	app := fiber.New()
-	RegisterExplorerAuthoringV2Routes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{Capability: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }})
-	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", "")
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("builder status=%d body=%s", response.StatusCode, response.Body)
-	}
-	var state authoringv2.BuilderState
-	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
-		t.Fatal(err)
-	}
-	if state.Workspace == nil || len(state.Workspace.Documents) != 1 || state.Workspace.Documents[0].Output.ID != document.Output.ID || state.Workspace.Documents[0].Selections[0].CandidateID != document.Selections[0].CandidateID {
-		t.Fatalf("restored workspace = %#v", state.Workspace)
-	}
 }
 
 func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request ExplorerV2ReceiptCompileRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
 	t.Helper()
 	workspace := request.Workspace
-	if workspace.APIVersion == "" {
-		workspace = authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{request.Document}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: request.Document.Output.Title, OutputID: request.Document.Output.ID, Order: 0, Visible: true}}}
-	}
 	normalized, err := workspace.CanonicalJSON()
 	if err != nil {
 		return nil, err
@@ -233,7 +191,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 	if err != nil {
 		return nil, err
 	}
-	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"emissionId":"em_patient","publicColumn":"c_patient","candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
+	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"c_patient","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
 	contractDigest, err := explorer.CompilationArtifactDigest(contract)
 	if err != nil {
 		return nil, err
@@ -244,7 +202,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest,
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
-		NormalizedBundle: normalized, Bundle: bundle, PublicOutputContract: contract,
+		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{}`), PublicOutputContract: contract,
 		EmittedColumns:     []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
 		OutputFingerprints: map[string]string{"patients": "fingerprint"}, CreatedAt: time.Now().UTC(),
 	}

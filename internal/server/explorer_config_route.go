@@ -12,18 +12,18 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
 )
 
 // RegisterExplorerConfigV2Route is the sole repository Explorer deployment
-// surface. The body is the portable, executable baseline ExplorerConfigV2
-// document; generation and source commit are deployment context, while live
-// schema/readiness and publication metadata are derived by Loom.
+// surface. The body is the portable V2 authoring workspace. Repository and
+// browser publication deliberately share the same compiler receipt pipeline.
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
 
 func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, lifecycle ...ExplorerV2LifecycleConfig) {
-	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil || materialize == nil {
+	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil {
 		return
 	}
 	app.Post("/api/v1/projects/:project/generations/:generation/explorer-config", func(c fiber.Ctx) error {
@@ -38,50 +38,78 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		if err := authorizer.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
 			return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
 		}
-		_, bundle, err := explorer.DecodeConfigV2(c.Body(), project)
+		workspace, err := authoringv2.DecodeWorkspace(c.Body())
 		if err != nil {
 			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
 		}
-		// Version the execution by the checked-out repository commit while
-		// retaining a data-only recipe body. A project-specific bundle name
-		// prevents two repository configs from sharing a publication namespace.
+		if err := workspace.ValidateForPublication(); err != nil {
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
+		}
 		commit := strings.TrimSpace(c.Get("X-Loom-Source-Commit"))
 		if commit == "" {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "X-Loom-Source-Commit is required"})
 		}
-		// Recipe names are storage/execution identifiers, not public project
-		// URLs. Keep the historical hyphenated form so a canonical slash in the
-		// route never becomes an invalid name containing '/'.
-		bundle.Name = "explorer_" + projectid.Legacy(project) + "_default"
-		bundle.TranslationVersion = "repository-" + commit
-		if err := bundle.Validate(); err != nil {
-			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("invalid recipe: %v", err)})
+		if len(lifecycle) == 0 || lifecycle[0].Capability == nil || lifecycle[0].AuthorizedCapabilityCompile == nil || lifecycle[0].CompileReceipt == nil {
+			return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "repository V2 compilation is not configured"})
 		}
-		_, _, canonicalConfig, configDigest, err := explorer.CanonicalConfigV2(c.Body(), project, "default", "repository")
+		config := lifecycle[0]
+		snapshot, err := config.Capability(c.Context(), project, "default", generation)
+		if err != nil || !snapshot.Usable() || snapshot.Identity.Generation != generation {
+			if err == nil {
+				err = fmt.Errorf("capability generation %q does not match deployment generation %q", snapshot.Identity.Generation, generation)
+			}
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": fmt.Sprintf("resolve repository V2 capability: %v", err)})
+		}
+		authorized, err := config.AuthorizedCapabilityCompile(c.Context(), project, snapshot.Token)
 		if err != nil {
-			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": fmt.Sprintf("authorize repository V2 compilation: %v", err)})
 		}
-		execution, err := materialize(c.Context(), bundle, recipe.RuntimeBindings{Project: projectid.Legacy(project), DatasetGeneration: generation})
+		receipt, err := config.CompileReceipt(c.Context(), ExplorerV2ReceiptCompileRequest{Project: project, ExplorerID: "default", Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c), Authorized: authorized})
+		if err != nil || receipt == nil {
+			if err == nil {
+				err = fmt.Errorf("compiler returned no receipt")
+			}
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("compile repository V2 workspace: %v", err)})
+		}
+		if receipt.SourceGeneration != generation {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "compiled receipt generation does not match deployment generation"})
+		}
+		if config.AuthorizedCapabilityExecution != nil {
+			authorized, err = config.AuthorizedCapabilityExecution(c.Context(), project, receipt.SnapshotToken)
+			if err != nil {
+				return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": fmt.Sprintf("authorize repository V2 materialization: %v", err)})
+			}
+		}
+		bindings := recipe.RuntimeBindings{Project: projectid.Legacy(project), DatasetGeneration: generation}
+		applyAuthorizedScope(&bindings, authorized, true)
+		var execution graphresolver.RecipeExecution
+		if config.MaterializeReceipt != nil {
+			execution, err = config.MaterializeReceipt(c.Context(), receipt, bindings)
+		} else if materialize != nil {
+			execution, err = materialize(c.Context(), receipt.Bundle, bindings)
+		} else {
+			err = fmt.Errorf("repository V2 materialization is not configured")
+		}
 		if err != nil {
-			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("materialize ExplorerConfigV2: %v", err)})
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": fmt.Sprintf("materialize repository V2 workspace: %v", err)})
 		}
-		if err := verifyQueryableOutputs(bundle, execution); err != nil {
+		if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error(), "executionId": execution.ID})
 		}
-		materializations := explorerMaterializations(bundle, execution)
-		dataset := datasetMetadataFromExecution(bundle, generation, execution.ResolvedSchemaDigest, execution)
+		materializations := explorerMaterializations(receipt.Bundle, execution)
+		dataset := datasetMetadataFromExecution(receipt.Bundle, generation, receipt.ResolvedSchemaDigest, execution)
 		publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: generation, ExecutionID: execution.ID, UpdatedAt: time.Now().UTC()}
-		owner, revision, err := explorers.UpsertRepositoryV2(c.Context(), canonicalConfig, commit, generation, "", explorer.Compilation{Bundle: bundle, RecipeDigest: mustBundleDigest(bundle)}, execution.ResolvedSchemaDigest, materializations, dataset, publication)
+		owner, revision, err := explorers.UpsertRepositoryV2(c.Context(), *receipt, commit, subjectFromFiber(c), materializations, dataset, publication)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("persist Explorer lifecycle V2: %v", err)})
 		}
 		if owner.ManagementMode != explorer.ManagementRepository {
 			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "default Explorer has invalid management mode"})
 		}
-		if len(lifecycle) == 0 || lifecycle[0].ActivateRelease == nil {
+		if config.ActivateRelease == nil {
 			return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"error": "release activation is not configured", "executionId": execution.ID})
 		}
-		if err := lifecycle[0].ActivateRelease(c.Context(), projectid.Legacy(project), generation, selectorsForBundle(bundle)); err != nil {
+		if err := config.ActivateRelease(c.Context(), projectid.Legacy(project), generation, selectorsForBundle(receipt.Bundle)); err != nil {
 			_, _ = explorers.FailRevision(c.Context(), revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": fmt.Sprintf("activate published ExplorerConfigV2: %v", err), "executionId": execution.ID})
 		}
@@ -91,10 +119,10 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 		publication.State = string(explorer.RevisionActive)
 		publication.RevisionID = revision.ID
 		publication.UpdatedAt = time.Now().UTC()
-		if _, err := explorers.SaveRepositoryConfig(c.Context(), explorer.RepositoryConfig{Project: project, Config: canonicalConfig, ConfigDigest: configDigest, ActiveRevisionID: revision.ID, DraftVersion: owner.DraftVersion, SourceGeneration: generation, SourceCommit: commit, ExecutionID: execution.ID, Materializations: materializations, Dataset: dataset, Publication: publication}); err != nil {
+		if _, err := explorers.SaveRepositoryConfig(c.Context(), explorer.RepositoryConfig{Project: project, Config: append([]byte(nil), receipt.CompiledConfig...), Workspace: append([]byte(nil), receipt.NormalizedBundle...), ConfigDigest: receipt.IntentDigest, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append([]byte(nil), receipt.PublicOutputContract...), ActiveRevisionID: revision.ID, DraftVersion: owner.DraftVersion, SourceGeneration: generation, SourceCommit: commit, ExecutionID: execution.ID, Materializations: materializations, Dataset: dataset, Publication: publication}); err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("persist ExplorerConfigV2: %v", err)})
 		}
-		return c.Status(http.StatusOK).JSON(fiber.Map{"project": project, "generation": generation, "explorerId": "default", "executionId": execution.ID, "recipe": bundle.Name, "translationVersion": bundle.TranslationVersion, "activated": true})
+		return c.Status(http.StatusOK).JSON(fiber.Map{"project": project, "generation": generation, "explorerId": "default", "receiptId": receipt.ID, "revisionId": revision.ID, "executionId": execution.ID, "recipe": receipt.Bundle.Name, "translationVersion": receipt.Bundle.TranslationVersion, "activated": true})
 	})
 	app.Get("/api/v1/projects/:project/explorer-config", func(c fiber.Ctx) error {
 		project := explorerProjectParam(c)

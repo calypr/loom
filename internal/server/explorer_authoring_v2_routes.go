@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,8 +23,7 @@ import (
 )
 
 // RegisterExplorerAuthoringV2Routes is the hard-cut traversal Builder
-// contract. V1 remains an internal stored-document migration format and is
-// deliberately not registered as an HTTP surface.
+// contract. Retired authoring formats are not registered as an HTTP surface.
 func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, capabilities ExplorerV2LifecycleConfig) {
 	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil {
 		return
@@ -52,7 +52,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		return c.JSON(explorerv2api.AuthoringCapability{
 			ApiVersion:    explorerv2api.LoomCalyprOrgexplorerAuthoringv2,
 			Kind:          explorerv2api.ExplorerAuthoringCapabilities,
-			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Compile, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish},
+			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Compile, explorerv2api.Draft, explorerv2api.Export, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish},
 			PreviewLimits: []int{10, 25, 50, 100},
 			Features:      explorerv2api.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true},
 		})
@@ -129,7 +129,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if err := authoringRead(c, authorizeRead); err != nil {
 			return err
 		}
-		snapshot, wire, err := readCapability(c)
+		_, wire, err := readCapability(c)
 		if err != nil {
 			return authoringHTTPError(c, err)
 		}
@@ -138,29 +138,104 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if err != nil {
 			return authoringHTTPError(c, err)
 		}
-		_ = owner
-		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Catalog: wire}
-		if active, activeErr := explorers.ActiveRevision(c.Context(), project, id); activeErr == nil && len(active.AuthoringBundle) != 0 {
-			if workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle); decodeErr == nil {
-				state.Workspace = &workspace
-			} else if document, decodeErr := authoringv2.DecodeDocument(active.AuthoringBundle); decodeErr == nil {
-				document.APIVersion = ""
-				workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{document}, Tabs: []authoringv2.Tab{{ID: document.Output.ID, Title: document.Output.Title, OutputID: document.Output.ID, Order: 0, Visible: true}}}
-				state.Workspace = &workspace
-			} else if bundle, decodeErr := explorer.DecodeAuthoringBundleV1ForMigration(active.AuthoringBundle); decodeErr == nil {
-				workspace, migrateErr := migrateV1WorkspaceToCapability(bundle, snapshot, wire, active.EmittedColumns)
-				if migrateErr != nil {
-					return authoringHTTPError(c, authoringSemanticRoute("migration", "$", "MIGRATION_FAILED", migrateErr.Error(), nil))
-				}
-				state.Workspace = &workspace
+		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, Catalog: wire}
+		var activeWorkspace *authoringv2.Workspace
+		if owner.ActiveRevisionID != "" {
+			active, activeErr := explorers.ActiveRevision(c.Context(), project, id)
+			if activeErr != nil {
+				return authoringHTTPError(c, explorerConflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be loaded as V2 authoring state", map[string]any{"revisionId": owner.ActiveRevisionID}))
 			}
-		} else if activeErr != nil && !errors.Is(activeErr, explorer.ErrNotFound) {
-			return authoringHTTPError(c, activeErr)
+			workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle)
+			if decodeErr != nil {
+				return authoringHTTPError(c, explorerConflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", map[string]any{"revisionId": active.ID}))
+			}
+			activeWorkspace = &workspace
+		}
+		if len(owner.DraftConfig) != 0 {
+			workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
+			if decodeErr != nil {
+				return authoringHTTPError(c, explorerConflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}))
+			}
+			state.Workspace = &workspace
+			state.LifecycleState = authoringv2.LifecycleReady
+		} else {
+			state.Workspace = activeWorkspace
+			if activeWorkspace != nil {
+				state.LifecycleState = authoringv2.LifecycleReady
+			}
 		}
 		if err := state.Validate(); err != nil {
 			return authoringHTTPError(c, explorerUnavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error()))
 		}
 		return c.JSON(state)
+	})
+
+	app.Put(prefix+"/draft", func(c fiber.Ctx) error {
+		if err := authoringWrite(c, authorizer); err != nil {
+			return err
+		}
+		var request struct {
+			Workspace            authoringv2.Workspace `json:"workspace"`
+			SnapshotToken        string                `json:"snapshotToken"`
+			ExpectedDraftVersion *int64                `json:"expectedDraftVersion"`
+			ExpectedDraftDigest  string                `json:"expectedDraftDigest,omitempty"`
+		}
+		if err := decodeAuthoringStrict(c.Body(), &request); err != nil || request.ExpectedDraftVersion == nil || strings.TrimSpace(request.SnapshotToken) == "" {
+			if err == nil {
+				err = fmt.Errorf("workspace, snapshotToken, and expectedDraftVersion are required")
+			}
+			return authoringHTTPError(c, malformedRouteError("draft", err))
+		}
+		if capabilities.CapabilityToken == nil {
+			return authoringHTTPError(c, explorerUnavailable("draft", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured"))
+		}
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
+		snapshot, err := capabilities.CapabilityToken(c.Context(), project, request.SnapshotToken)
+		if err != nil {
+			return authoringHTTPError(c, explorerConflict("draft", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil))
+		}
+		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleReady, Workspace: &request.Workspace, Catalog: authoringV2Catalog(snapshot, id)}
+		if err := state.Validate(); err != nil {
+			return authoringHTTPError(c, authoringSemanticRoute("draft", "$", workspaceValidationCode(err), err.Error(), nil))
+		}
+		stored, err := explorers.SaveWorkspaceDraft(c.Context(), project, id, request.Workspace, *request.ExpectedDraftVersion, request.ExpectedDraftDigest, subjectFromFiber(c))
+		if errors.Is(err, explorer.ErrDraftConflict) {
+			return authoringHTTPError(c, explorerConflict("draft", "DRAFT_CONFLICT", "the Explorer draft changed; reload before saving", nil))
+		}
+		if err != nil {
+			return authoringHTTPError(c, err)
+		}
+		return c.JSON(fiber.Map{"workspace": json.RawMessage(stored.DraftConfig), "draftVersion": stored.DraftVersion, "draftDigest": stored.DraftDigest})
+	})
+
+	app.Get(prefix+"/export", func(c fiber.Ctx) error {
+		if err := authoringRead(c, authorizeRead); err != nil {
+			return err
+		}
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
+		owner, err := explorers.Get(c.Context(), project, id)
+		if err != nil {
+			return authoringHTTPError(c, err)
+		}
+		raw := owner.DraftConfig
+		if len(raw) == 0 && owner.ActiveRevisionID != "" {
+			active, activeErr := explorers.ActiveRevision(c.Context(), project, id)
+			if activeErr != nil {
+				return authoringHTTPError(c, explorerConflict("export", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be exported", nil))
+			}
+			raw = active.AuthoringBundle
+		}
+		workspace, err := authoringv2.DecodeWorkspace(raw)
+		if err != nil {
+			return authoringHTTPError(c, explorerConflict("export", "AUTHORING_STATE_MISSING", "no canonical V2 workspace is available for export", nil))
+		}
+		canonical, err := workspace.CanonicalJSON()
+		if err != nil {
+			return authoringHTTPError(c, err)
+		}
+		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+		c.Set(fiber.HeaderContentDisposition, `attachment; filename="`+id+`.explorer-workspace.json"`)
+		return c.Send(canonical)
 	})
 
 	compileHandler := func(c fiber.Ctx) error {
@@ -171,7 +246,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if err := decodeAuthoringStrict(c.Body(), &request); err != nil {
 			return authoringHTTPError(c, malformedRouteError("intent", err))
 		}
-		if (capabilities.CapabilityToken == nil && capabilities.AuthorizedCapabilityCompile == nil) || (capabilities.CompileReceipt == nil && capabilities.AuthoringCompile == nil) {
+		if (capabilities.CapabilityToken == nil && capabilities.AuthorizedCapabilityCompile == nil) || capabilities.CompileReceipt == nil {
 			return authoringHTTPError(c, explorerUnavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured"))
 		}
 		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
@@ -192,23 +267,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if err := state.Validate(); err != nil {
 			return authoringHTTPError(c, authoringSemanticRoute("intent", "$", workspaceValidationCode(err), err.Error(), nil))
 		}
-		var stored *explorer.CompilationReceipt
-		nativeReceipt := capabilities.CompileReceipt != nil
-		if nativeReceipt {
-			stored, err = capabilities.CompileReceipt(c.Context(), ExplorerV2ReceiptCompileRequest{Project: project, ExplorerID: id, Workspace: request.Workspace, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c), Authorized: authorized})
-		} else {
-			// Compatibility path for migration-only callers. Production wiring
-			// supplies CompileReceipt and never enters this V1 adapter.
-			bundle, bundleErr := authoringV2WorkspaceBundle(project, id, request.Workspace, wire)
-			if bundleErr != nil {
-				return authoringHTTPError(c, authoringSemanticRoute("intent", "$", "INVALID_AUTHORING_INTENT", bundleErr.Error(), nil))
-			}
-			resolved, compileErr := capabilities.AuthoringCompile(c.Context(), ExplorerAuthoringV1CompileRequest{Bundle: bundle, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c)})
-			if compileErr == nil {
-				stored = &resolved.Receipt
-			}
-			err = compileErr
-		}
+		stored, err := capabilities.CompileReceipt(c.Context(), ExplorerV2ReceiptCompileRequest{Project: project, ExplorerID: id, Workspace: request.Workspace, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c), Authorized: authorized})
 		if err != nil {
 			var compileErr *explorercompilation.Error
 			if errors.As(err, &compileErr) {
@@ -218,15 +277,6 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		}
 		if stored == nil || strings.TrimSpace(stored.ID) == "" {
 			return authoringHTTPError(c, explorerUnavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted"))
-		}
-		// The native compiler owns durable insert/readback so an idempotent hit is
-		// one tenant-scoped lookup. The V1 migration adapter still needs the route
-		// to persist its legacy receipt.
-		if !nativeReceipt {
-			stored, err = explorers.StoreCompilationReceipt(c.Context(), *stored)
-			if err != nil {
-				return authoringHTTPError(c, explorerUnavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt could not be persisted"))
-			}
 		}
 		return c.JSON(v2ReceiptResponse(stored, request.Workspace))
 	}
@@ -412,7 +462,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		}
 		now := time.Now().UTC()
 		revisionID := "authoring_" + strings.TrimPrefix(receipt.ID, "receipt_")
-		revision, err := explorers.PublishAuthoring(c.Context(), *receipt, explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, ConfigDigest: receipt.IntentDigest, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: explorerMaterializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: subjectFromFiber(c), CreatedAt: now, ReadyAt: &now})
+		revision, err := explorers.PublishAuthoring(c.Context(), *receipt, explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, ConfigDigest: receipt.IntentDigest, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: explorerMaterializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: subjectFromFiber(c), CreatedAt: now, ReadyAt: &now})
 		if err != nil {
 			return authoringHTTPError(c, err)
 		}
@@ -524,93 +574,6 @@ func applyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized Authorize
 	bindings.IncludeAuthResourcePath = includeAuthResourcePath
 }
 
-func authoringV2Bundle(project, explorerID string, document authoringv2.Document, catalog authoringv2.CatalogSnapshot) (explorer.ExplorerAuthoringBundleV1, error) {
-	occurrences, err := document.Occurrences(catalog)
-	if err != nil {
-		return explorer.ExplorerAuthoringBundleV1{}, err
-	}
-	v1 := explorer.ExplorerBuilderDocumentV1{
-		Kind:       explorer.ExplorerBuilderV1Kind,
-		Output:     explorer.ExplorerOutputIdentityV1{ID: document.Output.ID, Title: document.Output.Title},
-		BaseNodeID: document.RootNodeID, RowNodeID: occurrences[len(occurrences)-1].NodeID,
-		Presentation: map[string]explorer.ExplorerPresentationBindingV1{},
-	}
-	for _, step := range document.RouteSteps {
-		v1.RouteEdgeIDs = append(v1.RouteEdgeIDs, step.EdgeID)
-	}
-	for i, occurrence := range occurrences {
-		v1.RouteOccurrences = append(v1.RouteOccurrences, explorer.ExplorerRouteOccurrenceV1{ID: occurrence.ID, Index: i, NodeID: occurrence.NodeID, IncomingEdgeID: occurrence.IncomingEdgeID})
-	}
-	seenCandidates := map[string]bool{}
-	for _, selection := range document.Selections {
-		if !seenCandidates[selection.CandidateID] {
-			v1.CandidateIDs = append(v1.CandidateIDs, selection.CandidateID)
-			seenCandidates[selection.CandidateID] = true
-		}
-		occurrenceID := selection.OccurrenceID
-		if occurrenceID == "" {
-			occurrenceID = occurrences[len(occurrences)-1].ID
-		}
-		v1.CandidateOccurrences = append(v1.CandidateOccurrences, explorer.ExplorerCandidateOccurrenceV1{CandidateID: selection.CandidateID, OccurrenceID: occurrenceID, ProjectionMode: selection.ProjectionMode})
-	}
-	for key, presentation := range document.Presentation {
-		v1.Presentation[key] = explorer.ExplorerPresentationBindingV1{Label: presentation.Label, Visible: presentation.Visible, Order: presentation.Order}
-	}
-	return explorer.ExplorerAuthoringBundleV1{APIVersion: explorer.ExplorerAuthoringV1APIVersion, Kind: explorer.ExplorerAuthoringV1Kind, Project: projectid.Canonical(project), ExplorerID: explorerID, Title: document.Output.Title, Documents: []explorer.ExplorerBuilderDocumentV1{v1}, Tabs: []explorer.ExplorerTabV1{}}, nil
-}
-
-func authoringV2WorkspaceBundle(project, explorerID string, workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot) (explorer.ExplorerAuthoringBundleV1, error) {
-	result := explorer.ExplorerAuthoringBundleV1{APIVersion: explorer.ExplorerAuthoringV1APIVersion, Kind: explorer.ExplorerAuthoringV1Kind, Project: projectid.Canonical(project), ExplorerID: explorerID, Documents: []explorer.ExplorerBuilderDocumentV1{}, Tabs: []explorer.ExplorerTabV1{}}
-	for _, document := range workspace.Documents {
-		one, err := authoringV2Bundle(project, explorerID, document, catalog)
-		if err != nil {
-			return result, err
-		}
-		result.Documents = append(result.Documents, one.Documents...)
-	}
-	for _, tab := range workspace.Tabs {
-		visible := tab.Visible
-		result.Tabs = append(result.Tabs, explorer.ExplorerTabV1{ID: tab.ID, Title: tab.Title, OutputID: tab.OutputID, Order: tab.Order, Visible: &visible})
-	}
-	return result, nil
-}
-
-func migrateV1WorkspaceToCapability(bundle explorer.ExplorerAuthoringBundleV1, snapshot capability.Snapshot, wire authoringv2.CatalogSnapshot, emitted []explorer.EmittedColumn) (authoringv2.Workspace, error) {
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
-	for i, input := range bundle.AuthoringDocuments() {
-		if len(input.Presentation) > 0 {
-			mapped := make(map[string]explorer.ExplorerPresentationBindingV1, len(input.Presentation))
-			for key, binding := range input.Presentation {
-				mappedKey := key
-				for _, emission := range emitted {
-					if emission.OutputID == input.Output.ID && emission.EmissionID == key {
-						mappedKey = emission.CandidateID + "\x00" + emission.OccurrenceID
-						break
-					}
-				}
-				mapped[mappedKey] = binding
-			}
-			input.Presentation = mapped
-		}
-		document, err := migrateV1DocumentToCapability(input, snapshot, wire)
-		if err != nil {
-			return workspace, fmt.Errorf("documents[%d]: %w", i, err)
-		}
-		workspace.Documents = append(workspace.Documents, document)
-	}
-	for _, input := range bundle.AuthoringTabs() {
-		visible := true
-		if input.Visible != nil {
-			visible = *input.Visible
-		}
-		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: input.ID, Title: input.Title, OutputID: input.OutputID, Order: input.Order, Visible: visible})
-	}
-	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
-		return workspace, err
-	}
-	return workspace, nil
-}
-
 func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) explorerv2api.CompileResponse {
 	outputs := make([]explorerv2api.ReceiptOutput, 0, len(workspace.Documents))
 	for _, document := range workspace.Documents {
@@ -621,18 +584,18 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 				break
 			}
 		}
-		emissions := []explorerv2api.Emission{}
+		columns := []explorerv2api.ContractColumn{}
 		for _, column := range receipt.EmittedColumns {
 			if column.OutputID != document.Output.ID {
 				continue
 			}
-			mode, label := column.ProjectionMode, column.Label
+			label := column.Label
 			if label == "" {
 				label = column.PublicColumn
 			}
-			emissions = append(emissions, explorerv2api.Emission{OutputId: column.OutputID, CandidateId: column.CandidateID, OccurrenceId: column.OccurrenceID, ProjectionMode: mode, EmissionId: column.EmissionID, PublicColumn: column.PublicColumn, Label: label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+			columns = append(columns, explorerv2api.ContractColumn{Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
 		}
-		outputs = append(outputs, explorerv2api.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, Emissions: emissions})
+		outputs = append(outputs, explorerv2api.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, Columns: columns})
 	}
 	return explorerv2api.CompileResponse{
 		ApiVersion: explorerv2api.LoomCalyprOrgexplorerAuthoringv2,
@@ -642,151 +605,4 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 		CompilerVersion: "explorer-authoring-v2", Builder: workspace,
 		Outputs: outputs, Diagnostics: []explorerv2api.Diagnostic{},
 	}
-}
-
-func migrateV1DocumentToCapability(input explorer.ExplorerBuilderDocumentV1, snapshot capability.Snapshot, wire authoringv2.CatalogSnapshot) (authoringv2.Document, error) {
-	nodeIDs := map[string]string{}
-	for _, node := range snapshot.Nodes {
-		nodeIDs[node.ID] = node.ID
-		nodeIDs[explorer.OpaqueID("n_", node.ResourceType)] = node.ID
-	}
-	edgeIDs := map[string]string{}
-	for _, edge := range snapshot.Edges {
-		edgeIDs[edge.ID] = edge.ID
-		edgeIDs[explorer.OpaqueID("e_", edge.SourceResourceType+"\x00"+edge.Label+"\x00"+edge.TargetResourceType)] = edge.ID
-	}
-	candidateIDs := map[string]string{}
-	for _, candidate := range snapshot.Candidates {
-		candidateIDs[candidate.ID] = candidate.ID
-		candidateIDs[explorer.OpaqueID("s_", candidate.ResourceType+"\x00"+candidate.FieldPath)] = candidate.ID
-	}
-	root := nodeIDs[input.BaseNodeID]
-	if root == "" {
-		return authoringv2.Document{}, fmt.Errorf("stored root node is not present in the current capability snapshot")
-	}
-	title := input.Output.Title
-	if strings.TrimSpace(title) == "" {
-		title = input.Output.ID
-	}
-	document := authoringv2.Document{APIVersion: authoringv2.APIVersion, Kind: authoringv2.Kind, Output: authoringv2.Output{ID: input.Output.ID, Title: title}, RootNodeID: root, RouteSteps: []authoringv2.RouteStep{}, Selections: []authoringv2.Selection{}, Presentation: map[string]authoringv2.Presentation{}}
-	document.APIVersion = ""
-	for i, oldEdgeID := range input.RouteEdgeIDs {
-		edgeID := edgeIDs[oldEdgeID]
-		if edgeID == "" {
-			return authoringv2.Document{}, fmt.Errorf("stored route edge is not present in the current capability snapshot")
-		}
-		occurrenceID := ""
-		occurrenceIndex := i
-		if len(input.RouteOccurrences) == len(input.RouteEdgeIDs)+1 {
-			occurrenceIndex++
-		}
-		if occurrenceIndex < len(input.RouteOccurrences) {
-			occurrenceID = input.RouteOccurrences[occurrenceIndex].ID
-		}
-		document.RouteSteps = append(document.RouteSteps, authoringv2.RouteStep{EdgeID: edgeID, OccurrenceID: occurrenceID})
-	}
-	candidates := map[string]authoringv2.CatalogCandidate{}
-	for _, candidate := range wire.Candidates {
-		candidates[candidate.ID] = candidate
-	}
-	references := append([]explorer.ExplorerCandidateOccurrenceV1(nil), input.CandidateOccurrences...)
-	if len(references) == 0 {
-		occurrences, err := document.Occurrences(wire)
-		if err != nil {
-			return authoringv2.Document{}, err
-		}
-		for _, oldCandidateID := range input.CandidateIDs {
-			candidateID := candidateIDs[oldCandidateID]
-			if candidateID == "" {
-				return authoringv2.Document{}, fmt.Errorf("stored candidate %q is not present in the current capability snapshot", oldCandidateID)
-			}
-			matches := []string{}
-			for _, occurrence := range occurrences {
-				if occurrence.NodeID == candidates[candidateID].NodeID {
-					matches = append(matches, occurrence.ID)
-				}
-			}
-			if len(matches) != 1 {
-				return authoringv2.Document{}, fmt.Errorf("stored candidate %q cannot be mapped to exactly one route occurrence", oldCandidateID)
-			}
-			references = append(references, explorer.ExplorerCandidateOccurrenceV1{CandidateID: oldCandidateID, OccurrenceID: matches[0]})
-		}
-	}
-	for _, reference := range references {
-		candidateID := candidateIDs[reference.CandidateID]
-		if candidateID == "" {
-			return authoringv2.Document{}, fmt.Errorf("stored candidate %q is not present in the current capability snapshot", reference.CandidateID)
-		}
-		mode := reference.ProjectionMode
-		if mode == "" || !containsString(candidates[candidateID].ProjectionModes, mode) {
-			mode = candidates[candidateID].DefaultProjectionMode
-		}
-		document.Selections = append(document.Selections, authoringv2.Selection{CandidateID: candidateID, OccurrenceID: reference.OccurrenceID, ProjectionMode: mode})
-	}
-	for oldKey, binding := range input.Presentation {
-		matchedKey := ""
-		for _, selection := range document.Selections {
-			occurrence := selection.OccurrenceID
-			if occurrence == "" {
-				occurrence = authoringv2.RootOccurrenceID
-				if len(document.RouteSteps) > 0 {
-					occurrence = authoringv2.DerivedOccurrenceID(len(document.RouteSteps) - 1)
-				}
-			}
-			newKey := authoringv2.PresentationKey(selection.CandidateID, occurrence, selection.ProjectionMode)
-			if !legacyPresentationKeyMatches(oldKey, input.Output.ID, selection.CandidateID, occurrence, newKey, references, candidateIDs) {
-				continue
-			}
-			if matchedKey != "" && matchedKey != newKey {
-				return authoringv2.Document{}, fmt.Errorf("stored presentation %q maps to more than one selection", oldKey)
-			}
-			matchedKey = newKey
-		}
-		if matchedKey == "" {
-			return authoringv2.Document{}, fmt.Errorf("stored presentation %q cannot be mapped exactly", oldKey)
-		}
-		if _, exists := document.Presentation[matchedKey]; exists {
-			return authoringv2.Document{}, fmt.Errorf("multiple stored presentations map to selection %q", matchedKey)
-		}
-		presentation := authoringv2.Presentation{Label: binding.Label, Visible: binding.Visible, Order: binding.Order}
-		if binding.Table != nil {
-			presentation.Table = &authoringv2.TablePresentation{Pinned: binding.Table.Pinned}
-		}
-		if binding.Filter != nil {
-			presentation.Filter = &authoringv2.FilterPresentation{Label: binding.Filter.Label}
-		}
-		if binding.Chart != nil {
-			presentation.Chart = &authoringv2.ChartPresentation{Type: binding.Chart.Type, Title: binding.Chart.Title}
-		}
-		document.Presentation[matchedKey] = presentation
-	}
-	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Document: &document, Catalog: wire}).Validate(); err != nil {
-		return authoringv2.Document{}, err
-	}
-	return document, nil
-}
-
-func legacyPresentationKeyMatches(oldKey, outputID, currentCandidateID, occurrenceID, newKey string, references []explorer.ExplorerCandidateOccurrenceV1, ids map[string]string) bool {
-	aliases := map[string]bool{
-		currentCandidateID:                         true,
-		currentCandidateID + "\x00" + occurrenceID: true,
-		explorer.OpaqueID("em_", outputID+"\x00"+occurrenceID+"\x00"+currentCandidateID): true,
-		newKey: true,
-	}
-	for _, reference := range references {
-		if ids[reference.CandidateID] != currentCandidateID {
-			continue
-		}
-		referenceOccurrence := reference.OccurrenceID
-		if referenceOccurrence == "" {
-			referenceOccurrence = occurrenceID
-		}
-		if referenceOccurrence != occurrenceID {
-			continue
-		}
-		aliases[reference.CandidateID] = true
-		aliases[reference.CandidateID+"\x00"+occurrenceID] = true
-		aliases[explorer.OpaqueID("em_", outputID+"\x00"+occurrenceID+"\x00"+reference.CandidateID)] = true
-	}
-	return aliases[oldKey] || ids[oldKey] == currentCandidateID
 }

@@ -2,21 +2,14 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/capabilitystore"
-	"github.com/gofiber/fiber/v3"
 )
 
 type staticCapabilityEvidence struct {
@@ -72,9 +65,29 @@ func testCapabilityScopeResolver(paths []string) *authscope.ScopeResolver {
 	})
 }
 
+func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
+			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "birthDate" {
+		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+}
+
 func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := capabilitystore.NewMemoryStore()
+	store := newTestCapabilityStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -102,7 +115,7 @@ func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration
 
 func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := capabilitystore.NewMemoryStore()
+	store := newTestCapabilityStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-old", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -122,7 +135,7 @@ func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(
 
 func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResolver(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := capabilitystore.NewMemoryStore()
+	store := newTestCapabilityStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -139,7 +152,7 @@ func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResol
 
 func TestExplorerCapabilityResolverRejectsChangedScopeAndPreservesRestrictedEmpty(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := capabilitystore.NewMemoryStore()
+	store := newTestCapabilityStore()
 	unrestricted := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), unrestricted); err != nil {
 		t.Fatal(err)
@@ -189,7 +202,7 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
 		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 	}
-	repository := capabilitystore.NewMemoryStore()
+	repository := newTestCapabilityStore()
 	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, repository)
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +239,7 @@ func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *tes
 		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: "sha256:relationships"},
 		fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: false, Status: catalog.EvidenceIncomplete, Digest: "sha256:fields"},
 	}
-	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, capabilitystore.NewMemoryStore())
+	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, newTestCapabilityStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,77 +248,23 @@ func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *tes
 	}
 }
 
-func TestExplorerAuthoringV2HardCutCompilesAndPreviewsReceipt(t *testing.T) {
-	snapshot := testAuthoringV2CapabilitySnapshot()
-	store := explorer.NewMemoryStore()
-	service, err := explorer.NewService(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "custom", "Custom", "test"); err != nil {
-		t.Fatal(err)
-	}
-	legacy := legacyCatalogSnapshot(snapshot)
-	compile := func(ctx context.Context, request ExplorerAuthoringV1CompileRequest) (ExplorerAuthoringV1CompileResult, error) {
-		return ResolveAuthoringBundle(ctx, nil, func(context.Context, string, string, string) (explorer.CatalogSnapshot, error) { return legacy, nil }, request)
-	}
-	app := fiber.New()
-	RegisterExplorerAuthoringV2Routes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{
-		Capability: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		CapabilityToken: func(_ context.Context, _ string, token string) (capability.Snapshot, error) {
-			if err := snapshot.ValidateToken(token); err != nil {
-				return capability.Snapshot{}, err
-			}
-			return snapshot, nil
-		},
-		AuthorizedCapabilityExecution: func(_ context.Context, _, token string) (AuthorizedCapability, error) {
-			if err := snapshot.ValidateToken(token); err != nil {
-				return AuthorizedCapability{}, err
-			}
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
-		},
-		AuthoringCompile: compile,
-		Preview: func(_ context.Context, _ recipe.Bundle, _ recipe.RuntimeBindings) (map[string][]map[string]any, error) {
-			return map[string][]map[string]any{"patients": {{"id": "patient-1"}}}, nil
-		},
+func TestCapabilityObserverPublishesBothStoredRelationshipDirections(t *testing.T) {
+	observer := capabilityObserverFromEvidence(catalog.CapabilityEvidence{
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{{
+			Label: "subject_Patient", EdgeCount: 7,
+			StorageFromType: "Specimen", StorageToType: "Patient", StorageDirection: "OUTBOUND",
+			BuilderFromType: "Patient", BuilderToType: "Specimen", BuilderDirection: "INBOUND",
+		}}},
 	})
-
-	get := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", "")
-	if get.StatusCode != http.StatusOK {
-		t.Fatalf("GET builder status=%d body=%s", get.StatusCode, get.Body)
+	got := map[string]capability.RelationshipObservation{}
+	for _, relationship := range observer.relationships {
+		got[relationship.SourceResourceType+"->"+relationship.TargetResourceType] = relationship
 	}
-	legacyResponse := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v1/builder", "")
-	if legacyResponse.StatusCode != http.StatusNotFound {
-		t.Fatalf("V1 Builder remains registered: status=%d", legacyResponse.StatusCode)
+	if outbound := got["Specimen->Patient"]; outbound.StorageDirection != "OUTBOUND" || outbound.ObservedEdgeCount != 7 {
+		t.Fatalf("outbound relationship = %#v", outbound)
 	}
-	suggestions := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v2/capabilities/"+snapshot.Token+"/candidates/c_patient_id/suggestions", "")
-	if suggestions.StatusCode != http.StatusOK || !strings.Contains(suggestions.Body, `"patient-1"`) {
-		t.Fatalf("candidate suggestions status=%d body=%s", suggestions.StatusCode, suggestions.Body)
-	}
-	body := `{"workspace":{"apiVersion":"` + authoringv2.APIVersion + `","kind":"` + authoringv2.WorkspaceKind + `","documents":[{"kind":"` + authoringv2.Kind + `","output":{"id":"patients","title":"Patients"},"rootNodeId":"n_patient","routeSteps":[],"selections":[{"candidateId":"c_patient_id","occurrenceId":"base","projectionMode":"FIRST"}],"presentation":{}}],"tabs":[{"id":"patients-tab","title":"Patients","outputId":"patients","order":0,"visible":true}]},"snapshotToken":"` + snapshot.Token + `"}`
-	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", body)
-	if compiled.StatusCode != http.StatusOK {
-		t.Fatalf("POST builder status=%d body=%s", compiled.StatusCode, compiled.Body)
-	}
-	var result struct {
-		ReceiptID string `json:"receiptId"`
-	}
-	if err := json.Unmarshal([]byte(compiled.Body), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.ReceiptID == "" {
-		t.Fatal("compile result omitted receiptId")
-	}
-	receipt, err := service.CompilationReceipt(context.Background(), result.ReceiptID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := receipt.Bundle.Outputs[0].Fields[0].ValueMode; got != recipe.ValueModeFirst {
-		t.Fatalf("V2 projection mode was not carried into the executable recipe: %q", got)
-	}
-	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
-	if preview.StatusCode != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", preview.StatusCode, preview.Body)
+	if inbound := got["Patient->Specimen"]; inbound.StorageDirection != "INBOUND" || inbound.ObservedEdgeCount != 7 {
+		t.Fatalf("inbound relationship = %#v", inbound)
 	}
 }
 

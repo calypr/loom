@@ -167,10 +167,10 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 }
 
 func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
-	cache := catalog.NewShapePlanCache()
+	cache := catalog.NewShapePlanCacheWithLimit(catalog.DefaultProfileLimits().MaxShapePlans)
 	keys := map[generationCatalogKey]*catalog.Profiler{
-		{project: "project-a", datasetGeneration: "generation-b", authResourcePath: "scope-b", resourceType: "Patient"}: catalog.NewProfilerForGeneration("project-a", "generation-b", "scope-b", "Patient", cache),
-		{project: "project-a", datasetGeneration: "generation-a", authResourcePath: "scope-a", resourceType: "Patient"}: catalog.NewProfilerForGeneration("project-a", "generation-a", "scope-a", "Patient", cache),
+		{project: "project-a", datasetGeneration: "generation-b", authResourcePath: "scope-b", resourceType: "Patient"}: catalog.NewProfilerForGenerationWithLimits("project-a", "generation-b", "scope-b", "Patient", cache, catalog.DefaultProfileLimits()),
+		{project: "project-a", datasetGeneration: "generation-a", authResourcePath: "scope-a", resourceType: "Patient"}: catalog.NewProfilerForGenerationWithLimits("project-a", "generation-a", "scope-a", "Patient", cache, catalog.DefaultProfileLimits()),
 	}
 	sorted := sortedGenerationCatalogKeys(keys)
 	if len(sorted) != 2 || sorted[0].datasetGeneration != "generation-a" || sorted[1].datasetGeneration != "generation-b" {

@@ -47,6 +47,7 @@ func TestResolveRecipePlanHonorsExplicitEmptyDynamicColumnPrefix(t *testing.T) {
 				Source: recipe.Expression{Select: "content[].attachment.extension[]"},
 				Key:    &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.url"}}},
 				Value:  &recipe.Expression{Select: "item.valueString"}, Columns: []string{"source_path"}, MaxColumns: 4,
+				ColumnSourceKeys: map[string]string{"source_path": "https://example.test/source_path"},
 			}},
 		}},
 	}
@@ -54,12 +55,15 @@ func TestResolveRecipePlanHonorsExplicitEmptyDynamicColumnPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(plan.Outputs) != 1 || len(plan.Outputs[0].Root.DynamicMaps) != 1 || !plan.Outputs[0].Root.DynamicMaps[0].AllowUnknownKeys {
+		t.Fatalf("fixed keyed map must ignore unrelated sibling keys: %#v", plan.Outputs)
+	}
 	resolved, err := ResolveRecipePlan(plan, "scope-1", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
 	columns := resolved.ResolvedColumns["DocumentReference:attachment_extensions"]
-	if len(columns) != 1 || columns[0].Column.Name != "source_path" || columns[0].Column.SourceKey != "source_path" {
+	if len(columns) != 1 || columns[0].Column.Name != "source_path" || columns[0].Column.SourceKey != "https://example.test/source_path" {
 		t.Fatalf("unexpected compatibility dynamic column: %#v", columns)
 	}
 }

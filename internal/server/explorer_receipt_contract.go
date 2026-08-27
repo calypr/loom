@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -17,48 +15,6 @@ import (
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
-
-func compiledExplorerConfigV2(project, explorerID string, compiled explorercompilation.Result) ([]byte, error) {
-	if len(compiled.EmittedColumns) == 0 {
-		// An empty selection is a valid mutable editor state and may receive a
-		// receipt, but there is no valid interactive ExplorerConfig until the user
-		// selects a public column. Publication rejects this state explicitly.
-		return nil, nil
-	}
-	recipeJSON, err := json.Marshal(compiled.Bundle)
-	if err != nil {
-		return nil, fmt.Errorf("marshal compiled recipe: %w", err)
-	}
-	columns := append([]explorercompilation.PresentationColumn(nil), compiled.Presentation.Columns...)
-	sort.SliceStable(columns, func(i, j int) bool {
-		if columns[i].Order != columns[j].Order {
-			return columns[i].Order < columns[j].Order
-		}
-		return columns[i].EmissionID < columns[j].EmissionID
-	})
-	table := make([]explorer.ConfigColumn, 0, len(columns))
-	for _, column := range columns {
-		table = append(table, explorer.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible})
-	}
-	sum := sha256.Sum256([]byte(compiled.Presentation.OutputID))
-	viewID := "view-" + hex.EncodeToString(sum[:])[:12]
-	config := explorer.ConfigV2{
-		APIVersion: explorer.ConfigV2APIVersion,
-		Kind:       "ExplorerConfig",
-		Project:    projectid.Canonical(project),
-		Explorer: explorer.ConfigExplorer{
-			ID: explorerID, Title: compiled.Presentation.Title,
-			Management: explorer.ConfigManagementForID(explorerID),
-		},
-		Recipe: recipeJSON,
-		Views: []explorer.ConfigView{{
-			ID: viewID, Title: compiled.Presentation.Title,
-			Output: compiled.Presentation.OutputID,
-			Table:  explorer.ConfigTable{Columns: table},
-		}},
-	}
-	return json.Marshal(config)
-}
 
 func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled explorercompilation.WorkspaceResult) ([]byte, error) {
 	if len(compiled.EmittedColumns) == 0 {
@@ -90,9 +46,17 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 			}
 			return columns[i].EmissionID < columns[j].EmissionID
 		})
+		document, found := semanticWorkspaceDocument(compiled.Workspace, tab.OutputID)
 		view := explorer.ConfigView{ID: tab.ID, Title: tab.Title, Output: tab.OutputID, Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{}}}
+		if found {
+			view.RowLabel = document.Output.RowLabel
+		}
 		for _, column := range columns {
-			view.Table.Columns = append(view.Table.Columns, explorer.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible, Pinned: column.Pinned})
+			cellRenderer := ""
+			if authored, ok := semanticWorkspaceColumn(document, column.PublicColumn); ok && authored.Table != nil {
+				cellRenderer = authored.Table.CellRenderer
+			}
+			view.Table.Columns = append(view.Table.Columns, explorer.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible, Pinned: column.Pinned, CellRenderer: cellRenderer})
 			if column.FilterLabel != "" {
 				view.Filters = append(view.Filters, explorer.ConfigFilter{Column: column.PublicColumn, Label: column.FilterLabel})
 			}
@@ -100,14 +64,73 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 				view.Charts = append(view.Charts, explorer.ConfigChart{Column: column.PublicColumn, Type: column.ChartType, Title: column.ChartTitle})
 			}
 		}
+		if found {
+			for _, fixed := range document.FixedFilters {
+				if view.FixedFilters == nil {
+					view.FixedFilters = map[string][]string{}
+				}
+				view.FixedFilters[fixed.Column] = append([]string(nil), fixed.Values...)
+			}
+			for _, action := range document.Actions {
+				compiledAction := explorer.ConfigAction{Type: action.Type, Title: action.Title, FileName: action.FileName, Output: document.Output.ID}
+				for _, binding := range action.Columns {
+					compiledAction.Columns = append(compiledAction.Columns, binding.Column)
+					if binding.ExportHeader != "" {
+						if compiledAction.ExportHeaders == nil {
+							compiledAction.ExportHeaders = map[string]string{}
+						}
+						compiledAction.ExportHeaders[binding.Column] = binding.ExportHeader
+					}
+				}
+				view.Actions = append(view.Actions, compiledAction)
+			}
+		}
 		views = append(views, view)
 	}
-	title := explorerID
+	title := firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, explorerID)
 	if len(tabs) > 0 {
-		title = tabs[0].Title
+		title = firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID)
 	}
-	config := explorer.ConfigV2{APIVersion: explorer.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project), Explorer: explorer.ConfigExplorer{ID: explorerID, Title: title, Management: explorer.ConfigManagementForID(explorerID)}, Recipe: recipeJSON, Views: views}
+	shared := map[string][]explorer.SharedFilter{}
+	for name, bindings := range compiled.Workspace.SharedFilters {
+		for _, binding := range bindings {
+			shared[name] = append(shared[name], explorer.SharedFilter{Output: binding.OutputID, Column: binding.Column})
+		}
+	}
+	fileActions := explorer.FileActions{}
+	if compiled.Workspace.FileActions != nil {
+		fileActions.Extensions = compiled.Workspace.FileActions.Extensions
+		fileActions.Actions = compiled.Workspace.FileActions.Actions
+	}
+	config := explorer.ConfigV2{APIVersion: explorer.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project), Explorer: explorer.ConfigExplorer{ID: explorerID, Title: title, Description: compiled.Workspace.Explorer.Description, Management: explorer.ConfigManagementForID(explorerID)}, Recipe: recipeJSON, Views: views, SharedFilters: shared, FileActions: fileActions}
 	return json.Marshal(config)
+}
+
+func semanticWorkspaceDocument(workspace authoringv2.Workspace, outputID string) (authoringv2.Document, bool) {
+	for _, document := range workspace.Documents {
+		if document.Output.ID == outputID {
+			return document, true
+		}
+	}
+	return authoringv2.Document{}, false
+}
+
+func semanticWorkspaceColumn(document authoringv2.Document, column string) (authoringv2.Column, bool) {
+	for _, authored := range document.Columns {
+		if authored.Column == column {
+			return authored, true
+		}
+	}
+	return authoringv2.Column{}, false
+}
+
+func firstNonEmptyWorkspaceTitle(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return "Explorer"
 }
 
 func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {

@@ -291,10 +291,6 @@ func groupingMaskExpression(columns []string) string {
 	return strings.Join(terms, " + ")
 }
 
-func legacyMetric(job AggregateJob) string {
-	return legacyMetricOnColumn(job, job.Column)
-}
-
 func legacyMetricOnColumn(job AggregateJob, column string) string {
 	switch job.Operation {
 	case "COUNT_DISTINCT":

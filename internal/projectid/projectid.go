@@ -5,7 +5,6 @@
 package projectid
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -49,28 +48,4 @@ func Legacy(raw string) string {
 		return canonical[:index] + "-" + canonical[index+1:]
 	}
 	return canonical
-}
-
-// Aliases returns canonical first, then legacy, without duplicates. It is
-// useful for compatibility reads against records written before slash IDs.
-func Aliases(raw string) []string {
-	canonical := Canonical(raw)
-	legacy := Legacy(canonical)
-	if canonical == "" {
-		return nil
-	}
-	if canonical == legacy {
-		return []string{canonical}
-	}
-	return []string{canonical, legacy}
-}
-
-// RequireCanonical validates a project identity at a public API boundary.
-func RequireCanonical(raw string) (string, error) {
-	canonical := Canonical(raw)
-	parts := strings.SplitN(canonical, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", fmt.Errorf("project must use program/project format")
-	}
-	return canonical, nil
 }

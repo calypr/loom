@@ -150,10 +150,6 @@ func decomposeSelector(expression string) FieldSelector {
 	}
 }
 
-func DecomposeSelector(expression string) FieldSelector {
-	return decomposeSelector(expression)
-}
-
 func fieldSelectorFromSpec(spec fhirschema.FieldSelectorSpec) FieldSelector {
 	var where *FieldPredicate
 	if spec.Where != nil {

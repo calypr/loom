@@ -167,21 +167,6 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 	return &value, nil
 }
 
-func cursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
-	row := "toString(`__loom_row_id`) > ?"
-	if sort == nil {
-		return row, []any{cursor.RowID}, nil
-	}
-	if cursor.SortValue == nil {
-		return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
-	}
-	operator := ">"
-	if sort.Desc {
-		operator = "<"
-	}
-	return fmt.Sprintf("(`%s` %s ? OR (`%s` = ? AND %s))", sort.Column, operator, sort.Column, row), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
-}
-
 func contains(values []string, needle string) bool {
 	for _, value := range values {
 		if value == needle {

@@ -11,19 +11,8 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func NewShapePlanCache() *ShapePlanCache {
-	return NewShapePlanCacheWithLimit(DefaultProfileLimits().MaxShapePlans)
-}
-
 func NewShapePlanCacheWithLimit(maxPlans int) *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans}
-}
-
-// NewProfilerForGeneration constructs a profiler whose catalog documents are
-// bound to one immutable dataset generation. A blank (or whitespace-only)
-// generation intentionally selects the legacy namespace for compatibility.
-func NewProfilerForGeneration(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
-	return NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType, cache, DefaultProfileLimits())
 }
 
 // NewProfilerForGenerationWithLimits constructs a profiler with explicit
@@ -263,10 +252,6 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	return stat
 }
 
-func (s *fieldCatalogStats) addDistinct(value string) {
-	s.addDistinctWithLimits(value, DefaultProfileLimits())
-}
-
 func (s *fieldCatalogStats) addDistinctWithLimits(value string, limits ProfileLimits) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -284,10 +269,6 @@ func (s *fieldCatalogStats) addDistinctWithLimits(value string, limits ProfileLi
 	s.distinctValues = append(s.distinctValues, value)
 }
 
-func (s *fieldCatalogStats) addPivotColumn(value string) {
-	s.addPivotColumnWithLimits(value, DefaultProfileLimits())
-}
-
 func (s *fieldCatalogStats) addPivotColumnWithLimits(value string, limits ProfileLimits) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -303,10 +284,6 @@ func (s *fieldCatalogStats) addPivotColumnWithLimits(value string, limits Profil
 	}
 	s.pivotColumnSet[value] = struct{}{}
 	s.pivotColumns = append(s.pivotColumns, value)
-}
-
-func (s *fieldCatalogStats) addExtensionValue(observation ExtensionValueObservation) {
-	s.addExtensionValueWithLimits(observation, DefaultProfileLimits())
 }
 
 func (s *fieldCatalogStats) addExtensionValueWithLimits(observation ExtensionValueObservation, limits ProfileLimits) {

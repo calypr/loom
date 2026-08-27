@@ -12,16 +12,24 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+func NewShapePlanCache() *ShapePlanCache {
+	return NewShapePlanCacheWithLimit(DefaultProfileLimits().MaxShapePlans)
+}
+
+func NewProfilerForGeneration(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
+	return NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType, cache, DefaultProfileLimits())
+}
+
 func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {
 	stat := fieldCatalogStats{distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{})}
 	for i := range 257 {
-		stat.addDistinct(strconv.Itoa(i))
+		stat.addDistinctWithLimits(strconv.Itoa(i), DefaultProfileLimits())
 	}
 	if stat.distinctTruncated || len(stat.distinctValues) != 257 {
 		t.Fatalf("distinct values = %d, truncated = %v", len(stat.distinctValues), stat.distinctTruncated)
 	}
 	for i := range 257 {
-		stat.addPivotColumn(strconv.Itoa(i))
+		stat.addPivotColumnWithLimits(strconv.Itoa(i), DefaultProfileLimits())
 	}
 	if stat.distinctTruncated || len(stat.pivotColumns) != 257 {
 		t.Fatalf("pivot columns = %d, truncated = %v", len(stat.pivotColumns), stat.distinctTruncated)

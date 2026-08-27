@@ -41,11 +41,6 @@ func NewCapabilitySnapshotStore(c client) (*CapabilitySnapshotStore, error) {
 	return &CapabilitySnapshotStore{client: c}, nil
 }
 
-// NewSnapshotStore is a concise compatibility constructor.
-func NewSnapshotStore(c client) (*CapabilitySnapshotStore, error) {
-	return NewCapabilitySnapshotStore(c)
-}
-
 func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
 	if err := capabilitystore.ValidateSnapshot(snapshot); err != nil {
 		return nil, err

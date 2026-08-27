@@ -8,37 +8,6 @@ import (
 	"sort"
 )
 
-// newEvidenceStatus centralizes the empty/partial distinction. A successful
-// query with no rows is valid empty evidence; a failed query is unavailable,
-// and a bounded profiler result is incomplete/truncated.
-func newEvidenceStatus(available, complete, truncated bool, count int) EvidenceStatus {
-	if !available {
-		return EvidenceUnavailable
-	}
-	if truncated {
-		return EvidenceTruncated
-	}
-	if !complete {
-		return EvidenceIncomplete
-	}
-	if count == 0 {
-		return EvidenceEmpty
-	}
-	return EvidenceAvailable
-}
-
-func unavailableInventory(diagnostics []EvidenceDiagnostic) ResourceInventoryResult {
-	return ResourceInventoryResult{Values: []ResourceInventoryObservation{}, Status: EvidenceUnavailable, Diagnostics: append([]EvidenceDiagnostic(nil), diagnostics...)}
-}
-
-func unavailableRelationships(diagnostics []EvidenceDiagnostic) RelationshipObservationResult {
-	return RelationshipObservationResult{Values: []RelationshipObservation{}, Status: EvidenceUnavailable, Diagnostics: append([]EvidenceDiagnostic(nil), diagnostics...)}
-}
-
-func unavailableEnrichment(diagnostics []EvidenceDiagnostic) FieldEnrichmentResult {
-	return FieldEnrichmentResult{Values: []FieldEnrichmentObservation{}, Status: EvidenceUnavailable, Diagnostics: append([]EvidenceDiagnostic(nil), diagnostics...)}
-}
-
 func canonicalDigest(value any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

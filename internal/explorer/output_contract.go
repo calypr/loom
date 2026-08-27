@@ -25,15 +25,19 @@ type PublicOutputContract struct {
 }
 
 type PublicOutputColumn struct {
-	EmissionID     string `json:"emissionId"`
-	PublicColumn   string `json:"publicColumn"`
-	CandidateID    string `json:"candidateId"`
-	OccurrenceID   string `json:"occurrenceId"`
-	ProjectionMode string `json:"projectionMode"`
-	Label          string `json:"label"`
-	LogicalType    string `json:"logicalType"`
-	Filterable     bool   `json:"filterable"`
-	Chartable      bool   `json:"chartable"`
+	Column      string `json:"column"`
+	Label       string `json:"label"`
+	LogicalType string `json:"logicalType"`
+	Filterable  bool   `json:"filterable"`
+	Chartable   bool   `json:"chartable"`
+
+	// Compiler identities remain available to internal legacy tests only. They
+	// are deliberately absent from the V2 public contract.
+	EmissionID     string `json:"-"`
+	PublicColumn   string `json:"-"`
+	CandidateID    string `json:"-"`
+	OccurrenceID   string `json:"-"`
+	ProjectionMode string `json:"-"`
 }
 
 // DecodePublicOutputContracts strictly decodes the current contract shape.
@@ -97,9 +101,7 @@ func DecodePublicOutputContracts(raw json.RawMessage) (PublicOutputContracts, er
 		for columnIndex, column := range contract.Columns {
 			path := fmt.Sprintf("outputs[%d].columns[%d]", outputIndex, columnIndex)
 			for _, field := range []struct{ name, value string }{
-				{"emissionId", column.EmissionID}, {"publicColumn", column.PublicColumn},
-				{"candidateId", column.CandidateID}, {"occurrenceId", column.OccurrenceID},
-				{"projectionMode", column.ProjectionMode}, {"label", column.Label},
+				{"column", column.Column}, {"label", column.Label},
 				{"logicalType", column.LogicalType},
 			} {
 				if strings.TrimSpace(field.value) == "" {
@@ -169,25 +171,20 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 	if len(c.Columns) != len(emitted) {
 		return invalidOutputContract("column count %d does not match emitted column count %d", len(c.Columns), len(emitted))
 	}
-	seenEmission := make(map[string]struct{}, len(emitted))
 	seenPublic := make(map[string]struct{}, len(emitted))
 	for i, column := range emitted {
 		if strings.TrimSpace(column.OutputID) != c.OutputID {
 			return invalidOutputContract("emittedColumns[%d] belongs to output %q, want %q", i, column.OutputID, c.OutputID)
 		}
-		if strings.TrimSpace(column.EmissionID) == "" || strings.TrimSpace(column.PublicColumn) == "" {
+		if strings.TrimSpace(column.PublicColumn) == "" {
 			return invalidOutputContract("emittedColumns[%d] has an empty identity", i)
-		}
-		if _, exists := seenEmission[column.EmissionID]; exists {
-			return invalidOutputContract("duplicate emissionId %q", column.EmissionID)
 		}
 		if _, exists := seenPublic[column.PublicColumn]; exists {
 			return invalidOutputContract("duplicate publicColumn %q", column.PublicColumn)
 		}
-		seenEmission[column.EmissionID] = struct{}{}
 		seenPublic[column.PublicColumn] = struct{}{}
 		actual := c.Columns[i]
-		if actual.EmissionID != column.EmissionID || actual.PublicColumn != column.PublicColumn || actual.CandidateID != column.CandidateID || actual.OccurrenceID != column.OccurrenceID || actual.ProjectionMode != column.ProjectionMode || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.Column != column.PublicColumn || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}
