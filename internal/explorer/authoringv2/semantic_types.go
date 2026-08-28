@@ -3,7 +3,6 @@ package authoringv2
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -243,10 +242,4 @@ func (w Workspace) validateSemanticBindings() error {
 		}
 	}
 	return nil
-}
-
-func sortedRouteChildren(children []RouteNode) []RouteNode {
-	result := append([]RouteNode(nil), children...)
-	sort.SliceStable(result, func(i, j int) bool { return result[i].OccurrenceID < result[j].OccurrenceID })
-	return result
 }

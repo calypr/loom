@@ -69,12 +69,6 @@ func TestReceiptArangoStoreUsesImmutableTenantScopedQueries(t *testing.T) {
 	if !strings.Contains(call.query, "d.project == @project") || !strings.Contains(call.query, "d.explorerId == @explorerId") {
 		t.Fatalf("lookup is not tenant scoped: %s", call.query)
 	}
-	if _, err := adapter.GetCompilationReceiptByCompilationKey(context.Background(), "project-a", "explorer-a", receipt.CompilationKey); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(client.calls[len(client.calls)-1].query, "d.compilationKey == @compilationKey") {
-		t.Fatalf("compilation key query missing: %s", client.calls[len(client.calls)-1].query)
-	}
 }
 
 func testReceiptBundle() recipe.Bundle {

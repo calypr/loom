@@ -199,18 +199,6 @@ func (s *testExplorerStore) GetCompilationReceiptForExplorer(ctx context.Context
 	return value, nil
 }
 
-func (s *testExplorerStore) GetCompilationReceiptByCompilationKey(_ context.Context, project, explorerID, key string) (*explorer.CompilationReceipt, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, value := range s.receipts {
-		if value.Project == project && value.ExplorerID == explorerID && value.CompilationKey == key {
-			copy := value
-			return &copy, nil
-		}
-	}
-	return nil, explorer.ErrNotFound
-}
-
 func (s *testExplorerStore) InsertRevision(_ context.Context, value explorer.Revision) (*explorer.Revision, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

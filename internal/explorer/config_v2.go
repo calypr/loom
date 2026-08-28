@@ -1,22 +1,10 @@
 package explorer
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
-	"regexp"
-	"strings"
-
-	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/projectid"
 )
 
 const ConfigV2APIVersion = "loom.calypr.org/explorer-config/v2"
-
-var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 func ConfigManagementForID(explorerID string) string {
 	if explorerID == "default" {
@@ -89,93 +77,4 @@ type SharedFilter struct {
 type FileActions struct {
 	Extensions map[string][]string `json:"extensions,omitempty"`
 	Actions    map[string]string   `json:"actions,omitempty"`
-}
-
-func DecodeConfigV2(raw []byte, project string) (ConfigV2, recipe.Bundle, error) {
-	return DecodeDefaultConfigV2(raw, project)
-}
-
-func DecodeDefaultConfigV2(raw []byte, project string) (ConfigV2, recipe.Bundle, error) {
-	return decodeConfigV2(raw, project, "default", "repository")
-}
-
-func DecodeInteractiveConfigV2(raw []byte, project, explorerID string) (ConfigV2, recipe.Bundle, error) {
-	return decodeConfigV2(raw, project, explorerID, "interactive")
-}
-
-func CanonicalConfigV2(raw []byte, project, explorerID, management string) (ConfigV2, recipe.Bundle, []byte, string, error) {
-	var cfg ConfigV2
-	var bundle recipe.Bundle
-	var err error
-	if management == "interactive" {
-		cfg, bundle, err = DecodeInteractiveConfigV2(raw, project, explorerID)
-	} else {
-		cfg, bundle, err = decodeConfigV2(raw, project, explorerID, management)
-	}
-	if err != nil {
-		return cfg, bundle, nil, "", err
-	}
-	canonical, err := canonicalJSONBytes(raw)
-	if err != nil {
-		return cfg, bundle, nil, "", fmt.Errorf("canonicalize ExplorerConfigV2: %w", err)
-	}
-	sum := sha256.Sum256(canonical)
-	return cfg, bundle, canonical, "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-func decodeConfigV2(raw []byte, project, explorerID, management string) (ConfigV2, recipe.Bundle, error) {
-	var cfg ConfigV2
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&cfg); err != nil {
-		return cfg, recipe.Bundle{}, fmt.Errorf("decode ExplorerConfigV2: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return cfg, recipe.Bundle{}, fmt.Errorf("decode ExplorerConfigV2: multiple JSON values")
-	}
-	if cfg.APIVersion != ConfigV2APIVersion || cfg.Kind != "ExplorerConfig" {
-		return cfg, recipe.Bundle{}, fmt.Errorf("apiVersion must be %q and kind must be ExplorerConfig", ConfigV2APIVersion)
-	}
-	if projectid.Canonical(cfg.Project) != projectid.Canonical(project) {
-		return cfg, recipe.Bundle{}, fmt.Errorf("config project must match deployment project")
-	}
-	cfg.Project = projectid.Canonical(project)
-	if cfg.Explorer.ID != explorerID || !strings.EqualFold(cfg.Explorer.Management, management) {
-		return cfg, recipe.Bundle{}, fmt.Errorf("config explorer identity or management mode does not match deployment")
-	}
-	if strings.TrimSpace(cfg.Explorer.Title) == "" {
-		return cfg, recipe.Bundle{}, fmt.Errorf("ExplorerConfigV2 requires a title")
-	}
-	hasPresentation := len(cfg.Views) > 0 || len(cfg.SharedFilters) > 0 || len(cfg.FileActions.Extensions) > 0 || len(cfg.FileActions.Actions) > 0
-	if strings.EqualFold(management, "interactive") && len(cfg.Views) == 0 {
-		return cfg, recipe.Bundle{}, fmt.Errorf("interactive ExplorerConfigV2 requires at least one view")
-	}
-	if strings.EqualFold(management, "repository") && hasPresentation && len(cfg.Views) == 0 {
-		return cfg, recipe.Bundle{}, fmt.Errorf("repository ExplorerConfigV2 presentation requires at least one view")
-	}
-	bundle, err := recipe.Parse(cfg.Recipe)
-	if err != nil {
-		return cfg, recipe.Bundle{}, fmt.Errorf("invalid recipe: %w", err)
-	}
-	outputs := map[string]bool{}
-	for _, output := range bundle.Outputs {
-		outputs[output.Name] = true
-	}
-	views := map[string]bool{}
-	for i, view := range cfg.Views {
-		if !idPattern.MatchString(view.ID) || views[view.ID] || strings.TrimSpace(view.Title) == "" || !outputs[view.Output] {
-			return cfg, recipe.Bundle{}, fmt.Errorf("views[%d] must have a unique id, title, and recipe output", i)
-		}
-		views[view.ID] = true
-		if len(view.Table.Columns) == 0 {
-			return cfg, recipe.Bundle{}, fmt.Errorf("views[%d].table.columns is required", i)
-		}
-		for _, column := range view.Table.Columns {
-			if strings.TrimSpace(column.Column) == "" {
-				return cfg, recipe.Bundle{}, fmt.Errorf("views[%d] has an empty table column", i)
-			}
-		}
-	}
-	return cfg, bundle, nil
 }

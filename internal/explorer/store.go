@@ -33,7 +33,6 @@ type Store interface {
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
 	InsertCompilationReceipt(context.Context, CompilationReceipt) (*CompilationReceipt, error)
 	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*CompilationReceipt, error)
-	GetCompilationReceiptByCompilationKey(context.Context, string, string, string) (*CompilationReceipt, error)
 	PublishAuthoring(context.Context, CompilationReceipt, Revision) (*Revision, error)
 	InsertRevision(context.Context, Revision) (*Revision, error)
 	GetRevision(context.Context, string) (*Revision, error)

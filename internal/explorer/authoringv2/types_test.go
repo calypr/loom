@@ -70,21 +70,6 @@ func TestBuilderStateRejectsStaleAndDuplicateStructure(t *testing.T) {
 	}
 }
 
-func TestStrictV2DecodeRejectsUnknownDuplicateAndTrailingFields(t *testing.T) {
-	raw := `{"apiVersion":"` + APIVersion + `","kind":"ExplorerBuilderDocument","output":{"id":"out","title":"Title"},"rootNodeId":"patient","routeSteps":[],"selections":[],"presentation":{},"aql":"for x in c return x"}`
-	if _, err := DecodeDocument([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("unknown field error=%v", err)
-	}
-	raw = strings.Replace(raw, `,"aql":"for x in c return x"`, `,"presentation":{},"presentation":{}`, 1)
-	if _, err := DecodeDocument([]byte(raw)); err == nil || !strings.Contains(err.Error(), "duplicate JSON key") {
-		t.Fatalf("duplicate field error=%v", err)
-	}
-	valid := `{"apiVersion":"` + APIVersion + `","kind":"ExplorerBuilderDocument","output":{"id":"out","title":"Title"},"rootNodeId":"patient","routeSteps":[],"selections":[],"presentation":{}} {}`
-	if _, err := DecodeDocument([]byte(valid)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
-		t.Fatalf("trailing value error=%v", err)
-	}
-}
-
 func TestCanonicalizationAndDigestAreStableAcrossUnorderedCollections(t *testing.T) {
 	first := testDocument()
 	second := testDocument()

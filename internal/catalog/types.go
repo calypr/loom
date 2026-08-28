@@ -77,8 +77,6 @@ type ResourceInventoryObservation struct {
 	DocumentCount     int64  `json:"document_count"`
 }
 
-type ResourceInventoryRecord = ResourceInventoryObservation
-
 type ResourceInventoryResult struct {
 	Values      []ResourceInventoryObservation `json:"values"`
 	Available   bool                           `json:"available"`

@@ -159,6 +159,17 @@ func TestDecodeWorkspaceRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestDecodeWorkspaceRejectsDuplicateAndTrailingJSON(t *testing.T) {
+	duplicate := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","documents":[],"tabs":[],"tabs":[]}`
+	if _, err := DecodeWorkspace([]byte(duplicate)); err == nil || !strings.Contains(err.Error(), "duplicate JSON key") {
+		t.Fatalf("duplicate field error=%v", err)
+	}
+	trailing := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","documents":[],"tabs":[]} {}`
+	if _, err := DecodeWorkspace([]byte(trailing)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+		t.Fatalf("trailing value error=%v", err)
+	}
+}
+
 func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"}}],"tabs":[{"id":"tab-patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
 	workspace, err := DecodeWorkspace([]byte(raw))

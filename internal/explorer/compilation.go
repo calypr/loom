@@ -1,9 +1,6 @@
 package explorer
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -29,9 +26,4 @@ type EmittedColumn struct {
 	LogicalType    string `json:"logicalType"`
 	Filterable     bool   `json:"filterable"`
 	Chartable      bool   `json:"chartable"`
-}
-
-func OpaqueID(prefix, identity string) string {
-	sum := sha256.Sum256([]byte(identity))
-	return prefix + hex.EncodeToString(sum[:])
 }

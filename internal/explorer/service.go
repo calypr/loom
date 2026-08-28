@@ -346,10 +346,6 @@ func (s *Service) CompilationReceiptForExplorer(ctx context.Context, project, ex
 	return s.store.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, id)
 }
 
-func (s *Service) CompilationReceiptByCompilationKey(ctx context.Context, project, explorerID, compilationKey string) (*CompilationReceipt, error) {
-	return s.store.GetCompilationReceiptByCompilationKey(ctx, projectid.Canonical(project), explorerID, compilationKey)
-}
-
 func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt CompilationReceipt) (*CompilationReceipt, error) {
 	return s.store.InsertCompilationReceipt(ctx, receipt)
 }

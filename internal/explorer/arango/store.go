@@ -144,18 +144,11 @@ func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.C
 	if err != nil {
 		return nil, err
 	}
-	if receipt.Project != "" && receipt.ExplorerID != "" {
-		return s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
-	}
 	return s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 }
 
 func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
 	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, map[string]any{"@c": CompilationReceiptsCollection, "key": id, "project": project, "explorerId": explorerID})
-}
-
-func (s *Store) GetCompilationReceiptByCompilationKey(ctx context.Context, project, explorerID, compilationKey string) (*explorer.CompilationReceipt, error) {
-	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorerId AND d.compilationKey == @compilationKey SORT d._key LIMIT 1 RETURN d`, map[string]any{"@c": CompilationReceiptsCollection, "project": project, "explorerId": explorerID, "compilationKey": compilationKey})
 }
 
 func (s *Store) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
