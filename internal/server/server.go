@@ -502,15 +502,15 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, publishedRegistry, scopeResolver); err != nil {
-		return fmt.Errorf("register HTTP routes: %w", err)
-	}
-	RegisterExplorerConfigV2Route(server.App(), authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
+	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
 		if scopeResolver == nil {
 			return nil
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, explorerMaterializer, lifecycleConfig)
+	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+		return fmt.Errorf("register HTTP routes: %w", err)
+	}
 	if publicationWorker != nil {
 		go func() {
 			err := publicationWorker.Run(ctx, time.Second, func(workerErr error) {

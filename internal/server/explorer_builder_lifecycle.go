@@ -10,13 +10,20 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// RegisterExplorerLifecycleRoutes exposes only collection summaries, creation,
-// and the active runtime projection. All browser editing uses authoring/v2.
-func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, capabilities ExplorerV2LifecycleConfig) {
-	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil {
-		return
+type explorerLifecycleHandlers struct {
+	list   fiber.Handler
+	get    fiber.Handler
+	create fiber.Handler
+}
+
+// newExplorerLifecycleHandlers exposes only collection summaries, creation,
+// and the active runtime projection. Generated OpenAPI routing owns paths.
+func newExplorerLifecycleHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, capabilities ExplorerV2LifecycleConfig) *explorerLifecycleHandlers {
+	handlers := &explorerLifecycleHandlers{}
+	if authorizer == nil || authorizeRead == nil || explorers == nil {
+		return handlers
 	}
-	app.Get("/api/v1/projects/:project/explorers", func(c fiber.Ctx) error {
+	handlers.list = func(c fiber.Ctx) error {
 		project := explorerProjectParam(c)
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
@@ -30,9 +37,9 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			summaries = append(summaries, explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, ActiveRevisionID: value.ActiveRevisionID, UpdatedAt: value.UpdatedAt})
 		}
 		return c.JSON(summaries)
-	})
+	}
 
-	app.Get("/api/v1/projects/:project/explorers/:explorerId", func(c fiber.Ctx) error {
+	handlers.get = func(c fiber.Ctx) error {
 		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
 		if err := authorizeRead(c.Context(), principalFromFiber(c), project); err != nil {
 			return explorerV2Error(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
@@ -45,9 +52,9 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			return explorerV2Error(c, 500, "EXPLORER_READ_FAILED", err.Error())
 		}
 		return c.JSON(state)
-	})
+	}
 
-	app.Post("/api/v1/projects/:project/explorers", func(c fiber.Ctx) error {
+	handlers.create = func(c fiber.Ctx) error {
 		project := explorerProjectParam(c)
 		if err := authorizeExplorerWrite(c, authorizer, project); err != nil {
 			return err
@@ -76,5 +83,6 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			return explorerV2Error(c, 422, "INVALID_EXPLORER", err.Error())
 		}
 		return c.Status(http.StatusCreated).JSON(explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, UpdatedAt: value.UpdatedAt})
-	})
+	}
+	return handlers
 }

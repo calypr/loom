@@ -34,7 +34,7 @@ typed FHIR reads, discovery, and recipe control operations.
 ### Explorer authoring and catalog discovery
 
 Explorer authoring is not a GraphQL operation. The Builder uses the versioned
-REST V1 intent contract documented in
+REST V2 intent contract documented in
 [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). GraphQL Explorer lifecycle
 and Builder-introspection fields are not part of the current contract; the REST
 authoring compiler resolves catalog selections and the active dataset

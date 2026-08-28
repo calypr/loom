@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -34,15 +33,6 @@ func verifyQueryableOutputs(bundle recipe.Bundle, execution graphresolver.Recipe
 		}
 	}
 	return nil
-}
-
-func mustBundleDigest(bundle recipe.Bundle) string {
-	digest, _ := bundle.Digest()
-	return digest
-}
-
-func explorerURL(project, id string) string {
-	return "/api/v1/projects/" + url.PathEscape(project) + "/explorers/" + url.PathEscape(id)
 }
 
 func resolvedOutputFingerprints(resolved engine.Resolved) map[string]string {

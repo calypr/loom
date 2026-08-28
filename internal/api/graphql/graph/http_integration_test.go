@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/runtime"
 	publication "github.com/calypr/loom/internal/dataset"
+	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 )
 
 func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
@@ -292,7 +293,11 @@ func newGraphServer(root *graphresolver.Resolver, auth authscope.Authenticator) 
 	if err != nil {
 		return nil, err
 	}
-	graph.RegisterRoutes(server.App(), graph.RouteConfig{Handler: graph.NewHandler(root), Playground: graph.NewPlaygroundHandler("/graphql/graph"), Sandbox: graph.NewApolloSandboxHandler("/graphql/graph")})
+	handler := fiberadaptor.HTTPHandlerWithContext(graph.NewHandler(root))
+	server.App().Post("/graphql/graph", handler)
+	server.App().Post("/graphql/dataframe", handler)
+	server.App().Get("/graphql/graph", fiberadaptor.HTTPHandlerWithContext(graph.NewPlaygroundHandler("/graphql/graph")))
+	server.App().Get("/apollo", fiberadaptor.HTTPHandlerWithContext(graph.NewApolloSandboxHandler("/graphql/graph")))
 	return server, nil
 }
 

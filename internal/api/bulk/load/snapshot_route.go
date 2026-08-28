@@ -12,32 +12,13 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func (h *Handler) RegisterSnapshotRoutes(router fiber.Router) {
-	if h.snapshots != nil {
-		router.Post("/api/v1/projects/:project/generations/:generation", h.createSnapshot)
-		router.Get("/api/v1/projects/:project/generations/:generation", h.snapshotStatus)
-		router.Delete("/api/v1/projects/:project/generations/:generation", h.abortSnapshot)
-		router.Put("/api/v1/projects/:project/generations/:generation/resources/:resourceType", h.uploadSnapshotResource)
-		router.Post("/api/v1/projects/:project/generations/:generation/finalize", h.finalizeSnapshot)
-	}
-	if h.releases != nil {
-		router.Post("/api/v1/projects/:project/releases", h.createRelease)
-		router.Get("/api/v1/projects/:project/releases/active", h.activeRelease)
-		router.Get("/api/v1/projects/:project/releases/:release", h.releaseStatus)
-		router.Post("/api/v1/projects/:project/releases/:release/activate", h.activateExistingRelease)
-		// Deprecated compatibility endpoint. New clients create a durable release
-		// and activate that exact release ID in two separate operations.
-		router.Post("/api/v1/projects/:project/releases/activate", h.activateRelease)
-	}
-}
-
 type createSnapshotRequest struct {
 	GitCommit             string   `json:"gitCommit"`
 	ExpectedResourceTypes []string `json:"expectedResourceTypes"`
 	AuthResourcePath      string   `json:"authResourcePath,omitempty"`
 }
 
-func (h *Handler) createSnapshot(c fiber.Ctx) error {
+func (h *Handler) HandleCreateSnapshot(c fiber.Ctx) error {
 	project, generation := strings.TrimSpace(c.Params("project")), strings.TrimSpace(c.Params("generation"))
 	var request createSnapshotRequest
 	if err := json.Unmarshal(c.Body(), &request); err != nil {
@@ -59,7 +40,7 @@ func (h *Handler) createSnapshot(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(result)
 }
 
-func (h *Handler) snapshotStatus(c fiber.Ctx) error {
+func (h *Handler) HandleSnapshotStatus(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	result, err := h.snapshots.Status(c.Context(), project, strings.TrimSpace(c.Params("generation")))
 	if err != nil {
@@ -71,7 +52,7 @@ func (h *Handler) snapshotStatus(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(result)
 }
 
-func (h *Handler) uploadSnapshotResource(c fiber.Ctx) error {
+func (h *Handler) HandleUploadSnapshotResource(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	generation := strings.TrimSpace(c.Params("generation"))
 	status, err := h.snapshots.Status(c.Context(), project, generation)
@@ -88,7 +69,7 @@ func (h *Handler) uploadSnapshotResource(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(result)
 }
 
-func (h *Handler) finalizeSnapshot(c fiber.Ctx) error {
+func (h *Handler) HandleFinalizeSnapshot(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	generationID := strings.TrimSpace(c.Params("generation"))
 	status, err := h.snapshots.Status(c.Context(), project, generationID)
@@ -110,7 +91,7 @@ func (h *Handler) finalizeSnapshot(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(fiber.Map{"generation": generation, "load": load})
 }
 
-func (h *Handler) abortSnapshot(c fiber.Ctx) error {
+func (h *Handler) HandleAbortSnapshot(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	generationID := strings.TrimSpace(c.Params("generation"))
 	status, err := h.snapshots.Status(c.Context(), project, generationID)
@@ -127,7 +108,7 @@ func (h *Handler) abortSnapshot(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(result)
 }
 
-func (h *Handler) activateRelease(c fiber.Ctx) error {
+func (h *Handler) HandleActivateReleaseCompatibility(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	var request dataset.ActivationRequest
 	if err := json.Unmarshal(c.Body(), &request); err != nil {
@@ -144,7 +125,7 @@ func (h *Handler) activateRelease(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(result)
 }
 
-func (h *Handler) createRelease(c fiber.Ctx) error {
+func (h *Handler) HandleCreateRelease(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	var request dataset.ActivationRequest
 	if err := json.Unmarshal(c.Body(), &request); err != nil {
@@ -161,7 +142,7 @@ func (h *Handler) createRelease(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(release)
 }
 
-func (h *Handler) activateExistingRelease(c fiber.Ctx) error {
+func (h *Handler) HandleActivateRelease(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	releaseID := strings.TrimSpace(c.Params("release"))
 	release, err := h.releases.Releases.ReadRelease(c.Context(), project, releaseID)
@@ -184,7 +165,7 @@ func (h *Handler) activateExistingRelease(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(active)
 }
 
-func (h *Handler) activeRelease(c fiber.Ctx) error {
+func (h *Handler) HandleActiveRelease(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	active, err := h.releases.Active(c.Context(), project)
 	if err != nil {
@@ -196,7 +177,7 @@ func (h *Handler) activeRelease(c fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(active)
 }
 
-func (h *Handler) releaseStatus(c fiber.Ctx) error {
+func (h *Handler) HandleReleaseStatus(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	release, err := h.releases.Releases.ReadRelease(c.Context(), project, strings.TrimSpace(c.Params("release")))
 	if err != nil {

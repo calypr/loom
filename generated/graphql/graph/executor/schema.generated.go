@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"strconv"
 	"sync/atomic"
@@ -16568,3 +16569,20 @@ func (ec *executionContext) unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcom�
 }
 
 // endregion ***************************** type.gotpl *****************************
+
+
+// JSON scalar support is appended by cmd/gqlgenfix because gqlgen does not
+// emit helpers for the encoding/json.RawMessage model mapping.
+func MarshalJSON(v json.RawMessage) graphql.Marshaler {
+	return graphql.WriterFunc(func(w io.Writer) {
+		_, _ = w.Write(v)
+	})
+}
+
+func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (json.RawMessage, error) {
+	return json.Marshal(v)
+}
+
+func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+	return MarshalJSON(v)
+}

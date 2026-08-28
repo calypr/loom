@@ -129,31 +129,6 @@ Compile and preview may persist and execute immutable receipts, but neither
 operation changes the active Explorer revision. Publication is the only
 Builder operation that materializes outputs and switches the active revision.
 
-## Future work TODO: advanced catalog-driven column addition
-
-The MVP Builder shows configured V2 columns and ordinary catalog field
-candidates in one list. A selected catalog field becomes a durable typed
-`source.kind: field` column; candidate identity is not retained as a second
-authoring model. Existing field columns are reconciled to the list by their
-single authoritative `fieldPath`, while typed project, identifier, extension,
-coding, and observation sources remain ordinary configured columns.
-
-Future work is limited to candidate families that need more intent than one
-field path, plus new route/table construction. That work must:
-
-- have Loom return a complete typed V2 column for identifier systems,
-  extension URLs, coding systems, and observation component codes;
-- prove that every advertised candidate compiles under the snapshot that
-  advertised it;
-- restore route and blank-table creation only when at least one valid column
-  can be added in the same workflow; and
-- cover add through compile, preview, export, reload, and publish without
-  changing configured-column persistence.
-
-Do not introduce composite frontend matching such as
-`occurrenceId + source.kind + source.fieldPath + source.match`. The resulting
-typed V2 column remains the durable authoring state.
-
 ## Cleanup
 
 Receipts referenced by immutable revisions are retained. Loom exposes receipt

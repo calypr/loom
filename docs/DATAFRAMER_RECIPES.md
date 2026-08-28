@@ -18,7 +18,7 @@ names, or SQL.
 
 This document describes the native recipe language used by repository, ETL,
 and developer workflows. It is not the browser Builder contract. The Builder
-sends the intent-only V1 document described in
+sends the intent-only V2 document described in
 [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md); Loom lowers that document to
 a native recipe and then runs the recipe compiler described here. Do not make
 frontend code construct or repair recipe ASTs.
@@ -28,7 +28,7 @@ The deployed default is ordinary JSON loaded from
 
 For direct recipe authoring, do not write a recipe from memory: discover the
 loaded graph, prototype the shape through `runFhirDataframe`, and then promote
-the proven shape into a persistent recipe. For Builder authoring, use the V1
+the proven shape into a persistent recipe. For Builder authoring, use the V2
 REST contract instead of this native recipe format.
 
 ## Recommended workflow
@@ -156,12 +156,11 @@ must deliberately produce multiple rows.
 
 ## Step 2: discover the graph that is actually loaded
 
-Use the REST V1 authoring compiler and its server-owned catalog discovery. It
+Use the REST V2 authoring compiler and its server-owned catalog discovery. It
 reports populated fields, route candidates, and valid relationships for the
 selected generation. Do not infer relationship labels from FHIR property names
 or manufacture browser selector IDs. See
-[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). The V2 migration guide is
-historical and retained only for compatibility context.
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md).
 
 For a second hop, select the first-hop target in the authoring request. For
 example:

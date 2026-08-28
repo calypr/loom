@@ -24,15 +24,10 @@ This starts:
 
 - ArangoDB at [http://127.0.0.1:8529](http://127.0.0.1:8529)
 
-If you also want the research/benchmark databases, the larger stack is:
-
-- [`experimental/docker/docker-compose.full.yml`](../experimental/docker/docker-compose.full.yml)
-
 ## 2. Generate code and build binaries
 
 ```bash
-make generate-fhir
-make generate-graphql
+make generate
 make build
 ```
 
@@ -98,17 +93,17 @@ open http://127.0.0.1:8080/apollo
 
 ## 5. Inspect and author an Explorer
 
-Current Builder authoring is the versioned REST V1 publish-only workflow. Use
-the project Explorer summaries for selection, then load the selected Explorer's
-combined `/authoring/v1/builder` model. Edit its canonical bundle locally and
-send only that intent plus its snapshot token to preview or publish. Loom owns
-catalog resolution, recipe lowering, compilation, materialization, persistence,
-and diagnostics; there is no persisted browser draft or receipt protocol.
+Current Builder authoring uses the versioned REST V2 workflow. List project
+Explorers, then load the selected Explorer's
+`/authoring/v2/builder` state. Save canonical drafts with `PUT /draft`, compile
+to an immutable receipt with `POST /compile`, preview that receipt with
+`POST /preview`, and activate it only with `POST /publish`. Loom owns catalog
+resolution, recipe lowering, compilation, materialization, persistence, and
+diagnostics.
 
 Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
-request/response shapes, route rules, diagnostics, and the offline default
-conversion command. The [V2 migration guide](FRONTEND_EXPLORER_V2_MIGRATION.md)
-is retained only for legacy packet and ETL migration context.
+request/response behavior and the canonical
+[OpenAPI contract](../openapi/openapi.yaml) for exact wire schemas.
 
 The workflow is deliberately not a GraphQL introspection query: Loom validates
 catalog selections, dataset generation, recipe compilation, preview, and

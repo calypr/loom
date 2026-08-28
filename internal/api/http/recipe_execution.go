@@ -10,49 +10,51 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// RegisterRecipeExecutionRoute exposes candidate schema metadata without
-// exposing physical table names. Authentication is provided by HTTPServer's
-// middleware; project/scope authorization is checked against the execution.
-func RegisterRecipeExecutionRoute(app *fiber.App, catalog publication.BundleCatalog, scopes *authscope.ScopeResolver) {
-	if app == nil || catalog == nil {
-		return
+// RecipeExecutionHandler exposes candidate schema metadata without physical
+// table names. Generated OpenAPI routing calls Handle directly.
+type RecipeExecutionHandler struct {
+	Catalog publication.BundleCatalog
+	Scopes  *authscope.ScopeResolver
+}
+
+func (h RecipeExecutionHandler) Handle(c fiber.Ctx) error {
+	if h.Catalog == nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "recipe execution not found"})
 	}
-	app.Get("/api/v1/dataframe/recipe-executions/:id", func(c fiber.Ctx) error {
-		id := strings.TrimSpace(c.Params("id"))
-		execution, err := catalog.GetExecution(c.Context(), id)
-		if err != nil || execution.ID == "" {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "recipe execution not found"})
-		}
-		if scopes != nil {
-			principal, _ := authscope.PrincipalFromContext(c.Context())
-			if _, scopeErr := scopes.ResolveReadScopeForGeneration(c.Context(), principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
-				status := http.StatusForbidden
-				if errors.Is(scopeErr, authscope.ErrUnauthenticated) {
-					status = http.StatusUnauthorized
-				}
-				return c.Status(status).JSON(fiber.Map{"error": "recipe execution not found"})
+	id := strings.TrimSpace(c.Params("id"))
+	execution, err := h.Catalog.GetExecution(c.Context(), id)
+	if err != nil || execution.ID == "" {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "recipe execution not found"})
+	}
+	if h.Scopes != nil {
+		principal, _ := authscope.PrincipalFromContext(c.Context())
+		if _, scopeErr := h.Scopes.ResolveReadScopeForGeneration(c.Context(), principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
+			status := http.StatusForbidden
+			if errors.Is(scopeErr, authscope.ErrUnauthenticated) {
+				status = http.StatusUnauthorized
 			}
+			return c.Status(status).JSON(fiber.Map{"error": "recipe execution not found"})
 		}
-		outputs := make([]fiber.Map, 0, len(execution.Outputs))
-		for _, output := range execution.Outputs {
-			columns := make([]fiber.Map, 0, len(output.Columns))
-			for _, column := range output.Columns {
-				logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
-				if column.LogicalType != "" {
-					logical = column.LogicalType
-				}
-				if column.Nullable {
-					nullable = true
-				}
-				if column.Repeated {
-					repeated = true
-				}
-				columns = append(columns, fiber.Map{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
+	}
+	outputs := make([]fiber.Map, 0, len(execution.Outputs))
+	for _, output := range execution.Outputs {
+		columns := make([]fiber.Map, 0, len(output.Columns))
+		for _, column := range output.Columns {
+			logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
+			if column.LogicalType != "" {
+				logical = column.LogicalType
 			}
-			outputs = append(outputs, fiber.Map{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
+			if column.Nullable {
+				nullable = true
+			}
+			if column.Repeated {
+				repeated = true
+			}
+			columns = append(columns, fiber.Map{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
 		}
-		return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs})
-	})
+		outputs = append(outputs, fiber.Map{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
+	}
+	return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs})
 }
 
 // recipeExecutionHTTPState preserves the READY spelling used by the legacy

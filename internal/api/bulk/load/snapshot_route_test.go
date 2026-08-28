@@ -43,7 +43,7 @@ func TestSnapshotHTTPContractCreateUploadFinalizeStatusAndAbort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler.RegisterSnapshotRoutes(server.App())
+	registerTestSnapshotRoutes(server.App(), handler)
 
 	createBody := []byte(`{"gitCommit":"commit-a","expectedResourceTypes":["Patient"]}`)
 	for range 2 {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,8 +32,21 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, nil, nil, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}); err != nil {
+	if err := registerRoutes(server, resourceService, nil, nil, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}, &explorerHTTPHandlers{lifecycle: &explorerLifecycleHandlers{}, authoring: &explorerAuthoringHandlers{}}); err != nil {
 		t.Fatal(err)
+	}
+
+	health, err := server.App().Test(httptest.NewRequest(http.MethodGet, "/livez", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthBody, err := io.ReadAll(health.Body)
+	_ = health.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.StatusCode != http.StatusOK || string(healthBody) != `{"status":"live"}` {
+		t.Fatalf("generated liveness response status=%d body=%s", health.StatusCode, healthBody)
 	}
 
 	for _, request := range []struct {

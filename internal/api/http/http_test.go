@@ -16,7 +16,7 @@ import (
 )
 
 func TestHealthDoesNotRequireAuthentication(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"}, Authorizer: authscope.AllowAllAuthorizer{}})
+	server, err := newTestHTTPServer(HTTPConfig{Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"}, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestHealthDoesNotRequireAuthentication(t *testing.T) {
 }
 
 func TestHealthRoutesDoNotRequireAuthentication(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"},
 		Authorizer:    authscope.AllowAllAuthorizer{},
 	})
@@ -52,7 +52,7 @@ func TestHealthRoutesDoNotRequireAuthentication(t *testing.T) {
 
 func TestLivenessDoesNotCheckDependencies(t *testing.T) {
 	checks := 0
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authorizer: authscope.AllowAllAuthorizer{},
 		CoreReadyCheck: func(_ context.Context) error {
 			checks++
@@ -95,7 +95,7 @@ func TestReadinessRequiresCoreAndClickHouse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := NewHTTPServer(HTTPConfig{
+			server, err := newTestHTTPServer(HTTPConfig{
 				Authorizer: authscope.AllowAllAuthorizer{},
 				CoreReadyCheck: func(_ context.Context) error {
 					return tt.coreErr
@@ -125,7 +125,7 @@ func TestReadinessRequiresCoreAndClickHouse(t *testing.T) {
 }
 
 func TestHealthRetainsDegradedClickHouseCompatibility(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authorizer:        authscope.AllowAllAuthorizer{},
 		ClickHouseEnabled: true,
 		ClickHouseReadyCheck: func(_ context.Context) error {
@@ -153,6 +153,17 @@ func TestNewHTTPServerRequiresAuthorizer(t *testing.T) {
 	if _, err := NewHTTPServer(HTTPConfig{}); err == nil {
 		t.Fatal("expected missing authorizer error")
 	}
+}
+
+func newTestHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
+	server, err := NewHTTPServer(cfg)
+	if err != nil {
+		return nil, err
+	}
+	server.App().Get("/health", server.HandleHealth)
+	server.App().Get("/livez", server.HandleLiveness)
+	server.App().Get("/readyz", server.HandleReadiness)
+	return server, nil
 }
 
 func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {

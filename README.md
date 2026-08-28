@@ -15,7 +15,7 @@ replacement FHIR model. It is a recipe-driven graph-to-flat data service with
 explicit authorization and publication boundaries.
 
 Explorer Builder authoring is intent-driven: the browser submits the versioned
-V1 authoring document, Loom lowers it to a native recipe, and the existing
+V2 authoring document, Loom lowers it to a native recipe, and the existing
 recipe compiler produces the scoped plan/AQL. The browser never constructs or
 repairs the recipe AST. See [the Explorer authoring contract](docs/EXPLORER_AUTHORING.md).
 
@@ -60,19 +60,19 @@ recipe, translation-version, and output selector.
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
 | `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
-| `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V1 intent authoring used by the Builder. |
+| `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
 | `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
 
-The server exposes only the primary resource upload route from the bulk
-load package. Raw, generation, and dump handlers remain available to
-in-cluster operators and direct database tooling, but are not public routes.
-The `:project` path parameter is required: it is the tenancy identity used for
-authorization and becomes the published row `project_id` (for example,
-`HTAN_INT-BForePC`).
+The canonical contract for every server route is
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, ingestion,
+snapshot/release, recipe execution, GraphQL transport, Explorer lifecycle, and
+Explorer authoring operations. The `:project` path parameter is the tenancy
+identity used for authorization and becomes the published row `project_id`
+(for example, `HTAN_INT-BForePC`).
 
 ## Data lifecycle
 
@@ -294,6 +294,7 @@ without rebuilding the server image.
 | Path | Responsibility |
 | --- | --- |
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
+| [`openapi/`](openapi) | Canonical Loom HTTP specification and generator configuration. |
 | [`schemas/`](schemas) | Source FHIR graph schema. |
 | [`gqlgen.yml`](gqlgen.yml) | gqlgen source configuration. |
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
@@ -305,7 +306,7 @@ without rebuilding the server image.
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
-| [`internal/explorer`](internal/explorer) | V1 authoring intent, resolved Builder models, server compilation receipts, immutable revisions, publication state, and legacy ETL compatibility types. |
+| [`internal/explorer`](internal/explorer) | V2 authoring intent, resolved Builder models, server compilation receipts, immutable revisions, publication state, and legacy migration types. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
@@ -322,6 +323,7 @@ without rebuilding the server image.
 make build                 # server and CLI binaries
 make generate-fhir         # generated FHIR structs and schema metadata
 make generate-graphql      # gqlgen bindings
+make generate-openapi      # Loom HTTP models and strict Fiber server
 make graphql-check         # GraphQL and dataframe checks
 make test                  # full Go test suite
 make conformance           # compiler conformance corpus
@@ -343,6 +345,7 @@ go test ./...
 ## Further reading
 
 - [Documentation index](docs/README.md)
+- [OpenAPI contract](openapi/README.md)
 - [Quickstart](docs/QUICKSTART.md)
 - [Explorer authoring contract](docs/EXPLORER_AUTHORING.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)

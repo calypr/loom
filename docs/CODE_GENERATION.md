@@ -6,7 +6,13 @@ under `generated/` is produced or managed by a generator; resolver packages
 live under `internal/api/graphql`. Change an input and regenerate instead of
 patching executor, model, schema, or FHIR output by hand.
 
-The two gqlgen configurations live at the repository root:
+The generated tree is reproducible from an empty directory. In particular,
+`generated/fhir/helpers.go` is emitted from
+`cmd/generate/fhir_helpers.go.tmpl`, and `cmd/gqlgenfix` appends Loom's JSON
+scalar support to gqlgen's generated executor. There are no handwritten source
+files under `generated/`.
+
+The gqlgen configuration lives at the repository root:
 
 - `gqlgen.yml` builds the graph and FHIR dataframe API.
 
@@ -22,6 +28,7 @@ under `internal`:
 | `generated/graphql/graph/executor/` | `executor` | Primary gqlgen executable schema. |
 | `generated/graphql/graph/model/` | `model` | Shared GraphQL input/output models. |
 | `internal/api/graphql/graph/resolver/` | `resolver` | Primary gqlgen resolver bindings. |
+| `generated/loomapi/` | `loomapi` | OpenAPI models, Fiber v3 adapters, strict server interfaces, registrar, and embedded contract. |
 
 The generated executors expose gqlgen's resolver interfaces. gqlgen requires
 resolver receivers and preserved resolver implementations to share one Go
@@ -50,13 +57,18 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 | --- | --- | --- |
 | `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphql/graph/schema/fhir_schema.graphqls` |
 | `internal/api/graphql/graph/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` and `internal/api/graphql/graph/resolver/` |
-| `schemas/explorer-authoring-v2/openapi.yaml` and its oapi-codegen config | `make generate-explorer-v2` | Explorer V2 wire models and Fiber v3 strict-server interfaces under `generated/explorerv2/` |
+| [`openapi/openapi.yaml`](../openapi/openapi.yaml) and [`openapi/oapi-codegen.yaml`](../openapi/oapi-codegen.yaml) | `make generate-openapi` | All Loom HTTP wire models, Fiber v3 strict-server interfaces, registrar, and embedded specification under `generated/loomapi/` |
 
 `generated/graphql/graph/executor/fhir_schema.generated.go` and
 `generated/graphql/graph/executor/root_.generated.go` are
 large because gqlgen emits executable dispatch code for every selectable field
 in the typed FHIR schema. They are generated runtime code, not duplicate data
 models or a second query engine.
+
+`generated/graphql/graph/executor/schema.generated.go` is post-processed by
+`cmd/gqlgenfix` to correct pinned-gqlgen return types and add the JSON scalar
+glue required by the `encoding/json.RawMessage` model mapping. That
+post-processing is part of `make generate-graphql`, not a manual edit.
 
 `internal/api/graphql/graph/resolver/fhir_schema.resolvers.go` contains generated
 field bindings that call shared helpers. It lets all JSON FHIR property names
@@ -89,3 +101,7 @@ git diff --check
 To understand an executor, model, schema, or FHIR result, start at its input
 above. Regeneration overwrites those artifacts; only the resolver adapter bodies
 described above are preserved for handwritten transport mapping.
+
+The OpenAPI source is documented beside the spec in
+[`openapi/README.md`](../openapi/README.md). Do not register production Fiber
+routes outside the generated registrar.

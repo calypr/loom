@@ -17,26 +17,11 @@ import (
 	graphqlerrors "github.com/calypr/loom/internal/api/graphql"
 	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/gofiber/fiber/v3"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 type RouteConfig struct{ Handler, Playground, Sandbox http.Handler }
-
-func RegisterRoutes(router fiber.Router, cfg RouteConfig) {
-	if cfg.Playground != nil {
-		router.Get("/graphql/graph", fiberadaptor.HTTPHandlerWithContext(cfg.Playground))
-	}
-	if cfg.Sandbox != nil {
-		router.Get("/apollo", fiberadaptor.HTTPHandlerWithContext(cfg.Sandbox))
-	}
-	if cfg.Handler != nil {
-		h := fiberadaptor.HTTPHandlerWithContext(cfg.Handler)
-		router.Post("/graphql/graph", h)
-		router.Post("/graphql/dataframe", h)
-	}
-}
 
 func NewHandler(root *resolver.Resolver, loggers ...*slog.Logger) http.Handler {
 	logger := slog.Default()

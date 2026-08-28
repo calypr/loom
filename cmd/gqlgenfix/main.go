@@ -18,14 +18,24 @@ func main() {
 		fail("read %s: %v", path, err)
 	}
 
-	source := string(contents)
+	source, err := fixGeneratedSource(string(contents))
+	if err != nil {
+		fail("fix generated source: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		fail("write %s: %v", path, err)
+	}
+}
+
+func fixGeneratedSource(source string) (string, error) {
+	var err error
 	source, err = replaceInFunction(source,
 		"func (ec *executionContext) unmarshalNJSON2",
 		"return &res, graphql.ErrorOnPath(ctx, err)",
 		"return res, graphql.ErrorOnPath(ctx, err)",
 	)
 	if err != nil {
-		fail("fix JSON unmarshal return: %v", err)
+		return "", fmt.Errorf("fix JSON unmarshal return: %w", err)
 	}
 	source, err = replaceInFunctionIfPresent(source,
 		"func (ec *executionContext) unmarshalNFhirAggregateInput",
@@ -33,12 +43,37 @@ func main() {
 		"return &res, graphql.ErrorOnPath(ctx, err)",
 	)
 	if err != nil {
-		fail("fix aggregate input unmarshal return: %v", err)
+		return "", fmt.Errorf("fix aggregate input unmarshal return: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
-		fail("write %s: %v", path, err)
+	if !strings.Contains(source, "func MarshalJSON(") {
+		const imports = "\t\"errors\"\n"
+		if !strings.Contains(source, imports) {
+			return "", fmt.Errorf("generated import anchor not found")
+		}
+		source = strings.Replace(source, imports, imports+"\t\"io\"\n", 1)
+		source += jsonScalarHelpers
 	}
+	return source, nil
 }
+
+const jsonScalarHelpers = `
+
+// JSON scalar support is appended by cmd/gqlgenfix because gqlgen does not
+// emit helpers for the encoding/json.RawMessage model mapping.
+func MarshalJSON(v json.RawMessage) graphql.Marshaler {
+	return graphql.WriterFunc(func(w io.Writer) {
+		_, _ = w.Write(v)
+	})
+}
+
+func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (json.RawMessage, error) {
+	return json.Marshal(v)
+}
+
+func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+	return MarshalJSON(v)
+}
+`
 
 func replaceInFunctionIfPresent(contents, signature, old, replacement string) (string, error) {
 	if !strings.Contains(contents, signature) {

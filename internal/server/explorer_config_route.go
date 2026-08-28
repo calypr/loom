@@ -17,16 +17,23 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// RegisterExplorerConfigV2Route is the sole repository Explorer deployment
-// surface. The body is the portable V2 authoring workspace. Repository and
-// browser publication deliberately share the same compiler receipt pipeline.
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
 
-func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, lifecycle ...ExplorerV2LifecycleConfig) {
-	if app == nil || authorizer == nil || authorizeRead == nil || explorers == nil {
-		return
+type explorerHTTPHandlers struct {
+	publishRepositoryConfig fiber.Handler
+	getRepositoryConfig     fiber.Handler
+	lifecycle               *explorerLifecycleHandlers
+	authoring               *explorerAuthoringHandlers
+}
+
+// newExplorerHTTPHandlers builds the live Explorer transport implementations;
+// generated OpenAPI code owns all method/path registration.
+func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, lifecycle ...ExplorerV2LifecycleConfig) *explorerHTTPHandlers {
+	handlers := &explorerHTTPHandlers{}
+	if authorizer == nil || authorizeRead == nil || explorers == nil {
+		return handlers
 	}
-	app.Post("/api/v1/projects/:project/generations/:generation/explorer-config", func(c fiber.Ctx) error {
+	handlers.publishRepositoryConfig = func(c fiber.Ctx) error {
 		project, generation := explorerProjectParam(c), strings.TrimSpace(c.Params("generation"))
 		if project == "" || generation == "" {
 			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "project and generation are required"})
@@ -123,8 +130,8 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("persist ExplorerConfigV2: %v", err)})
 		}
 		return c.Status(http.StatusOK).JSON(fiber.Map{"project": project, "generation": generation, "explorerId": "default", "receiptId": receipt.ID, "revisionId": revision.ID, "executionId": execution.ID, "recipe": receipt.Bundle.Name, "translationVersion": receipt.Bundle.TranslationVersion, "activated": true})
-	})
-	app.Get("/api/v1/projects/:project/explorer-config", func(c fiber.Ctx) error {
+	}
+	handlers.getRepositoryConfig = func(c fiber.Ctx) error {
 		project := explorerProjectParam(c)
 		principal, _ := c.Locals("principal").(*authscope.Principal)
 		if err := authorizeRead(c.Context(), principal, project); err != nil {
@@ -138,12 +145,13 @@ func RegisterExplorerConfigV2Route(app *fiber.App, authorizer authscope.Authoriz
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(value)
-	})
+	}
 	if len(lifecycle) == 0 {
 		lifecycle = []ExplorerV2LifecycleConfig{{Materialize: materialize}}
 	}
-	RegisterExplorerLifecycleRoutes(app, authorizer, authorizeRead, explorers, lifecycle[0])
-	RegisterExplorerAuthoringV2Routes(app, authorizer, authorizeRead, explorers, lifecycle[0])
+	handlers.lifecycle = newExplorerLifecycleHandlers(authorizer, authorizeRead, explorers, lifecycle[0])
+	handlers.authoring = newExplorerAuthoringHandlers(authorizer, authorizeRead, explorers, lifecycle[0])
+	return handlers
 }
 
 func explorerMaterializations(bundle recipe.Bundle, execution graphresolver.RecipeExecution) []explorer.Materialization {

@@ -14,7 +14,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func (s *Handler) createGeneration(c fiber.Ctx) error {
+func (s *Handler) HandleCreateGeneration(c fiber.Ctx) error {
 	if !c.IsMultipart() {
 		return fiber.NewError(fiber.StatusUnsupportedMediaType)
 	}
@@ -66,7 +66,7 @@ func (s *Handler) createGeneration(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(result)
 }
 
-func (s *Handler) activateGeneration(c fiber.Ctx) error {
+func (s *Handler) HandleActivateGeneration(c fiber.Ctx) error {
 	project := strings.TrimSpace(c.Params("project"))
 	generation := strings.TrimSpace(c.Params("generation"))
 	executionID := strings.TrimSpace(c.Query("dataframe_execution_id"))

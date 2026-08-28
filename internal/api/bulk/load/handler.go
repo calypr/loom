@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/gofiber/fiber/v3"
 )
 
 type Handler struct {
@@ -29,12 +28,4 @@ func NewHandler(cfg Config) (*Handler, error) {
 		return nil, fmt.Errorf("load authorizer is required")
 	}
 	return &Handler{service: cfg.Service, authz: cfg.Authorizer, snapshots: cfg.Snapshots, releases: cfg.Releases}, nil
-}
-
-func (h *Handler) RegisterRoutes(router fiber.Router) {
-	h.RegisterResourceRoute(router)
-	router.Post("/api/v1/datasets/:project/generations/:generation", h.createGeneration)
-	router.Post("/api/v1/datasets/:project/generations/:generation/activate", h.activateGeneration)
-	router.Put("/api/v1/raw", h.loadRaw)
-	h.RegisterSnapshotRoutes(router)
 }

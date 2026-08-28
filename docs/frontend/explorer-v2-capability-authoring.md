@@ -1,9 +1,8 @@
 # Explorer V2 capability and authoring handoff
 
-This handoff matches `internal/explorer/authoringv2` and
-`RegisterExplorerAuthoringV2Routes`. The older
-`docs/FRONTEND_EXPLORER_V2_MIGRATION.md` describes a superseded
-`ExplorerConfigV2` packet and must not be used for Builder HTTP work.
+This contract matches `internal/explorer/authoringv2` and the generated Loom
+OpenAPI routes. The canonical wire specification is
+[`openapi/openapi.yaml`](../../openapi/openapi.yaml).
 
 ## Hard cutover
 
@@ -188,47 +187,3 @@ output failure,
 preview timeout, and `503` unavailable dependency or receipt store. Render the
 safe server message and preserve the request ID; never classify by matching
 prose or expose wrapped storage errors.
-
-## Frontend migration work package
-
-Target repository: `/Users/peterkor/Desktop/FFNEW/IDP-Frontend`. This is a
-handoff only; this task does not edit that repository.
-
-- [ ] Add a configurable V2 base path and typed calls for capability, builder
-      GET/POST, compile alias, receipt preview, and receipt publish.
-- [ ] Remove V1/GraphQL Builder calls and route probing. A missing V2 route is
-      a coordinated-deployment failure, not a V1 fallback.
-- [ ] Generate TypeScript types/runtime validators from
-      `schemas/explorer-authoring-v2/openapi.yaml`;
-      reject unknown fields and preserve `nodeId`, `edgeId`, `candidateId`,
-      `snapshotToken`, and `receiptId` as opaque strings.
-- [ ] Treat `workspace` in Builder state as nullable/omitted; render an empty
-      Builder from catalog state without fabricating a workspace.
-- [ ] Author only `rootNodeId`, ordered `routeSteps`, `selections`, and
-      presentation. Remove `baseNodeId`, `rowNodeId`, `routeEdgeIds`, and
-      `routeOccurrences` from frontend state and payloads.
-- [ ] Derive/display occurrences from route steps. Preserve explicit
-      `occurrenceId`s, support omitted IDs and the derived `base`/`step-N`
-      identities, and do not add a hidden route cap or deduplicate repeated
-      edges/self-loops.
-- [ ] Render only uppercase advertised projection modes. Bind selections by
-      candidate plus exact occurrence and handle omitted occurrence as tail.
-- [ ] Render `rowRootEligible`, `rowGrain`, `populated`, and `documentCount`
-      from nodes; use candidate suggestion metadata to decide whether to show
-      a suggestions control, then fetch values through the token-pinned
-      suggestions route.
-- [ ] Fail closed when capability is incomplete/truncated or enrichment is
-      unavailable; never synthesize fields from observed data.
-- [ ] Debounce/cancel Builder POSTs, retain the latest document locally, and
-      store only server-returned receipt/emission identities.
-- [ ] Preview exclusively by `{receiptId, outputId, limit?}` and publish
-      exclusively by `{receiptId}`. Replace local publication state from the
-      returned response and retain the prior active view on failure.
-- [ ] Handle stale snapshot/receipt diagnostics by retaining edits, refreshing
-      Builder state, and requiring explicit recompile.
-- [ ] Add conformance tests for empty Builder state, zero-hop routes, derived
-      occurrences, long finite repeated/self-loop routes, omitted selection
-      occurrences, duplicate selections, uppercase projection modes, stale
-      tokens, receipt reuse, and fail-closed incomplete catalogs.
-- [ ] Run typecheck, unit tests, and production build against a coordinated V2
-      Loom deployment; verify no V1 authoring HTTP route is registered.

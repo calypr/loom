@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-explorer-v2 generate-fhir generate-graphql graphql-check gqlgen-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -20,7 +20,7 @@ DATAFRAME_PROFILE_LIMIT ?= 1000
 
 build: build-cli build-server
 
-generate: generate-fhir generate-graphql generate-explorer-v2
+generate: generate-fhir generate-graphql generate-openapi
 
 build-cli:
 	mkdir -p bin $(GOCACHE_DIR)
@@ -40,9 +40,12 @@ generate-fhir:
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out generated/fhir -metadata-out generated/fhirschema/generated.go
 	gofmt -w generated/fhir/*.go generated/fhirschema/generated.go
 
-generate-explorer-v2:
-	mkdir -p generated/explorerv2 $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) --config schemas/explorer-authoring-v2/oapi-codegen.yaml schemas/explorer-authoring-v2/openapi.yaml
+generate-openapi:
+	mkdir -p generated/loomapi $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) --config openapi/oapi-codegen.yaml openapi/openapi.yaml
+
+openapi-check:
+	bash scripts/check_openapi_route_ownership.sh
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)

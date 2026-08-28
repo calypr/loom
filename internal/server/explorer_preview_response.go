@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	explorerv2api "github.com/calypr/loom/generated/explorerv2"
+	explorerv2api "github.com/calypr/loom/generated/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"

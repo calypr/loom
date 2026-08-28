@@ -12,6 +12,7 @@ The top-level directories have distinct ownership:
 
 | Path | Ownership |
 | --- | --- |
+| `openapi/` | Canonical Loom HTTP contract and oapi-codegen configuration. |
 | `schemas/` | Source schemas edited by developers. |
 | `gqlgen.yml` | GraphQL generator configuration. |
 | `generated/` | Checked-in generated output; never server business logic. |
@@ -32,9 +33,9 @@ they do not live in `generated/`.
 
 The Builder integration contract is documented in
 [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). The Builder uses the REST
-Explorer lifecycle and submits V1 intent; GraphQL does not expose Explorer
-lifecycle or authoring types. The old V2 packet guide is retained for
-compatibility and ETL migration context, not as the current Builder contract.
+Explorer lifecycle and submits V2 intent; GraphQL does not expose Explorer
+lifecycle or authoring types. Every HTTP method and path is defined in the
+canonical [`openapi/openapi.yaml`](../openapi/openapi.yaml) contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
 owns persistence-neutral observed facts; `catalog/arango` owns catalog
@@ -59,11 +60,12 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
 - `discover-populated-references` and `discover-populated-fields` for
   catalog diagnostics.
 
-`cmd/arango-fhir-server` owns the HTTP process. It mounts health, GraphQL,
-developer GraphQL tools, and the primary project/resourceType upload endpoint.
-Complete immutable generations remain an explicit CLI/load workflow.
+`cmd/arango-fhir-server` owns the HTTP process. Generated OpenAPI registration
+mounts health, ingestion, snapshot/release, recipe execution, GraphQL, and
+Explorer operations; handwritten strict-interface implementations remain under
+`internal/server`.
 
-The GraphQL dataframe mutation is the live compiler transport. Explorer V1
+The GraphQL dataframe mutation is the live compiler transport. Explorer V2
 authoring adds an intent-to-native-recipe lowering phase, then calls the same
 recipe resolver/compiler and AQL renderer. Do not add a second query compiler
 or hand-maintained AQL path behind another endpoint. See
@@ -261,6 +263,10 @@ artifacts live under `generated/`; handwritten transport and service code stays
 under `internal/`. See
 [`CODE_GENERATION.md`](CODE_GENERATION.md) for the full source/output map and
 package boundaries.
+
+Run `make generate-openapi` after changing the canonical HTTP contract or its
+generator configuration under `openapi/`. Do not hand-edit
+`generated/loomapi/api.gen.go`.
 
 The normal verification targets are:
 

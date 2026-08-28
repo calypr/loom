@@ -12,13 +12,8 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// RegisterResourceRoute exposes the primary project/resourceType upload path.
-// Generation and raw routes remain opt-in and are not registered here.
-func (h *Handler) RegisterResourceRoute(router fiber.Router) {
-	router.Put("/api/v1/projects/:project/resources/:resourceType", h.resource)
-}
-
-func (h *Handler) resource(c fiber.Ctx) error {
+// HandleResource implements the project resource upload transport operation.
+func (h *Handler) HandleResource(c fiber.Ctx) error {
 	if !c.IsMultipart() {
 		return fiber.NewError(fiber.StatusUnsupportedMediaType)
 	}

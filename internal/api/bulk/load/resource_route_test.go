@@ -46,7 +46,7 @@ func TestResourceRouteUsesPathIdentityAndMultipartFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler.RegisterResourceRoute(server.App())
+	server.App().Put("/api/v1/projects/:project/resources/:resourceType", handler.HandleResource)
 
 	req := resourceMultipartRequest(t, map[string]string{"auth_resource_path": "/programs/p1/projects/p1"}, "file", "Patient.ndjson", []byte("{\"resourceType\":\"Patient\",\"id\":\"1\"}\n"))
 	req.Method = http.MethodPut
