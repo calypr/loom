@@ -732,8 +732,8 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
-	n := w
-	n.Documents = append([]Document(nil), w.Documents...)
+	n := w.NormalizePresentationOrders()
+	n.Documents = append([]Document(nil), n.Documents...)
 	for i := range n.Documents {
 		n.Documents[i].APIVersion = ""
 		n.Documents[i].Selections = append([]Selection(nil), n.Documents[i].Selections...)
@@ -760,6 +760,118 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		n.Tabs = []Tab{}
 	}
 	return json.Marshal(n)
+}
+
+// NormalizePresentationOrders gives every table column one unambiguous,
+// contiguous presentation position. Authored order is the primary key and the
+// stable public column identity breaks ties. The normalized order also becomes
+// the recipe projection order, so presentation and execution cannot disagree.
+//
+// Duplicate presentation positions are valid mutable Builder input. Freezing
+// them here keeps equivalent requests from depending on frontend collection or
+// map iteration order and makes the normalized workspace safe to persist and
+// return to the Builder.
+func (w Workspace) NormalizePresentationOrders() Workspace {
+	n := w
+	n.Documents = append([]Document(nil), w.Documents...)
+	for documentIndex := range n.Documents {
+		document := &n.Documents[documentIndex]
+		columns := append([]Column(nil), document.Columns...)
+		for columnIndex := range columns {
+			column := &columns[columnIndex]
+			if column.Table != nil {
+				table := *column.Table
+				column.Table = &table
+			}
+			if column.Filter != nil {
+				filter := *column.Filter
+				column.Filter = &filter
+			}
+			if column.Chart != nil {
+				chart := *column.Chart
+				column.Chart = &chart
+			}
+		}
+		sort.SliceStable(columns, func(i, j int) bool {
+			left, right := columns[i], columns[j]
+			leftClass, leftOrder := presentationOrder(left)
+			rightClass, rightOrder := presentationOrder(right)
+			if leftClass != rightClass {
+				return leftClass < rightClass
+			}
+			if leftOrder != rightOrder {
+				return leftOrder < rightOrder
+			}
+			return left.Column < right.Column
+		})
+		tableOrder := 0
+		for columnIndex := range columns {
+			if columns[columnIndex].Table == nil {
+				continue
+			}
+			value := tableOrder
+			columns[columnIndex].Table.Order = &value
+			tableOrder++
+		}
+		normalizeFilterOrders(columns)
+		normalizeChartOrders(columns)
+		document.Columns = columns
+	}
+	return n
+}
+
+func normalizeFilterOrders(columns []Column) {
+	indexes := make([]int, 0, len(columns))
+	for index := range columns {
+		if columns[index].Filter != nil {
+			indexes = append(indexes, index)
+		}
+	}
+	sort.SliceStable(indexes, func(i, j int) bool {
+		left, right := columns[indexes[i]], columns[indexes[j]]
+		return auxiliaryPresentationLess(left.Filter.Order, left.Column, right.Filter.Order, right.Column)
+	})
+	for order, index := range indexes {
+		value := order
+		columns[index].Filter.Order = &value
+	}
+}
+
+func normalizeChartOrders(columns []Column) {
+	indexes := make([]int, 0, len(columns))
+	for index := range columns {
+		if columns[index].Chart != nil {
+			indexes = append(indexes, index)
+		}
+	}
+	sort.SliceStable(indexes, func(i, j int) bool {
+		left, right := columns[indexes[i]], columns[indexes[j]]
+		return auxiliaryPresentationLess(left.Chart.Order, left.Column, right.Chart.Order, right.Column)
+	})
+	for order, index := range indexes {
+		value := order
+		columns[index].Chart.Order = &value
+	}
+}
+
+func auxiliaryPresentationLess(leftOrder *int, leftColumn string, rightOrder *int, rightColumn string) bool {
+	if (leftOrder == nil) != (rightOrder == nil) {
+		return leftOrder != nil
+	}
+	if leftOrder != nil && *leftOrder != *rightOrder {
+		return *leftOrder < *rightOrder
+	}
+	return leftColumn < rightColumn
+}
+
+func presentationOrder(column Column) (class, order int) {
+	if column.Table == nil {
+		return 2, 0
+	}
+	if column.Table.Order == nil {
+		return 1, 0
+	}
+	return 0, *column.Table.Order
 }
 
 func (w Workspace) Digest() (string, error) {

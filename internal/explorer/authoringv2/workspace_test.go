@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,6 +9,46 @@ import (
 
 func workspaceDocument(id string) Document {
 	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootNodeID: "patient", RouteSteps: []RouteStep{}, Selections: []Selection{{CandidateID: "patient-id", OccurrenceID: RootOccurrenceID, ProjectionMode: "SCALAR"}}, Presentation: map[string]Presentation{}}
+}
+
+func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *testing.T) {
+	visible, duplicateOrder := true, 4
+	column := func(name string) Column {
+		return Column{Column: name, Label: name, OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceProjectID}, Table: &TablePresentation{Visible: &visible, Order: &duplicateOrder}, Filter: &FilterPresentation{Order: &duplicateOrder}, Chart: &ChartPresentation{Type: "bar", Order: &duplicateOrder}}
+	}
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Stable"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "out", Title: "Out"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{column("zeta"), column("alpha"), column("middle")}}},
+		Tabs:      []Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
+	}
+	reversed := workspace
+	reversed.Documents = append([]Document(nil), workspace.Documents...)
+	reversed.Documents[0].Columns = []Column{column("middle"), column("zeta"), column("alpha")}
+
+	first, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := reversed.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("canonical workspaces differ:\n%s\n%s", first, second)
+	}
+	var normalized Workspace
+	if err := json.Unmarshal(first, &normalized); err != nil {
+		t.Fatal(err)
+	}
+	columns := normalized.Documents[0].Columns
+	for index, want := range []string{"alpha", "middle", "zeta"} {
+		if columns[index].Column != want || columns[index].Table == nil || columns[index].Table.Order == nil || *columns[index].Table.Order != index || columns[index].Filter == nil || columns[index].Filter.Order == nil || *columns[index].Filter.Order != index || columns[index].Chart == nil || columns[index].Chart.Order == nil || *columns[index].Chart.Order != index {
+			t.Fatalf("column[%d]=%#v, want %q at normalized order %d", index, columns[index], want, index)
+		}
+	}
+	if *workspace.Documents[0].Columns[0].Table.Order != duplicateOrder || *workspace.Documents[0].Columns[0].Filter.Order != duplicateOrder || *workspace.Documents[0].Columns[0].Chart.Order != duplicateOrder {
+		t.Fatal("normalization mutated the caller's workspace")
+	}
 }
 
 func fiveTableWorkspace() Workspace {

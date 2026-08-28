@@ -57,9 +57,27 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 				cellRenderer = authored.Table.CellRenderer
 			}
 			view.Table.Columns = append(view.Table.Columns, explorer.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible, Pinned: column.Pinned, CellRenderer: cellRenderer})
+		}
+		filterColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
+		sort.SliceStable(filterColumns, func(i, j int) bool {
+			if filterColumns[i].FilterOrder != filterColumns[j].FilterOrder {
+				return filterColumns[i].FilterOrder < filterColumns[j].FilterOrder
+			}
+			return filterColumns[i].EmissionID < filterColumns[j].EmissionID
+		})
+		for _, column := range filterColumns {
 			if column.FilterLabel != "" {
 				view.Filters = append(view.Filters, explorer.ConfigFilter{Column: column.PublicColumn, Label: column.FilterLabel})
 			}
+		}
+		chartColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
+		sort.SliceStable(chartColumns, func(i, j int) bool {
+			if chartColumns[i].ChartOrder != chartColumns[j].ChartOrder {
+				return chartColumns[i].ChartOrder < chartColumns[j].ChartOrder
+			}
+			return chartColumns[i].EmissionID < chartColumns[j].EmissionID
+		})
+		for _, column := range chartColumns {
 			if column.ChartType != "" {
 				view.Charts = append(view.Charts, explorer.ConfigChart{Column: column.PublicColumn, Type: column.ChartType, Title: column.ChartTitle})
 			}

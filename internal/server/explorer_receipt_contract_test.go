@@ -77,6 +77,44 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 	}
 }
 
+func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(t *testing.T) {
+	compiled := explorercompilation.WorkspaceResult{
+		Workspace: authoringv2.Workspace{
+			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+			Explorer:  authoringv2.ExplorerMetadata{Title: "Stable"},
+			Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Out"}}},
+			Tabs:      []authoringv2.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
+		},
+		Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Outputs: []recipe.Output{{Name: "out"}}},
+		EmittedColumns: []explorercompilation.EmittedColumn{
+			{EmissionID: "column_b", OutputID: "out", PublicColumn: "column_b"},
+			{EmissionID: "column_a", OutputID: "out", PublicColumn: "column_a"},
+		},
+		Presentations: []explorercompilation.PresentationConfig{{OutputID: "out", Columns: []explorercompilation.PresentationColumn{
+			{EmissionID: "column_b", PublicColumn: "column_b", Label: "B", Visible: true, Order: 0, FilterLabel: "B", FilterOrder: 0, ChartType: "bar", ChartOrder: 0},
+			{EmissionID: "column_a", PublicColumn: "column_a", Label: "A", Visible: true, Order: 0, FilterLabel: "A", FilterOrder: 0, ChartType: "line", ChartOrder: 1},
+		}}},
+	}
+	raw, err := compiledExplorerWorkspaceConfigV2("project-a", "explorer-a", compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config explorer.ConfigV2
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	view := config.Views[0]
+	if view.Table.Columns[0].Column != "column_a" || view.Table.Columns[1].Column != "column_b" {
+		t.Fatalf("table order=%#v", view.Table.Columns)
+	}
+	if view.Filters[0].Column != "column_a" || view.Filters[1].Column != "column_b" {
+		t.Fatalf("filter order=%#v", view.Filters)
+	}
+	if view.Charts[0].Column != "column_b" || view.Charts[1].Column != "column_a" {
+		t.Fatalf("chart order=%#v", view.Charts)
+	}
+}
+
 func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -136,10 +174,15 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 		t.Fatalf("compile mutated active or draft state: %#v", ownerAfterCompile)
 	}
 	var result struct {
-		ReceiptID string `json:"receiptId"`
+		ReceiptID       string `json:"receiptId"`
+		CompilerVersion string `json:"compilerVersion"`
 	}
 	if err := json.Unmarshal([]byte(compiled.Body), &result); err != nil {
 		t.Fatal(err)
+	}
+	wantCompilerVersion := explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion
+	if result.CompilerVersion != wantCompilerVersion {
+		t.Fatalf("compilerVersion=%q, want %q", result.CompilerVersion, wantCompilerVersion)
 	}
 	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
 	if preview.StatusCode != http.StatusOK {

@@ -380,7 +380,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 			return nil, capability.ErrStaleSnapshot
 		}
-		workspace := request.Workspace
+		workspace := request.Workspace.NormalizePresentationOrders()
 		intentDigest, err := workspace.Digest()
 		if err != nil {
 			return nil, err
@@ -388,13 +388,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		normalized, err := workspace.CanonicalJSON()
 		if err != nil {
 			return nil, err
-		}
-		preflight := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, NormalizedBundle: normalized}
-		if key, keyErr := explorer.CompilationKey(preflight); keyErr == nil {
-			if prior, lookupErr := explorerService.CompilationReceiptByCompilationKey(ctx, request.Project, request.ExplorerID, key); lookupErr == nil && prior != nil && prior.ReceiptFormatVersion == explorer.CurrentReceiptFormatVersion && prior.CompilerContractVersion == explorer.CurrentCompilerContractVersion {
-				logger.Info("Explorer receipt compile hit", "project", projectid.Canonical(request.Project), "explorer_id", request.ExplorerID, "receipt_id", prior.ID, "duration_ms", time.Since(started).Milliseconds())
-				return prior, nil
-			}
 		}
 		translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot)
 		if err != nil {
@@ -447,6 +440,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
 		if err != nil {
 			return nil, err
+		}
+		verificationBindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
+		if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, verificationBindings); err != nil {
+			return nil, explorerConflict("compile", "COMPILATION_NONDETERMINISTIC", "the compiler could not reproduce the stored receipt artifact", map[string]any{"receiptId": stored.ID})
 		}
 		receiptBytes := 0
 		if raw, marshalErr := json.Marshal(stored); marshalErr == nil {

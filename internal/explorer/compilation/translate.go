@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-const TranslationVersion = "authoring-v2-native-3"
+const TranslationVersion = "authoring-v2-native-4"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // are intentionally transport-neutral so an HTTP adapter can map it to its
@@ -94,8 +94,10 @@ type PresentationColumn struct {
 	Order        int    `json:"order"`
 	Pinned       bool   `json:"pinned"`
 	FilterLabel  string `json:"filterLabel,omitempty"`
+	FilterOrder  int    `json:"filterOrder,omitempty"`
 	ChartType    string `json:"chartType,omitempty"`
 	ChartTitle   string `json:"chartTitle,omitempty"`
+	ChartOrder   int    `json:"chartOrder,omitempty"`
 }
 
 type OutputColumn = explorer.PublicOutputColumn
@@ -126,6 +128,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
+	workspace = workspace.NormalizePresentationOrders()
 	result := WorkspaceResult{Workspace: workspace, Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion}, EmittedColumns: []EmittedColumn{}, IdentityMappings: []IdentityMapping{}, Presentations: []PresentationConfig{}, OutputContracts: []OutputContract{}}
 	for i, document := range workspace.Documents {
 		compiled, err := Compile(ctx, project, explorerID, document, snapshot)
@@ -576,9 +579,17 @@ func makePresentation(d authoringv2.Document, emitted []EmittedColumn, snapshot 
 		}
 		if p.Filter != nil {
 			column.FilterLabel = p.Filter.Label
+			column.FilterOrder = i
+			if p.Filter.Order != nil {
+				column.FilterOrder = *p.Filter.Order
+			}
 		}
 		if p.Chart != nil {
 			column.ChartType, column.ChartTitle = p.Chart.Type, p.Chart.Title
+			column.ChartOrder = i
+			if p.Chart.Order != nil {
+				column.ChartOrder = *p.Chart.Order
+			}
 		}
 		result.Columns = append(result.Columns, column)
 	}

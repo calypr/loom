@@ -110,9 +110,17 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, Pinned: pinned}
 		if column.Filter != nil {
 			presented.FilterLabel = firstNonEmpty(column.Filter.Label, column.Label)
+			presented.FilterOrder = index
+			if column.Filter.Order != nil {
+				presented.FilterOrder = *column.Filter.Order
+			}
 		}
 		if column.Chart != nil {
 			presented.ChartType, presented.ChartTitle = column.Chart.Type, column.Chart.Title
+			presented.ChartOrder = index
+			if column.Chart.Order != nil {
+				presented.ChartOrder = *column.Chart.Order
+			}
 		}
 		presentation.Columns = append(presentation.Columns, presented)
 		contract.Columns = append(contract.Columns, OutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})

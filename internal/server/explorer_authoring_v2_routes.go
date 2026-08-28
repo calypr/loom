@@ -575,6 +575,11 @@ func applyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized Authorize
 }
 
 func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoringv2.Workspace) explorerv2api.CompileResponse {
+	if receipt != nil && len(receipt.NormalizedBundle) != 0 {
+		if normalized, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle); err == nil {
+			workspace = normalized
+		}
+	}
 	outputs := make([]explorerv2api.ReceiptOutput, 0, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		rowGrain := ""
@@ -602,7 +607,7 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 		Kind:       explorerv2api.ExplorerBuilderReceipt,
 		ReceiptId:  receipt.ID, SnapshotToken: receipt.SnapshotToken,
 		Generation: receipt.SourceGeneration, IntentDigest: receipt.IntentDigest,
-		CompilerVersion: "explorer-authoring-v2", Builder: workspace,
+		CompilerVersion: explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion, Builder: workspace,
 		Outputs: outputs, Diagnostics: []explorerv2api.Diagnostic{},
 	}
 }
