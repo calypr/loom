@@ -6,11 +6,12 @@ import (
 )
 
 var (
-	ErrNotFound          = errors.New("explorer not found")
-	ErrDraftConflict     = errors.New("explorer draft conflict")
-	ErrImmutableRevision = errors.New("explorer revision content is immutable")
-	ErrStaleCatalog      = errors.New("stale Explorer authoring catalog")
-	ErrIncompleteCatalog = errors.New("Explorer catalog discovery is incomplete")
+	ErrNotFound                 = errors.New("explorer not found")
+	ErrDraftConflict            = errors.New("explorer draft conflict")
+	ErrAuthoringCommandConflict = errors.New("Explorer authoring command ID was reused with different intent")
+	ErrImmutableRevision        = errors.New("explorer revision content is immutable")
+	ErrStaleCatalog             = errors.New("stale Explorer authoring catalog")
+	ErrIncompleteCatalog        = errors.New("Explorer catalog discovery is incomplete")
 	// ErrCorruptReceipt means that a persisted receipt does not match its
 	// content-addressed identity, or that an immutable key was reused for a
 	// different receipt. Callers must fail closed rather than execute it.
@@ -27,10 +28,8 @@ type Store interface {
 	Get(context.Context, string, string) (*Explorer, error)
 	CreateInteractive(context.Context, Explorer) (*Explorer, error)
 	CreateRepository(context.Context, Explorer) (*Explorer, error)
-	// expected and expectedDigest are retained for adapter compatibility and
-	// observability. Draft writes are last-write-wins; adapters must increment
-	// the stored draft version from the current value rather than trusting the
-	// caller's expected version.
+	// SaveDraft is an optimistic compare-and-swap. Adapters must reject a
+	// mismatched expected version/digest and increment the persisted version.
 	SaveDraft(context.Context, Explorer, int64, ...string) (*Explorer, error)
 	InsertCompilationReceipt(context.Context, CompilationReceipt) (*CompilationReceipt, error)
 	GetCompilationReceiptForExplorer(context.Context, string, string, string) (*CompilationReceipt, error)

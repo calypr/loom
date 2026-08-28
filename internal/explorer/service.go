@@ -176,6 +176,47 @@ func (s *Service) CreateEmptyInteractive(ctx context.Context, project, id, title
 	return s.store.CreateInteractive(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
+// CreateInteractiveFrom creates a new Explorer identity and, when requested,
+// seeds it from a server-owned source workspace without asking the browser to
+// reconstruct or re-identify that workspace.
+func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title, sourceExplorerID, actor string) (*Explorer, error) {
+	if strings.TrimSpace(sourceExplorerID) == "" {
+		return s.CreateEmptyInteractive(ctx, project, id, title, actor)
+	}
+	if id == "" || id == "default" {
+		return nil, fmt.Errorf("invalid interactive Explorer identity")
+	}
+	source, err := s.Get(ctx, project, sourceExplorerID)
+	if err != nil {
+		return nil, err
+	}
+	raw := source.DraftConfig
+	if len(raw) == 0 && source.ActiveRevisionID != "" {
+		revision, revisionErr := s.store.GetRevision(ctx, source.ActiveRevisionID)
+		if revisionErr != nil {
+			return nil, revisionErr
+		}
+		raw = revision.AuthoringBundle
+	}
+	if len(raw) == 0 {
+		return s.CreateEmptyInteractive(ctx, project, id, title, actor)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(raw)
+	if err != nil {
+		return nil, fmt.Errorf("source Explorer has no cloneable workspace: %w", err)
+	}
+	workspace.Explorer.Title = title
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		return nil, err
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		return nil, err
+	}
+	return s.store.CreateInteractive(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
+}
+
 // SaveWorkspaceDraft persists canonical V2 authoring intent with optimistic
 // concurrency. It never compiles, materializes, or changes the active pointer.
 func (s *Service) SaveWorkspaceDraft(ctx context.Context, project, id string, workspace authoringv2.Workspace, expectedVersion int64, expectedDigest, actor string) (*Explorer, error) {
@@ -199,6 +240,87 @@ func (s *Service) SaveWorkspaceDraft(ctx context.Context, project, id string, wo
 		owner.Title = workspace.Tabs[0].Title
 	}
 	return s.store.SaveDraft(ctx, *owner, expectedVersion, expectedDigest)
+}
+
+// ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
+// resolves backend-owned identities, applies a command batch atomically, and
+// persists both the new draft and the replay record in one compare-and-swap.
+func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+	commandDigest, err := request.Digest()
+	if err != nil {
+		return nil, err
+	}
+	owner, err := s.Get(ctx, project, id)
+	if err != nil {
+		return nil, err
+	}
+	if owner.LastAuthoringCommandID == request.CommandID {
+		if owner.LastAuthoringCommandDigest != commandDigest {
+			return nil, ErrAuthoringCommandConflict
+		}
+		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode replayed authoring workspace: %w", decodeErr)
+		}
+		results := []authoringv2.CommandResult{}
+		if len(owner.LastAuthoringCommandResults) != 0 {
+			if decodeErr := json.Unmarshal(owner.LastAuthoringCommandResults, &results); decodeErr != nil {
+				return nil, fmt.Errorf("decode replayed authoring command results: %w", decodeErr)
+			}
+		}
+		return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Results: results, Diagnostics: []any{}}, nil
+	}
+	if owner.DraftVersion != request.ExpectedDraftVersion || (request.ExpectedDraftDigest != "" && owner.DraftDigest != request.ExpectedDraftDigest) {
+		return nil, ErrDraftConflict
+	}
+
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: owner.Title}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
+	if len(owner.DraftConfig) != 0 {
+		workspace, err = authoringv2.DecodeWorkspace(owner.DraftConfig)
+	} else if owner.ActiveRevisionID != "" {
+		var revision *Revision
+		revision, err = s.store.GetRevision(ctx, owner.ActiveRevisionID)
+		if err == nil {
+			workspace, err = authoringv2.DecodeWorkspace(revision.AuthoringBundle)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, request.Commands)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		return nil, err
+	}
+	draftDigest, err := workspace.Digest()
+	if err != nil {
+		return nil, err
+	}
+	resultJSON, err := json.Marshal(results)
+	if err != nil {
+		return nil, err
+	}
+	owner.DraftConfig = canonical
+	owner.DraftDigest = draftDigest
+	owner.LastAuthoringCommandID = request.CommandID
+	owner.LastAuthoringCommandDigest = commandDigest
+	owner.LastAuthoringCommandResults = resultJSON
+	owner.UpdatedBy = actor
+	owner.UpdatedAt = s.now()
+	if strings.TrimSpace(workspace.Explorer.Title) != "" {
+		owner.Title = workspace.Explorer.Title
+	}
+	stored, err := s.store.SaveDraft(ctx, *owner, request.ExpectedDraftVersion, request.ExpectedDraftDigest)
+	if err != nil {
+		return nil, err
+	}
+	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
 }
 func (s *Service) Revision(ctx context.Context, id string) (*Revision, error) {
 	return s.store.GetRevision(ctx, id)

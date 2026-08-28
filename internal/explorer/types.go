@@ -98,21 +98,24 @@ type Explorer struct {
 	ManagementMode ManagementMode `json:"managementMode"`
 	// DraftConfig is the lossless, canonical ExplorerConfigV2 packet used by
 	// the Builder.
-	DraftConfig          json.RawMessage     `json:"draftConfig,omitempty"`
-	DraftVersion         int64               `json:"draftVersion"`
-	DraftDigest          string              `json:"draftDigest,omitempty"`
-	ActiveRevisionID     string              `json:"activeRevisionId,omitempty"`
-	ActiveConfig         json.RawMessage     `json:"activeConfig,omitempty"`
-	RecipeDigest         string              `json:"recipeDigest,omitempty"`
-	ResolvedSchemaDigest string              `json:"resolvedSchemaDigest,omitempty"`
-	SourceGeneration     string              `json:"sourceGeneration,omitempty"`
-	EmittedColumns       []EmittedColumn     `json:"emittedColumns,omitempty"`
-	Materializations     []Materialization   `json:"materializations,omitempty"`
-	Dataset              DatasetMetadata     `json:"dataset,omitempty"`
-	Publication          PublicationMetadata `json:"publication,omitempty"`
-	Diagnostics          []Diagnostic        `json:"diagnostics,omitempty"`
-	UpdatedBy            string              `json:"updatedBy,omitempty"`
-	UpdatedAt            time.Time           `json:"updatedAt"`
+	DraftConfig                 json.RawMessage     `json:"draftConfig,omitempty"`
+	DraftVersion                int64               `json:"draftVersion"`
+	DraftDigest                 string              `json:"draftDigest,omitempty"`
+	LastAuthoringCommandID      string              `json:"lastAuthoringCommandId,omitempty"`
+	LastAuthoringCommandDigest  string              `json:"lastAuthoringCommandDigest,omitempty"`
+	LastAuthoringCommandResults json.RawMessage     `json:"lastAuthoringCommandResults,omitempty"`
+	ActiveRevisionID            string              `json:"activeRevisionId,omitempty"`
+	ActiveConfig                json.RawMessage     `json:"activeConfig,omitempty"`
+	RecipeDigest                string              `json:"recipeDigest,omitempty"`
+	ResolvedSchemaDigest        string              `json:"resolvedSchemaDigest,omitempty"`
+	SourceGeneration            string              `json:"sourceGeneration,omitempty"`
+	EmittedColumns              []EmittedColumn     `json:"emittedColumns,omitempty"`
+	Materializations            []Materialization   `json:"materializations,omitempty"`
+	Dataset                     DatasetMetadata     `json:"dataset,omitempty"`
+	Publication                 PublicationMetadata `json:"publication,omitempty"`
+	Diagnostics                 []Diagnostic        `json:"diagnostics,omitempty"`
+	UpdatedBy                   string              `json:"updatedBy,omitempty"`
+	UpdatedAt                   time.Time           `json:"updatedAt"`
 }
 type Materialization struct {
 	OutputID          string                       `json:"outputId"`

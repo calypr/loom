@@ -47,8 +47,11 @@ jobs:
     - name: Generate GraphQL code
       run: make generate-graphql
 
+    - name: Generate Explorer V2 API code
+      run: make generate-explorer-v2
+
     - name: Check generated code is current
-      run: git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql
+      run: git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql generated/explorerv2
 
     - name: Run GraphQL contract checks
       run: make graphql-check

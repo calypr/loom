@@ -927,10 +927,12 @@ pointer. Persisting the immutable receipt is necessary and is not publication.
 
 Compilation is idempotent. The same canonical intent, snapshot, scope,
 generation, schema, receipt format, and compiler contract produces the same
-compilation key and content-addressed receipt ID. Loom performs a tenant-scoped
-compilation-key lookup before translating. Arango uses immutable
-`INSERT ... overwriteMode: "ignore"` rather than an updating UPSERT, then reads
-and validates the stored artifact.
+compilation key and content-addressed receipt ID. Explicit compile/recompile
+always rebuilds normalized intent; a compilation-key match is not treated as
+proof that an old artifact remains reproducible. Arango uses immutable
+`INSERT ... overwriteMode: "ignore"` rather than an updating UPSERT, then Loom
+reads and re-lowers the stored artifact with the preview verifier before it can
+return success.
 
 The receipt must be stored before Loom returns a successful Builder
 reconciliation. Returning success without a retrievable artifact recreates the

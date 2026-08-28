@@ -124,12 +124,15 @@ and is not semantic recompilation.
 ## Idempotency and persistence
 
 The compilation key covers the canonical intent, snapshot, scope, generation,
-schema, receipt format, and compiler contract. Production checks this key
-before translation. A hit returns the already persisted receipt.
+schema, receipt format, and compiler contract. It is an idempotency identity,
+not evidence that a previously stored artifact remains reproducible. Production
+therefore rebuilds normalized intent on every explicit compile/recompile.
 
-A miss is translated and validated, then persisted with immutable
+The result is validated, then persisted with immutable
 `INSERT ... OPTIONS { overwriteMode: "ignore" }` semantics. Loom reads and
-validates the stored document before returning success. The Arango collection
+re-lowers the authoritative stored document with the same verifier used by
+preview before returning success. A compile never returns 200 with an artifact
+that preview would immediately reject. The Arango collection
 has a composite index over project, Explorer, compilation key, receipt format,
 and compiler contract. Receipt lookup for execution is always scoped by
 project, Explorer, and receipt ID.
@@ -141,11 +144,9 @@ serialized bytes, oldest creation time, and unreferenced count. Loom retains
 explicit orphan purge but does not impose an automatic TTL until real storage
 measurements justify one.
 
-The compiler records hit/compile duration, serialized receipt bytes, output
-count, and public column count. The performance objectives are:
-
-- uncached compile p95 at or below 250 ms; and
-- idempotent receipt lookup p95 at or below 50 ms.
+The compiler records verified compile duration, serialized receipt bytes,
+output count, and public column count. Performance objectives must be measured
+against the complete rebuild-and-verify path and tenant-scoped receipt lookup.
 
 The pure native translator benchmark uses a 20-hop, 100-selection document and
 reports time and allocations. It is not a wall-clock CI assertion; service

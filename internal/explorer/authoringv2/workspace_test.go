@@ -54,7 +54,7 @@ func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *tes
 func fiveTableWorkspace() Workspace {
 	w := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Documents: []Document{}, Tabs: []Tab{}}
 	for i := 0; i < 5; i++ {
-		id := fmt.Sprintf("output-%d", i)
+		id := fmt.Sprintf("output_%d", i)
 		w.Documents = append(w.Documents, workspaceDocument(id))
 		w.Tabs = append(w.Tabs, Tab{ID: "tab-" + id, Title: id, OutputID: id, Order: i, Visible: true})
 	}
@@ -156,5 +156,20 @@ func TestDecodeWorkspaceRejectsUnknownFields(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","documents":[],"tabs":[],"recipe":{}}`
 	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"}}],"tabs":[{"id":"tab-patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	workspace, err := DecodeWorkspace([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"columns":[]`) {
+		t.Fatalf("decoded legacy draft did not restore required columns array: %s", encoded)
 	}
 }

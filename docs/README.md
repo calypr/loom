@@ -36,6 +36,9 @@ documented separately from migration notes and implementation plans.
 
 ## Migration and planning material
 
+- [Backend-owned Explorer authoring plan](PLAN_BACKEND_OWNED_EXPLORER_AUTHORING.md)
+  — phased migration from browser-authored workspaces to server-owned intent
+  commands, identities, canonical drafts, and stored-draft reconciliation.
 - [Historical Explorer V2 migration](FRONTEND_EXPLORER_V2_MIGRATION.md) —
   retained for compatibility and ETL migration context. It is not the current
   browser authoring contract; use [Explorer authoring](EXPLORER_AUTHORING.md)

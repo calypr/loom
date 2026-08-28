@@ -55,7 +55,7 @@ type Document struct {
 	Output           Output        `json:"output"`
 	RootResourceType string        `json:"rootResourceType,omitempty"`
 	Route            RouteNode     `json:"route,omitempty"`
-	Columns          []Column      `json:"columns,omitempty"`
+	Columns          []Column      `json:"columns"`
 	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
 	Actions          []Action      `json:"actions,omitempty"`
 
@@ -215,6 +215,8 @@ type BuilderState struct {
 	APIVersion     string     `json:"apiVersion"`
 	Kind           string     `json:"kind"`
 	LifecycleState string     `json:"lifecycleState"`
+	DraftVersion   int64      `json:"draftVersion"`
+	DraftDigest    string     `json:"draftDigest"`
 	Workspace      *Workspace `json:"workspace"`
 	// Document is retained only as a source-compatible internal migration aid.
 	Document *Document       `json:"-"`
@@ -281,6 +283,9 @@ func (d Document) Validate() error {
 	}
 	if emptyID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
 		return fmt.Errorf("output id and title are required")
+	}
+	if !physicalColumnPattern.MatchString(d.Output.ID) {
+		return fmt.Errorf("output id must contain only letters, digits, and underscores and may not start with a digit")
 	}
 	if d.semantic() {
 		return d.validateSemantic()
@@ -518,6 +523,9 @@ func (c CatalogSnapshot) Validate() error {
 }
 
 func (s BuilderState) Validate() error {
+	if s.DraftVersion < 0 {
+		return fmt.Errorf("draftVersion must not be negative")
+	}
 	if s.APIVersion != APIVersion || s.Kind != StateKind {
 		return fmt.Errorf("unsupported V2 builder state protocol or kind")
 	}
@@ -736,6 +744,9 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 	n.Documents = append([]Document(nil), n.Documents...)
 	for i := range n.Documents {
 		n.Documents[i].APIVersion = ""
+		if n.Documents[i].Columns == nil {
+			n.Documents[i].Columns = []Column{}
+		}
 		n.Documents[i].Selections = append([]Selection(nil), n.Documents[i].Selections...)
 		sort.SliceStable(n.Documents[i].Selections, func(a, b int) bool {
 			left := n.Documents[i].Selections[a]
@@ -777,6 +788,9 @@ func (w Workspace) NormalizePresentationOrders() Workspace {
 	for documentIndex := range n.Documents {
 		document := &n.Documents[documentIndex]
 		columns := append([]Column(nil), document.Columns...)
+		if columns == nil {
+			columns = []Column{}
+		}
 		for columnIndex := range columns {
 			column := &columns[columnIndex]
 			if column.Table != nil {
@@ -992,6 +1006,11 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 	}
 	if err := out.Validate(); err != nil {
 		return out, err
+	}
+	for i := range out.Documents {
+		if out.Documents[i].Columns == nil {
+			out.Documents[i].Columns = []Column{}
+		}
 	}
 	return out, nil
 }

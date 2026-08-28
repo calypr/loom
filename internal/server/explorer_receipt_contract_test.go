@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +93,7 @@ func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(
 			{EmissionID: "column_a", OutputID: "out", PublicColumn: "column_a"},
 		},
 		Presentations: []explorercompilation.PresentationConfig{{OutputID: "out", Columns: []explorercompilation.PresentationColumn{
-			{EmissionID: "column_b", PublicColumn: "column_b", Label: "B", Visible: true, Order: 0, FilterLabel: "B", FilterOrder: 0, ChartType: "bar", ChartOrder: 0},
+			{EmissionID: "column_b", PublicColumn: "column_b", Label: "B", Visible: false, Order: 0, FilterLabel: "B", FilterOrder: 0, ChartType: "bar", ChartOrder: 0},
 			{EmissionID: "column_a", PublicColumn: "column_a", Label: "A", Visible: true, Order: 0, FilterLabel: "A", FilterOrder: 0, ChartType: "line", ChartOrder: 1},
 		}}},
 	}
@@ -109,6 +111,9 @@ func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(
 	}
 	if view.Filters[0].Column != "column_a" || view.Filters[1].Column != "column_b" {
 		t.Fatalf("filter order=%#v", view.Filters)
+	}
+	if view.Table.Columns[1].Visible || view.Filters[1].Column != view.Table.Columns[1].Column {
+		t.Fatalf("hidden filter-only column was not preserved: table=%#v filters=%#v", view.Table.Columns, view.Filters)
 	}
 	if view.Charts[0].Column != "column_b" || view.Charts[1].Column != "column_a" {
 		t.Fatalf("chart order=%#v", view.Charts)
@@ -215,6 +220,93 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	widened := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
 	if widened.StatusCode != http.StatusConflict || !strings.Contains(widened.Body, `"code":"RECEIPT_STALE"`) || previewCalls != 1 {
 		t.Fatalf("scope mismatch status=%d calls=%d body=%s", widened.StatusCode, previewCalls, widened.Body)
+	}
+}
+
+func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "custom", "Custom", "test"); err != nil {
+		t.Fatal(err)
+	}
+	config := ExplorerV2LifecycleConfig{
+		Capability:      func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
+		CapabilityToken: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+		AuthorizedCapabilityCompile: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		},
+		CompileReceipt: func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
+		},
+	}
+	app := fiber.New()
+	RegisterExplorerAuthoringV2Routes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+
+	commandBody := `{"commandId":"browser-command-1","snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`
+	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
+	if created.StatusCode != http.StatusOK {
+		t.Fatalf("command status=%d body=%s", created.StatusCode, created.Body)
+	}
+	if !strings.Contains(created.Body, `"columns":[]`) {
+		t.Fatalf("command response omitted required empty columns array: %s", created.Body)
+	}
+	var response authoringv2.ApplyCommandsResponse
+	if err := json.Unmarshal([]byte(created.Body), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.DraftVersion != 1 || len(response.Workspace.Documents) != 1 || !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(response.Workspace.Documents[0].Output.ID) {
+		t.Fatalf("command response=%#v", response)
+	}
+	replayed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
+	if replayed.StatusCode != http.StatusOK || !strings.Contains(replayed.Body, `"draftVersion":1`) {
+		t.Fatalf("replay status=%d body=%s", replayed.StatusCode, replayed.Body)
+	}
+	conflicting := strings.Replace(commandBody, `"Patients"`, `"Different"`, 1)
+	conflict := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", conflicting)
+	if conflict.StatusCode != http.StatusConflict || !strings.Contains(conflict.Body, `"code":"COMMAND_ID_CONFLICT"`) {
+		t.Fatalf("command ID conflict status=%d body=%s", conflict.StatusCode, conflict.Body)
+	}
+	reconcileBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q}`, snapshot.Token, response.DraftVersion, response.DraftDigest)
+	reconciled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/reconcile", reconcileBody)
+	if reconciled.StatusCode != http.StatusOK || !strings.Contains(reconciled.Body, `"kind":"ExplorerBuilderReceipt"`) {
+		t.Fatalf("reconcile status=%d body=%s", reconciled.StatusCode, reconciled.Body)
+	}
+}
+
+func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "source", "Source", "test"); err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveWorkspaceDraft(context.Background(), "project-a", "source", workspace, 0, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+	app := fiber.New()
+	RegisterExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Cloned Explorer","title":"Cloned Explorer","sourceExplorerId":"source"}`)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("clone status=%d body=%s", created.StatusCode, created.Body)
+	}
+	clone, err := service.Get(context.Background(), "project-a", explorer.StableExplorerID("Cloned Explorer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clonedWorkspace, err := authoringv2.DecodeWorkspace(clone.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clone.DraftVersion != 1 || clonedWorkspace.Explorer.Title != "Cloned Explorer" || len(clonedWorkspace.Documents) != len(workspace.Documents) || clonedWorkspace.Documents[0].Output.ID != workspace.Documents[0].Output.ID {
+		t.Fatalf("cloned Explorer=%#v workspace=%#v", clone, clonedWorkspace)
 	}
 }
 

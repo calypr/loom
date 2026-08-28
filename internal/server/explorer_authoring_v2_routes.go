@@ -52,7 +52,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		return c.JSON(explorerv2api.AuthoringCapability{
 			ApiVersion:    explorerv2api.LoomCalyprOrgexplorerAuthoringv2,
 			Kind:          explorerv2api.ExplorerAuthoringCapabilities,
-			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Compile, explorerv2api.Draft, explorerv2api.Export, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish},
+			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Compile, explorerv2api.Draft, explorerv2api.Export, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish, explorerv2api.Commands, explorerv2api.Reconcile},
 			PreviewLimits: []int{10, 25, 50, 100},
 			Features:      explorerv2api.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true},
 		})
@@ -138,7 +138,7 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if err != nil {
 			return authoringHTTPError(c, err)
 		}
-		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, Catalog: wire}
+		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Catalog: wire}
 		var activeWorkspace *authoringv2.Workspace
 		if owner.ActiveRevisionID != "" {
 			active, activeErr := explorers.ActiveRevision(c.Context(), project, id)
@@ -238,14 +238,39 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		return c.Send(canonical)
 	})
 
-	compileHandler := func(c fiber.Ctx) error {
+	app.Post(prefix+"/commands", func(c fiber.Ctx) error {
 		if err := authoringWrite(c, authorizer); err != nil {
 			return err
 		}
-		var request explorerv2api.CompileRequest
+		var request authoringv2.ApplyCommandsRequest
 		if err := decodeAuthoringStrict(c.Body(), &request); err != nil {
-			return authoringHTTPError(c, malformedRouteError("intent", err))
+			return authoringHTTPError(c, malformedRouteError("commands", err))
 		}
+		if err := request.Validate(); err != nil {
+			return authoringHTTPError(c, malformedRouteError("commands", err))
+		}
+		if capabilities.CapabilityToken == nil {
+			return authoringHTTPError(c, explorerUnavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured"))
+		}
+		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
+		snapshot, err := capabilities.CapabilityToken(c.Context(), project, request.SnapshotToken)
+		if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
+			return authoringHTTPError(c, explorerConflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil))
+		}
+		response, err := explorers.ApplyWorkspaceCommands(c.Context(), project, id, authoringV2Catalog(snapshot, id), request, subjectFromFiber(c))
+		switch {
+		case errors.Is(err, explorer.ErrDraftConflict):
+			return authoringHTTPError(c, explorerConflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before editing", nil))
+		case errors.Is(err, explorer.ErrAuthoringCommandConflict):
+			return authoringHTTPError(c, explorerConflict("commands", "COMMAND_ID_CONFLICT", "commandId was already used for different intent", nil))
+		case err != nil:
+			return authoringHTTPError(c, authoringSemanticRoute("commands", "$.commands", "INVALID_AUTHORING_COMMAND", err.Error(), nil))
+		default:
+			return c.JSON(response)
+		}
+	})
+
+	compileWorkspace := func(c fiber.Ctx, workspace authoringv2.Workspace, snapshotToken string) error {
 		if (capabilities.CapabilityToken == nil && capabilities.AuthorizedCapabilityCompile == nil) || capabilities.CompileReceipt == nil {
 			return authoringHTTPError(c, explorerUnavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured"))
 		}
@@ -254,20 +279,20 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		var snapshot capability.Snapshot
 		var authorized AuthorizedCapability
 		if capabilities.AuthorizedCapabilityCompile != nil {
-			authorized, err = capabilities.AuthorizedCapabilityCompile(c.Context(), project, request.SnapshotToken)
+			authorized, err = capabilities.AuthorizedCapabilityCompile(c.Context(), project, snapshotToken)
 			snapshot = authorized.Snapshot
 		} else {
-			snapshot, err = capabilities.CapabilityToken(c.Context(), project, request.SnapshotToken)
+			snapshot, err = capabilities.CapabilityToken(c.Context(), project, snapshotToken)
 		}
 		if err != nil {
-			return authoringHTTPError(c, explorerConflict("capability", "STALE_CATALOG_SNAPSHOT", "the capability snapshot is stale or unavailable", map[string]any{"snapshotToken": request.SnapshotToken}))
+			return authoringHTTPError(c, explorerConflict("capability", "STALE_CATALOG_SNAPSHOT", "the capability snapshot is stale or unavailable", map[string]any{"snapshotToken": snapshotToken}))
 		}
 		wire := authoringV2Catalog(snapshot, id)
-		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &request.Workspace, Catalog: wire}
+		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}
 		if err := state.Validate(); err != nil {
 			return authoringHTTPError(c, authoringSemanticRoute("intent", "$", workspaceValidationCode(err), err.Error(), nil))
 		}
-		stored, err := capabilities.CompileReceipt(c.Context(), ExplorerV2ReceiptCompileRequest{Project: project, ExplorerID: id, Workspace: request.Workspace, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c), Authorized: authorized})
+		stored, err := capabilities.CompileReceipt(c.Context(), ExplorerV2ReceiptCompileRequest{Project: project, ExplorerID: id, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: requestIDFromFiber(c), Authorized: authorized})
 		if err != nil {
 			var compileErr *explorercompilation.Error
 			if errors.As(err, &compileErr) {
@@ -278,10 +303,48 @@ func RegisterExplorerAuthoringV2Routes(app *fiber.App, authorizer authscope.Auth
 		if stored == nil || strings.TrimSpace(stored.ID) == "" {
 			return authoringHTTPError(c, explorerUnavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted"))
 		}
-		return c.JSON(v2ReceiptResponse(stored, request.Workspace))
+		return c.JSON(v2ReceiptResponse(stored, workspace))
+	}
+	compileHandler := func(c fiber.Ctx) error {
+		if err := authoringWrite(c, authorizer); err != nil {
+			return err
+		}
+		var request explorerv2api.CompileRequest
+		if err := decodeAuthoringStrict(c.Body(), &request); err != nil {
+			return authoringHTTPError(c, malformedRouteError("intent", err))
+		}
+		return compileWorkspace(c, request.Workspace, request.SnapshotToken)
 	}
 	app.Post(prefix+"/builder", compileHandler)
 	app.Post(prefix+"/compile", compileHandler)
+	app.Post(prefix+"/reconcile", func(c fiber.Ctx) error {
+		if err := authoringWrite(c, authorizer); err != nil {
+			return err
+		}
+		var request struct {
+			SnapshotToken string `json:"snapshotToken"`
+			DraftVersion  int64  `json:"draftVersion"`
+			DraftDigest   string `json:"draftDigest"`
+		}
+		if err := decodeAuthoringStrict(c.Body(), &request); err != nil || strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
+			if err == nil {
+				err = fmt.Errorf("snapshotToken, draftVersion, and draftDigest are required")
+			}
+			return authoringHTTPError(c, malformedRouteError("reconcile", err))
+		}
+		owner, err := explorers.Get(c.Context(), explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId")))
+		if err != nil {
+			return authoringHTTPError(c, err)
+		}
+		if owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {
+			return authoringHTTPError(c, explorerConflict("reconcile", "DRAFT_CONFLICT", "the Explorer draft changed; reload before reconciling", nil))
+		}
+		workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+		if err != nil {
+			return authoringHTTPError(c, explorerConflict("reconcile", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be reconciled", nil))
+		}
+		return compileWorkspace(c, workspace, request.SnapshotToken)
+	})
 
 	app.Post(prefix+"/preview", func(c fiber.Ctx) error {
 		started := time.Now()

@@ -1,10 +1,10 @@
 # Explorer authoring
 
 The public Builder contract is
-`loom.calypr.org/explorer-authoring/v2`. The browser submits semantic intent
-using opaque node, relationship, candidate, occurrence, and receipt IDs. Loom
-owns recipe construction, output-column identities, authorization predicates,
-physical planning, and AQL.
+`loom.calypr.org/explorer-authoring/v2`. The browser submits canonical V2
+workspace documents with typed column sources, route occurrences, and
+presentation intent. Loom owns recipe construction, authorization predicates,
+physical planning, output contracts, and AQL.
 
 For the complete wire contract and frontend checklist, see
 [Explorer V2 capability authoring](frontend/explorer-v2-capability-authoring.md).
@@ -22,19 +22,20 @@ All routes are under:
 | Operation | Route | Contract |
 | --- | --- | --- |
 | Read capability | `GET /capability` | exact active compiler-proven snapshot |
-| Read Builder | `GET /builder` | capability plus active V2 document when present |
-| Compile | `POST /compile` | `{document, snapshotToken}` |
+| Read Builder | `GET /builder` | capability plus saved/active V2 workspace when present |
+| Save draft | `PUT /draft` | `{workspace, snapshotToken, expectedDraftVersion, expectedDraftDigest?}` |
+| Export workspace | `GET /export` | canonical portable V2 workspace |
+| Compile | `POST /compile` | `{workspace, snapshotToken}` |
 | Compile alias | `POST /builder` | same operation for the current frontend |
 | Suggestions | `GET /capabilities/:snapshotToken/candidates/:candidateId/suggestions` | bounded values for one exact snapshot |
 | Preview | `POST /preview` | `{receiptId, outputId, limit?}` |
 | Publish | `POST /publish` | `{receiptId}` |
 
-There is no public V1 authoring route. V1 types and the V1 compiler exist only
-to migrate already stored legacy authoring documents.
+There is no public V1 authoring route or lazy legacy migration path.
 
-## Builder document
+## Builder workspace
 
-A V2 document contains one output, a concrete row-root node, an ordered finite
+A V2 workspace contains ordered output documents and tabs. Each document has a concrete row-root node, an ordered finite
 route, occurrence-specific field selections, projection modes, and presentation
 preferences. It contains no FHIR selector path, recipe expression, traversal
 alias, collection name, AQL, or generated output column.
@@ -63,15 +64,48 @@ Artifactless receipts created by older servers return
 
 ## Draft and publication behavior
 
-The browser may keep its mutable V2 document locally and debounce compile.
-Compile-before-preview is the safe fallback when the latest editor state has no
-receipt. Concurrent compile responses cannot overwrite each other because each
-receipt is immutable and content-addressed.
+Loom stores canonical V2 workspace drafts with draft-version and optional
+digest compare-and-swap. Repository/ETL publication advances that same version,
+so an external replacement produces `DRAFT_CONFLICT` instead of silently
+overwriting browser work. Compile-before-preview is the safe fallback when the
+latest editor state has no receipt. Receipts remain immutable and
+content-addressed.
 
-Publish materializes and verifies the exact receipt before activating its
+Repository publication accepts the same V2 workspace and uses the same receipt
+compiler as browser publication. Publish materializes and verifies the exact receipt before activating its
 revision. A materialization, output-verification, or activation failure leaves
 the previous active revision intact. Active revisions retain the canonical V2
 document so Builder reads can restore it directly.
+
+## One-time V2 artifact migration
+
+Revisions published by an earlier V2 server may predate the revision-level
+copies of the workspace, receipt ID, public output contract, or emissions. Run
+the explicit migration once; normal Builder and Viewer reads never mutate
+stored revisions.
+
+Dry-run one revision first:
+
+```bash
+go run ./cmd/explorer-v2-artifact-migrate \
+  -revision authoring_a46ec8372e6675684b3f58dfa0bf73f9956e3310259a149de5642c76f639677a
+```
+
+Apply after the report says `REPAIRABLE`:
+
+```bash
+go run ./cmd/explorer-v2-artifact-migrate \
+  -revision authoring_a46ec8372e6675684b3f58dfa0bf73f9956e3310259a149de5642c76f639677a \
+  -apply
+```
+
+`ARANGO_URL`, `ARANGO_DATABASE`, `ARANGO_USERNAME`, and `ARANGO_PASSWORD` are
+accepted from the environment. Omitting `-revision`, `-project`, and
+`-explorer` scans all affected revisions. The migration derives
+`receipt_<hash>` only for `authoring_<hash>` revisions, requires matching
+project, Explorer, recipe, generation, and existing artifacts, fills only
+missing fields, and reports conflicts without modifying them. Re-running it is
+idempotent.
 
 ## Authorization and generation rules
 
@@ -83,6 +117,42 @@ generation to remain active.
 Restricted-empty authorization is not equivalent to unrestricted access. Loom
 propagates the explicit scope mode and paths through deterministic lowering and
 execution. The frontend never supplies those predicates.
+
+## Editable traversal trees and ordinary columns
+
+The V2 route is a finite occurrence tree. Builder clients may add sibling and
+nested children through exact catalog edges and may attach ordinary primitive
+field columns to any occurrence. `Document.Route` is the only durable route
+source; compatibility-only linear route helpers are not an authoring contract.
+
+Compile and preview may persist and execute immutable receipts, but neither
+operation changes the active Explorer revision. Publication is the only
+Builder operation that materializes outputs and switches the active revision.
+
+## Future work TODO: advanced catalog-driven column addition
+
+The MVP Builder shows configured V2 columns and ordinary catalog field
+candidates in one list. A selected catalog field becomes a durable typed
+`source.kind: field` column; candidate identity is not retained as a second
+authoring model. Existing field columns are reconciled to the list by their
+single authoritative `fieldPath`, while typed project, identifier, extension,
+coding, and observation sources remain ordinary configured columns.
+
+Future work is limited to candidate families that need more intent than one
+field path, plus new route/table construction. That work must:
+
+- have Loom return a complete typed V2 column for identifier systems,
+  extension URLs, coding systems, and observation component codes;
+- prove that every advertised candidate compiles under the snapshot that
+  advertised it;
+- restore route and blank-table creation only when at least one valid column
+  can be added in the same workflow; and
+- cover add through compile, preview, export, reload, and publish without
+  changing configured-column persistence.
+
+Do not introduce composite frontend matching such as
+`occurrenceId + source.kind + source.fieldPath + source.match`. The resulting
+typed V2 column remains the durable authoring state.
 
 ## Cleanup
 

@@ -53,8 +53,9 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 			return err
 		}
 		var request struct {
-			Name  string `json:"name"`
-			Title string `json:"title,omitempty"`
+			Name             string `json:"name"`
+			Title            string `json:"title,omitempty"`
+			SourceExplorerID string `json:"sourceExplorerId,omitempty"`
 		}
 		if err := decodeStrict(c.Body(), &request); err != nil || strings.TrimSpace(request.Name) == "" {
 			return explorerV2Error(c, 400, "MALFORMED_REQUEST", "name is required")
@@ -67,7 +68,7 @@ func RegisterExplorerLifecycleRoutes(app *fiber.App, authorizer authscope.Author
 		if title == "" {
 			title = strings.TrimSpace(request.Name)
 		}
-		value, err := explorers.CreateEmptyInteractive(c.Context(), project, id, title, subjectFromFiber(c))
+		value, err := explorers.CreateInteractiveFrom(c.Context(), project, id, title, strings.TrimSpace(request.SourceExplorerID), subjectFromFiber(c))
 		if errors.Is(err, explorer.ErrDraftConflict) {
 			return explorerV2Error(c, 409, "EXPLORER_EXISTS", "an Explorer with this name already exists")
 		}
