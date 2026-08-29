@@ -153,5 +153,4 @@ type SnapshotRepository interface {
 	ReadSnapshot(context.Context, Ref) (SnapshotGeneration, error)
 	RecordSnapshotUpload(context.Context, Ref, ResourceUpload) (SnapshotGeneration, error)
 	TransitionSnapshot(context.Context, Ref, State, State, time.Time) (SnapshotGeneration, error)
-	ListSnapshotProjects(context.Context) ([]string, error)
 }

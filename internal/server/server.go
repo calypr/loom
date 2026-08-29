@@ -220,7 +220,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 		}
 	}
-	verificationStore := publicationVerificationStore{executions: publishedRegistry, query: lifecycleClient}
+	verificationStore := publicationVerificationStore{executions: publishedRegistry}
 	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
 	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
@@ -238,20 +238,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
 		return releaseService.ValidateGeneration(ctx, project, generation)
-	}
-	noAuthEnabled := serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
-	var candidateProjects func(context.Context) ([]string, error)
-	if noAuthEnabled {
-		inventory := publicationcontract.ProjectInventory{Snapshots: lifecycleStore, Releases: lifecycleStore, Executions: verificationStore}
-		candidateProjects = func(ctx context.Context) ([]string, error) {
-			return inventory.ExpectedProjects(ctx, nil, true)
-		}
-	}
-	if materializationReader != nil {
-		statusResolver := releaseProjectStatusResolver{releases: lifecycleStore, executions: publishedRegistry}
-		materializationReader.ProjectStatusResolver = statusResolver
-		materializationReader.ReleaseExecutionResolver = statusResolver
-		materializationReader.FederationSnapshotResolver = statusResolver
 	}
 	var exactStarter graphresolver.ExactMaterializationStarter
 	if publicationWorker != nil {
@@ -329,7 +315,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,
 		ProjectReleaseActivator:     releaseActivator,
-		CandidateProjects:           candidateProjects,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,

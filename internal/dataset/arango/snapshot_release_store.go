@@ -91,10 +91,6 @@ func (s *Store) TransitionSnapshot(ctx context.Context, ref dataset.Ref, expecte
 	return rows[0], nil
 }
 
-func (s *Store) ListSnapshotProjects(ctx context.Context) ([]string, error) {
-	return s.projectRows(ctx, listSnapshotProjectsAQL, snapshotRecordType)
-}
-
 func (s *Store) SaveRelease(ctx context.Context, release dataset.ProjectRelease) (dataset.ProjectRelease, error) {
 	document, err := lifecycleDocument(release)
 	if err != nil {
@@ -204,10 +200,6 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	return *active, nil
 }
 
-func (s *Store) ListReleaseProjects(ctx context.Context) ([]string, error) {
-	return s.projectRows(ctx, listReleaseProjectsAQL, activeReleaseRecordType)
-}
-
 func (s *Store) ListRetentionGenerations(ctx context.Context) ([]dataset.RetentionGeneration, error) {
 	results := make([]dataset.RetentionGeneration, 0)
 	binds := map[string]any{
@@ -296,18 +288,6 @@ func (s *Store) snapshotRows(ctx context.Context, query string, binds map[string
 	return rows, err
 }
 
-func (s *Store) projectRows(ctx context.Context, query, recordType string) ([]string, error) {
-	projects := make([]string, 0)
-	err := s.client.QueryRows(ctx, query, metadataBatchSize, map[string]any{"@lifecycle_collection": LifecycleCollection, "record_type": recordType}, func(row map[string]any) error {
-		project, _ := row["project"].(string)
-		if project != "" {
-			projects = append(projects, project)
-		}
-		return nil
-	})
-	return projects, err
-}
-
 func lifecycleDocument(value any) (map[string]any, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -379,9 +359,6 @@ FOR snapshot IN @@lifecycle_collection
   UPDATE snapshot WITH {state: @next, updatedAt: @updated_at, abortedAt: @next == "FAILED" ? @updated_at : null} IN @@lifecycle_collection
   RETURN UNSET(NEW, "_key", "_id", "_rev", "recordType", "project")
 `
-
-const listSnapshotProjectsAQL = `FOR doc IN @@lifecycle_collection FILTER doc.recordType == @record_type OR doc.recordType == "manifest" COLLECT project = doc.dataset.project SORT project RETURN {project}`
-const listReleaseProjectsAQL = `FOR doc IN @@lifecycle_collection FILTER doc.recordType == @record_type OR doc.recordType == "project_release" COLLECT project = doc.project SORT project RETURN {project}`
 
 const saveReleaseAQL = `
 LET existing = DOCUMENT(@@lifecycle_collection, @key)

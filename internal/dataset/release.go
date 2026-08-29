@@ -94,7 +94,6 @@ type ReleaseRepository interface {
 	ReadRelease(context.Context, string, string) (ProjectRelease, error)
 	ReadActiveRelease(context.Context, string) (ActiveRelease, error)
 	CompareAndSwapActivateRelease(context.Context, ProjectRelease, int64) (ActiveRelease, error)
-	ListReleaseProjects(context.Context) ([]string, error)
 }
 
 type ReleaseService struct {

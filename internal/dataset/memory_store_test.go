@@ -130,16 +130,6 @@ func (s *MemoryLifecycleStore) TransitionSnapshot(_ context.Context, ref Ref, ex
 	return cloneSnapshot(snapshot), nil
 }
 
-func (s *MemoryLifecycleStore) ListSnapshotProjects(context.Context) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	set := make(map[string]struct{})
-	for ref := range s.snapshots {
-		set[ref.Project] = struct{}{}
-	}
-	return sortedSet(set), nil
-}
-
 func (s *MemoryLifecycleStore) ReadActiveRelease(_ context.Context, project string) (ActiveRelease, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -166,16 +156,6 @@ func (s *MemoryLifecycleStore) CompareAndSwapActivateRelease(_ context.Context, 
 	active := ActiveRelease{Release: cloneRelease(release), Revision: expectedRevision + 1}
 	s.releases[release.Project] = active
 	return cloneActiveRelease(active), nil
-}
-
-func (s *MemoryLifecycleStore) ListReleaseProjects(context.Context) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	set := make(map[string]struct{}, len(s.releases))
-	for project := range s.releases {
-		set[project] = struct{}{}
-	}
-	return sortedSet(set), nil
 }
 
 func cloneSnapshot(value SnapshotGeneration) SnapshotGeneration {

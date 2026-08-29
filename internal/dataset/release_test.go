@@ -277,26 +277,6 @@ func TestActivationRetryOfSameReleaseIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestProjectInventoryFiltersAuthorizedAndIncludesObservedInNoAuth(t *testing.T) {
-	store := NewMemoryLifecycleStore()
-	now := time.Now().UTC()
-	snapshot, _ := NewSnapshotGeneration("observed", "commit", "", []string{"Patient"}, now)
-	_, _ = store.CreateOrResumeSnapshot(context.Background(), snapshot)
-	inventory := ProjectInventory{Snapshots: store, Releases: store, Executions: projectSource{"attempted"}}
-	got, err := inventory.ExpectedProjects(context.Background(), []string{"authorized"}, false)
-	if err != nil || !reflect.DeepEqual(got, []string{"authorized"}) {
-		t.Fatalf("authorized inventory = %v, %v", got, err)
-	}
-	got, err = inventory.ExpectedProjects(context.Background(), nil, true)
-	if err != nil || !reflect.DeepEqual(got, []string{"attempted", "observed"}) {
-		t.Fatalf("no-auth inventory = %v, %v", got, err)
-	}
-}
-
-type projectSource []string
-
-func (p projectSource) ListExecutionProjects(context.Context) ([]string, error) { return p, nil }
-
 func stageSnapshot(t *testing.T, store *MemoryLifecycleStore, project, generation string, now time.Time) {
 	t.Helper()
 	snapshot, _ := NewSnapshotGeneration(project, generation, "", []string{"Patient"}, now)
