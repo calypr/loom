@@ -68,7 +68,7 @@ func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
 		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "private", dataframeerrors.WithRetryable(true)), http.StatusServiceUnavailable, "BACKEND_UNAVAILABLE"},
-		{"receipt", &receiptPreviewResolutionError{Err: errors.New("private")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
+		{"receipt", &receiptPreviewResolutionError{Err: contractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
 		{"unknown", errors.New("private"), http.StatusInternalServerError, "PREVIEW_FAILED"},
 	}
 	for _, test := range tests {
@@ -81,6 +81,9 @@ func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
 			}
 			if strings.Contains(response.Body, "private") {
 				t.Fatalf("private cause leaked: %s", response.Body)
+			}
+			if test.name == "receipt" && (!strings.Contains(response.Body, `"component":"output_execution"`) || !strings.Contains(response.Body, `"outputId":"patients"`)) {
+				t.Fatalf("receipt mismatch details missing: %s", response.Body)
 			}
 		})
 	}

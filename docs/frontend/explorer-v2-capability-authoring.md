@@ -127,7 +127,7 @@ compile it, persist an immutable receipt, and return:
   "snapshotToken": "sha256:...",
   "generation": "generation-...",
   "intentDigest": "sha256:...",
-  "compilerVersion": "loom.explorer.compiler/v7+authoring-v2-native-4",
+  "compilerVersion": "loom.explorer.compiler/v9+authoring-v2-native-5",
   "outputs": [],
   "diagnostics": []
 }

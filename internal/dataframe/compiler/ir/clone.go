@@ -62,6 +62,116 @@ func ClonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	return clonePhysicalSubplan(subplan)
 }
 
+// CanonicalExecutionPhysicalPlan returns the renderer-relevant plan contract.
+// Compiler diagnostics and semantic source locations are deliberately removed:
+// they explain a plan but do not change what the backend executes.
+func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
+	out := clonePhysicalPlan(plan)
+	out.Source = PhysicalSource{}
+	out.DeferredExpressionLets = nil
+	out.AppliedRules = nil
+	out.SharedTraversalCount = 0
+	out.OptimizationPolicy = PhysicalOptimizationReport{}
+	out.RequiredMatchReuseCount = 0
+	canonicalizePhysicalOperations(out.Operations)
+	return out
+}
+
+func canonicalizePhysicalOperations(operations []PhysicalOperation) {
+	for index := range operations {
+		operation := &operations[index]
+		operation.Source = PhysicalSource{}
+		if operation.Set != nil {
+			canonicalizePhysicalSubplan(&operation.Set.Subplan)
+		}
+		if operation.Filter != nil && operation.Filter.Expression != nil {
+			canonicalizePhysicalPredicateExpression(operation.Filter.Expression)
+		}
+		if operation.DerivedLet != nil && operation.DerivedLet.Expression != nil {
+			canonicalizePhysicalExpression(operation.DerivedLet.Expression)
+		}
+		if operation.ExpressionLet != nil {
+			canonicalizePhysicalExpression(&operation.ExpressionLet.Expression)
+		}
+		if operation.Unnest != nil {
+			canonicalizePhysicalExpression(&operation.Unnest.Expression)
+		}
+		if operation.Return != nil {
+			for projection := range operation.Return.Projections {
+				canonicalizePhysicalExpression(operation.Return.Projections[projection].Expression)
+			}
+		}
+		if operation.PathExtend != nil {
+			canonicalizePhysicalOperations(operation.PathExtend.Scope)
+		}
+	}
+}
+
+func canonicalizePhysicalSubplan(subplan *PhysicalSubplan) {
+	if subplan == nil {
+		return
+	}
+	canonicalizePhysicalOperations(subplan.Operations)
+	canonicalizePhysicalExpression(&subplan.Return)
+}
+
+func canonicalizePhysicalPredicateExpression(predicate *PhysicalPredicateExpression) {
+	if predicate == nil {
+		return
+	}
+	if predicate.Comparison != nil {
+		canonicalizePhysicalExpression(predicate.Comparison.LeftExpression)
+	}
+	canonicalizePhysicalSubplan(predicate.Exists)
+	for index := range predicate.Children {
+		canonicalizePhysicalPredicateExpression(&predicate.Children[index])
+	}
+}
+
+func canonicalizePhysicalExpression(expression *PhysicalExpression) {
+	if expression == nil {
+		return
+	}
+	if expression.Aggregate != nil {
+		canonicalizePhysicalExpression(expression.Aggregate.Value)
+		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
+	}
+	if expression.Slice != nil {
+		canonicalizePhysicalPredicateExpression(expression.Slice.Predicate)
+		canonicalizePhysicalExpression(expression.Slice.Sort)
+		for index := range expression.Slice.Projections {
+			canonicalizePhysicalExpression(&expression.Slice.Projections[index].Expression)
+		}
+	}
+	if expression.Lookup != nil {
+		canonicalizePhysicalExpression(&expression.Lookup.Source)
+		canonicalizePhysicalExpression(&expression.Lookup.ItemKey)
+		canonicalizePhysicalExpression(&expression.Lookup.ItemValue)
+	}
+	if expression.KeyedMap != nil {
+		canonicalizePhysicalExpression(&expression.KeyedMap.Source)
+		canonicalizePhysicalExpression(&expression.KeyedMap.ItemKey)
+		canonicalizePhysicalExpression(&expression.KeyedMap.ItemValue)
+		for index := range expression.KeyedMap.ValueFallbacks {
+			canonicalizePhysicalExpression(&expression.KeyedMap.ValueFallbacks[index])
+		}
+	}
+	if expression.KeySet != nil {
+		canonicalizePhysicalExpression(&expression.KeySet.Source)
+		canonicalizePhysicalExpression(&expression.KeySet.ItemKey)
+	}
+	if expression.Object != nil {
+		for index := range expression.Object.Fields {
+			canonicalizePhysicalExpression(&expression.Object.Fields[index].Expression)
+		}
+	}
+	if expression.Call != nil {
+		for index := range expression.Call.Args {
+			canonicalizePhysicalExpression(&expression.Call.Args[index])
+		}
+	}
+}
+
 func clonePhysicalBindVars(bindVars map[string]any) map[string]any {
 	if bindVars == nil {
 		return nil

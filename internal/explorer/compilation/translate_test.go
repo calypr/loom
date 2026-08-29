@@ -128,6 +128,9 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	if got := result.Bundle.Outputs[0].Traversals[0].Alias; got != "encounter" {
 		t.Fatalf("traversal alias = %q", got)
 	}
+	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingAlias {
+		t.Fatalf("traversal column naming = %q", got)
+	}
 	if got := string(result.Bundle.Outputs[0].Fields[1].Expr.Literal); got != `"project-a"` {
 		t.Fatalf("project binding = %s", got)
 	}
@@ -225,8 +228,8 @@ func TestSemanticObservationPivotFreezesOnlyAuthoredComponentColumns(t *testing.
 	}
 }
 
-func TestSemanticNestedOccurrenceUsesLocalAliasAndFullPhysicalPrefix(t *testing.T) {
-	if got := semanticAlias("patient__condition"); got != "condition" {
+func TestSemanticNestedOccurrenceUsesGloballyScopedAlias(t *testing.T) {
+	if got := semanticAlias("patient__condition"); got != "patient__condition" {
 		t.Fatalf("nested alias = %q", got)
 	}
 	leaf, err := semanticColumnLeaf("patient__condition__code_coding_code", "patient__condition")

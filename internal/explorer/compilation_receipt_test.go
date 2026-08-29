@@ -26,6 +26,7 @@ func testReceipt() CompilationReceipt {
 		Bundle:                   recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "receipt-test", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Patient", RowGrain: "patient"}}},
 		CompiledConfig:           json.RawMessage(`{"views":[]}`),
 		PublicOutputContract:     json.RawMessage(`{"outputs":[{"outputId":"out","columns":[]}]}`),
+		OutputColumnProvenance:   map[string]map[string]string{"out": {"__loom_row_id": "EXPLICIT"}},
 		Warnings:                 []CompilationWarning{{Code: "EMPTY_OUTPUT", Message: "output has no selected fields"}},
 	}
 	r.ResolvedRecipeDigest, _ = r.Bundle.Digest()
@@ -49,6 +50,31 @@ func TestCompilationReceiptIdentityExcludesMutableMetadata(t *testing.T) {
 	}
 	if got != id {
 		t.Fatalf("mutable metadata changed receipt ID: %q != %q", got, id)
+	}
+}
+
+func TestCompilationReceiptIdentityIncludesDurableColumnProvenance(t *testing.T) {
+	base := testReceipt()
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.OutputColumnProvenance["out"]["__loom_row_id"] = "DISCOVERED"
+	second, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("durable publication provenance did not change receipt identity")
+	}
+}
+
+func TestCompilationReceiptRejectsV2V7Contract(t *testing.T) {
+	receipt := testReceipt()
+	receipt.ReceiptFormatVersion = 2
+	receipt.CompilerContractVersion = "loom.explorer.compiler/v7"
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted obsolete v2/v7 receipt")
 	}
 }
 

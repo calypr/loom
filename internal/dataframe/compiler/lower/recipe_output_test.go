@@ -148,6 +148,86 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 	}
 }
 
+func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "alias-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			TraversalColumnNaming: recipe.TraversalColumnNamingAlias,
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_parent.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]bool{}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if !column.Internal {
+			public[column.Name] = true
+		}
+	}
+	if !public["occ_parent__id"] || !public["occ_child__id"] {
+		t.Fatalf("alias-scoped public columns = %#v", public)
+	}
+	if public["occ_parent__occ_child__id"] {
+		t.Fatalf("nested column unexpectedly used a path-scoped name: %#v", public)
+	}
+}
+
+func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "path-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "parent__child__id" {
+			return
+		}
+	}
+	t.Fatalf("path-scoped output schema = %#v", compiled.Outputs[0].OutputSchema)
+}
+
 func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})

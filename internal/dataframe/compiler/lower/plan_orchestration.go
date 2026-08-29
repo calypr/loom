@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -72,7 +73,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 				if physicalNodeNeedsMaterializedSet(child) {
 					childSetIndex++
 					childProjectionPrefix := child.Alias
-					if projectionPrefix != "" {
+					if semantic.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
 						childProjectionPrefix = projectionPrefix + "__" + child.Alias
 					}
 					set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy)
@@ -123,7 +124,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 			// filters and projections to be applied before materialization.
 			childSetIndex++
 			childProjectionPrefix := child.Alias
-			if projectionPrefix != "" {
+			if semantic.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
 				childProjectionPrefix = projectionPrefix + "__" + child.Alias
 			}
 			set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy)

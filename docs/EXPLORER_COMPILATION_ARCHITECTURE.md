@@ -69,6 +69,12 @@ snapshot. It supports:
 - compiler-proven projection modes; and
 - deterministic public column, emission, traversal alias, and recipe IDs.
 
+Semantic Builder outputs use `traversalColumnNaming: ALIAS`. Builder occurrence
+IDs are globally unique namespaces, so a nested column keeps its authored
+`occurrence__column` name instead of acquiring ancestor prefixes during
+physical lowering. General recipes retain the backwards-compatible `PATH`
+default and continue to compose every traversal alias.
+
 An invalid route, stale candidate, ambiguous occurrence, unsupported projection
 mode, or invalid presentation reference is returned as a structured error with
 stage, code, JSON path, message, and details. These are authoring errors, not
@@ -100,13 +106,20 @@ The receipt pins:
 - public output contract and its digest;
 - candidate/occurrence/emission mappings;
 - emitted public columns;
-- per-output fingerprints; and
+- canonical per-output execution fingerprints;
+- durable explicit/discovered column provenance used by publication; and
 - deterministic warnings.
 
 Request ID and creation time are operational metadata and do not affect the
 receipt ID. Receipt IDs are content-addressed. Reads validate the stored ID,
 compilation key, resolved-recipe digest, and output-contract digest before the
 artifact can execute.
+
+Execution fingerprints cover the unoptimized renderer-neutral operation graph,
+bind values, row identity, dynamic validation behavior, and ordered output
+schema. They exclude optimizer reports and decisions, optimized plans,
+diagnostic counters, source/debug provenance, preview limits, output selectors,
+and publication-only authorization projections.
 
 The receipt deliberately does **not** persist:
 
@@ -132,7 +145,8 @@ The result is validated, then persisted with immutable
 `INSERT ... OPTIONS { overwriteMode: "ignore" }` semantics. Loom reads and
 re-lowers the authoritative stored document with the same verifier used by
 preview before returning success. A compile never returns 200 with an artifact
-that preview would immediately reject. The Arango collection
+that preview would immediately reject. Contract failures identify the mismatched
+component without exposing plans, bind values, or authorization paths. The Arango collection
 has a composite index over project, Explorer, compilation key, receipt format,
 and compiler contract. Receipt lookup for execution is always scoped by
 project, Explorer, and receipt ID.
@@ -221,8 +235,9 @@ compiled again.
 Compiler-contract changes, capability/schema changes, generation changes,
 authorization-scope changes, or intent changes produce a different compilation
 key and receipt. Physical optimizer changes do not require rewriting receipts;
-runtime lowering simply uses the current deterministic optimizer and verifies
-the frozen semantic outputs.
+optimizer state is outside the canonical execution fingerprint. Runtime
+lowering uses the current optimizer after verifying the frozen unoptimized
+execution contract.
 
 ## Implementation map
 

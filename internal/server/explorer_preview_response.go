@@ -69,6 +69,7 @@ func receiptPreviewConflict(cause error) error {
 			Stage:    "preview",
 			Code:     "RECEIPT_RECOMPILE_REQUIRED",
 			Message:  "receipt deterministic lowering no longer matches the stored artifact",
+			Details:  receiptMismatchDetails("", cause),
 		},
 		Cause: cause,
 	}

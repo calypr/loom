@@ -29,11 +29,12 @@ type RecipePlan struct {
 }
 
 type OutputPlan struct {
-	Name             string
-	Root             SemanticNode
-	RootResourceType string
-	RowGrain         spec.RowGrain
-	Identity         *SemanticExpression
+	Name                  string
+	Root                  SemanticNode
+	RootResourceType      string
+	RowGrain              spec.RowGrain
+	TraversalColumnNaming recipe.TraversalColumnNaming
+	Identity              *SemanticExpression
 	// Unnest is the canonical semantic row-producing operation for an output.
 	// Persisted recipe expand syntax is lowered into this operation; consumers
 	// must not infer cardinality-changing behavior from a transport-facing

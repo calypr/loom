@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -112,7 +113,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 		for _, child := range node.Children {
 			childPrefix := child.Alias
-			if prefix != "" {
+			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
 				childPrefix = strings.TrimSuffix(prefix, "__") + "__" + child.Alias
 			}
 			addNode(child, childPrefix+"__")

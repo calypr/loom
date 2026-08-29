@@ -421,6 +421,10 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 			execution, err = capabilities.Materialize(c.Context(), receipt.Bundle, bindings)
 		}
 		if err != nil {
+			var mismatch *receiptContractMismatch
+			if errors.As(err, &mismatch) {
+				return authoringHTTPError(c, &explorer.AuthoringError{Status: http.StatusConflict, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "publish", Code: "RECEIPT_RECOMPILE_REQUIRED", Message: "receipt deterministic lowering no longer matches the stored artifact", Details: receiptMismatchDetails(receipt.ID, err)}, Cause: err})
+			}
 			return authoringHTTPError(c, &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "materialize", Code: "MATERIALIZATION_FAILED", Message: "Explorer materialization failed; the active revision was retained"}, Cause: err})
 		}
 		if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {

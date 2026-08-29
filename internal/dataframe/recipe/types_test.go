@@ -116,6 +116,23 @@ func TestValidationRejectsVersionNamesAndArity(t *testing.T) {
 	}
 }
 
+func TestTraversalColumnNamingValidation(t *testing.T) {
+	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversalColumnNaming":"ALIAS","traversals":[{"name":"edge_a","alias":"occ_a","toResourceType":"Condition"},{"name":"edge_b","alias":"occ_b","toResourceType":"Condition"}]}]}`
+	if _, err := Parse([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+
+	invalidMode := strings.Replace(valid, `"ALIAS"`, `"LOCAL"`, 1)
+	if _, err := Parse([]byte(invalidMode)); err == nil || !strings.Contains(err.Error(), "invalid_traversal_column_naming") {
+		t.Fatalf("expected traversal naming validation error, got %v", err)
+	}
+
+	duplicateAlias := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversalColumnNaming":"ALIAS","traversals":[{"name":"edge_a","alias":"occ_a","toResourceType":"Patient","traversals":[{"name":"edge_nested","alias":"occ_b","toResourceType":"Condition"}]},{"name":"edge_b","alias":"occ_b","toResourceType":"Condition"}]}]}`
+	if _, err := Parse([]byte(duplicateAlias)); err == nil || !strings.Contains(err.Error(), "duplicate_global_traversal_alias") {
+		t.Fatalf("expected global alias validation error, got %v", err)
+	}
+}
+
 func TestExplainContainsNoPhysicalDetails(t *testing.T) {
 	b, err := Parse([]byte(validDocument))
 	if err != nil {

@@ -126,7 +126,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		contract.Columns = append(contract.Columns, OutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
 	if err := bundle.Validate(); err != nil {
@@ -223,20 +223,19 @@ func semanticAlias(occurrenceID string) string {
 	if occurrenceID == authoringv2.RootOccurrenceID {
 		return "root"
 	}
-	alias := safeName(occurrenceID)
-	if split := strings.LastIndex(alias, "__"); split >= 0 {
-		return alias[split+2:]
-	}
-	return alias
+	// Semantic Builder occurrence IDs are globally unique output namespaces.
+	// Keep the complete identifier so ALIAS traversal naming reproduces the
+	// authored public-column prefix even when an older client encoded route
+	// ancestry into the occurrence ID itself.
+	return safeName(occurrenceID)
 }
 
 func semanticColumnLeaf(column, occurrenceID string) (string, error) {
 	if occurrenceID == authoringv2.RootOccurrenceID {
 		return column, nil
 	}
-	// Occurrence IDs encode the complete authored route path, while recipe
-	// traversal aliases are local to their parent. Strip the complete prefix
-	// here; physical lowering reconstructs it from the nested aliases.
+	// The traversal alias retains this complete globally unique occurrence ID;
+	// strip it here so physical lowering can add it exactly once.
 	prefix := safeName(occurrenceID) + "__"
 	if !strings.HasPrefix(column, prefix) || strings.TrimPrefix(column, prefix) == "" {
 		return "", fmt.Errorf("column for occurrence %q must begin with %q", occurrenceID, prefix)

@@ -31,21 +31,45 @@ type Bundle struct {
 // Output describes one row-shaped result. Names are semantic names, not
 // storage identifiers.
 type Output struct {
-	Name               string                `json:"name"`
-	RootResourceType   string                `json:"rootResourceType"`
-	RowGrain           string                `json:"rowGrain"`
-	Fields             []Field               `json:"fields,omitempty"`
-	Filters            []Filter              `json:"filters,omitempty"`
-	Pivots             []Pivot               `json:"pivots,omitempty"`
-	Aggregates         []Aggregate           `json:"aggregates,omitempty"`
-	Slices             []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals         []Traversal           `json:"traversals,omitempty"`
-	Expand             *Expansion            `json:"expand,omitempty"`
-	Identity           *Identity             `json:"identity,omitempty"`
-	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
-	CollisionPolicy    string                `json:"collisionPolicy,omitempty"`
+	Name                  string                `json:"name"`
+	RootResourceType      string                `json:"rootResourceType"`
+	RowGrain              string                `json:"rowGrain"`
+	TraversalColumnNaming TraversalColumnNaming `json:"traversalColumnNaming,omitempty"`
+	Fields                []Field               `json:"fields,omitempty"`
+	Filters               []Filter              `json:"filters,omitempty"`
+	Pivots                []Pivot               `json:"pivots,omitempty"`
+	Aggregates            []Aggregate           `json:"aggregates,omitempty"`
+	Slices                []RepresentativeSlice `json:"slices,omitempty"`
+	Traversals            []Traversal           `json:"traversals,omitempty"`
+	Expand                *Expansion            `json:"expand,omitempty"`
+	Identity              *Identity             `json:"identity,omitempty"`
+	DynamicColumns        []DynamicColumn       `json:"dynamicColumns,omitempty"`
+	ExtensionColumns      []ExtensionColumn     `json:"extensionColumns,omitempty"`
+	CatalogProjections    []CatalogProjection   `json:"catalogProjections,omitempty"`
+	CollisionPolicy       string                `json:"collisionPolicy,omitempty"`
+}
+
+// TraversalColumnNaming controls how traversal aliases contribute to public
+// output column names. PATH is the backwards-compatible recipe behavior and
+// includes every ancestor alias. ALIAS treats each traversal alias as a
+// globally scoped output namespace, which is useful for authoring systems that
+// allocate stable, globally unique occurrence IDs.
+type TraversalColumnNaming string
+
+const (
+	TraversalColumnNamingPath  TraversalColumnNaming = "PATH"
+	TraversalColumnNamingAlias TraversalColumnNaming = "ALIAS"
+)
+
+func (n TraversalColumnNaming) Valid() bool {
+	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias
+}
+
+func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {
+	if n == "" {
+		return TraversalColumnNamingPath
+	}
+	return n
 }
 
 // Field projects one named semantic value into an output row.

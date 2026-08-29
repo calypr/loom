@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
@@ -51,12 +52,17 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	fingerprints, provenance, err := resolvedOutputArtifacts(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
 	receipt := &explorer.CompilationReceipt{
-		Bundle:               bundle,
-		RecipeDigest:         compiled.StoredRecipeDigest,
-		ResolvedRecipeDigest: resolvedDigest,
-		ResolvedSchemaDigest: compiled.ResolvedSchemaDigest,
-		OutputFingerprints:   resolvedOutputFingerprints(compiled),
+		Bundle:                 bundle,
+		RecipeDigest:           compiled.StoredRecipeDigest,
+		ResolvedRecipeDigest:   resolvedDigest,
+		ResolvedSchemaDigest:   compiled.ResolvedSchemaDigest,
+		OutputFingerprints:     fingerprints,
+		OutputColumnProvenance: provenance,
 		EmittedColumns: []explorer.EmittedColumn{
 			// Presentation order is intentionally different from compiler field
 			// order. It must not invalidate an otherwise identical receipt.
@@ -76,6 +82,78 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 	}
 	if len(previewBindings.OutputNames) != 1 || previewBindings.OutputNames[0] != "patients" {
 		t.Fatalf("preview execution selection was mutated: %#v", previewBindings.OutputNames)
+	}
+}
+
+func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(t *testing.T) {
+	recipeEngine, err := engine.New(engine.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "round-trip", TranslationVersion: explorercompilation.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}, Discovered: true}}}}}
+	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
+	compiled, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, provenance, err := resolvedOutputArtifacts(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := explorer.CompilationReceipt{Bundle: bundle, RecipeDigest: compiled.StoredRecipeDigest, ResolvedRecipeDigest: digest, ResolvedSchemaDigest: compiled.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored explorer.CompilationReceipt
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Bundle.Outputs[0].Fields[0].Discovered {
+		t.Fatal("compiler-local provenance unexpectedly survived recipe JSON")
+	}
+	resolved, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, &stored, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	for _, column := range resolved.Compiled.Outputs[0].OutputSchema {
+		if column.Name == "patient_id" {
+			restored = column.Discovered
+		}
+	}
+	if !restored {
+		t.Fatal("durable receipt provenance was not restored")
+	}
+}
+
+func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *testing.T) {
+	recipeEngine, err := engine.New(engine.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "fingerprint", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}}}}}
+	resolved, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := resolvedOutputFingerprints(resolved)["patients"]
+	resolved.Compiled.Outputs[0].OutputSchema[0].Discovered = !resolved.Compiled.Outputs[0].OutputSchema[0].Discovered
+	resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions = append(resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions, ir.PhysicalOptimizationDecision{Reason: "diagnostic-only"})
+	after := resolvedOutputFingerprints(resolved)["patients"]
+	if before != after {
+		t.Fatalf("transient compiler metadata changed canonical fingerprint: %q != %q", before, after)
+	}
+	for key := range resolved.Compiled.Outputs[0].Plan.BindVars {
+		resolved.Compiled.Outputs[0].Plan.BindVars[key] = "semantically-different"
+		break
+	}
+	if changed := resolvedOutputFingerprints(resolved)["patients"]; changed == before {
+		t.Fatal("execution bind change did not change canonical fingerprint")
 	}
 }
 
@@ -345,7 +423,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
 		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{}`), PublicOutputContract: contract,
 		EmittedColumns:     []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
-		OutputFingerprints: map[string]string{"patients": "fingerprint"}, CreatedAt: time.Now().UTC(),
+		OutputFingerprints: map[string]string{"patients": "fingerprint"}, OutputColumnProvenance: map[string]map[string]string{"patients": {"c_patient": "EXPLICIT"}}, CreatedAt: time.Now().UTC(),
 	}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,6 +16,47 @@ import (
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
+
+type receiptContractMismatch struct {
+	Component string
+	OutputID  string
+	Expected  string
+	Actual    string
+}
+
+func (e *receiptContractMismatch) Error() string {
+	if e.OutputID != "" {
+		return fmt.Sprintf("receipt %s mismatch for output %q: expected %q, got %q", e.Component, e.OutputID, e.Expected, e.Actual)
+	}
+	return fmt.Sprintf("receipt %s mismatch: expected %q, got %q", e.Component, e.Expected, e.Actual)
+}
+
+func contractMismatch(component, output, expected, actual string) error {
+	return &receiptContractMismatch{Component: component, OutputID: output, Expected: expected, Actual: actual}
+}
+
+func receiptMismatchDetails(receiptID string, err error) map[string]any {
+	details := map[string]any{"component": "output_execution"}
+	if strings.TrimSpace(receiptID) != "" {
+		details["receiptId"] = receiptID
+	}
+	var mismatch *receiptContractMismatch
+	if errors.As(err, &mismatch) {
+		details["component"] = mismatch.Component
+		if mismatch.OutputID != "" {
+			details["outputId"] = mismatch.OutputID
+		}
+	}
+	return details
+}
+
+func receiptCompilationConflict(receiptID string, cause error) error {
+	value := explorerConflict("compile", "COMPILATION_CONTRACT_MISMATCH", "the compiler could not reproduce the stored receipt execution contract", receiptMismatchDetails(receiptID, cause))
+	if authoring, ok := value.(*explorer.AuthoringError); ok {
+		authoring.Cause = cause
+	}
+	return value
+}
 
 func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled explorercompilation.WorkspaceResult) ([]byte, error) {
 	if len(compiled.EmittedColumns) == 0 {
@@ -171,27 +213,49 @@ func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot ca
 // describes the exact resolved semantic artifact frozen in the receipt. It
 // intentionally compares no AQL or physical IR because those are
 // request-scoped implementation details.
-func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved engine.Resolved) error {
+func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *engine.Resolved) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
+	}
+	if resolved == nil {
+		return fmt.Errorf("resolved compilation is required")
 	}
 	digest, err := resolved.Bundle.Digest()
 	if err != nil {
 		return err
 	}
-	if digest != receipt.ResolvedRecipeDigest || resolved.StoredRecipeDigest != receipt.RecipeDigest {
-		return fmt.Errorf("receipt recipe digest does not match deterministic lowering")
+	if digest != receipt.ResolvedRecipeDigest {
+		return contractMismatch("recipe", "", receipt.ResolvedRecipeDigest, digest)
+	}
+	if resolved.StoredRecipeDigest != receipt.RecipeDigest {
+		return contractMismatch("recipe", "", receipt.RecipeDigest, resolved.StoredRecipeDigest)
 	}
 	if resolved.ResolvedSchemaDigest != receipt.ResolvedSchemaDigest {
-		return fmt.Errorf("receipt resolved schema digest does not match deterministic lowering")
+		return contractMismatch("schema", "", receipt.ResolvedSchemaDigest, resolved.ResolvedSchemaDigest)
 	}
-	want := resolvedOutputFingerprints(resolved)
+	want, _, err := resolvedOutputArtifacts(*resolved)
+	if err != nil {
+		return err
+	}
 	if len(want) != len(receipt.OutputFingerprints) {
-		return fmt.Errorf("receipt output fingerprint set changed")
+		return contractMismatch("output_set", "", fmt.Sprint(len(receipt.OutputFingerprints)), fmt.Sprint(len(want)))
 	}
 	for output, fingerprint := range want {
 		if strings.TrimSpace(receipt.OutputFingerprints[output]) != fingerprint {
-			return fmt.Errorf("receipt output %q fingerprint changed", output)
+			return contractMismatch("output_execution", output, receipt.OutputFingerprints[output], fingerprint)
+		}
+	}
+	if len(receipt.OutputColumnProvenance) != len(resolved.Compiled.Outputs) {
+		return contractMismatch("provenance", "", fmt.Sprint(len(resolved.Compiled.Outputs)), fmt.Sprint(len(receipt.OutputColumnProvenance)))
+	}
+	for index := range resolved.Compiled.Outputs {
+		output := &resolved.Compiled.Outputs[index]
+		values, ok := receipt.OutputColumnProvenance[output.Name]
+		if !ok {
+			return contractMismatch("provenance", output.Name, "present", "missing")
+		}
+		if err := applyReceiptColumnProvenance(output, values); err != nil {
+			return contractMismatch("provenance", output.Name, "complete", err.Error())
 		}
 	}
 	return nil
@@ -208,11 +272,11 @@ func compileValidatedReceiptResolution(ctx context.Context, recipeEngine *engine
 	if err != nil {
 		return engine.Resolved{}, err
 	}
-	if err := validateReceiptResolution(receipt, resolved); err != nil {
+	if err := validateReceiptResolution(receipt, &resolved); err != nil {
 		return engine.Resolved{}, err
 	}
 	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
-		return engine.Resolved{}, err
+		return engine.Resolved{}, contractMismatch("public_columns", "", "receipt public columns", err.Error())
 	}
 	return resolved, nil
 }

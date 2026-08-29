@@ -61,10 +61,10 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		if err := unnest.Validate(); err != nil {
 			return OutputPlan{}, fmt.Errorf("expand: %w", err)
 		}
-		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy, Unnest: unnest}
+		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy, Unnest: unnest}
 		return finishRecipeOutput(plan, output, scope)
 	}
-	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy}
+	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
 	return finishRecipeOutput(plan, output, scope)
 }
 

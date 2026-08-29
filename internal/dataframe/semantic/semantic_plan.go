@@ -7,17 +7,19 @@ package semantic
 import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type SemanticPlan struct {
-	Version           int
-	Project           string
-	DatasetGeneration string
-	AuthResourcePaths []string
-	AuthScopeMode     authscope.ReadScopeMode
-	RowIdentity       *spec.RowIdentity
-	Root              SemanticNode
+	Version               int
+	Project               string
+	DatasetGeneration     string
+	AuthResourcePaths     []string
+	AuthScopeMode         authscope.ReadScopeMode
+	RowIdentity           *spec.RowIdentity
+	TraversalColumnNaming recipe.TraversalColumnNaming
+	Root                  SemanticNode
 }
 
 type SemanticNode struct {

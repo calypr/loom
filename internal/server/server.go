@@ -427,8 +427,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return nil, err
 		}
-		fingerprints := resolvedOutputFingerprints(resolved)
-		receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+		fingerprints, columnProvenance, err := resolvedOutputArtifacts(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("build receipt execution contract: %w", err)
+		}
+		receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 		receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 		if err != nil {
 			return nil, err
@@ -443,7 +446,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		verificationBindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
 		if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, verificationBindings); err != nil {
-			return nil, explorerConflict("compile", "COMPILATION_NONDETERMINISTIC", "the compiler could not reproduce the stored receipt artifact", map[string]any{"receiptId": stored.ID})
+			return nil, receiptCompilationConflict(stored.ID, err)
 		}
 		receiptBytes := 0
 		if raw, marshalErr := json.Marshal(stored); marshalErr == nil {

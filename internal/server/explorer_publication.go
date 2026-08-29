@@ -27,7 +27,7 @@ func explorerReceiptMaterializer(recipeEngine *engine.Engine, target publication
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
 		_, err := recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full engine.Resolved) error {
-			if validationErr := validateReceiptResolution(receipt, full); validationErr != nil {
+			if validationErr := validateReceiptResolution(receipt, &full); validationErr != nil {
 				return validationErr
 			}
 			var publishErr error

@@ -131,13 +131,14 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
 	semanticInput := semantic.SemanticPlan{
-		Version:           1,
-		Project:           bindings.Project,
-		DatasetGeneration: bindings.DatasetGeneration,
-		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
-		AuthScopeMode:     bindings.AuthScopeMode,
-		Root:              root,
-		RowIdentity:       &identity,
+		Version:               1,
+		Project:               bindings.Project,
+		DatasetGeneration:     bindings.DatasetGeneration,
+		AuthResourcePaths:     append([]string(nil), bindings.AuthResourcePaths...),
+		AuthScopeMode:         bindings.AuthScopeMode,
+		TraversalColumnNaming: output.TraversalColumnNaming,
+		Root:                  root,
+		RowIdentity:           &identity,
 	}
 	physical, err := BuildGenericPhysicalPlanWithPolicy(semanticInput, policy)
 	if err != nil {
