@@ -58,9 +58,6 @@ func (e AuthoringCapabilityKind) Valid() bool {
 const (
 	Builder     AuthoringCapabilityOperations = "builder"
 	Commands    AuthoringCapabilityOperations = "commands"
-	Compile     AuthoringCapabilityOperations = "compile"
-	Draft       AuthoringCapabilityOperations = "draft"
-	Export      AuthoringCapabilityOperations = "export"
 	Preview     AuthoringCapabilityOperations = "preview"
 	Publish     AuthoringCapabilityOperations = "publish"
 	Reconcile   AuthoringCapabilityOperations = "reconcile"
@@ -73,12 +70,6 @@ func (e AuthoringCapabilityOperations) Valid() bool {
 	case Builder:
 		return true
 	case Commands:
-		return true
-	case Compile:
-		return true
-	case Draft:
-		return true
-	case Export:
 		return true
 	case Preview:
 		return true
@@ -201,21 +192,6 @@ const (
 func (e CandidateSearchResponseKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderCandidateSuggestions:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CandidateSuggestionsKind.
-const (
-	ExplorerCandidateSuggestions CandidateSuggestionsKind = "ExplorerCandidateSuggestions"
-)
-
-// Valid indicates whether the value is a known member of the CandidateSuggestionsKind enum.
-func (e CandidateSuggestionsKind) Valid() bool {
-	switch e {
-	case ExplorerCandidateSuggestions:
 		return true
 	default:
 		return false
@@ -530,20 +506,6 @@ type CandidateSearchResponse struct {
 // CandidateSearchResponseKind defines model for CandidateSearchResponse.Kind.
 type CandidateSearchResponseKind string
 
-// CandidateSuggestions defines model for CandidateSuggestions.
-type CandidateSuggestions struct {
-	ApiVersion    APIVersion               `json:"apiVersion"`
-	CandidateId   string                   `json:"candidateId"`
-	Complete      bool                     `json:"complete"`
-	Kind          CandidateSuggestionsKind `json:"kind"`
-	SnapshotToken string                   `json:"snapshotToken"`
-	Truncated     bool                     `json:"truncated"`
-	Values        []string                 `json:"values"`
-}
-
-// CandidateSuggestionsKind defines model for CandidateSuggestions.Kind.
-type CandidateSuggestionsKind string
-
 // Catalog defines model for Catalog.
 type Catalog struct {
 	AuthorizationScopeDigest string             `json:"authorizationScopeDigest"`
@@ -844,21 +806,6 @@ type RoutePolicy struct {
 	MaxSteps           *int `json:"maxSteps,omitempty"`
 }
 
-// SaveDraftRequest defines model for SaveDraftRequest.
-type SaveDraftRequest struct {
-	ExpectedDraftDigest  *string   `json:"expectedDraftDigest,omitempty"`
-	ExpectedDraftVersion int64     `json:"expectedDraftVersion"`
-	SnapshotToken        string    `json:"snapshotToken"`
-	Workspace            Workspace `json:"workspace"`
-}
-
-// SaveDraftResponse defines model for SaveDraftResponse.
-type SaveDraftResponse struct {
-	DraftDigest  string    `json:"draftDigest"`
-	DraftVersion int64     `json:"draftVersion"`
-	Workspace    Workspace `json:"workspace"`
-}
-
 // ServiceErrorBody defines model for ServiceErrorBody.
 type ServiceErrorBody struct {
 	Code      string                  `json:"code"`
@@ -1039,13 +986,6 @@ type UploadProjectResourceMultipartBody struct {
 	File             openapi_types.File `json:"file"`
 }
 
-// UploadRawNDJSONParams defines parameters for UploadRawNDJSON.
-type UploadRawNDJSONParams struct {
-	Project          *string `form:"project,omitempty" json:"project,omitempty"`
-	Generation       *string `form:"generation,omitempty" json:"generation,omitempty"`
-	AuthResourcePath *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
-}
-
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
 type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipartBody
 
@@ -1057,12 +997,6 @@ type CompileExplorerBuilderJSONRequestBody = CompileRequest
 
 // ApplyExplorerBuilderCommandsJSONRequestBody defines body for ApplyExplorerBuilderCommands for application/json ContentType.
 type ApplyExplorerBuilderCommandsJSONRequestBody = ApplyCommandsRequest
-
-// CompileExplorerJSONRequestBody defines body for CompileExplorer for application/json ContentType.
-type CompileExplorerJSONRequestBody = CompileRequest
-
-// SaveExplorerDraftJSONRequestBody defines body for SaveExplorerDraft for application/json ContentType.
-type SaveExplorerDraftJSONRequestBody = SaveDraftRequest
 
 // PreviewExplorerJSONRequestBody defines body for PreviewExplorer for application/json ContentType.
 type PreviewExplorerJSONRequestBody = PreviewRequest
@@ -1429,9 +1363,6 @@ type ServerInterface interface {
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(c fiber.Ctx, project Project, generation Generation, params ActivateDatasetGenerationParams) error
-	// GetRepositoryExplorerConfig Read the active repository-owned Explorer config.
-	// (GET /api/v1/projects/{project}/explorer-config)
-	GetRepositoryExplorerConfig(c fiber.Ctx, project Project) error
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(c fiber.Ctx, project Project) error
@@ -1448,23 +1379,11 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	CompileExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions)
-	GetExplorerCandidateSuggestions(c fiber.Ctx, project Project, explorerId ExplorerId, snapshotToken string, candidateId string) error
-
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile)
-	CompileExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (PUT /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft)
-	SaveExplorerDraft(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export)
-	ExportExplorerWorkspace(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -1515,9 +1434,6 @@ type ServerInterface interface {
 	// UploadProjectResource Upload one multipart NDJSON resource file.
 	// (PUT /api/v1/projects/{project}/resources/{resourceType})
 	UploadProjectResource(c fiber.Ctx, project Project, resourceType ResourceType) error
-	// UploadRawNDJSON Stream raw NDJSON into a generation.
-	// (PUT /api/v1/raw)
-	UploadRawNDJSON(c fiber.Ctx, params UploadRawNDJSONParams) error
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(c fiber.Ctx) error
@@ -1663,35 +1579,6 @@ func (siw *ServerInterfaceWrapper) ActivateDatasetGeneration(c fiber.Ctx) error 
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.ActivateDatasetGeneration(c, project, generation, params)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetRepositoryExplorerConfig operation middleware
-func (siw *ServerInterfaceWrapper) GetRepositoryExplorerConfig(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetRepositoryExplorerConfig(c, project)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -1874,59 +1761,6 @@ func (siw *ServerInterfaceWrapper) CompileExplorerBuilder(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// GetExplorerCandidateSuggestions operation middleware
-func (siw *ServerInterfaceWrapper) GetExplorerCandidateSuggestions(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	// ------------- Path parameter "snapshotToken" -------------
-	var snapshotToken string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "snapshotToken", c.Params("snapshotToken"), &snapshotToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter snapshotToken: %w", err).Error())
-	}
-
-	// ------------- Path parameter "candidateId" -------------
-	var candidateId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "candidateId", c.Params("candidateId"), &candidateId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter candidateId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetExplorerCandidateSuggestions(c, project, explorerId, snapshotToken, candidateId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
 // GetExplorerAuthoringCapability operation middleware
 func (siw *ServerInterfaceWrapper) GetExplorerAuthoringCapability(c fiber.Ctx) error {
 
@@ -1988,117 +1822,6 @@ func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) err
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.ApplyExplorerBuilderCommands(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// CompileExplorer operation middleware
-func (siw *ServerInterfaceWrapper) CompileExplorer(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CompileExplorer(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// SaveExplorerDraft operation middleware
-func (siw *ServerInterfaceWrapper) SaveExplorerDraft(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.SaveExplorerDraft(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ExportExplorerWorkspace operation middleware
-func (siw *ServerInterfaceWrapper) ExportExplorerWorkspace(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ExportExplorerWorkspace(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2747,57 +2470,6 @@ func (siw *ServerInterfaceWrapper) UploadProjectResource(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// UploadRawNDJSON operation middleware
-func (siw *ServerInterfaceWrapper) UploadRawNDJSON(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UploadRawNDJSONParams
-
-	var query url.Values
-	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", query, &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "generation" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "generation", query, &params.Generation, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "auth_resource_path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.UploadRawNDJSON(c, params)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
 // GetApolloSandbox operation middleware
 func (siw *ServerInterfaceWrapper) GetApolloSandbox(c fiber.Ctx) error {
 
@@ -2949,23 +2621,15 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capability", wrapper.GetExplorerAuthoringCapability)
 
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capabilities/:snapshotToken/candidates/:candidateId/suggestions", wrapper.GetExplorerCandidateSuggestions)
-
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/suggestions", wrapper.SearchExplorerCandidates)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.GetExplorerBuilder)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.CompileExplorerBuilder)
 
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/compile", wrapper.CompileExplorer)
-
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/commands", wrapper.ApplyExplorerBuilderCommands)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/reconcile", wrapper.ReconcileExplorerBuilder)
-
-	router.Put(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/draft", wrapper.SaveExplorerDraft)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/export", wrapper.ExportExplorerWorkspace)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/preview", wrapper.PreviewExplorer)
 
@@ -2982,8 +2646,6 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Post(options.BaseURL+"/api/v1/datasets/:project/generations/:generation", wrapper.CreateDatasetGeneration)
 
 	router.Post(options.BaseURL+"/api/v1/datasets/:project/generations/:generation/activate", wrapper.ActivateDatasetGeneration)
-
-	router.Put(options.BaseURL+"/api/v1/raw", wrapper.UploadRawNDJSON)
 
 	router.Delete(options.BaseURL+"/api/v1/projects/:project/generations/:generation", wrapper.AbortSnapshot)
 
@@ -3022,8 +2684,6 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId", wrapper.GetExplorer)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation/explorer-config", wrapper.PublishRepositoryExplorerConfig)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorer-config", wrapper.GetRepositoryExplorerConfig)
 
 }
 
@@ -3309,63 +2969,6 @@ type ActivateDatasetGeneration503JSONResponse struct{ ServiceUnavailableJSONResp
 func (response ActivateDatasetGeneration503JSONResponse) VisitActivateDatasetGenerationResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfigRequestObject struct {
-	Project Project `json:"project"`
-}
-
-type GetRepositoryExplorerConfigResponseObject interface {
-	VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error
-}
-
-type GetRepositoryExplorerConfig200JSONResponse RawJSON
-
-func (response GetRepositoryExplorerConfig200JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetRepositoryExplorerConfig401JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig403JSONResponse struct{ LegacyForbiddenJSONResponse }
-
-func (response GetRepositoryExplorerConfig403JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig404JSONResponse struct{ LegacyNotFoundJSONResponse }
-
-func (response GetRepositoryExplorerConfig404JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
-}
-
-func (response GetRepositoryExplorerConfig500JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
 
 	return ctx.JSON(&response)
 }
@@ -3724,97 +3327,6 @@ func (response CompileExplorerBuilder503JSONResponse) VisitCompileExplorerBuilde
 	return ctx.JSON(&response)
 }
 
-type GetExplorerCandidateSuggestionsRequestObject struct {
-	Project       Project    `json:"project"`
-	ExplorerId    ExplorerId `json:"explorerId"`
-	SnapshotToken string     `json:"snapshotToken"`
-	CandidateId   string     `json:"candidateId"`
-}
-
-type GetExplorerCandidateSuggestionsResponseObject interface {
-	VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error
-}
-
-type GetExplorerCandidateSuggestions200JSONResponse CandidateSuggestions
-
-func (response GetExplorerCandidateSuggestions200JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions400JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions401JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response GetExplorerCandidateSuggestions403JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response GetExplorerCandidateSuggestions404JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response GetExplorerCandidateSuggestions409JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions500JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions503JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
 type GetExplorerAuthoringCapabilityRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -3952,266 +3464,6 @@ type ApplyExplorerBuilderCommands503JSONResponse struct {
 func (response ApplyExplorerBuilderCommands503JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *CompileExplorerJSONRequestBody
-}
-
-type CompileExplorerResponseObject interface {
-	VisitCompileExplorerResponse(ctx fiber.Ctx) error
-}
-
-type CompileExplorer200JSONResponse CompileResponse
-
-func (response CompileExplorer200JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response CompileExplorer400JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response CompileExplorer401JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response CompileExplorer403JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response CompileExplorer409JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response CompileExplorer422JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response CompileExplorer500JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response CompileExplorer503JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraftRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *SaveExplorerDraftJSONRequestBody
-}
-
-type SaveExplorerDraftResponseObject interface {
-	VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error
-}
-
-type SaveExplorerDraft200JSONResponse SaveDraftResponse
-
-func (response SaveExplorerDraft200JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response SaveExplorerDraft400JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response SaveExplorerDraft401JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response SaveExplorerDraft403JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response SaveExplorerDraft404JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response SaveExplorerDraft409JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response SaveExplorerDraft422JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response SaveExplorerDraft500JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response SaveExplorerDraft503JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspaceRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-}
-
-type ExportExplorerWorkspaceResponseObject interface {
-	VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error
-}
-
-type ExportExplorerWorkspace200JSONResponse Workspace
-
-func (response ExportExplorerWorkspace200JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ExportExplorerWorkspace401JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response ExportExplorerWorkspace403JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response ExportExplorerWorkspace404JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response ExportExplorerWorkspace409JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response ExportExplorerWorkspace500JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
 
 	return ctx.JSON(&response)
 }
@@ -5660,95 +4912,6 @@ func (response UploadProjectResource503JSONResponse) VisitUploadProjectResourceR
 	return ctx.JSON(&response)
 }
 
-type UploadRawNDJSONRequestObject struct {
-	Params UploadRawNDJSONParams
-	Body   io.Reader
-}
-
-type UploadRawNDJSONResponseObject interface {
-	VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error
-}
-
-type UploadRawNDJSON200JSONResponse RawJSON
-
-func (response UploadRawNDJSON200JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response UploadRawNDJSON400JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response UploadRawNDJSON401JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response UploadRawNDJSON403JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON415JSONResponse struct {
-	ServiceUnsupportedMediaTypeJSONResponse
-}
-
-func (response UploadRawNDJSON415JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(415)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response UploadRawNDJSON422JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response UploadRawNDJSON500JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response UploadRawNDJSON503JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
 type GetApolloSandboxRequestObject struct {
 }
 
@@ -6030,9 +5193,6 @@ type StrictServerInterface interface {
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(ctx context.Context, request ActivateDatasetGenerationRequestObject) (ActivateDatasetGenerationResponseObject, error)
-	// GetRepositoryExplorerConfig Read the active repository-owned Explorer config.
-	// (GET /api/v1/projects/{project}/explorer-config)
-	GetRepositoryExplorerConfig(ctx context.Context, request GetRepositoryExplorerConfigRequestObject) (GetRepositoryExplorerConfigResponseObject, error)
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(ctx context.Context, request ListExplorersRequestObject) (ListExplorersResponseObject, error)
@@ -6049,23 +5209,11 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	CompileExplorerBuilder(ctx context.Context, request CompileExplorerBuilderRequestObject) (CompileExplorerBuilderResponseObject, error)
 
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions)
-	GetExplorerCandidateSuggestions(ctx context.Context, request GetExplorerCandidateSuggestionsRequestObject) (GetExplorerCandidateSuggestionsResponseObject, error)
-
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(ctx context.Context, request GetExplorerAuthoringCapabilityRequestObject) (GetExplorerAuthoringCapabilityResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(ctx context.Context, request ApplyExplorerBuilderCommandsRequestObject) (ApplyExplorerBuilderCommandsResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile)
-	CompileExplorer(ctx context.Context, request CompileExplorerRequestObject) (CompileExplorerResponseObject, error)
-
-	// (PUT /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft)
-	SaveExplorerDraft(ctx context.Context, request SaveExplorerDraftRequestObject) (SaveExplorerDraftResponseObject, error)
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export)
-	ExportExplorerWorkspace(ctx context.Context, request ExportExplorerWorkspaceRequestObject) (ExportExplorerWorkspaceResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(ctx context.Context, request PreviewExplorerRequestObject) (PreviewExplorerResponseObject, error)
@@ -6116,9 +5264,6 @@ type StrictServerInterface interface {
 	// UploadProjectResource Upload one multipart NDJSON resource file.
 	// (PUT /api/v1/projects/{project}/resources/{resourceType})
 	UploadProjectResource(ctx context.Context, request UploadProjectResourceRequestObject) (UploadProjectResourceResponseObject, error)
-	// UploadRawNDJSON Stream raw NDJSON into a generation.
-	// (PUT /api/v1/raw)
-	UploadRawNDJSON(ctx context.Context, request UploadRawNDJSONRequestObject) (UploadRawNDJSONResponseObject, error)
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
@@ -6233,33 +5378,6 @@ func (sh *strictHandler) ActivateDatasetGeneration(ctx fiber.Ctx, project Projec
 		return err
 	} else if validResponse, ok := response.(ActivateDatasetGenerationResponseObject); ok {
 		if err := validResponse.VisitActivateDatasetGenerationResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetRepositoryExplorerConfig operation middleware
-func (sh *strictHandler) GetRepositoryExplorerConfig(ctx fiber.Ctx, project Project) error {
-	var request GetRepositoryExplorerConfigRequestObject
-
-	request.Project = project
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetRepositoryExplorerConfig(ctx.Context(), request.(GetRepositoryExplorerConfigRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetRepositoryExplorerConfig")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetRepositoryExplorerConfigResponseObject); ok {
-		if err := validResponse.VisitGetRepositoryExplorerConfigResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -6418,36 +5536,6 @@ func (sh *strictHandler) CompileExplorerBuilder(ctx fiber.Ctx, project Project, 
 	return nil
 }
 
-// GetExplorerCandidateSuggestions operation middleware
-func (sh *strictHandler) GetExplorerCandidateSuggestions(ctx fiber.Ctx, project Project, explorerId ExplorerId, snapshotToken string, candidateId string) error {
-	var request GetExplorerCandidateSuggestionsRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-	request.SnapshotToken = snapshotToken
-	request.CandidateId = candidateId
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetExplorerCandidateSuggestions(ctx.Context(), request.(GetExplorerCandidateSuggestionsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetExplorerCandidateSuggestions")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetExplorerCandidateSuggestionsResponseObject); ok {
-		if err := validResponse.VisitGetExplorerCandidateSuggestionsResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
 // GetExplorerAuthoringCapability operation middleware
 func (sh *strictHandler) GetExplorerAuthoringCapability(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request GetExplorerAuthoringCapabilityRequestObject
@@ -6502,102 +5590,6 @@ func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Pro
 		return err
 	} else if validResponse, ok := response.(ApplyExplorerBuilderCommandsResponseObject); ok {
 		if err := validResponse.VisitApplyExplorerBuilderCommandsResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// CompileExplorer operation middleware
-func (sh *strictHandler) CompileExplorer(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request CompileExplorerRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body CompileExplorerJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.CompileExplorer(ctx.Context(), request.(CompileExplorerRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CompileExplorer")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(CompileExplorerResponseObject); ok {
-		if err := validResponse.VisitCompileExplorerResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// SaveExplorerDraft operation middleware
-func (sh *strictHandler) SaveExplorerDraft(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request SaveExplorerDraftRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body SaveExplorerDraftJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.SaveExplorerDraft(ctx.Context(), request.(SaveExplorerDraftRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SaveExplorerDraft")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(SaveExplorerDraftResponseObject); ok {
-		if err := validResponse.VisitSaveExplorerDraftResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ExportExplorerWorkspace operation middleware
-func (sh *strictHandler) ExportExplorerWorkspace(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request ExportExplorerWorkspaceRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ExportExplorerWorkspace(ctx.Context(), request.(ExportExplorerWorkspaceRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ExportExplorerWorkspace")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ExportExplorerWorkspaceResponseObject); ok {
-		if err := validResponse.VisitExportExplorerWorkspaceResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -7112,35 +6104,6 @@ func (sh *strictHandler) UploadProjectResource(ctx fiber.Ctx, project Project, r
 	return nil
 }
 
-// UploadRawNDJSON operation middleware
-func (sh *strictHandler) UploadRawNDJSON(ctx fiber.Ctx, params UploadRawNDJSONParams) error {
-	var request UploadRawNDJSONRequestObject
-
-	request.Params = params
-
-	request.Body = bytes.NewReader(ctx.Request().Body())
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadRawNDJSON(ctx.Context(), request.(UploadRawNDJSONRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadRawNDJSON")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(UploadRawNDJSONResponseObject); ok {
-		if err := validResponse.VisitUploadRawNDJSONResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
 // GetApolloSandbox operation middleware
 func (sh *strictHandler) GetApolloSandbox(ctx fiber.Ctx) error {
 	var request GetApolloSandboxRequestObject
@@ -7333,117 +6296,111 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"YMYdzXgcHAbj4PHm8f8DAAD//w==",
+	"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",
+	"2+p14HfOf814HBwH4+Dh08P/BwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -42,8 +42,8 @@ scoped Arango query              ClickHouse outputs
 The HTTP endpoints are:
 
 - `GET .../authoring/v2/capability`
-- `POST .../authoring/v2/compile` (with `/builder` retained as the same compile
-  operation for the current frontend)
+- `POST .../authoring/v2/builder` for direct workspace compilation
+- `POST .../authoring/v2/reconcile` for compilation of the exact persisted draft
 - `POST .../authoring/v2/preview` with `receiptId`, `outputId`, and an optional
   limit
 - `POST .../authoring/v2/publish` with `receiptId`

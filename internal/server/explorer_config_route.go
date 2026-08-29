@@ -21,7 +21,6 @@ type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, st
 
 type explorerHTTPHandlers struct {
 	publishRepositoryConfig fiber.Handler
-	getRepositoryConfig     fiber.Handler
 	lifecycle               *explorerLifecycleHandlers
 	authoring               *explorerAuthoringHandlers
 }
@@ -130,21 +129,6 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead expl
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("persist ExplorerConfigV2: %v", err)})
 		}
 		return c.Status(http.StatusOK).JSON(fiber.Map{"project": project, "generation": generation, "explorerId": "default", "receiptId": receipt.ID, "revisionId": revision.ID, "executionId": execution.ID, "recipe": receipt.Bundle.Name, "translationVersion": receipt.Bundle.TranslationVersion, "activated": true})
-	}
-	handlers.getRepositoryConfig = func(c fiber.Ctx) error {
-		project := explorerProjectParam(c)
-		principal, _ := c.Locals("principal").(*authscope.Principal)
-		if err := authorizeRead(c.Context(), principal, project); err != nil {
-			return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
-		}
-		value, err := explorers.RepositoryConfig(c.Context(), project)
-		if err == explorer.ErrNotFound {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "repository ExplorerConfigV2 not found"})
-		}
-		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-		return c.JSON(value)
 	}
 	if len(lifecycle) == 0 {
 		lifecycle = []ExplorerV2LifecycleConfig{{Materialize: materialize}}

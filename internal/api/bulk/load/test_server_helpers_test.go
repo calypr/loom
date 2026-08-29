@@ -31,7 +31,6 @@ func registerTestRoutes(router fiber.Router, h *Handler) {
 	router.Put("/api/v1/projects/:project/resources/:resourceType", h.HandleResource)
 	router.Post("/api/v1/datasets/:project/generations/:generation", h.HandleCreateGeneration)
 	router.Post("/api/v1/datasets/:project/generations/:generation/activate", h.HandleActivateGeneration)
-	router.Put("/api/v1/raw", h.HandleLoadRaw)
 	registerTestSnapshotRoutes(router, h)
 }
 

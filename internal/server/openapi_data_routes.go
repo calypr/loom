@@ -144,39 +144,6 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, _ loomapi.Ac
 	}
 }
 
-func (r *HTTPRoutes) UploadRawNDJSON(ctx context.Context, _ loomapi.UploadRawNDJSONRequestObject) (loomapi.UploadRawNDJSONResponseObject, error) {
-	status, body, err := runFiberHandler(ctx, r.load.HandleLoadRaw)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		response, decodeErr := decodeResponse[loomapi.UploadRawNDJSON200JSONResponse](body)
-		return response, decodeErr
-	}
-	value, decodeErr := serviceError(body)
-	if decodeErr != nil {
-		return nil, decodeErr
-	}
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.UploadRawNDJSON400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(value)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.UploadRawNDJSON401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(value)}, nil
-	case http.StatusForbidden:
-		return loomapi.UploadRawNDJSON403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(value)}, nil
-	case http.StatusUnsupportedMediaType:
-		return loomapi.UploadRawNDJSON415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: loomapi.ServiceUnsupportedMediaTypeJSONResponse(value)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.UploadRawNDJSON422JSONResponse{ServiceUnprocessableJSONResponse: loomapi.ServiceUnprocessableJSONResponse(value)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.UploadRawNDJSON500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(value)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.UploadRawNDJSON503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(value)}, nil
-	default:
-		return nil, unexpectedResponseStatus("uploadRawNDJSON", status)
-	}
-}
-
 func (r *HTTPRoutes) CreateSnapshot(ctx context.Context, _ loomapi.CreateSnapshotRequestObject) (loomapi.CreateSnapshotResponseObject, error) {
 	status, body, err := runFiberHandler(ctx, r.load.HandleCreateSnapshot)
 	if err != nil {

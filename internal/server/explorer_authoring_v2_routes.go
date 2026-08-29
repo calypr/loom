@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,18 +22,14 @@ import (
 )
 
 type explorerAuthoringHandlers struct {
-	getCapability           fiber.Handler
-	searchSuggestions       fiber.Handler
-	getCandidateSuggestions fiber.Handler
-	getBuilder              fiber.Handler
-	saveDraft               fiber.Handler
-	exportWorkspace         fiber.Handler
-	applyCommands           fiber.Handler
-	compileBuilder          fiber.Handler
-	compile                 fiber.Handler
-	reconcile               fiber.Handler
-	preview                 fiber.Handler
-	publish                 fiber.Handler
+	getCapability     fiber.Handler
+	searchSuggestions fiber.Handler
+	getBuilder        fiber.Handler
+	applyCommands     fiber.Handler
+	compileBuilder    fiber.Handler
+	reconcile         fiber.Handler
+	preview           fiber.Handler
+	publish           fiber.Handler
 }
 
 // newExplorerAuthoringHandlers is the hard-cut traversal Builder contract.
@@ -67,7 +62,7 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 		return c.JSON(explorerv2api.AuthoringCapability{
 			ApiVersion:    explorerv2api.LoomCalyprOrgexplorerAuthoringv2,
 			Kind:          explorerv2api.ExplorerAuthoringCapabilities,
-			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Compile, explorerv2api.Draft, explorerv2api.Export, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish, explorerv2api.Commands, explorerv2api.Reconcile},
+			Operations:    []explorerv2api.AuthoringCapabilityOperations{explorerv2api.Builder, explorerv2api.Suggestions, explorerv2api.Preview, explorerv2api.Publish, explorerv2api.Commands, explorerv2api.Reconcile},
 			PreviewLimits: []int{10, 25, 50, 100},
 			Features:      explorerv2api.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true},
 		})
@@ -103,41 +98,6 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 			}
 		}
 		return c.JSON(fiber.Map{"apiVersion": authoringv2.APIVersion, "kind": "ExplorerBuilderCandidateSuggestions", "snapshotToken": request.SnapshotToken, "nodeId": request.NodeId, "candidates": candidates, "diagnostics": []any{}})
-	}
-
-	// Suggested values stay out of the main capability document. They are
-	// bounded during capability construction and fetched only when a user opens
-	// a field control, while retaining the exact snapshot-token semantics used
-	// by compilation.
-	handlers.getCandidateSuggestions = func(c fiber.Ctx) error {
-		if err := authoringRead(c, authorizeRead); err != nil {
-			return err
-		}
-		if capabilities.CapabilityToken == nil {
-			return authoringHTTPError(c, explorerUnavailable("capability", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured"))
-		}
-		project := explorerProjectParam(c)
-		token, candidateID := strings.TrimSpace(c.Params("snapshotToken")), strings.TrimSpace(c.Params("candidateId"))
-		if token == "" || candidateID == "" {
-			return authoringHTTPError(c, malformedRouteError("capability", fmt.Errorf("snapshotToken and candidateId are required")))
-		}
-		snapshot, err := capabilities.CapabilityToken(c.Context(), project, token)
-		if err != nil {
-			return authoringHTTPError(c, explorerConflict("capability", "STALE_CATALOG_SNAPSHOT", "the capability snapshot is stale or unavailable", map[string]any{"snapshotToken": token}))
-		}
-		for _, candidate := range snapshot.Candidates {
-			if candidate.ID != candidateID {
-				continue
-			}
-			return c.JSON(explorerv2api.CandidateSuggestions{
-				ApiVersion:    explorerv2api.LoomCalyprOrgexplorerAuthoringv2,
-				Kind:          explorerv2api.ExplorerCandidateSuggestions,
-				SnapshotToken: token, CandidateId: candidateID,
-				Values:   append([]string(nil), candidate.SuggestedValues...),
-				Complete: candidate.SuggestionsComplete, Truncated: candidate.SuggestionsTruncated,
-			})
-		}
-		return authoringHTTPError(c, &explorer.AuthoringError{Status: http.StatusNotFound, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "capability", Code: "CANDIDATE_NOT_FOUND", Message: "candidate is not present in the capability snapshot"}})
 	}
 
 	handlers.getBuilder = func(c fiber.Ctx) error {
@@ -183,74 +143,6 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 			return authoringHTTPError(c, explorerUnavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error()))
 		}
 		return c.JSON(state)
-	}
-
-	handlers.saveDraft = func(c fiber.Ctx) error {
-		if err := authoringWrite(c, authorizer); err != nil {
-			return err
-		}
-		var request struct {
-			Workspace            authoringv2.Workspace `json:"workspace"`
-			SnapshotToken        string                `json:"snapshotToken"`
-			ExpectedDraftVersion *int64                `json:"expectedDraftVersion"`
-			ExpectedDraftDigest  string                `json:"expectedDraftDigest,omitempty"`
-		}
-		if err := decodeAuthoringStrict(c.Body(), &request); err != nil || request.ExpectedDraftVersion == nil || strings.TrimSpace(request.SnapshotToken) == "" {
-			if err == nil {
-				err = fmt.Errorf("workspace, snapshotToken, and expectedDraftVersion are required")
-			}
-			return authoringHTTPError(c, malformedRouteError("draft", err))
-		}
-		if capabilities.CapabilityToken == nil {
-			return authoringHTTPError(c, explorerUnavailable("draft", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured"))
-		}
-		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
-		snapshot, err := capabilities.CapabilityToken(c.Context(), project, request.SnapshotToken)
-		if err != nil {
-			return authoringHTTPError(c, explorerConflict("draft", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil))
-		}
-		state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleReady, Workspace: &request.Workspace, Catalog: authoringV2Catalog(snapshot, id)}
-		if err := state.Validate(); err != nil {
-			return authoringHTTPError(c, authoringSemanticRoute("draft", "$", workspaceValidationCode(err), err.Error(), nil))
-		}
-		stored, err := explorers.SaveWorkspaceDraft(c.Context(), project, id, request.Workspace, *request.ExpectedDraftVersion, request.ExpectedDraftDigest, subjectFromFiber(c))
-		if errors.Is(err, explorer.ErrDraftConflict) {
-			return authoringHTTPError(c, explorerConflict("draft", "DRAFT_CONFLICT", "the Explorer draft changed; reload before saving", nil))
-		}
-		if err != nil {
-			return authoringHTTPError(c, err)
-		}
-		return c.JSON(fiber.Map{"workspace": json.RawMessage(stored.DraftConfig), "draftVersion": stored.DraftVersion, "draftDigest": stored.DraftDigest})
-	}
-
-	handlers.exportWorkspace = func(c fiber.Ctx) error {
-		if err := authoringRead(c, authorizeRead); err != nil {
-			return err
-		}
-		project, id := explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId"))
-		owner, err := explorers.Get(c.Context(), project, id)
-		if err != nil {
-			return authoringHTTPError(c, err)
-		}
-		raw := owner.DraftConfig
-		if len(raw) == 0 && owner.ActiveRevisionID != "" {
-			active, activeErr := explorers.ActiveRevision(c.Context(), project, id)
-			if activeErr != nil {
-				return authoringHTTPError(c, explorerConflict("export", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be exported", nil))
-			}
-			raw = active.AuthoringBundle
-		}
-		workspace, err := authoringv2.DecodeWorkspace(raw)
-		if err != nil {
-			return authoringHTTPError(c, explorerConflict("export", "AUTHORING_STATE_MISSING", "no canonical V2 workspace is available for export", nil))
-		}
-		canonical, err := workspace.CanonicalJSON()
-		if err != nil {
-			return authoringHTTPError(c, err)
-		}
-		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
-		c.Set(fiber.HeaderContentDisposition, `attachment; filename="`+id+`.explorer-workspace.json"`)
-		return c.Send(canonical)
 	}
 
 	handlers.applyCommands = func(c fiber.Ctx) error {
@@ -331,7 +223,6 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 		return compileWorkspace(c, request.Workspace, request.SnapshotToken)
 	}
 	handlers.compileBuilder = compileHandler
-	handlers.compile = compileHandler
 	handlers.reconcile = func(c fiber.Ctx) error {
 		if err := authoringWrite(c, authorizer); err != nil {
 			return err

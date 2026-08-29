@@ -18,15 +18,11 @@ func registerTestExplorerAuthoringRoutes(router fiber.Router, authorizer authsco
 	h := newExplorerAuthoringHandlers(authorizer, authorizeRead, service, config)
 	base := "/api/v1/projects/:project/explorers/:explorerId/authoring/v2"
 	router.Get(base+"/capability", h.getCapability)
-	router.Get(base+"/capabilities/:snapshotToken/candidates/:candidateId/suggestions", h.getCandidateSuggestions)
 	router.Post(base+"/suggestions", h.searchSuggestions)
 	router.Get(base+"/builder", h.getBuilder)
 	router.Post(base+"/builder", h.compileBuilder)
-	router.Post(base+"/compile", h.compile)
 	router.Post(base+"/commands", h.applyCommands)
 	router.Post(base+"/reconcile", h.reconcile)
-	router.Put(base+"/draft", h.saveDraft)
-	router.Get(base+"/export", h.exportWorkspace)
 	router.Post(base+"/preview", h.preview)
 	router.Post(base+"/publish", h.publish)
 }
@@ -34,7 +30,6 @@ func registerTestExplorerAuthoringRoutes(router fiber.Router, authorizer authsco
 func registerTestExplorerRoutes(router fiber.Router, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, service *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, config ExplorerV2LifecycleConfig) {
 	h := newExplorerHTTPHandlers(authorizer, authorizeRead, service, materialize, config)
 	router.Post("/api/v1/projects/:project/generations/:generation/explorer-config", h.publishRepositoryConfig)
-	router.Get("/api/v1/projects/:project/explorer-config", h.getRepositoryConfig)
 	registerTestExplorerLifecycleRoutes(router, authorizer, authorizeRead, service, config)
 	registerTestExplorerAuthoringRoutes(router, authorizer, authorizeRead, service, config)
 }

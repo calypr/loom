@@ -21,34 +21,6 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-      - name: snapshotToken
-        in: path
-        required: true
-        schema: {type: string, minLength: 1}
-      - name: candidateId
-        in: path
-        required: true
-        schema: {type: string, minLength: 1}
-    get:
-      operationId: getExplorerCandidateSuggestions
-      responses:
-        '200':
-          description: Bounded values for one candidate in an immutable snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CandidateSuggestions'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -95,32 +67,6 @@ paths:
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
     post:
       operationId: compileExplorerBuilder
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompileRequest'
-      responses:
-        '200':
-          description: Immutable compilation receipt.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompileResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: compileExplorer
       requestBody:
         required: true
         content:
@@ -194,51 +140,6 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    put:
-      operationId: saveExplorerDraft
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SaveDraftRequest'
-      responses:
-        '200':
-          description: Canonical server-owned V2 workspace draft.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SaveDraftResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    get:
-      operationId: exportExplorerWorkspace
-      responses:
-        '200':
-          description: Canonical portable V2 workspace.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workspace'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -427,38 +328,6 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/ServiceForbidden'}
         '409': {$ref: '#/components/responses/ServiceConflict'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/raw:
-    put:
-      operationId: uploadRawNDJSON
-      summary: Stream raw NDJSON into a generation.
-      parameters:
-        - name: project
-          in: query
-          schema: {type: string}
-        - name: generation
-          in: query
-          schema: {type: string}
-        - name: auth_resource_path
-          in: query
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/x-ndjson:
-            schema: {type: string, format: binary}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/projects/{project}/generations/{generation}:
@@ -842,22 +711,6 @@ paths:
         '422': {$ref: '#/components/responses/LegacyUnprocessable'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
         '503': {$ref: '#/components/responses/LegacyUnavailable'}
-  /api/v1/projects/{project}/explorer-config:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-    get:
-      operationId: getRepositoryExplorerConfig
-      summary: Read the active repository-owned Explorer config.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
 components:
   parameters:
     Project:
@@ -1105,7 +958,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, compile, suggestions, preview, publish, draft, export, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, preview, publish, commands, reconcile]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -1376,23 +1229,6 @@ components:
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
-    SaveDraftRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace, snapshotToken, expectedDraftVersion]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, format: int64, minimum: 0}
-        expectedDraftDigest: {type: string}
-    SaveDraftResponse:
-      type: object
-      additionalProperties: false
-      required: [workspace, draftVersion, draftDigest]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
-        draftVersion: {type: integer, format: int64, minimum: 1}
-        draftDigest: {type: string, minLength: 1}
     BuilderState:
       type: object
       additionalProperties: false
@@ -1474,20 +1310,6 @@ components:
         maxSteps: {type: integer, minimum: 0}
         allowRepeatedEdges: {type: boolean}
         allowSelfLoops: {type: boolean}
-    CandidateSuggestions:
-      type: object
-      additionalProperties: false
-      required: [apiVersion, kind, snapshotToken, candidateId, values, complete, truncated]
-      properties:
-        apiVersion: {$ref: '#/components/schemas/APIVersion'}
-        kind: {type: string, enum: [ExplorerCandidateSuggestions]}
-        snapshotToken: {type: string, minLength: 1}
-        candidateId: {type: string, minLength: 1}
-        values:
-          type: array
-          items: {type: string}
-        complete: {type: boolean}
-        truncated: {type: boolean}
     CandidateSearchRequest:
       type: object
       additionalProperties: false

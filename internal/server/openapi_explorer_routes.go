@@ -116,31 +116,6 @@ func (r *HTTPRoutes) PublishRepositoryExplorerConfig(ctx context.Context, _ loom
 	}
 }
 
-func (r *HTTPRoutes) GetRepositoryExplorerConfig(ctx context.Context, _ loomapi.GetRepositoryExplorerConfigRequestObject) (loomapi.GetRepositoryExplorerConfigResponseObject, error) {
-	status, body, err := runFiberHandler(ctx, r.explorer.getRepositoryConfig)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		response, decodeErr := decodeResponse[loomapi.GetRepositoryExplorerConfig200JSONResponse](body)
-		return response, decodeErr
-	}
-	value, decodeErr := legacyError(body)
-	if decodeErr != nil {
-		return nil, decodeErr
-	}
-	switch status {
-	case 403:
-		return loomapi.GetRepositoryExplorerConfig403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(value)}, nil
-	case 404:
-		return loomapi.GetRepositoryExplorerConfig404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(value)}, nil
-	case 500:
-		return loomapi.GetRepositoryExplorerConfig500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(value)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getRepositoryExplorerConfig", status)
-	}
-}
-
 func (r *HTTPRoutes) GetExplorerAuthoringCapability(ctx context.Context, _ loomapi.GetExplorerAuthoringCapabilityRequestObject) (loomapi.GetExplorerAuthoringCapabilityResponseObject, error) {
 	status, body, err := runFiberHandler(ctx, r.explorer.authoring.getCapability)
 	if err != nil {
@@ -193,37 +168,6 @@ func (r *HTTPRoutes) SearchExplorerCandidates(ctx context.Context, _ loomapi.Sea
 	}
 }
 
-func (r *HTTPRoutes) GetExplorerCandidateSuggestions(ctx context.Context, _ loomapi.GetExplorerCandidateSuggestionsRequestObject) (loomapi.GetExplorerCandidateSuggestionsResponseObject, error) {
-	status, body, err := runFiberHandler(ctx, r.explorer.authoring.getCandidateSuggestions)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		value, e := decodeResponse[loomapi.CandidateSuggestions](body)
-		return loomapi.GetExplorerCandidateSuggestions200JSONResponse(value), e
-	}
-	value, _, e := authoringError(body, status)
-	if e != nil {
-		return nil, e
-	}
-	switch status {
-	case 400:
-		return loomapi.GetExplorerCandidateSuggestions400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(value)}, nil
-	case 403:
-		return loomapi.GetExplorerCandidateSuggestions403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(value)}, nil
-	case 404:
-		return loomapi.GetExplorerCandidateSuggestions404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(value)}, nil
-	case 409:
-		return loomapi.GetExplorerCandidateSuggestions409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(value)}, nil
-	case 500:
-		return loomapi.GetExplorerCandidateSuggestions500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(value)}, nil
-	case 503:
-		return loomapi.GetExplorerCandidateSuggestions503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(value)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getExplorerCandidateSuggestions", status)
-	}
-}
-
 func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, _ loomapi.GetExplorerBuilderRequestObject) (loomapi.GetExplorerBuilderResponseObject, error) {
 	status, body, err := runFiberHandler(ctx, r.explorer.authoring.getBuilder)
 	if err != nil {
@@ -250,66 +194,6 @@ func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, _ loomapi.GetExplor
 		return loomapi.GetExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(value)}, nil
 	default:
 		return nil, unexpectedResponseStatus("getExplorerBuilder", status)
-	}
-}
-
-func (r *HTTPRoutes) SaveExplorerDraft(ctx context.Context, _ loomapi.SaveExplorerDraftRequestObject) (loomapi.SaveExplorerDraftResponseObject, error) {
-	status, body, err := runFiberHandler(ctx, r.explorer.authoring.saveDraft)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		value, e := decodeResponse[loomapi.SaveDraftResponse](body)
-		return loomapi.SaveExplorerDraft200JSONResponse(value), e
-	}
-	value, _, e := authoringError(body, status)
-	if e != nil {
-		return nil, e
-	}
-	switch status {
-	case 400:
-		return loomapi.SaveExplorerDraft400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(value)}, nil
-	case 403:
-		return loomapi.SaveExplorerDraft403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(value)}, nil
-	case 404:
-		return loomapi.SaveExplorerDraft404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(value)}, nil
-	case 409:
-		return loomapi.SaveExplorerDraft409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(value)}, nil
-	case 422:
-		return loomapi.SaveExplorerDraft422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(value)}, nil
-	case 500:
-		return loomapi.SaveExplorerDraft500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(value)}, nil
-	case 503:
-		return loomapi.SaveExplorerDraft503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(value)}, nil
-	default:
-		return nil, unexpectedResponseStatus("saveExplorerDraft", status)
-	}
-}
-
-func (r *HTTPRoutes) ExportExplorerWorkspace(ctx context.Context, _ loomapi.ExportExplorerWorkspaceRequestObject) (loomapi.ExportExplorerWorkspaceResponseObject, error) {
-	status, body, err := runFiberHandler(ctx, r.explorer.authoring.exportWorkspace)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		value, e := decodeResponse[loomapi.Workspace](body)
-		return loomapi.ExportExplorerWorkspace200JSONResponse(value), e
-	}
-	value, _, e := authoringError(body, status)
-	if e != nil {
-		return nil, e
-	}
-	switch status {
-	case 403:
-		return loomapi.ExportExplorerWorkspace403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(value)}, nil
-	case 404:
-		return loomapi.ExportExplorerWorkspace404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(value)}, nil
-	case 409:
-		return loomapi.ExportExplorerWorkspace409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(value)}, nil
-	case 500:
-		return loomapi.ExportExplorerWorkspace500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(value)}, nil
-	default:
-		return nil, unexpectedResponseStatus("exportExplorerWorkspace", status)
 	}
 }
 
@@ -380,32 +264,6 @@ func (r *HTTPRoutes) CompileExplorerBuilder(ctx context.Context, _ loomapi.Compi
 		return loomapi.CompileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("compileExplorerBuilder", status)
-	}
-}
-
-func (r *HTTPRoutes) CompileExplorer(ctx context.Context, _ loomapi.CompileExplorerRequestObject) (loomapi.CompileExplorerResponseObject, error) {
-	value, failure, status, err := r.compileExplorer(ctx, r.explorer.authoring.compile)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusOK {
-		return loomapi.CompileExplorer200JSONResponse(value), nil
-	}
-	switch status {
-	case 400:
-		return loomapi.CompileExplorer400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case 403:
-		return loomapi.CompileExplorer403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case 409:
-		return loomapi.CompileExplorer409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case 422:
-		return loomapi.CompileExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case 500:
-		return loomapi.CompileExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case 503:
-		return loomapi.CompileExplorer503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("compileExplorer", status)
 	}
 }
 

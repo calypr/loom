@@ -55,6 +55,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/datasets/project/generations/generation/export"},
 		{http.MethodPost, "/loom/api/v1/dataframe/export"},
+		{http.MethodPut, "/api/v1/raw"},
 	} {
 		resp, err := server.App().Test(httptest.NewRequest(request.method, request.path, nil))
 		if err != nil {
@@ -70,8 +71,6 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 		path   string
 		want   int
 	}{
-		{http.MethodGet, "/api/v1/raw", http.StatusMethodNotAllowed},
-		{http.MethodPut, "/api/v1/raw", http.StatusUnsupportedMediaType},
 		{http.MethodPost, "/api/v1/datasets/project/generations/generation", http.StatusUnsupportedMediaType},
 		{http.MethodPost, "/api/v1/datasets/project/generations/generation/activate", http.StatusBadRequest},
 	} {

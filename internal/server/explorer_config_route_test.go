@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,19 +88,6 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	builder := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
 	if builder.StatusCode != http.StatusOK || !strings.Contains(builder.Body, `"workspace"`) {
 		t.Fatalf("builder reload status=%d body=%s", builder.StatusCode, builder.Body)
-	}
-	draftBody := `{"workspace":` + string(baselineExplorerWorkspaceV2()) + `,"snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":` + fmt.Sprint(state.DraftVersion) + `,"expectedDraftDigest":"` + state.DraftDigest + `"}`
-	draft := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/authoring/v2/draft", draftBody)
-	if draft.StatusCode != http.StatusOK || !strings.Contains(draft.Body, `"draftDigest":"sha256:`) {
-		t.Fatalf("save draft status=%d body=%s", draft.StatusCode, draft.Body)
-	}
-	stale := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/authoring/v2/draft", draftBody)
-	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, `"code":"DRAFT_CONFLICT"`) {
-		t.Fatalf("stale draft status=%d body=%s", stale.StatusCode, stale.Body)
-	}
-	exported := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/export", "")
-	if exported.StatusCode != http.StatusOK || exported.Body != string(baselineExplorerWorkspaceV2()) {
-		t.Fatalf("export status=%d body=%s", exported.StatusCode, exported.Body)
 	}
 	viewer := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) {

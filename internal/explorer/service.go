@@ -217,31 +217,6 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	return s.store.CreateInteractive(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
-// SaveWorkspaceDraft persists canonical V2 authoring intent with optimistic
-// concurrency. It never compiles, materializes, or changes the active pointer.
-func (s *Service) SaveWorkspaceDraft(ctx context.Context, project, id string, workspace authoringv2.Workspace, expectedVersion int64, expectedDigest, actor string) (*Explorer, error) {
-	canonical, err := workspace.CanonicalJSON()
-	if err != nil {
-		return nil, err
-	}
-	digest, err := workspace.Digest()
-	if err != nil {
-		return nil, err
-	}
-	owner, err := s.Get(ctx, project, id)
-	if err != nil {
-		return nil, err
-	}
-	owner.DraftConfig = canonical
-	owner.DraftDigest = digest
-	owner.UpdatedBy = actor
-	owner.UpdatedAt = s.now()
-	if len(workspace.Tabs) > 0 && strings.TrimSpace(workspace.Tabs[0].Title) != "" {
-		owner.Title = workspace.Tabs[0].Title
-	}
-	return s.store.SaveDraft(ctx, *owner, expectedVersion, expectedDigest)
-}
-
 // ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
 // resolves backend-owned identities, applies a command batch atomically, and
 // persists both the new draft and the replay record in one compare-and-swap.

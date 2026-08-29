@@ -167,7 +167,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	app := fiber.New()
 	registerTestExplorerAuthoringRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	body := `{"workspace":` + string(baselineExplorerWorkspaceV2()) + `,"snapshotToken":"` + snapshot.Token + `"}`
-	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/compile", body)
+	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", body)
 	if compiled.StatusCode != http.StatusOK {
 		t.Fatalf("compile status=%d body=%s", compiled.StatusCode, compiled.Body)
 	}
@@ -277,18 +277,24 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 }
 
 func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
-	service, err := explorer.NewService(newTestExplorerStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "source", "Source", "test"); err != nil {
-		t.Fatal(err)
-	}
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.SaveWorkspaceDraft(context.Background(), "project-a", "source", workspace, 0, "", "test"); err != nil {
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.CreateInteractive(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: explorer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
 		t.Fatal(err)
 	}
 	app := fiber.New()
