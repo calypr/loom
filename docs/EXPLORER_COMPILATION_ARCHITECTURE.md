@@ -248,8 +248,8 @@ execution contract.
 | Native V2 translation | `internal/explorer/compilation` |
 | Versioned receipt domain and integrity | `internal/explorer/compilation_receipt.go` |
 | Memory and Arango receipt persistence | `internal/explorer/memory_store.go`, `internal/explorer/arango/store.go` |
+| Explorer list/create/authoring/receipt/preview/publication workflows | `internal/explorer/lifecycle` |
 | Resolved-recipe execution boundary | `internal/dataframe/recipe/engine/engine.go` |
-| V2 compile/preview/publish routes | `internal/server/explorer_authoring_v2_routes.go` |
-| Production composition | `internal/server/server.go` |
-| Receipt publication | `internal/server/explorer_publication.go` |
-| Compiler-owned output/config validation | `internal/server/explorer_receipt_contract.go` |
+| Generated HTTP request/response adapters | `internal/server/openapi_explorer_routes.go` |
+| Production lifecycle composition and execution adapters | `internal/server/explorer_lifecycle_adapter.go` |
+| Compiler-owned output/config validation policy | `internal/explorer/lifecycle/policy.go` |

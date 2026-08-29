@@ -16,40 +16,6 @@ import (
 // existing receipt-input conflict diagnostic.
 var ErrReceiptExecutionContract = errors.New("receipt execution contract mismatch")
 
-// validateAuthorizedReceiptExecution proves that the capability and scope
-// supplied for execution are exactly the inputs frozen in the receipt. It is
-// intentionally stricter than comparing only the snapshot token: the scope
-// mode is authoritative, so a restricted-empty scope can never become the
-// legacy empty-slice/unrestricted interpretation.
-func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, authorized AuthorizedCapability) error {
-	if receipt == nil {
-		return receiptExecutionContractError("receipt is required")
-	}
-	snapshot := authorized.Snapshot
-	if strings.TrimSpace(receipt.SnapshotToken) == "" || snapshot.Token != receipt.SnapshotToken {
-		return receiptExecutionContractError("capability token does not exactly match receipt token")
-	}
-	if err := snapshot.ValidateToken(receipt.SnapshotToken); err != nil {
-		return receiptExecutionContractError("capability token is invalid: %v", err)
-	}
-	if snapshot.Identity.Project != receipt.Project {
-		return receiptExecutionContractError("capability project changed")
-	}
-	if snapshot.Identity.Generation != receipt.SourceGeneration {
-		return receiptExecutionContractError("capability generation changed")
-	}
-	if snapshot.Identity.SchemaDigest != receipt.CapabilitySchemaDigest {
-		return receiptExecutionContractError("capability schema changed")
-	}
-	if snapshot.Identity.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest {
-		return receiptExecutionContractError("capability scope digest changed")
-	}
-	if err := validateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest); err != nil {
-		return err
-	}
-	return nil
-}
-
 // validateAuthorizedReadScope verifies both the digest and the explicit mode.
 // In particular, restricted + zero paths is a valid deny-all result, while an
 // empty mode is rejected because downstream legacy code may interpret it as
@@ -69,31 +35,6 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 		return receiptExecutionContractError("authorized scope does not match receipt scope digest")
 	}
 	return nil
-}
-
-// validateReceiptOutputContract proves that a requested output is present in
-// the persisted public contract, rather than merely in the executable recipe.
-func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {
-	if receipt == nil {
-		return receiptExecutionContractError("receipt is required")
-	}
-	outputID = strings.TrimSpace(outputID)
-	if outputID == "" {
-		return receiptExecutionContractError("output is required")
-	}
-	contract, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
-	if err != nil {
-		return receiptExecutionContractError("public output contract is invalid: %v", err)
-	}
-	if _, ok := contract.Output(outputID); !ok {
-		return receiptExecutionContractError("requested output %q is not in the receipt public contract", outputID)
-	}
-	for _, output := range receipt.Bundle.Outputs {
-		if output.Name == outputID {
-			return nil
-		}
-	}
-	return receiptExecutionContractError("requested output %q is not in the receipt recipe", outputID)
 }
 
 // validateReceiptEnginePublicColumns proves that the engine and receipt expose

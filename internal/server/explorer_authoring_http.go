@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -56,10 +56,6 @@ func malformedRouteError(stage string, err error) error {
 	return &explorer.AuthoringError{Status: 400, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: stage, Code: "MALFORMED_AUTHORING_REQUEST", JSONPath: "$", Message: err.Error()}, Cause: err}
 }
 
-func authoringSemanticRoute(stage, path, code, message string, details map[string]any) error {
-	return &explorer.AuthoringError{Status: 422, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: stage, Code: code, JSONPath: path, Message: message, Details: details}}
-}
-
 func explorerConflict(stage, code, message string, details map[string]any) error {
 	return &explorer.AuthoringError{Status: 409, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: stage, Code: code, Message: message, Details: details}}
 }
@@ -68,17 +64,19 @@ func explorerUnavailable(stage, code, message string) error {
 	return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: stage, Code: code, Message: message}}
 }
 
-func receiptHasOutput(bundle recipe.Bundle, id string) bool {
-	for _, output := range bundle.Outputs {
-		if output.Name == id {
-			return true
-		}
-	}
-	return false
-}
-
 func authoringHTTPError(c fiber.Ctx, err error) error {
 	requestID := requestIDFromFiber(c)
+	var applicationErr *lifecycle.Error
+	if errors.As(err, &applicationErr) {
+		status := lifecycleErrorStatus(applicationErr.Class)
+		details := applicationErr.Details
+		if details == nil {
+			details = map[string]any{}
+		}
+		logAuthoringRequestFailure(c, requestID, status, applicationErr.Stage, applicationErr.Code, applicationErr.Path, applicationErr.Message, applicationErr.Details, applicationErr.Cause)
+		diagnostic := fiber.Map{"severity": "error", "stage": applicationErr.Stage, "code": applicationErr.Code, "path": applicationErr.Path, "message": applicationErr.Message, "requestId": requestID}
+		return c.Status(status).JSON(fiber.Map{"code": applicationErr.Code, "message": applicationErr.Message, "diagnostics": []fiber.Map{diagnostic}, "requestId": requestID, "details": details})
+	}
 	var value *explorer.AuthoringError
 	if errors.As(err, &value) {
 		value.Diagnostic.RequestID = requestID

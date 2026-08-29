@@ -12,7 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -191,22 +190,6 @@ func firstNonEmptyWorkspaceTitle(values ...string) string {
 		}
 	}
 	return "Explorer"
-}
-
-func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
-	if receipt == nil {
-		return fmt.Errorf("compilation receipt is required")
-	}
-	if snapshot.Identity.Project != receipt.Project || snapshot.Identity.Generation != receipt.SourceGeneration {
-		return fmt.Errorf("receipt capability project or generation changed")
-	}
-	if snapshot.Identity.AuthorizationScopeDigest != receipt.AuthorizationScopeDigest {
-		return fmt.Errorf("receipt authorization scope changed")
-	}
-	if snapshot.Identity.SchemaDigest != receipt.CapabilitySchemaDigest {
-		return fmt.Errorf("receipt capability schema changed")
-	}
-	return nil
 }
 
 // validateReceiptResolution proves that deterministic runtime lowering still

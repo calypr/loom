@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/capabilitystore"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -42,7 +41,7 @@ func NewCapabilitySnapshotStore(c client) (*CapabilitySnapshotStore, error) {
 }
 
 func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
-	if err := capabilitystore.ValidateSnapshot(snapshot); err != nil {
+	if err := capability.ValidateSnapshot(snapshot); err != nil {
 		return nil, err
 	}
 	doc, err := canonicalSnapshotDocument(snapshot, capabilitySnapshotKey(snapshot.Token))
@@ -59,10 +58,10 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 			return decodeErr
 		}
 		if value.Token != snapshot.Token {
-			return fmt.Errorf("%w: %s", capabilitystore.ErrTokenCollision, snapshot.Token)
+			return fmt.Errorf("%w: %s", capability.ErrTokenCollision, snapshot.Token)
 		}
 		if string(value.CanonicalPayload()) != string(snapshot.CanonicalPayload()) {
-			return fmt.Errorf("%w: %s", capabilitystore.ErrTokenCollision, snapshot.Token)
+			return fmt.Errorf("%w: %s", capability.ErrTokenCollision, snapshot.Token)
 		}
 		value = value.Clone()
 		out = &value
@@ -77,7 +76,7 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 			return nil, getErr
 		}
 		if string(existing.CanonicalPayload()) != string(snapshot.CanonicalPayload()) {
-			return nil, fmt.Errorf("%w: %s", capabilitystore.ErrTokenCollision, snapshot.Token)
+			return nil, fmt.Errorf("%w: %s", capability.ErrTokenCollision, snapshot.Token)
 		}
 		return existing, nil
 	}
@@ -93,7 +92,7 @@ func (s *CapabilitySnapshotStore) GetByToken(ctx context.Context, token string) 
 	}, func(row map[string]any) error {
 		value, err := decode[capability.Snapshot](row)
 		if err == nil {
-			err = capabilitystore.ValidateSnapshot(value)
+			err = capability.ValidateSnapshot(value)
 		}
 		if err == nil {
 			value = value.Clone()
@@ -105,7 +104,7 @@ func (s *CapabilitySnapshotStore) GetByToken(ctx context.Context, token string) 
 		return nil, err
 	}
 	if out == nil {
-		return nil, capabilitystore.ErrNotFound
+		return nil, capability.ErrNotFound
 	}
 	return out, nil
 }
@@ -129,7 +128,7 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 	}, func(row map[string]any) error {
 		value, err := decode[capability.Snapshot](row)
 		if err == nil {
-			err = capabilitystore.ValidateSnapshot(value)
+			err = capability.ValidateSnapshot(value)
 		}
 		if err == nil {
 			value = value.Clone()
@@ -141,7 +140,7 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 		return nil, err
 	}
 	if out == nil {
-		return nil, capabilitystore.ErrNotFound
+		return nil, capability.ErrNotFound
 	}
 	return out, nil
 }
@@ -193,4 +192,4 @@ LIMIT 1
 RETURN d
 `
 
-var _ capabilitystore.Repository = (*CapabilitySnapshotStore)(nil)
+var _ capability.Repository = (*CapabilitySnapshotStore)(nil)

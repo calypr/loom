@@ -17,7 +17,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/capabilitystore"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
 	"golang.org/x/sync/singleflight"
 )
@@ -44,7 +44,7 @@ type explorerCapabilityResolver struct {
 	evidence  catalog.CapabilityEvidenceReader
 	scopes    *authscope.ScopeResolver
 	manifests dataset.ActiveResolver
-	snapshots capabilitystore.Repository
+	snapshots capability.Repository
 	builds    singleflight.Group
 }
 
@@ -55,17 +55,7 @@ type ExplorerCapabilityTokenReader func(context.Context, string, string) (capabi
 // execution.  The scope is part of the contract: callers must not derive it
 // again from a token or accidentally turn a restricted-empty scope into an
 // unrestricted one.  Both values are copied before they cross this boundary.
-type AuthorizedCapability struct {
-	Snapshot capability.Snapshot
-	Scope    authscope.ReadScope
-}
-
-// Clone returns an independent authorized capability.  Snapshot.Clone also
-// copies nested diagnostic values through the capability package's immutable
-// accessor, while ReadScope.Clone protects the authorization path slice.
-func (a AuthorizedCapability) Clone() AuthorizedCapability {
-	return AuthorizedCapability{Snapshot: a.Snapshot.Clone(), Scope: a.Scope.Clone()}
-}
+type AuthorizedCapability = lifecycle.AuthorizedCapability
 
 // ExplorerAuthorizedCapabilityCompilationReader accepts an opaque snapshot
 // token for a new compile. Implementations must require that token to belong
@@ -90,7 +80,7 @@ type ExplorerCapabilityExecutionResolver interface {
 	ResolveForExecution(context.Context, string, string) (AuthorizedCapability, error)
 }
 
-func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capabilitystore.Repository) (*explorerCapabilityResolver, error) {
+func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*explorerCapabilityResolver, error) {
 	if evidence == nil || manifests == nil || snapshots == nil {
 		return nil, fmt.Errorf("Explorer capability evidence, manifest resolver, and snapshot repository are required")
 	}
@@ -150,7 +140,7 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	value, err, _ := r.builds.Do(key, func() (any, error) {
 		if existing, getErr := r.snapshots.GetByIdentity(ctx, identity); getErr == nil && existing.Usable() {
 			return existing.Clone(), nil
-		} else if getErr != nil && !errors.Is(getErr, capabilitystore.ErrNotFound) {
+		} else if getErr != nil && !errors.Is(getErr, capability.ErrNotFound) {
 			return nil, getErr
 		}
 		observer := capabilityObserverFromEvidence(evidence)

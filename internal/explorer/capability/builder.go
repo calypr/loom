@@ -105,8 +105,6 @@ type Builder struct {
 	Compiler      CompilerProbe
 }
 
-type CapabilityBuilder = Builder
-
 const DefaultSuggestionLimit = 32
 
 func NewBuilder(identity SnapshotIdentity, resources ResourceInventory, relationships RelationshipEvidence, fields FieldEvidence, compiler CompilerProbe) Builder {

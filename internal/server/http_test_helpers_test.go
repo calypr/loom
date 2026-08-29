@@ -14,7 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/capabilitystore"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -40,7 +39,7 @@ func (s *testCapabilityStore) Put(_ context.Context, snapshot capability.Snapsho
 func (s *testCapabilityStore) GetByToken(_ context.Context, token string) (*capability.Snapshot, error) {
 	stored, ok := s.byToken[token]
 	if !ok {
-		return nil, capabilitystore.ErrNotFound
+		return nil, capability.ErrNotFound
 	}
 	result := stored.Clone()
 	return &result, nil
@@ -49,7 +48,7 @@ func (s *testCapabilityStore) GetByToken(_ context.Context, token string) (*capa
 func (s *testCapabilityStore) GetByIdentity(_ context.Context, identity capability.SnapshotIdentity) (*capability.Snapshot, error) {
 	token, ok := s.byIdentity[identity]
 	if !ok {
-		return nil, capabilitystore.ErrNotFound
+		return nil, capability.ErrNotFound
 	}
 	return s.GetByToken(context.Background(), token)
 }

@@ -1,6 +1,4 @@
-// Package capabilitystore contains persistence adapters for immutable
-// Explorer capability snapshots.
-package capabilitystore
+package capability
 
 import (
 	"context"
@@ -8,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-
-	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 var (
@@ -22,20 +18,16 @@ var (
 // changes an existing document. GetByIdentity returns a READY snapshot when
 // one exists; otherwise it returns the best available diagnostic snapshot.
 type Repository interface {
-	GetByToken(context.Context, string) (*capability.Snapshot, error)
-	GetByIdentity(context.Context, capability.SnapshotIdentity) (*capability.Snapshot, error)
-	Put(context.Context, capability.Snapshot) (*capability.Snapshot, error)
+	GetByToken(context.Context, string) (*Snapshot, error)
+	GetByIdentity(context.Context, SnapshotIdentity) (*Snapshot, error)
+	Put(context.Context, Snapshot) (*Snapshot, error)
 }
 
-// Store is retained as a short name for callers that use stores throughout
-// the rest of Explorer.
-type Store = Repository
-
-func validate(snapshot capability.Snapshot) error {
+func validateSnapshot(snapshot Snapshot) error {
 	if snapshot.Token == "" {
 		return fmt.Errorf("%w: token is required", ErrInvalidSnapshot)
 	}
-	if snapshot.Status == capability.StatusReady && !snapshot.Usable() {
+	if snapshot.Status == StatusReady && !snapshot.Usable() {
 		return fmt.Errorf("%w: READY snapshot must be complete and not truncated", ErrInvalidSnapshot)
 	}
 	want := snapshotToken(snapshot)
@@ -45,11 +37,11 @@ func validate(snapshot capability.Snapshot) error {
 	return nil
 }
 
-// ValidateSnapshot applies the repository invariants without requiring a
-// caller to select a particular adapter.
-func ValidateSnapshot(snapshot capability.Snapshot) error { return validate(snapshot) }
+// ValidateSnapshot applies repository invariants without requiring a caller
+// to select a particular persistence adapter.
+func ValidateSnapshot(snapshot Snapshot) error { return validateSnapshot(snapshot) }
 
-func snapshotToken(snapshot capability.Snapshot) string {
+func snapshotToken(snapshot Snapshot) string {
 	sum := sha256.Sum256(snapshot.CanonicalPayload())
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

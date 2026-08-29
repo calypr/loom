@@ -5,37 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
-	"github.com/calypr/loom/internal/dataset"
 )
-
-func selectorsForBundle(bundle recipe.Bundle) []dataset.DataframeSelector {
-	selectors := make([]dataset.DataframeSelector, 0, len(bundle.Outputs))
-	for _, output := range bundle.Outputs {
-		selectors = append(selectors, dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: output.Name})
-	}
-	return selectors
-}
-
-func verifyQueryableOutputs(bundle recipe.Bundle, execution graphresolver.RecipeExecution) error {
-	states := map[string]string{}
-	for _, output := range execution.Outputs {
-		states[output.Name] = strings.ToUpper(output.State)
-	}
-	for _, output := range bundle.Outputs {
-		state := states[output.Name]
-		if state != "PUBLISHED" && state != "READY" && state != "ACTIVE" {
-			return fmt.Errorf("output %q is not queryable (state %q)", output.Name, state)
-		}
-	}
-	return nil
-}
 
 func resolvedOutputArtifacts(resolved engine.Resolved) (map[string]string, map[string]map[string]string, error) {
 	result := make(map[string]string, len(resolved.Compiled.Outputs))

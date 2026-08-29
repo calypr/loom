@@ -9,22 +9,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 type ExplorerV2Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
 type ExplorerV2Materializer = graphresolver.ExplorerBundleMaterializer
 
-type ExplorerV2ReceiptCompileRequest struct {
-	Project       string
-	ExplorerID    string
-	Workspace     authoringv2.Workspace
-	SnapshotToken string
-	RequestID     string
-	Authorized    AuthorizedCapability
-}
-
-type ExplorerV2ReceiptCompiler func(context.Context, ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error)
+type ExplorerV2ReceiptCompileRequest = lifecycle.CompileReceiptRequest
+type ExplorerV2ReceiptCompiler = lifecycle.ReceiptCompiler
 type ExplorerV2ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ExplorerV2ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (engine.PreviewSummary, error)
 type ExplorerV2ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error)
