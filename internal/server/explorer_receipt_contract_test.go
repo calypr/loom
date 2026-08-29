@@ -141,10 +141,18 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := resolvedOutputFingerprints(resolved)["patients"]
+	beforeArtifacts, _, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := beforeArtifacts["patients"]
 	resolved.Compiled.Outputs[0].OutputSchema[0].Discovered = !resolved.Compiled.Outputs[0].OutputSchema[0].Discovered
 	resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions = append(resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions, ir.PhysicalOptimizationDecision{Reason: "diagnostic-only"})
-	after := resolvedOutputFingerprints(resolved)["patients"]
+	afterArtifacts, _, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := afterArtifacts["patients"]
 	if before != after {
 		t.Fatalf("transient compiler metadata changed canonical fingerprint: %q != %q", before, after)
 	}
@@ -152,7 +160,11 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 		resolved.Compiled.Outputs[0].Plan.BindVars[key] = "semantically-different"
 		break
 	}
-	if changed := resolvedOutputFingerprints(resolved)["patients"]; changed == before {
+	changedArtifacts, _, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := changedArtifacts["patients"]; changed == before {
 		t.Fatal("execution bind change did not change canonical fingerprint")
 	}
 }

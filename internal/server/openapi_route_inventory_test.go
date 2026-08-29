@@ -12,7 +12,7 @@ import (
 
 func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 	app := fiber.New()
-	handler := loomapi.NewStrictHandler(&HTTPRoutes{}, []loomapi.StrictMiddlewareFunc{strictFiberContextMiddleware})
+	handler := loomapi.NewStrictHandler(&HTTPRoutes{}, nil)
 	loomapi.RegisterHandlersWithOptions(app, handler, loomapi.FiberServerOptions{})
 
 	want := map[string]bool{}

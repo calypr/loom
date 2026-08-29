@@ -457,7 +457,11 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 }
 
 func validateV2ReceiptRoute(c fiber.Ctx, receipt *explorer.CompilationReceipt, capabilities ExplorerV2LifecycleConfig) error {
-	if receipt == nil || receipt.Project != explorerProjectParam(c) || receipt.ExplorerID != strings.TrimSpace(c.Params("explorerId")) {
+	return validateV2ReceiptRouteValues(receipt, capabilities, explorerProjectParam(c), strings.TrimSpace(c.Params("explorerId")))
+}
+
+func validateV2ReceiptRouteValues(receipt *explorer.CompilationReceipt, capabilities ExplorerV2LifecycleConfig, project, explorerID string) error {
+	if receipt == nil || receipt.Project != project || receipt.ExplorerID != explorerID {
 		return &explorer.AuthoringError{Status: http.StatusNotFound, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "receipt", Code: "COMPILE_RECEIPT_NOT_FOUND", Message: "compilation receipt was not found"}}
 	}
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {

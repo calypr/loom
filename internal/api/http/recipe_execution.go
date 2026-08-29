@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -18,27 +19,35 @@ type RecipeExecutionHandler struct {
 }
 
 func (h RecipeExecutionHandler) Handle(c fiber.Ctx) error {
+	body, status := h.Execute(c.Context(), c.Params("id"))
+	return c.Status(status).JSON(body)
+}
+
+// Execute returns the legacy recipe execution document for the generated
+// OpenAPI adapter. It deliberately keeps the historical not-found response
+// indistinguishable for missing catalog entries and denied scopes.
+func (h RecipeExecutionHandler) Execute(ctx context.Context, id string) (map[string]any, int) {
 	if h.Catalog == nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "recipe execution not found"})
+		return map[string]any{"error": "recipe execution not found"}, http.StatusNotFound
 	}
-	id := strings.TrimSpace(c.Params("id"))
-	execution, err := h.Catalog.GetExecution(c.Context(), id)
+	id = strings.TrimSpace(id)
+	execution, err := h.Catalog.GetExecution(ctx, id)
 	if err != nil || execution.ID == "" {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "recipe execution not found"})
+		return map[string]any{"error": "recipe execution not found"}, http.StatusNotFound
 	}
 	if h.Scopes != nil {
-		principal, _ := authscope.PrincipalFromContext(c.Context())
-		if _, scopeErr := h.Scopes.ResolveReadScopeForGeneration(c.Context(), principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
+		principal, _ := authscope.PrincipalFromContext(ctx)
+		if _, scopeErr := h.Scopes.ResolveReadScopeForGeneration(ctx, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
 			status := http.StatusForbidden
 			if errors.Is(scopeErr, authscope.ErrUnauthenticated) {
 				status = http.StatusUnauthorized
 			}
-			return c.Status(status).JSON(fiber.Map{"error": "recipe execution not found"})
+			return map[string]any{"error": "recipe execution not found"}, status
 		}
 	}
-	outputs := make([]fiber.Map, 0, len(execution.Outputs))
+	outputs := make([]map[string]any, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
-		columns := make([]fiber.Map, 0, len(output.Columns))
+		columns := make([]map[string]any, 0, len(output.Columns))
 		for _, column := range output.Columns {
 			logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
 			if column.LogicalType != "" {
@@ -50,11 +59,11 @@ func (h RecipeExecutionHandler) Handle(c fiber.Ctx) error {
 			if column.Repeated {
 				repeated = true
 			}
-			columns = append(columns, fiber.Map{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
+			columns = append(columns, map[string]any{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": filterable, "sortable": sortable, "aggregatable": aggregatable})
 		}
-		outputs = append(outputs, fiber.Map{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
+		outputs = append(outputs, map[string]any{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
 	}
-	return c.JSON(fiber.Map{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs})
+	return map[string]any{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs}, http.StatusOK
 }
 
 // recipeExecutionHTTPState preserves the READY spelling used by the legacy

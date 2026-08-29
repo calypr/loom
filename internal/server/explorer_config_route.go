@@ -23,12 +23,21 @@ type explorerHTTPHandlers struct {
 	publishRepositoryConfig fiber.Handler
 	lifecycle               *explorerLifecycleHandlers
 	authoring               *explorerAuthoringHandlers
+
+	// The generated OpenAPI methods invoke these dependencies directly. The
+	// Fiber handlers above remain only for the legacy route-focused tests until
+	// the Explorer lifecycle is moved into its application package.
+	authorizer      authscope.Authorizer
+	authorizeRead   explorerConfigReadAuthorizer
+	explorers       *explorer.Service
+	materialize     graphresolver.ExplorerBundleMaterializer
+	lifecycleConfig ExplorerV2LifecycleConfig
 }
 
 // newExplorerHTTPHandlers builds the live Explorer transport implementations;
 // generated OpenAPI code owns all method/path registration.
 func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, lifecycle ...ExplorerV2LifecycleConfig) *explorerHTTPHandlers {
-	handlers := &explorerHTTPHandlers{}
+	handlers := &explorerHTTPHandlers{authorizer: authorizer, authorizeRead: authorizeRead, explorers: explorers, materialize: materialize}
 	if authorizer == nil || authorizeRead == nil || explorers == nil {
 		return handlers
 	}
@@ -133,6 +142,7 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead expl
 	if len(lifecycle) == 0 {
 		lifecycle = []ExplorerV2LifecycleConfig{{Materialize: materialize}}
 	}
+	handlers.lifecycleConfig = lifecycle[0]
 	handlers.lifecycle = newExplorerLifecycleHandlers(authorizer, authorizeRead, explorers, lifecycle[0])
 	handlers.authoring = newExplorerAuthoringHandlers(authorizer, authorizeRead, explorers, lifecycle[0])
 	return handlers

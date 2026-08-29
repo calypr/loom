@@ -35,7 +35,7 @@ func registerRoutes(server *api.HTTPServer, resourceService *loadapi.Service, sn
 		graphql:  graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver, server.Logger()), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")},
 		explorer: explorerHandlers,
 	}
-	handler := loomapi.NewStrictHandler(routes, []loomapi.StrictMiddlewareFunc{strictFiberContextMiddleware})
+	handler := loomapi.NewStrictHandler(routes, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})
 	return nil
 }

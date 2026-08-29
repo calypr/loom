@@ -12,31 +12,48 @@ func (s *HTTPServer) register() {
 }
 
 func (s *HTTPServer) HandleHealth(c fiber.Ctx) error {
+	body, status := s.Health(c.Context())
+	return c.Status(status).JSON(body)
+}
+
+// Health computes the cached dependency health response for generated HTTP
+// routes without requiring a Fiber context.
+func (s *HTTPServer) Health(parent context.Context) (map[string]any, int) {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if time.Since(s.lastHealth) < 30*time.Second {
-		return s.writeHealth(c, s.lastHealthResult)
+		return healthBody(s.lastHealthResult), s.lastHealthResult.httpStatus
 	}
-	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	result := s.checkDependencies(ctx)
 	s.lastHealth, s.lastHealthResult = time.Now(), result
-	return s.writeHealth(c, result)
+	return healthBody(result), result.httpStatus
 }
 
 func (s *HTTPServer) HandleLiveness(c fiber.Ctx) error {
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "live"})
+	body, status := s.Liveness(c.Context())
+	return c.Status(status).JSON(body)
+}
+
+func (s *HTTPServer) Liveness(context.Context) (map[string]any, int) {
+	return map[string]any{"status": "live"}, fiber.StatusOK
 }
 
 func (s *HTTPServer) HandleReadiness(c fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	body, status := s.Readiness(c.Context())
+	return c.Status(status).JSON(body)
+}
+
+func (s *HTTPServer) Readiness(parent context.Context) (map[string]any, int) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	result := s.checkDependencies(ctx)
 	if result.core != "ready" || result.dataframe == "backend_unavailable" {
 		result.status = "not_ready"
 		result.httpStatus = fiber.StatusServiceUnavailable
 	}
-	return s.writeHealth(c, result)
+	return healthBody(result), result.httpStatus
 }
 
 func (s *HTTPServer) checkDependencies(ctx context.Context) healthResult {
@@ -59,10 +76,10 @@ func (s *HTTPServer) checkDependencies(ctx context.Context) healthResult {
 	return result
 }
 
-func (s *HTTPServer) writeHealth(c fiber.Ctx, result healthResult) error {
-	body := fiber.Map{"status": result.status, "core": result.core}
+func healthBody(result healthResult) map[string]any {
+	body := map[string]any{"status": result.status, "core": result.core}
 	if result.dataframe != "" {
 		body["dataframe"] = result.dataframe
 	}
-	return c.Status(result.httpStatus).JSON(body)
+	return body
 }

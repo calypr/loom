@@ -86,11 +86,6 @@ func resolvedOutputArtifacts(resolved engine.Resolved) (map[string]string, map[s
 	return result, provenance, nil
 }
 
-func resolvedOutputFingerprints(resolved engine.Resolved) map[string]string {
-	result, _, _ := resolvedOutputArtifacts(resolved)
-	return result
-}
-
 func applyReceiptColumnProvenance(output *lower.CompiledRecipeOutput, values map[string]string) error {
 	if output == nil || len(values) != len(output.OutputSchema) {
 		return fmt.Errorf("output column provenance set changed")
