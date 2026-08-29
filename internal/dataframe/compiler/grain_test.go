@@ -105,6 +105,7 @@ func TestInferRowGrainAndDefaultIdentity(t *testing.T) {
 	for resourceType, want := range map[string]spec.RowGrain{
 		"Patient":           spec.RowGrainPatient,
 		"Specimen":          spec.RowGrainSpecimen,
+		" specimen ":        spec.RowGrainSpecimen,
 		"DocumentReference": spec.RowGrainFile,
 		"Condition":         spec.RowGrainDiagnosis,
 		"Observation":       spec.RowGrainObservation,
@@ -121,6 +122,11 @@ func TestInferRowGrainAndDefaultIdentity(t *testing.T) {
 	}
 	if grain, ok := spec.InferRowGrain("Organization"); !ok || grain != spec.RowGrainResource {
 		t.Fatalf("Organization generic row grain = %q, %v; want %q, true", grain, ok, spec.RowGrainResource)
+	}
+	for _, resourceType := range []string{"PractitionerQualification", "qualification", "issuer", "Resource", "CustomResource"} {
+		if grain, ok := spec.InferRowGrain(resourceType); ok || grain != "" {
+			t.Fatalf("InferRowGrain(%q) = %q, %v; non-resource type must be rejected", resourceType, grain, ok)
+		}
 	}
 }
 

@@ -12,19 +12,62 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+func NewShapePlanCache() *ShapePlanCache {
+	return NewShapePlanCacheWithLimit(DefaultProfileLimits().MaxShapePlans)
+}
+
+func NewProfilerForGeneration(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache) *Profiler {
+	return NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType, cache, DefaultProfileLimits())
+}
+
 func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {
 	stat := fieldCatalogStats{distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{})}
 	for i := range 257 {
-		stat.addDistinct(strconv.Itoa(i))
+		stat.addDistinctWithLimits(strconv.Itoa(i), DefaultProfileLimits())
 	}
 	if stat.distinctTruncated || len(stat.distinctValues) != 257 {
 		t.Fatalf("distinct values = %d, truncated = %v", len(stat.distinctValues), stat.distinctTruncated)
 	}
 	for i := range 257 {
-		stat.addPivotColumn(strconv.Itoa(i))
+		stat.addPivotColumnWithLimits(strconv.Itoa(i), DefaultProfileLimits())
 	}
 	if stat.distinctTruncated || len(stat.pivotColumns) != 257 {
 		t.Fatalf("pivot columns = %d, truncated = %v", len(stat.pivotColumns), stat.distinctTruncated)
+	}
+}
+
+func TestFieldCatalogProfilerBoundsHighCardinalityValues(t *testing.T) {
+	limits := ProfileLimits{
+		MaxFields:                  8,
+		MaxDistinctValuesPerField:  2,
+		MaxDistinctValueBytes:      4,
+		MaxPivotColumnsPerField:    2,
+		MaxExtensionValuesPerField: 2,
+		MaxShapePlans:              1,
+	}
+	profiler := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", nil, limits)
+	for _, id := range []string{"a", "b", "c", "too-long"} {
+		profiler.ObservePayload(map[string]any{"id": id}, map[string]float64{})
+	}
+
+	var idField FieldCatalogDocument
+	for _, document := range profiler.Documents() {
+		if document.Path == "id" {
+			idField = document
+			break
+		}
+	}
+	if len(idField.DistinctValues) != 2 || !idField.DistinctTruncated {
+		t.Fatalf("bounded id catalog = %#v, want two values and truncation", idField)
+	}
+}
+
+func TestShapePlanCacheHonorsLimit(t *testing.T) {
+	cache := NewShapePlanCacheWithLimit(1)
+	cache.getOrBuild("shape-a", map[string]any{"id": "a"})
+	cache.getOrBuild("shape-b", map[string]any{"name": "b"})
+	if got := len(cache.plans); got != 1 {
+		t.Fatalf("shape plan cache size = %d, want 1", got)
 	}
 }
 
@@ -77,6 +120,32 @@ func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 		if !slices.Contains(paths, expected) {
 			t.Fatalf("expected path %q in %v", expected, paths)
 		}
+	}
+}
+
+func TestFieldCatalogProfilerCorrelatesExtensionValuesRecursively(t *testing.T) {
+	profiler := NewProfilerForGeneration("TEST", "generation-1", "pathA", "DocumentReference", NewShapePlanCache())
+	profiler.ObservePayload(map[string]any{
+		"content": []any{map[string]any{
+			"attachment": map[string]any{"url": "file:///not-an-extension-url", "extension": []any{map[string]any{
+				"url":       "http://example.org/source_path",
+				"valueUrl":  "https://source.example/file",
+				"extension": []any{map[string]any{"url": "http://example.org/sha256", "valueString": "abc123"}},
+			}}},
+		}},
+	}, map[string]float64{})
+
+	byPath := make(map[string]FieldCatalogDocument)
+	for _, document := range profiler.Documents() {
+		byPath[document.Path] = document
+	}
+	outer := byPath["content[].attachment.extension[].url"]
+	if len(outer.ExtensionValues) != 1 || !reflect.DeepEqual(outer.ExtensionValues[0], ExtensionValueObservation{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}) {
+		t.Fatalf("outer extension observations = %#v", outer.ExtensionValues)
+	}
+	inner := byPath["content[].attachment.extension[].extension[].url"]
+	if len(inner.ExtensionValues) != 1 || inner.ExtensionValues[0].SourcePath != "content[].attachment.extension[].extension[]" || inner.ExtensionValues[0].ValuePath != "valueString" {
+		t.Fatalf("nested extension observations = %#v", inner.ExtensionValues)
 	}
 }
 

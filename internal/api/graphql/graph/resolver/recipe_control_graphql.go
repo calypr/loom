@@ -323,6 +323,11 @@ func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 	for _, output := range value.Outputs {
 		errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
 		item := &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
+		columns := make([]*model.DataframeColumn, 0, len(output.Columns))
+		for _, column := range output.Columns {
+			columns = append(columns, materializationapi.ColumnFromPhysical(column))
+		}
+		item.Columns = columns
 		if output.Selector.Valid() {
 			item.Selector = &model.DataframeSelector{Recipe: output.Selector.Recipe, TranslationVersion: output.Selector.TranslationVersion, Output: output.Selector.Output}
 		}

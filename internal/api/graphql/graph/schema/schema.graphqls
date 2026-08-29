@@ -1,15 +1,13 @@
 type Query {
-  dataframeBuilderIntrospection(
-    input: DataframeBuilderIntrospectionInput!
-  ): DataframeBuilderIntrospection!
-
-  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
+  projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
   dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
+  dataframeRecipeRevision(projectId: String!, name: String!, digest: String!): DataframeRecipeRevision
+  dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -29,7 +27,7 @@ type Mutation {
   materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
   startDataframeMaterialization(input: StartDataframeMaterializationInput!): DataframeRecipeExecution!
   activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
-  promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
+	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
 }
 
 input StartDataframeMaterializationInput {
@@ -54,19 +52,25 @@ type ProjectRelease {
 
 enum ProjectReleaseState { ACTIVE }
 
-input PromoteDataframeContractInput {
-  recipe: String!
-  translationVersion: String!
+input RegisterDataframeRecipeRevisionInput {
+  projectId: String!
+  name: String!
+  parentDigest: String
+  recipe: JSON!
 }
 
-type DataframeContract {
-  recipe: String!
-  translationVersion: String!
-  promotedAt: String!
+type DataframeRecipeRevision {
+  projectId: String!
+  name: String!
+  digest: String!
+  parentDigest: String
+  recipe: JSON!
+  createdAt: String!
 }
 
 input DataframeRecipeBindingsInput {
   project: String!
+  recipeDigest: String
   datasetGeneration: String
   authResourcePaths: [String!]
   previewLimit: Int = 25
@@ -314,6 +318,7 @@ type DataframeRecipeExecutionOutput {
   name: String!
   state: DataframeRecipeExecutionState!
   rowCount: Int
+  columns: [DataframeColumn!]!
   error: String
   errorCode: String
   errorRetryable: Boolean
@@ -329,6 +334,7 @@ enum DataframeMaterializationState {
 }
 
 type DataframeColumn {
+  semanticPath: String!
   name: String!
   clickhouseType: String!
   logicalType: String!
@@ -343,6 +349,8 @@ type DataframeMaterialization {
   id: ID!
   name: String!
   revision: String!
+  projectId: String!
+  datasetGeneration: String!
   state: DataframeMaterializationState!
   columns: [DataframeColumn!]!
   rowCount: Int
@@ -352,7 +360,6 @@ type DataframeMaterialization {
   errorCode: String
   errorRetryable: Boolean
   selector: DataframeSelector
-  activeContractVersion: String
   availability: DataframeAvailability
   completeness: Float
   includedProjectCount: Int
@@ -399,8 +406,7 @@ type DataframeProjectStatus {
 }
 
 input DataframeDatasetInput {
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
 }
 
 input DataframeFilterInput {
@@ -415,11 +421,7 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
-  # Legacy callers may target one published physical materialization directly.
-  # When omitted, the request uses the project-federated dataframe.
-  materializationId: ID
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   columns: [String!]
   filters: [DataframeFilterInput!]
   sort: DataframeSortInput
@@ -441,11 +443,7 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
-  # Legacy callers may target one published physical materialization directly.
-  # When omitted, the request uses the project-federated dataframe.
-  materializationId: ID
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
   operation: String!
@@ -469,8 +467,7 @@ input DataframeAggregationSpecInput {
 }
 
 input DataframeAggregationsInput {
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   filters: [DataframeFilterInput!]
   specs: [DataframeAggregationSpecInput!]!
 }
@@ -478,80 +475,6 @@ input DataframeAggregationsInput {
 type DataframeAggregationsResult {
   materialization: DataframeMaterialization!
   aggregations: JSON!
-}
-
-input DataframeBuilderIntrospectionInput {
-  project: String!
-  rootResourceType: String!
-  authResourcePaths: [String!]
-  includePivotOnlyFields: Boolean = true
-}
-
-type DataframeBuilderIntrospection {
-  project: String!
-  rootResourceType: String!
-  authResourcePaths: [String!]!
-  root: DataframeResourceHints!
-  relatedResources: [DataframeRelatedResourceHints!]!
-  traversals: [DataframeTraversalHint!]!
-  fields: [DataframeFieldHint!]!
-  pivotFields: [DataframeFieldHint!]!
-}
-
-type DataframeResourceHints {
-  resourceType: String!
-  fields: [DataframeFieldHint!]!
-  pivotFields: [DataframeFieldHint!]!
-  traversals: [DataframeTraversalHint!]!
-}
-
-type DataframeRelatedResourceHints {
-  viaLabel: String!
-  edgeCount: Int!
-  target: DataframeResourceHints!
-}
-
-type DataframeTraversalHint {
-  fromType: String!
-  label: String!
-  toType: String!
-  edgeCount: Int!
-}
-
-type DataframeFieldHint {
-  resourceType: String!
-  fieldRef: String!
-  label: String!
-  path: String!
-  selector: DataframeFieldSelector!
-  kind: String!
-  docCount: Int!
-  sampleCount: Int!
-  distinctValues: [String!]!
-  distinctTruncated: Boolean!
-  pivotCandidate: Boolean!
-  pivotKind: String
-  pivotColumns: [String!]!
-  pivotFamily: FhirPivotFamily
-  defaultPivotColumnSelector: DataframeFieldSelector
-  defaultPivotValueSelector: DataframeFieldSelector
-}
-
-type DataframeFieldSelector {
-  sourcePath: String
-  where: DataframeFieldPredicate
-  valuePath: String!
-}
-
-type DataframeFieldPredicate {
-  path: String!
-  op: FhirFieldPredicateOperation!
-  value: String!
-}
-
-enum FhirPivotFamily {
-  CODEABLE_CONCEPT
-  OBSERVATION_CODE_VALUE
 }
 
 input FhirFieldSelectInput {

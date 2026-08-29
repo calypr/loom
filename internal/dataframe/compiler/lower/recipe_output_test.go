@@ -40,6 +40,19 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 		if output.Plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 			t.Fatalf("output %q first operation = %s, want ROOT_SCAN", output.Name, output.Plan.Operations[0].Kind)
 		}
+		semanticPaths := map[string]string{}
+		for _, column := range output.OutputSchema {
+			if column.Internal {
+				continue
+			}
+			if column.SemanticPath == "" {
+				t.Fatalf("output %q column %q has no semantic path", output.Name, column.Name)
+			}
+			if previous, exists := semanticPaths[column.SemanticPath]; exists {
+				t.Fatalf("output %q columns %q and %q share semantic path %q", output.Name, previous, column.Name, column.SemanticPath)
+			}
+			semanticPaths[column.SemanticPath] = column.Name
+		}
 	}
 }
 
@@ -264,6 +277,84 @@ func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
 	t.Fatal("dynamic item lookup projection not found")
 }
 
+func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testing.T) {
+	emptyPrefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "attachment-extensions", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		ExtensionColumns: []recipe.ExtensionColumn{{
+			Name: "attachment", ColumnPrefix: &emptyPrefix, MaxColumns: 8,
+			Source: recipe.Expression{Select: "root.content[].attachment.extension[]"},
+			Columns: []recipe.ExtensionColumnMapping{
+				{Name: "source_path", URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"},
+				{Name: "source_path__sha256", URL: "http://example.org/sha256", SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"},
+				{Name: "complex", URL: "http://example.org/complex", SourcePath: "content[].attachment.extension[]", ValueType: "string"},
+			},
+		}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
+	}
+	output := compiled.Outputs[0]
+	if len(output.DynamicColumns) != 3 {
+		t.Fatalf("dynamic metadata = %#v", output.DynamicColumns)
+	}
+	metadata := map[string]DynamicColumnMetadata{}
+	for _, column := range output.DynamicColumns {
+		metadata[column.Name] = column
+	}
+	if metadata["source_path"].DynamicName != "attachment__source_path" || metadata["source_path__sha256"].DynamicName != "attachment__source_path__sha256" || metadata["source_path__sha256"].SourceKey != "sha256" || !metadata["source_path"].AllowUnknownKeys || !metadata["source_path__sha256"].AllowUnknownKeys {
+		t.Fatalf("nested extension metadata = %#v", metadata)
+	}
+	var maps []ir.PhysicalKeyedMap
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.KeyedMap != nil {
+			maps = append(maps, *operation.ExpressionLet.Expression.KeyedMap)
+		}
+	}
+	if len(maps) != 3 {
+		t.Fatalf("keyed maps = %d", len(maps))
+	}
+	seenScalar, seenNested, seenJSON := false, false, false
+	for _, keyed := range maps {
+		if keyed.ItemValue.Value != nil && len(keyed.ItemValue.Value.Path) == 1 {
+			switch keyed.ItemValue.Value.Path[0] {
+			case "valueUrl":
+				seenScalar = true
+			case "valueString":
+				seenNested = true
+			}
+		}
+		if keyed.ItemValue.Call != nil && keyed.ItemValue.Call.Name == "canonical_json" {
+			seenJSON = true
+		}
+	}
+	if !seenScalar || !seenNested || !seenJSON {
+		t.Fatalf("extension values were not lowered independently: scalar=%v nested=%v json=%v", seenScalar, seenNested, seenJSON)
+	}
+	if err := output.Plan.Validate(); err != nil {
+		t.Fatalf("extension plan validation: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "__loom_postquery_call") || strings.Contains(rendered.Query, "JSON_STRINGIFY") {
+		t.Fatalf("complex extension was not deferred to canonical post-query JSON: %s", rendered.Query)
+	}
+}
+
 func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns(t *testing.T) {
 	emptyPrefix := ""
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "legacy-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{
@@ -293,7 +384,7 @@ func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := compiled.Outputs[0].DynamicColumns; len(got) != 1 || got[0].Name != "HTAN_DATA_FILE_ID" || got[0].DynamicName != "category_keys" {
+	if got := compiled.Outputs[0].DynamicColumns; len(got) != 2 || got[0].Name != "HTAN_DATA_FILE_ID" || got[0].DynamicName != "identifier_keys" || got[1].Name != "HTAN_DATA_FILE_ID" || got[1].DynamicName != "category_keys" {
 		t.Fatalf("dynamic overwrite metadata = %#v", got)
 	}
 	count := 0

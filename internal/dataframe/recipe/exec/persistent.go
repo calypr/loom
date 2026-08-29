@@ -77,20 +77,6 @@ func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.B
 	return entry, nil
 }
 
-// RegisterDefault is retained as an additive compatibility alias. It no
-// longer replaces name-only rows: the bundle's translationVersion is exact.
-func (r PersistentRegistry) RegisterDefault(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
-	return r.RegisterVersion(ctx, bundle)
-}
-
-func (r PersistentRegistry) LoadVersion(ctx context.Context, name, translationVersion string) (Entry, error) {
-	store, ok := r.Store.(VersionedStore)
-	if !ok {
-		return Entry{}, fmt.Errorf("persistent recipe store does not support versioned recipes")
-	}
-	return store.LoadRecipeVersion(ctx, name, translationVersion)
-}
-
 func canonicalEntry(bundle recipe.Bundle) (Entry, error) {
 	if bundle.Fragments != nil {
 		expanded, err := bundle.ExpandFragments()

@@ -23,6 +23,15 @@ type AtomicBundleTx interface {
 	Rollback(context.Context) error
 }
 
+// AtomicBundleSchemaFinalizer is the schema-aware publication extension used
+// by targets that can physically drop unpopulated discovered columns before
+// verification and pointer activation.
+type AtomicBundleSchemaFinalizer interface {
+	AtomicBundleTx
+	FinalizeSchema(context.Context, []OutputSchema) error
+	SetFinalSchemaDigest(string) error
+}
+
 // BundleState is the durable lifecycle of a multi-output publication. The
 // physical ClickHouse tables are never reader-visible until the logical
 // pointer and PUBLISHED execution are committed atomically.
@@ -60,6 +69,7 @@ func (s BundleState) Successful() bool { return s.Canonical() == BundlePublished
 type BundleIdentity struct {
 	Name               string   `json:"name"`
 	TranslationVersion string   `json:"translationVersion,omitempty"`
+	OutputName         string   `json:"outputName,omitempty"`
 	Project            string   `json:"project"`
 	DatasetGeneration  string   `json:"datasetGeneration"`
 	RecipeDigest       string   `json:"recipeDigest"`
@@ -74,21 +84,26 @@ type BundleIdentity struct {
 // Project and generation are part of the key so two tenants can publish the
 // same recipe/output name without racing a shared pointer.
 func (i BundleIdentity) PointerName() string {
-	if strings.TrimSpace(i.TranslationVersion) == "" {
-		return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name}, "\x00")
+	parts := []string{i.Project, i.DatasetGeneration, i.Name}
+	if strings.TrimSpace(i.TranslationVersion) != "" {
+		parts = append(parts, i.TranslationVersion)
 	}
-	return strings.Join([]string{i.Project, i.DatasetGeneration, i.Name, i.TranslationVersion}, "\x00")
+	if strings.TrimSpace(i.OutputName) != "" {
+		parts = append(parts, i.OutputName)
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func (i BundleIdentity) Key() string {
 	b, _ := json.Marshal(struct {
 		Name, Project, DatasetGeneration string
 		TranslationVersion               string `json:"TranslationVersion,omitempty"`
+		OutputName                       string `json:"OutputName,omitempty"`
 		RecipeDigest, SchemaDigest       string
 		ScopeDigest, EngineVersion       string
 		AuthScopeMode                    string   `json:"AuthScopeMode,omitempty"`
 		AuthResourcePaths                []string `json:"AuthResourcePaths,omitempty"`
-	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
+	}{i.Name, i.Project, i.DatasetGeneration, i.TranslationVersion, i.OutputName, i.RecipeDigest, i.SchemaDigest, i.ScopeDigest, i.EngineVersion, i.AuthScopeMode, i.AuthResourcePaths})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -117,8 +132,14 @@ func (o BundleOutputRecord) Queryable() bool {
 }
 
 type PhysicalColumn struct {
-	Name       string `json:"name"`
-	ClickHouse string `json:"clickhouseType"`
+	Name         string           `json:"name"`
+	SemanticPath string           `json:"semanticPath,omitempty"`
+	ClickHouse   string           `json:"clickhouseType"`
+	LogicalType  string           `json:"logicalType,omitempty"`
+	Nullable     bool             `json:"nullable,omitempty"`
+	Repeated     bool             `json:"repeated,omitempty"`
+	Provenance   ColumnProvenance `json:"provenance,omitempty"`
+	LoomOwned    bool             `json:"loomOwned,omitempty"`
 }
 
 type BundleExecution struct {
@@ -185,6 +206,13 @@ type BundleCatalog interface {
 	AcquireBundleLease(context.Context, string, string, time.Time) (bool, error)
 	RenewBundleLease(context.Context, string, string, time.Time) (bool, error)
 	ReleaseBundleLease(context.Context, string, string) error
+}
+
+// SelectorExecutionCatalog is the optimized read seam used by federation
+// status discovery. Implementations return all lifecycle attempts for one
+// exact selector with a single backing-store query.
+type SelectorExecutionCatalog interface {
+	ListSelectorExecutions(context.Context, DataframeSelector, time.Time) ([]BundleExecution, error)
 }
 
 // ExactExecutionCatalog is consumed by project release verification. It never

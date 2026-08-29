@@ -23,13 +23,11 @@ type ActivateProjectReleaseInput struct {
 }
 
 type DataframeAggregateInput struct {
-	MaterializationID *string                 `json:"materializationId,omitempty"`
-	Selector          *DataframeSelectorInput `json:"selector,omitempty"`
-	DataType          *string                 `json:"dataType,omitempty"`
-	GroupBy           []string                `json:"groupBy,omitempty"`
-	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
-	Operation         string                  `json:"operation"`
-	Column            *string                 `json:"column,omitempty"`
+	Selector  *DataframeSelectorInput `json:"selector"`
+	GroupBy   []string                `json:"groupBy,omitempty"`
+	Filters   []*DataframeFilterInput `json:"filters,omitempty"`
+	Operation string                  `json:"operation"`
+	Column    *string                 `json:"column,omitempty"`
 }
 
 type DataframeAggregateResult struct {
@@ -49,8 +47,7 @@ type DataframeAggregationSpecInput struct {
 }
 
 type DataframeAggregationsInput struct {
-	Selector *DataframeSelectorInput          `json:"selector,omitempty"`
-	DataType *string                          `json:"dataType,omitempty"`
+	Selector *DataframeSelectorInput          `json:"selector"`
 	Filters  []*DataframeFilterInput          `json:"filters,omitempty"`
 	Specs    []*DataframeAggregationSpecInput `json:"specs"`
 }
@@ -60,25 +57,8 @@ type DataframeAggregationsResult struct {
 	Aggregations    json.RawMessage           `json:"aggregations"`
 }
 
-type DataframeBuilderIntrospection struct {
-	Project           string                           `json:"project"`
-	RootResourceType  string                           `json:"rootResourceType"`
-	AuthResourcePaths []string                         `json:"authResourcePaths"`
-	Root              *DataframeResourceHints          `json:"root"`
-	RelatedResources  []*DataframeRelatedResourceHints `json:"relatedResources"`
-	Traversals        []*DataframeTraversalHint        `json:"traversals"`
-	Fields            []*DataframeFieldHint            `json:"fields"`
-	PivotFields       []*DataframeFieldHint            `json:"pivotFields"`
-}
-
-type DataframeBuilderIntrospectionInput struct {
-	Project                string   `json:"project"`
-	RootResourceType       string   `json:"rootResourceType"`
-	AuthResourcePaths      []string `json:"authResourcePaths,omitempty"`
-	IncludePivotOnlyFields *bool    `json:"includePivotOnlyFields,omitempty"`
-}
-
 type DataframeColumn struct {
+	SemanticPath   string `json:"semanticPath"`
 	Name           string `json:"name"`
 	ClickhouseType string `json:"clickhouseType"`
 	LogicalType    string `json:"logicalType"`
@@ -101,46 +81,8 @@ type DataframeCompilerPlanDiagnostics struct {
 	RichSourceReuse                   []*DataframeRichSourceReuse  `json:"richSourceReuse"`
 }
 
-type DataframeContract struct {
-	Recipe             string `json:"recipe"`
-	TranslationVersion string `json:"translationVersion"`
-	PromotedAt         string `json:"promotedAt"`
-}
-
 type DataframeDatasetInput struct {
-	Selector *DataframeSelectorInput `json:"selector,omitempty"`
-	DataType *string                 `json:"dataType,omitempty"`
-}
-
-type DataframeFieldHint struct {
-	ResourceType               string                  `json:"resourceType"`
-	FieldRef                   string                  `json:"fieldRef"`
-	Label                      string                  `json:"label"`
-	Path                       string                  `json:"path"`
-	Selector                   *DataframeFieldSelector `json:"selector"`
-	Kind                       string                  `json:"kind"`
-	DocCount                   int                     `json:"docCount"`
-	SampleCount                int                     `json:"sampleCount"`
-	DistinctValues             []string                `json:"distinctValues"`
-	DistinctTruncated          bool                    `json:"distinctTruncated"`
-	PivotCandidate             bool                    `json:"pivotCandidate"`
-	PivotKind                  *string                 `json:"pivotKind,omitempty"`
-	PivotColumns               []string                `json:"pivotColumns"`
-	PivotFamily                *FhirPivotFamily        `json:"pivotFamily,omitempty"`
-	DefaultPivotColumnSelector *DataframeFieldSelector `json:"defaultPivotColumnSelector,omitempty"`
-	DefaultPivotValueSelector  *DataframeFieldSelector `json:"defaultPivotValueSelector,omitempty"`
-}
-
-type DataframeFieldPredicate struct {
-	Path  string                      `json:"path"`
-	Op    FhirFieldPredicateOperation `json:"op"`
-	Value string                      `json:"value"`
-}
-
-type DataframeFieldSelector struct {
-	SourcePath *string                  `json:"sourcePath,omitempty"`
-	Where      *DataframeFieldPredicate `json:"where,omitempty"`
-	ValuePath  string                   `json:"valuePath"`
+	Selector *DataframeSelectorInput `json:"selector"`
 }
 
 type DataframeFilterInput struct {
@@ -150,24 +92,25 @@ type DataframeFilterInput struct {
 }
 
 type DataframeMaterialization struct {
-	ID                    string                        `json:"id"`
-	Name                  string                        `json:"name"`
-	Revision              string                        `json:"revision"`
-	State                 DataframeMaterializationState `json:"state"`
-	Columns               []*DataframeColumn            `json:"columns"`
-	RowCount              *int                          `json:"rowCount,omitempty"`
-	CreatedAt             string                        `json:"createdAt"`
-	ReadyAt               *string                       `json:"readyAt,omitempty"`
-	Error                 *string                       `json:"error,omitempty"`
-	ErrorCode             *string                       `json:"errorCode,omitempty"`
-	ErrorRetryable        *bool                         `json:"errorRetryable,omitempty"`
-	Selector              *DataframeSelector            `json:"selector,omitempty"`
-	ActiveContractVersion *string                       `json:"activeContractVersion,omitempty"`
-	Availability          *DataframeAvailability        `json:"availability,omitempty"`
-	Completeness          *float64                      `json:"completeness,omitempty"`
-	IncludedProjectCount  *int                          `json:"includedProjectCount,omitempty"`
-	ExpectedProjectCount  *int                          `json:"expectedProjectCount,omitempty"`
-	ProjectStatuses       []*DataframeProjectStatus     `json:"projectStatuses"`
+	ID                   string                        `json:"id"`
+	Name                 string                        `json:"name"`
+	Revision             string                        `json:"revision"`
+	ProjectID            string                        `json:"projectId"`
+	DatasetGeneration    string                        `json:"datasetGeneration"`
+	State                DataframeMaterializationState `json:"state"`
+	Columns              []*DataframeColumn            `json:"columns"`
+	RowCount             *int                          `json:"rowCount,omitempty"`
+	CreatedAt            string                        `json:"createdAt"`
+	ReadyAt              *string                       `json:"readyAt,omitempty"`
+	Error                *string                       `json:"error,omitempty"`
+	ErrorCode            *string                       `json:"errorCode,omitempty"`
+	ErrorRetryable       *bool                         `json:"errorRetryable,omitempty"`
+	Selector             *DataframeSelector            `json:"selector,omitempty"`
+	Availability         *DataframeAvailability        `json:"availability,omitempty"`
+	Completeness         *float64                      `json:"completeness,omitempty"`
+	IncludedProjectCount *int                          `json:"includedProjectCount,omitempty"`
+	ExpectedProjectCount *int                          `json:"expectedProjectCount,omitempty"`
+	ProjectStatuses      []*DataframeProjectStatus     `json:"projectStatuses"`
 }
 
 type DataframeOptimizationDecision struct {
@@ -224,6 +167,7 @@ type DataframeRecipeArangoAssessment struct {
 
 type DataframeRecipeBindingsInput struct {
 	Project           string   `json:"project"`
+	RecipeDigest      *string  `json:"recipeDigest,omitempty"`
 	DatasetGeneration *string  `json:"datasetGeneration,omitempty"`
 	AuthResourcePaths []string `json:"authResourcePaths,omitempty"`
 	PreviewLimit      *int     `json:"previewLimit,omitempty"`
@@ -258,6 +202,7 @@ type DataframeRecipeExecutionOutput struct {
 	Name           string                        `json:"name"`
 	State          DataframeRecipeExecutionState `json:"state"`
 	RowCount       *int                          `json:"rowCount,omitempty"`
+	Columns        []*DataframeColumn            `json:"columns"`
 	Error          *string                       `json:"error,omitempty"`
 	ErrorCode      *string                       `json:"errorCode,omitempty"`
 	ErrorRetryable *bool                         `json:"errorRetryable,omitempty"`
@@ -419,24 +364,20 @@ type DataframeRecipeResultOutput struct {
 	RowCount int             `json:"rowCount"`
 }
 
+type DataframeRecipeRevision struct {
+	ProjectID    string          `json:"projectId"`
+	Name         string          `json:"name"`
+	Digest       string          `json:"digest"`
+	ParentDigest *string         `json:"parentDigest,omitempty"`
+	Recipe       json.RawMessage `json:"recipe"`
+	CreatedAt    string          `json:"createdAt"`
+}
+
 type DataframeRecipeValidation struct {
 	Name               string                             `json:"name"`
 	RecipeDigest       string                             `json:"recipeDigest"`
 	TranslationVersion string                             `json:"translationVersion"`
 	Outputs            []*DataframeRecipeOutputValidation `json:"outputs"`
-}
-
-type DataframeRelatedResourceHints struct {
-	ViaLabel  string                  `json:"viaLabel"`
-	EdgeCount int                     `json:"edgeCount"`
-	Target    *DataframeResourceHints `json:"target"`
-}
-
-type DataframeResourceHints struct {
-	ResourceType string                    `json:"resourceType"`
-	Fields       []*DataframeFieldHint     `json:"fields"`
-	PivotFields  []*DataframeFieldHint     `json:"pivotFields"`
-	Traversals   []*DataframeTraversalHint `json:"traversals"`
 }
 
 type DataframeRichSourceReuse struct {
@@ -456,14 +397,12 @@ type DataframeRowConnection struct {
 }
 
 type DataframeRowsInput struct {
-	MaterializationID *string                 `json:"materializationId,omitempty"`
-	Selector          *DataframeSelectorInput `json:"selector,omitempty"`
-	DataType          *string                 `json:"dataType,omitempty"`
-	Columns           []string                `json:"columns,omitempty"`
-	Filters           []*DataframeFilterInput `json:"filters,omitempty"`
-	Sort              *DataframeSortInput     `json:"sort,omitempty"`
-	First             *int                    `json:"first,omitempty"`
-	After             *string                 `json:"after,omitempty"`
+	Selector *DataframeSelectorInput `json:"selector"`
+	Columns  []string                `json:"columns,omitempty"`
+	Filters  []*DataframeFilterInput `json:"filters,omitempty"`
+	Sort     *DataframeSortInput     `json:"sort,omitempty"`
+	First    *int                    `json:"first,omitempty"`
+	After    *string                 `json:"after,omitempty"`
 }
 
 type DataframeSelector struct {
@@ -481,13 +420,6 @@ type DataframeSelectorInput struct {
 type DataframeSortInput struct {
 	Column string `json:"column"`
 	Desc   *bool  `json:"desc,omitempty"`
-}
-
-type DataframeTraversalHint struct {
-	FromType  string `json:"fromType"`
-	Label     string `json:"label"`
-	ToType    string `json:"toType"`
-	EdgeCount int    `json:"edgeCount"`
 }
 
 type ExplainDataframeRecipeInput struct {
@@ -714,12 +646,14 @@ type ProjectRelease struct {
 	State      ProjectReleaseState `json:"state"`
 }
 
-type PromoteDataframeContractInput struct {
-	Recipe             string `json:"recipe"`
-	TranslationVersion string `json:"translationVersion"`
+type Query struct {
 }
 
-type Query struct {
+type RegisterDataframeRecipeRevisionInput struct {
+	ProjectID    string          `json:"projectId"`
+	Name         string          `json:"name"`
+	ParentDigest *string         `json:"parentDigest,omitempty"`
+	Recipe       json.RawMessage `json:"recipe"`
 }
 
 type RunDataframeRecipeInput struct {
@@ -1435,61 +1369,6 @@ func (e *FhirFilterValueKind) UnmarshalJSON(b []byte) error {
 }
 
 func (e FhirFilterValueKind) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-type FhirPivotFamily string
-
-const (
-	FhirPivotFamilyCodeableConcept      FhirPivotFamily = "CODEABLE_CONCEPT"
-	FhirPivotFamilyObservationCodeValue FhirPivotFamily = "OBSERVATION_CODE_VALUE"
-)
-
-var AllFhirPivotFamily = []FhirPivotFamily{
-	FhirPivotFamilyCodeableConcept,
-	FhirPivotFamilyObservationCodeValue,
-}
-
-func (e FhirPivotFamily) IsValid() bool {
-	switch e {
-	case FhirPivotFamilyCodeableConcept, FhirPivotFamilyObservationCodeValue:
-		return true
-	}
-	return false
-}
-
-func (e FhirPivotFamily) String() string {
-	return string(e)
-}
-
-func (e *FhirPivotFamily) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirPivotFamily(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirPivotFamily", str)
-	}
-	return nil
-}
-
-func (e FhirPivotFamily) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirPivotFamily) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirPivotFamily) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

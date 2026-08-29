@@ -19,16 +19,26 @@ type releaseProjectStatusResolver struct {
 }
 
 func (r releaseProjectStatusResolver) DataframeProjectStatuses(ctx context.Context, projects []string, selector dataset.DataframeSelector) ([]published.ProjectStatus, error) {
+	_, statuses, _, err := r.ResolveFederationSnapshot(ctx, projects, selector)
+	return statuses, err
+}
+
+func (r releaseProjectStatusResolver) ResolveFederationSnapshot(ctx context.Context, projects []string, selector dataset.DataframeSelector) (map[string]string, []published.ProjectStatus, bool, error) {
 	latest, err := r.latestAttempts(ctx, selector)
 	if err != nil {
-		return nil, err
+		return nil, nil, false, err
 	}
+	executionIDs := make(map[string]string, len(projects))
 	result := make([]published.ProjectStatus, 0, len(projects))
+	complete := true
 	for _, project := range projects {
 		status := published.ProjectStatus{ProjectID: project, State: published.ProjectMissing}
 		active, activeErr := r.releases.ReadActiveRelease(ctx, project)
 		if activeErr != nil && !errors.Is(activeErr, dataset.ErrNoActiveRelease) {
-			return nil, activeErr
+			return nil, nil, false, activeErr
+		}
+		if errors.Is(activeErr, dataset.ErrNoActiveRelease) {
+			complete = false
 		}
 		if activeErr == nil {
 			for _, binding := range active.Release.Publications {
@@ -40,6 +50,7 @@ func (r releaseProjectStatusResolver) DataframeProjectStatuses(ctx context.Conte
 					status.State = published.ProjectStale
 				}
 				status.Generation, status.ExecutionID = binding.Generation, binding.ExecutionID
+				executionIDs[project] = binding.ExecutionID
 				status.UpdatedAt = binding.VerifiedAt
 				break
 			}
@@ -64,7 +75,7 @@ func (r releaseProjectStatusResolver) DataframeProjectStatuses(ctx context.Conte
 		}
 		result = append(result, status)
 	}
-	return result, nil
+	return executionIDs, result, complete, nil
 }
 
 func (r releaseProjectStatusResolver) ActiveReleaseExecutionIDs(ctx context.Context, projects []string, selector dataset.DataframeSelector) (map[string]string, error) {
@@ -116,6 +127,21 @@ func (r releaseProjectStatusResolver) latestAttempts(ctx context.Context, select
 	if r.executions == nil {
 		return latest, nil
 	}
+	if catalog, ok := r.executions.(publication.SelectorExecutionCatalog); ok {
+		executions, err := catalog.ListSelectorExecutions(ctx, selector, time.Now().UTC().Add(time.Second))
+		if err != nil {
+			return nil, err
+		}
+		for _, execution := range executions {
+			if execution.Project == "" || !executionContainsSelector(execution, selector) {
+				continue
+			}
+			if prior, exists := latest[execution.Project]; !exists || execution.UpdatedAt.After(prior.UpdatedAt) {
+				latest[execution.Project] = execution
+			}
+		}
+		return latest, nil
+	}
 	for _, state := range []publication.BundleState{publication.BundleQueued, publication.BundleRunning, publication.BundleValidating, publication.BundlePublished, publication.BundleFailed} {
 		executions, err := r.executions.ListExecutions(ctx, state, time.Now().UTC().Add(time.Second))
 		if err != nil {
@@ -150,3 +176,4 @@ func executionContainsSelector(execution publication.BundleExecution, selector d
 
 var _ published.ProjectStatusResolver = releaseProjectStatusResolver{}
 var _ published.ReleaseExecutionResolver = releaseProjectStatusResolver{}
+var _ published.FederationSnapshotResolver = releaseProjectStatusResolver{}

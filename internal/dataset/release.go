@@ -85,6 +85,10 @@ type PublicationVerifier interface {
 	VerifyPublication(context.Context, string, string, DataframeSelector) (PublicationVerification, error)
 }
 
+type ManifestReader interface {
+	ReadManifest(context.Context, Ref) (Manifest, error)
+}
+
 type ReleaseRepository interface {
 	SaveRelease(context.Context, ProjectRelease) (ProjectRelease, error)
 	ReadRelease(context.Context, string, string) (ProjectRelease, error)
@@ -95,10 +99,54 @@ type ReleaseRepository interface {
 
 type ReleaseService struct {
 	Snapshots SnapshotRepository
+	// Manifests provides compatibility for valid generations created before
+	// upload-tracking snapshot records were introduced. Release activation is
+	// already guarded by this same immutable staged manifest.
+	Manifests ManifestReader
 	Releases  ReleaseRepository
 	Verifier  PublicationVerifier
 	Required  []DataframeSelector
 	Now       func() time.Time
+}
+
+// ValidateGeneration verifies the immutable graph-generation prerequisite used
+// by release creation. Callers that perform expensive work before activating a
+// release can use this as a preflight and avoid producing orphaned dataframe
+// publications for a generation that cannot be activated.
+func (s ReleaseService) ValidateGeneration(ctx context.Context, project, generation string) error {
+	if s.Snapshots == nil {
+		return fmt.Errorf("snapshot repository is required")
+	}
+	ref, err := NewRef(strings.TrimSpace(project), strings.TrimSpace(generation))
+	if err != nil {
+		return err
+	}
+	return s.validateGeneration(ctx, ref)
+}
+
+func (s ReleaseService) validateGeneration(ctx context.Context, ref Ref) error {
+	snapshot, err := s.Snapshots.ReadSnapshot(ctx, ref)
+	if err == nil {
+		if snapshot.State != StateStaged {
+			return fmt.Errorf("%w: generation %s is %s", ErrReleaseRequirementsUnmet, ref.Generation, snapshot.State)
+		}
+		return nil
+	}
+	if !errors.Is(err, ErrSnapshotNotFound) || s.Manifests == nil {
+		return err
+	}
+	// Legacy loads can have the durable manifest and active graph pointer but no
+	// snapshot_generation upload-audit document. The manifest is the exact
+	// generation record checked again by the atomic activation transaction, so a
+	// staged legacy manifest is sufficient and does not need fabricated uploads.
+	manifest, manifestErr := s.Manifests.ReadManifest(ctx, ref)
+	if manifestErr != nil {
+		return err
+	}
+	if !manifest.IsStaged() {
+		return fmt.Errorf("%w: generation %s manifest is %s", ErrReleaseRequirementsUnmet, ref.Generation, manifest.State)
+	}
+	return nil
 }
 
 func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (ProjectRelease, error) {
@@ -115,12 +163,8 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 	if request.GitCommit != ref.Generation {
 		return ProjectRelease{}, fmt.Errorf("gitCommit must match generation")
 	}
-	snapshot, err := s.Snapshots.ReadSnapshot(ctx, ref)
-	if err != nil {
+	if err := s.validateGeneration(ctx, ref); err != nil {
 		return ProjectRelease{}, err
-	}
-	if snapshot.State != StateStaged {
-		return ProjectRelease{}, fmt.Errorf("%w: generation %s is %s", ErrReleaseRequirementsUnmet, ref.Generation, snapshot.State)
 	}
 
 	previous, previousErr := s.Releases.ReadActiveRelease(ctx, ref.Project)

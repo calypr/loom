@@ -122,8 +122,8 @@ func loadFile(
 		}
 	}
 
-	linesChan := make(chan fileLine, 10000)
-	writeChan := make(chan fileWriteTask, 100)
+	linesChan := make(chan fileLine, opts.LineQueueSize)
+	writeChan := make(chan fileWriteTask, opts.WriteQueueSize)
 	fileCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -164,11 +164,11 @@ func loadFile(
 		}
 	}()
 
-	const workerCount = 8
+	workerCount := opts.WorkerCount
 	var workersWG sync.WaitGroup
 	workerTimingsChan := make(chan map[string]float64, workerCount)
 	workerCatalogsChan := make(chan *catalog.Profiler, workerCount)
-	shapeCache := catalog.NewShapePlanCache()
+	shapeCache := catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans)
 
 	var fileRows int64
 	var fileVertices int64
@@ -210,7 +210,7 @@ func loadFile(
 		go func() {
 			defer workersWG.Done()
 			localTimings := make(map[string]float64)
-			localCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)
+			localCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 
@@ -398,7 +398,7 @@ func loadFile(
 	result.RowErrors = rowErrors
 	result.StageSeconds = make(map[string]float64)
 	result.RelationshipCounts = make(map[catalog.RelationshipKey]int64)
-	mergedCatalog := catalog.NewProfilerForGeneration(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache)
+	mergedCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
 	for timings := range workerTimingsChan {
 		for key, value := range timings {
 			switch key {

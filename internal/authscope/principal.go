@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/calypr/loom/internal/projectid"
 )
 
 // Transport-neutral authorization conditions. Callers classify these
@@ -54,8 +56,9 @@ func AuthorizeProject(principal *Principal, project string, ignorePrincipalProje
 	if ignorePrincipalProjects || principal == nil || len(principal.Projects) == 0 {
 		return nil
 	}
+	project = projectid.Canonical(project)
 	for _, candidate := range principal.Projects {
-		if candidate == project {
+		if projectid.Canonical(candidate) == project {
 			return nil
 		}
 	}

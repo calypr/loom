@@ -12,20 +12,22 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
+type ClickHouseQueryer interface {
+	QueryRowsArgs(context.Context, string, []string, ...any) ([]map[string]any, error)
+	QueryRowsArgsVisit(context.Context, string, []string, func(map[string]any) error, ...any) error
+}
+
 type Reader struct {
-	ClickHouse             *clickhouse.Client
-	Catalog                bundlepublication.BundleCatalog
-	Logger                 *slog.Logger
-	MaxPage                int
-	ActiveManifestResolver publication.ActiveResolver
-	// LegacyTranslationVersion maps pre-versioned execution rows only during
-	// the compatibility window. New rows always carry their exact version.
-	LegacyTranslationVersion string
-	ProjectStatusResolver    ProjectStatusResolver
-	ReleaseExecutionResolver ReleaseExecutionResolver
+	ClickHouse                 ClickHouseQueryer
+	Catalog                    bundlepublication.BundleCatalog
+	Logger                     *slog.Logger
+	MaxPage                    int
+	ActiveManifestResolver     publication.ActiveResolver
+	ProjectStatusResolver      ProjectStatusResolver
+	ReleaseExecutionResolver   ReleaseExecutionResolver
+	FederationSnapshotResolver FederationSnapshotResolver
 }
 
 type Filter struct {
@@ -37,14 +39,6 @@ type Filter struct {
 type Sort struct {
 	Column string
 	Desc   bool
-}
-
-type PageRequest struct {
-	Columns []string
-	Filters []Filter
-	Sort    *Sort
-	First   int
-	After   string
 }
 
 type Page struct {
@@ -60,258 +54,6 @@ type AggregateResult struct {
 	Materialization Materialization
 	Columns         []string
 	Rows            []map[string]any
-}
-
-type AggregateRequest struct {
-	GroupBy   []string
-	Filters   []Filter
-	Operation string
-	Column    string
-}
-
-// AggregatePublishedID preserves the legacy single-materialization query
-// path. Federated callers use AggregateFederatedDataset instead.
-func (r *Reader) AggregatePublishedID(ctx context.Context, id string, req AggregateRequest) (AggregateResult, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	m, err := r.publishedByID(ctx, id)
-	if err != nil {
-		return AggregateResult{}, err
-	}
-	return r.aggregateResolved(ctx, req, m)
-}
-
-func (r *Reader) aggregateResolved(ctx context.Context, req AggregateRequest, m Materialization) (AggregateResult, error) {
-	if m.State != StateReady {
-		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	allowed := make(map[string]struct{}, len(m.Columns))
-	for _, column := range m.Columns {
-		allowed[column.Name] = struct{}{}
-	}
-	for _, column := range req.GroupBy {
-		if _, ok := allowed[column]; !ok {
-			return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	where, args, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return AggregateResult{}, err
-	}
-	operation := strings.ToUpper(req.Operation)
-	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
-		return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	if operation != "COUNT" {
-		if _, ok := allowed[req.Column]; !ok {
-			return AggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	selects := make([]string, 0, len(req.GroupBy)+1)
-	columns := append([]string(nil), req.GroupBy...)
-	for _, column := range req.GroupBy {
-		selects = append(selects, fmt.Sprintf("`%s`", column))
-	}
-	metric := "count()"
-	metricName := "count"
-	switch operation {
-	case "COUNT_DISTINCT":
-		metric, metricName = fmt.Sprintf("uniqExact(`%s`)", req.Column), "count_distinct"
-	case "SUM":
-		metric, metricName = fmt.Sprintf("sum(`%s`)", req.Column), "sum"
-	case "AVG":
-		metric, metricName = fmt.Sprintf("avg(`%s`)", req.Column), "avg"
-	case "MIN":
-		metric, metricName = fmt.Sprintf("min(`%s`)", req.Column), "min"
-	case "MAX":
-		metric, metricName = fmt.Sprintf("max(`%s`)", req.Column), "max"
-	}
-	selects = append(selects, metric+" AS `"+metricName+"`")
-	columns = append(columns, metricName)
-	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), m.PhysicalTable)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	if len(req.GroupBy) > 0 {
-		query += " GROUP BY " + strings.Join(selects[:len(req.GroupBy)], ", ") + " ORDER BY " + strings.Join(selects[:len(req.GroupBy)], ", ")
-	}
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
-	if err != nil {
-		return AggregateResult{}, backendCallError(err)
-	}
-	return AggregateResult{Materialization: m, Columns: columns, Rows: rows}, nil
-}
-
-// PagePublishedID preserves the legacy single-materialization row query path.
-func (r *Reader) PagePublishedID(ctx context.Context, id string, req PageRequest) (Page, error) {
-	if r == nil || r.ClickHouse == nil || r.Catalog == nil {
-		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	m, err := r.publishedByID(ctx, id)
-	if err != nil {
-		return Page{}, err
-	}
-	return r.pageResolved(ctx, req, m)
-}
-
-func (r *Reader) DatasetByPublishedID(ctx context.Context, id string) (Materialization, error) {
-	if r == nil || r.Catalog == nil {
-		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
-	}
-	return r.publishedByID(ctx, id)
-}
-
-func (r *Reader) publishedByID(ctx context.Context, id string) (Materialization, error) {
-	parts := strings.SplitN(id, ":", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return Materialization{}, fmt.Errorf("invalid published dataset id %q", id)
-	}
-	execution, err := r.Catalog.GetExecution(ctx, parts[0])
-	if err != nil {
-		return Materialization{}, err
-	}
-	if !execution.State.Successful() {
-		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())
-	if err != nil {
-		return Materialization{}, fmt.Errorf("resolve dataframe pointer: %w", err)
-	}
-	if pointer.ExecutionID != execution.ID {
-		return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	for _, output := range execution.Outputs {
-		if output.Name == parts[1] {
-			return publishedMaterialization(execution, output, output.Name), nil
-		}
-	}
-	return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-}
-
-func (r *Reader) pageResolved(ctx context.Context, req PageRequest, m Materialization) (Page, error) {
-	if m.State != StateReady {
-		return Page{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
-	}
-	allowed := make(map[string]struct{}, len(m.Columns))
-	for _, column := range m.Columns {
-		allowed[column.Name] = struct{}{}
-	}
-	columns := append([]string(nil), req.Columns...)
-	if len(columns) == 0 {
-		for _, column := range m.Columns {
-			if column.Name != "__loom_row_id" {
-				columns = append(columns, column.Name)
-			}
-		}
-	}
-	for _, column := range columns {
-		if column == "__loom_row_id" {
-			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-		if _, ok := allowed[column]; !ok {
-			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	if req.Sort != nil {
-		if _, ok := allowed[req.Sort.Column]; !ok || req.Sort.Column == "__loom_row_id" {
-			return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	first := req.First
-	if first <= 0 {
-		first = 100
-	}
-	if r.MaxPage > 0 && first > r.MaxPage {
-		first = r.MaxPage
-	}
-	cursor, err := decodeCursor(req.After)
-	if err != nil {
-		return Page{}, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return Page{}, err
-	}
-	countQuery := fmt.Sprintf("SELECT count() AS `__loom_total` FROM `%s`", m.PhysicalTable)
-	if len(where) > 0 {
-		countQuery += " WHERE " + strings.Join(where, " AND ")
-	}
-	countRows, err := r.ClickHouse.QueryRowsArgs(ctx, countQuery, []string{"__loom_total"}, whereArgs...)
-	if err != nil {
-		return Page{}, backendCallError(err)
-	}
-	if len(countRows) == 0 {
-		return Page{}, fmt.Errorf("ClickHouse count query returned no rows")
-	}
-	totalCount, err := numericCount(countRows[0]["__loom_total"])
-	if err != nil {
-		return Page{}, err
-	}
-	queryColumns := append([]string(nil), columns...)
-	if req.Sort != nil && !contains(queryColumns, req.Sort.Column) {
-		queryColumns = append(queryColumns, req.Sort.Column)
-	}
-	if !contains(queryColumns, "__loom_row_id") {
-		queryColumns = append(queryColumns, "__loom_row_id")
-	}
-	selects := make([]string, len(queryColumns))
-	for i, column := range queryColumns {
-		selects[i] = fmt.Sprintf("`%s`", column)
-	}
-	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), m.PhysicalTable)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	if cursor != nil {
-		cursorWhere, cursorArgs, err := cursorPredicate(cursor, req.Sort)
-		if err != nil {
-			return Page{}, err
-		}
-		whereArgs = append(whereArgs, cursorArgs...)
-		if strings.Contains(query, " WHERE ") {
-			query += " AND " + cursorWhere
-		} else {
-			query += " WHERE " + cursorWhere
-		}
-	}
-	if req.Sort != nil {
-		direction := "ASC"
-		if req.Sort.Desc {
-			direction = "DESC"
-		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_row_id` ASC", req.Sort.Column, direction)
-	} else {
-		query += " ORDER BY toUInt64(`__loom_row_id`) ASC"
-	}
-	query += fmt.Sprintf(" LIMIT %d", first+1)
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, queryColumns, whereArgs...)
-	if err != nil {
-		return Page{}, backendCallError(err)
-	}
-	hasNext := len(rows) > first
-	if hasNext {
-		rows = rows[:first]
-	}
-	next := ""
-	if hasNext && len(rows) > 0 {
-		last := rows[len(rows)-1]
-		var sortValue any
-		if req.Sort != nil {
-			sortValue = last[req.Sort.Column]
-			if sortValue == nil {
-				return Page{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
-			}
-		}
-		next = encodeCursor(fmt.Sprint(last["__loom_row_id"]), sortValue)
-	}
-	for _, row := range rows {
-		delete(row, "__loom_row_id")
-		if req.Sort != nil && !contains(columns, req.Sort.Column) {
-			delete(row, req.Sort.Column)
-		}
-	}
-	return Page{Materialization: m, Columns: columns, Rows: rows, TotalCount: totalCount, HasNext: hasNext, NextCursor: next}, nil
 }
 
 func numericCount(value any) (int64, error) {
@@ -423,21 +165,6 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 	}
 	return &value, nil
-}
-
-func cursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
-	row := "toUInt64(`__loom_row_id`) > toUInt64(?)"
-	if sort == nil {
-		return row, []any{cursor.RowID}, nil
-	}
-	if cursor.SortValue == nil {
-		return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
-	}
-	operator := ">"
-	if sort.Desc {
-		operator = "<"
-	}
-	return fmt.Sprintf("(`%s` %s ? OR (`%s` = ? AND %s))", sort.Column, operator, sort.Column, row), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }
 
 func contains(values []string, needle string) bool {

@@ -18,6 +18,10 @@ type Target struct {
 	OwnerID     string
 }
 
+// SupportsObjectValues tells the generic publication runner that this target
+// can persist logical object values as native ClickHouse JSON columns.
+func (t *Target) SupportsObjectValues() bool { return true }
+
 func New(bundleStore IdentityBundleStore) (*Target, error) {
 	if bundleStore == nil {
 		return nil, fmt.Errorf("ClickHouse bundle store is required")
@@ -26,7 +30,7 @@ func New(bundleStore IdentityBundleStore) (*Target, error) {
 }
 
 func (t *Target) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
-	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, TranslationVersion: identity.TranslationVersion, OutputName: identity.OutputName, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion, AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...)}
 	var tx publication.AtomicBundleTx
 	var err error
 	if t.ExecutionID != "" {
@@ -56,6 +60,16 @@ func (t *Target) Begin(ctx context.Context, identity publication.PublicationIden
 			cancel()
 			return nil, fmt.Errorf("output %q create: %w", schema.Name, err)
 		}
+		if metadata, ok := tx.(interface {
+			SetOutputMetadata(string, []publication.LogicalColumn) error
+		}); ok {
+			if err := metadata.SetOutputMetadata(schema.Name, schema.Columns); err != nil {
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				_ = tx.Abort(cleanupCtx, fmt.Errorf("output %q metadata: %w", schema.Name, err))
+				cancel()
+				return nil, fmt.Errorf("output %q metadata: %w", schema.Name, err)
+			}
+		}
 		result.columns[schema.Name] = columns
 	}
 	return result, nil
@@ -74,6 +88,31 @@ type transaction struct {
 	closed  bool
 }
 
+func (t *transaction) SetOutputMetadata(name string, columns []publication.LogicalColumn) error {
+	metadata, ok := t.tx.(interface {
+		SetOutputMetadata(string, []publication.LogicalColumn) error
+	})
+	if !ok {
+		return nil
+	}
+	return metadata.SetOutputMetadata(name, columns)
+}
+
+func (t *transaction) Idempotent() bool {
+	status, ok := t.tx.(interface{ Idempotent() bool })
+	return ok && status.Idempotent()
+}
+
+func (t *transaction) ExistingPublishedOutputs() []publication.PublishedOutput {
+	status, ok := t.tx.(interface {
+		ExistingPublishedOutputs() []publication.PublishedOutput
+	})
+	if !ok {
+		return nil
+	}
+	return status.ExistingPublishedOutputs()
+}
+
 func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[string]any) error {
 	if t.closed {
 		return fmt.Errorf("ClickHouse publication transaction is closed")
@@ -83,6 +122,31 @@ func (t *transaction) WriteBatch(ctx context.Context, output string, rows []map[
 		return fmt.Errorf("output %q was not declared", output)
 	}
 	return t.tx.InsertRows(ctx, output, columns, rows)
+}
+
+func (t *transaction) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	if finalizer, ok := t.tx.(interface {
+		FinalizeSchema(context.Context, []publication.OutputSchema) error
+	}); ok {
+		return finalizer.FinalizeSchema(ctx, schemas)
+	}
+	for _, schema := range schemas {
+		columns, ok := t.columns[schema.Name]
+		if !ok || len(columns) != len(schema.Columns) {
+			return fmt.Errorf("ClickHouse transaction cannot finalize output %q schema", schema.Name)
+		}
+	}
+	return nil
+}
+
+func (t *transaction) SetFinalSchemaDigest(digest string) error {
+	if setter, ok := t.tx.(interface{ SetFinalSchemaDigest(string) error }); ok {
+		return setter.SetFinalSchemaDigest(digest)
+	}
+	return nil
 }
 
 func (t *transaction) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {
@@ -129,7 +193,7 @@ func toColumns(columns []publication.LogicalColumn) ([]store.Column, error) {
 		case "code":
 			columnType = "String"
 		case "object":
-			return nil, fmt.Errorf("object-valued column %q is not supported", column.Name)
+			columnType = "JSON"
 		}
 		if column.Repeated {
 			columnType = "Array(" + columnType + ")"

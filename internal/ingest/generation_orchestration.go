@@ -218,12 +218,13 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		}
 		merged := catalogs[key]
 		if merged == nil {
-			merged = catalog.NewProfilerForGeneration(
+			merged = catalog.NewProfilerForGenerationWithLimits(
 				key.project,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCache(),
+				catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans),
+				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
 		}
@@ -288,7 +289,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}
 	manifest = stagedManifest
 	manifestStaged = true
-	if !opts.StageOnly {
+	if !opts.StageOnly && !opts.DeferActivation {
 		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
 			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 		}

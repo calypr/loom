@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -13,7 +14,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func (s *Handler) createGeneration(c fiber.Ctx) error {
+func (s *Handler) HandleCreateGeneration(c fiber.Ctx) error {
 	if !c.IsMultipart() {
 		return fiber.NewError(fiber.StatusUnsupportedMediaType)
 	}
@@ -31,6 +32,13 @@ func (s *Handler) createGeneration(c fiber.Ctx) error {
 		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	authResourcePath := strings.TrimSpace(c.Req().FormValue("auth_resource_path"))
+	deferActivation := false
+	if raw := strings.TrimSpace(c.Req().FormValue("defer_activation")); raw != "" {
+		deferActivation, err = strconv.ParseBool(raw)
+		if err != nil {
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
+		}
+	}
 	principal, _ := c.Locals("principal").(*authscope.Principal)
 	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
@@ -47,7 +55,7 @@ func (s *Handler) createGeneration(c fiber.Ctx) error {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	defer os.RemoveAll(stagedDir)
-	req := GenerationLoadRequest{Project: project, Generation: generation, AuthResourcePath: authResourcePath, StagedDir: stagedDir}
+	req := GenerationLoadRequest{Project: project, Generation: generation, AuthResourcePath: authResourcePath, StagedDir: stagedDir, DeferActivation: deferActivation}
 	if principal != nil {
 		req.SubmittedBy = principal.Subject
 	}
@@ -56,6 +64,24 @@ func (s *Handler) createGeneration(c fiber.Ctx) error {
 		return err
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
+}
+
+func (s *Handler) HandleActivateGeneration(c fiber.Ctx) error {
+	project := strings.TrimSpace(c.Params("project"))
+	generation := strings.TrimSpace(c.Params("generation"))
+	executionID := strings.TrimSpace(c.Query("dataframe_execution_id"))
+	if project == "" || generation == "" || executionID == "" {
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	authResourcePath := strings.TrimSpace(c.Query("auth_resource_path"))
+	principal, _ := c.Locals("principal").(*authscope.Principal)
+	if err := s.authz.AuthorizeWrite(c.Context(), principal, project, authResourcePath); err != nil {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
+	}
+	if err := s.service.ActivateGeneration(c.Context(), project, generation, executionID); err != nil {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "")
+	}
+	return c.Status(fiber.StatusOK).JSON(map[string]any{"project": project, "generation": generation, "dataframeExecutionId": executionID, "activated": true})
 }
 
 func stageGenerationFiles(headers []*multipart.FileHeader) (string, error) {

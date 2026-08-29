@@ -88,10 +88,9 @@ query Rows($input: DataframeRowsInput!) {
 }
 ```
 
-The deprecated `dataType` input remains available during migration. It is
-resolved through `LOOM_DEFAULT_RECIPE` and
-`LOOM_DEFAULT_TRANSLATION_VERSION`; clients must not provide `selector` and
-`dataType` together. New clients should use selectors explicitly.
+The selector is mandatory. Loom does not resolve a server-side default recipe,
+accept a `dataType` alias, or infer a translation version. This keeps a read
+bound to the exact recipe contract that produced its publication.
 
 ## How sources are selected
 
@@ -127,9 +126,9 @@ QUEUED -> RUNNING -> VALIDATING -> PUBLISHED
 
 Physical ClickHouse tables are written and verified before the catalog pointer
 is advanced. A reader therefore sees either the prior pointer or the new
-verified publication, not a partially written bundle. Legacy stored `READY`
-values remain readable and are interpreted as successful publications; new
-workflows do not write `READY`.
+verified publication, not a partially written bundle. New workflows use
+`PUBLISHED`; storage adapters may normalize historical persisted states while
+those records are being retired, but no new API accepts or emits them.
 
 Project releases add another visibility boundary. A staged generation and its
 verified exact-selector publications become active together through the active
@@ -200,9 +199,8 @@ The same federated source set is used by:
 - `dataframeAggregate` and `dataframeAggregations` for aggregates;
 - the dataframe export route for CSV, TSV, JSON, and JSONL streaming.
 
-The legacy `materializationId` input remains a direct single-publication path
-for compatibility. It is not the federation path and should not be used for
-new multi-project clients.
+There is no materialization-ID or physical-table read path. All reads use the
+exact selector and resolve the active publication through the catalog.
 
 ## Operational setup
 
@@ -220,13 +218,6 @@ For a new recipe version, publish and verify it first, then promote or select
 that exact version. Do not rely on “latest” behavior to switch a production
 reader between versions.
 
-Recommended configuration for legacy callers:
-
-```text
-LOOM_DEFAULT_RECIPE=documents
-LOOM_DEFAULT_TRANSLATION_VERSION=v2
-```
-
 Recommended configuration for release verification is a list of exact
 selectors, not output names alone. See
 `LOOM_REQUIRED_DATAFRAME_SELECTORS` and the release contract documentation.
@@ -235,7 +226,7 @@ selectors, not output names alone. See
 
 | Symptom | Likely cause |
 | --- | --- |
-| `INVALID_SELECTOR` | Selector is incomplete, both selector and `dataType` were supplied, or legacy defaults are not configured. |
+| `INVALID_SELECTOR` | Selector is missing or incomplete. |
 | `UNAVAILABLE` / `DATASET_NOT_FOUND` | No pointer-backed exact publication is active or authorized. |
 | `DEGRADED` | One or more expected projects are missing, stale, failed, building, or excluded. |
 | `FEDERATION_INCOMPATIBLE` | Same logical column has incompatible ClickHouse types across selected sources. |

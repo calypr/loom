@@ -69,7 +69,11 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 				}
 				candidates := make([]Candidate, 0, len(dynamic.Columns))
 				for _, column := range dynamic.Columns {
-					candidates = append(candidates, Candidate{Key: column, ValueType: "unknown"})
+					valueType := dynamic.ColumnTypes[column]
+					if valueType == "" {
+						valueType = "unknown"
+					}
+					candidates = append(candidates, Candidate{Key: column, ValueType: valueType})
 				}
 				schema, err := Freeze(DynamicSpec{
 					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
@@ -80,6 +84,9 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 				key := dynamicMapKey(output.Name, dynamic)
 				columns := make([]ResolvedColumn, 0, len(schema.Columns))
 				for _, column := range schema.Columns {
+					if sourceKey := dynamic.ColumnSourceKeys[column.SourceKey]; sourceKey != "" {
+						column.SourceKey = sourceKey
+					}
 					columns = append(columns, ResolvedColumn{Output: output.Name, DynamicName: dynamic.Name, Column: column})
 				}
 				resolved.ResolvedColumns[key] = columns

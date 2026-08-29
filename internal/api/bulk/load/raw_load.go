@@ -13,7 +13,7 @@ import (
 
 const defaultRawProject = "default"
 
-func (s *Handler) loadRaw(c fiber.Ctx) error {
+func (s *Handler) HandleLoadRaw(c fiber.Ctx) error {
 	contentType, _, err := mime.ParseMediaType(c.Get(fiber.HeaderContentType))
 	if err != nil || (contentType != "application/x-ndjson" && contentType != "application/ndjson") {
 		return fiber.NewError(fiber.StatusUnsupportedMediaType)

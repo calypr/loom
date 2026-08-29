@@ -14,13 +14,6 @@ func TestKeysetCursorRoundTrip(t *testing.T) {
 	if decoded.RowID != "42" || decoded.SortValue != "alice" {
 		t.Fatalf("decoded cursor = %#v", decoded)
 	}
-	predicate, args, err := cursorPredicate(decoded, &Sort{Column: "name"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if predicate == "" || len(args) != 3 || predicate == "toUInt64(`__loom_row_id`) > toUInt64(\"42\")" {
-		t.Fatalf("unexpected sort predicate %q", predicate)
-	}
 }
 
 func TestBuildWhereSupportsAggregateFilters(t *testing.T) {

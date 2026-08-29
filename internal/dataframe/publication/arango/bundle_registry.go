@@ -75,6 +75,42 @@ func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleS
 	return out, err
 }
 
+// ListSelectorExecutions avoids the five full lifecycle scans otherwise
+// required to assemble dataframe project status. Exact output matching stays
+// in the caller so queued executions (which intentionally have no outputs yet)
+// remain visible as BUILDING.
+func (r *Registry) ListSelectorExecutions(ctx context.Context, selector publication.DataframeSelector, before time.Time) ([]publication.BundleExecution, error) {
+	out := []publication.BundleExecution{}
+	states := []publication.BundleState{
+		publication.BundleQueued, publication.BundlePending,
+		publication.BundleRunning, publication.BundlePreflight, publication.BundleLoading,
+		publication.BundleValidating,
+		publication.BundlePublished, publication.BundleReady,
+		publication.BundleFailed,
+	}
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection
+FILTER (doc.name == @recipe OR doc.Name == @recipe)
+  AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion)
+  AND doc.state IN @states AND doc.updatedAt < @before
+SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{
+		"@collection": BundleExecutionsCollection,
+		"recipe":      selector.Recipe, "translationVersion": selector.TranslationVersion,
+		"states": states, "before": before,
+	}, func(row map[string]any) error {
+		data, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		var execution publication.BundleExecution
+		if err := json.Unmarshal(data, &execution); err != nil {
+			return err
+		}
+		out = append(out, execution.CanonicalizeLegacy())
+		return nil
+	})
+	return out, err
+}
+
 func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	if err := selector.Validate(); err != nil {
 		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err

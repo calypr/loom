@@ -17,6 +17,7 @@ func TestFHIRStructGenerationMatchesCheckedInArtifacts(t *testing.T) {
 		{name: "model.go", generate: generateModel},
 		{name: "validate.go", generate: generateValidate},
 		{name: "extract.go", generate: generateExtract},
+		{name: "helpers.go", generate: func(_ *Schema, path string) error { return generateFHIRHelpers(path) }},
 	} {
 		t.Run(artifact.name, func(t *testing.T) {
 			generatedPath := filepath.Join(t.TempDir(), artifact.name)

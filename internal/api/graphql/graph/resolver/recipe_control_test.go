@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	"github.com/calypr/loom/internal/authscope"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/engine"
@@ -217,23 +216,6 @@ func TestStartDataframeMaterializationPassesExactSelector(t *testing.T) {
 	}
 	if !got.Valid() || result.TranslationVersion == nil || *result.TranslationVersion != "v2" || result.Outputs[0].Selector == nil {
 		t.Fatalf("result = %#v, selector = %#v", result, got)
-	}
-}
-
-func TestPromoteDataframeContractRequiresOperatorAuthorization(t *testing.T) {
-	called := 0
-	promoter := func(context.Context, string, string) (DataframeContract, error) {
-		called++
-		return DataframeContract{Recipe: "documents", TranslationVersion: "v2"}, nil
-	}
-	input := model.PromoteDataframeContractInput{Recipe: "documents", TranslationVersion: "v2"}
-	denied := NewResolver(ResolverConfig{DataframeContractPromoter: promoter, DataframeContractAuthorizer: func(context.Context) error { return authscope.ErrForbidden }})
-	if _, err := denied.Mutation().PromoteDataframeContract(context.Background(), input); err == nil || called != 0 {
-		t.Fatalf("denied promotion error=%v calls=%d", err, called)
-	}
-	allowed := NewResolver(ResolverConfig{DataframeContractPromoter: promoter, DataframeContractAuthorizer: func(context.Context) error { return nil }})
-	if _, err := allowed.Mutation().PromoteDataframeContract(context.Background(), input); err != nil || called != 1 {
-		t.Fatalf("allowed promotion error=%v calls=%d", err, called)
 	}
 }
 

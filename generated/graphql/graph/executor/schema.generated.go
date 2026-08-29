@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"strconv"
 	"sync/atomic"
@@ -27,17 +28,18 @@ type MutationResolver interface {
 	MaterializeDataframeRecipeBundle(ctx context.Context, input model.MaterializeDataframeRecipeInput) (*model.DataframeRecipeExecution, error)
 	StartDataframeMaterialization(ctx context.Context, input model.StartDataframeMaterializationInput) (*model.DataframeRecipeExecution, error)
 	ActivateProjectRelease(ctx context.Context, input model.ActivateProjectReleaseInput) (*model.ProjectRelease, error)
-	PromoteDataframeContract(ctx context.Context, input model.PromoteDataframeContractInput) (*model.DataframeContract, error)
+	RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error)
 }
 type QueryResolver interface {
-	DataframeBuilderIntrospection(ctx context.Context, input model.DataframeBuilderIntrospectionInput) (*model.DataframeBuilderIntrospection, error)
-	DataframeMaterialization(ctx context.Context, id string) (*model.DataframeMaterialization, error)
 	DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error)
+	ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error)
 	DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error)
 	DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error)
 	DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
 	DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error)
 	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
+	DataframeRecipeRevision(ctx context.Context, projectID string, name string, digest string) (*model.DataframeRecipeRevision, error)
+	DataframeRecipeRevisions(ctx context.Context, projectID string, name string) ([]*model.DataframeRecipeRevision, error)
 	ExplainDataframeRecipe(ctx context.Context, input model.ExplainDataframeRecipeInput) (*model.DataframeRecipeExplanation, error)
 	PreflightDataframeRecipe(ctx context.Context, input model.PreflightDataframeRecipeInput) (*model.DataframeRecipePreflight, error)
 	FhirGraph(ctx context.Context, input model.FhirGraphQueryInput) (*model.FhirGraphQueryResult, error)
@@ -113,12 +115,12 @@ func (ec *executionContext) field_Mutation_previewDataframeRecipe_args(ctx conte
 	return args, nil
 }
 
-func (ec *executionContext) field_Mutation_promoteDataframeContract_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Mutation_registerDataframeRecipeRevision_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.PromoteDataframeContractInput, error) {
-			return ec.unmarshalNPromoteDataframeContractInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐPromoteDataframeContractInput(ctx, v)
+		func(ctx context.Context, v any) (model.RegisterDataframeRecipeRevisionInput, error) {
+			return ec.unmarshalNRegisterDataframeRecipeRevisionInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐRegisterDataframeRecipeRevisionInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -923,20 +925,6 @@ func (ec *executionContext) field_Query_dataframeAggregations_args(ctx context.C
 	return args, nil
 }
 
-func (ec *executionContext) field_Query_dataframeBuilderIntrospection_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DataframeBuilderIntrospectionInput, error) {
-			return ec.unmarshalNDataframeBuilderIntrospectionInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderIntrospectionInput(ctx, v)
-		})
-	if err != nil {
-		return nil, err
-	}
-	args["input"] = arg0
-	return args, nil
-}
-
 func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -951,7 +939,7 @@ func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Contex
 	return args, nil
 }
 
-func (ec *executionContext) field_Query_dataframeMaterialization_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_dataframeRecipeExecution_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
@@ -965,17 +953,55 @@ func (ec *executionContext) field_Query_dataframeMaterialization_args(ctx contex
 	return args, nil
 }
 
-func (ec *executionContext) field_Query_dataframeRecipeExecution_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_dataframeRecipeRevision_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "projectId",
 		func(ctx context.Context, v any) (string, error) {
-			return ec.unmarshalNID2string(ctx, v)
+			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["id"] = arg0
+	args["projectId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "digest",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["digest"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_dataframeRecipeRevisions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "projectId",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["projectId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
 	return args, nil
 }
 
@@ -1054,6 +1080,20 @@ func (ec *executionContext) field_Query_preflightDataframeRecipe_args(ctx contex
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_projectDataframeDatasets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "projectId",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["projectId"] = arg0
 	return args, nil
 }
 
@@ -1194,16 +1234,16 @@ func (ec *executionContext) fieldContext_DataframeAggregationsResult_aggregation
 	return graphql.NewScalarFieldContext("DataframeAggregationsResult", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeBuilderIntrospection_project(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_semanticPath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_project(ctx, field)
+			return ec.fieldContext_DataframeColumn_semanticPath(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return obj.Project, nil
+			return obj.SemanticPath, nil
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
@@ -1213,214 +1253,8 @@ func (ec *executionContext) _DataframeBuilderIntrospection_project(ctx context.C
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_project(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeBuilderIntrospection", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_rootResourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_rootResourceType(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.RootResourceType, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_rootResourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeBuilderIntrospection", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_authResourcePaths(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_authResourcePaths(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.AuthResourcePaths, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
-			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_authResourcePaths(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeBuilderIntrospection", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_root(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_root(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Root, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeResourceHints) graphql.Marshaler {
-			return ec.marshalNDataframeResourceHints2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeResourceHints(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_root(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeBuilderIntrospection",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeResourceHints(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_relatedResources(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_relatedResources(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.RelatedResources, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeRelatedResourceHints) graphql.Marshaler {
-			return ec.marshalNDataframeRelatedResourceHints2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRelatedResourceHintsᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_relatedResources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeBuilderIntrospection",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeRelatedResourceHints(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_traversals(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_traversals(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Traversals, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeTraversalHint) graphql.Marshaler {
-			return ec.marshalNDataframeTraversalHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_traversals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeBuilderIntrospection",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeTraversalHint(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_fields(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_fields(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Fields, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
-			return ec.marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_fields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeBuilderIntrospection",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldHint(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeBuilderIntrospection_pivotFields(ctx context.Context, field graphql.CollectedField, obj *model.DataframeBuilderIntrospection) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeBuilderIntrospection_pivotFields(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotFields, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
-			return ec.marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeBuilderIntrospection_pivotFields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeBuilderIntrospection",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldHint(ctx, field)
-		},
-	}
-	return fc, nil
+func (ec *executionContext) fieldContext_DataframeColumn_semanticPath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeColumn_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
@@ -1832,617 +1666,6 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_richSo
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeContract_recipe(ctx context.Context, field graphql.CollectedField, obj *model.DataframeContract) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeContract_recipe(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Recipe, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeContract_recipe(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeContract", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeContract_translationVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeContract) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeContract_translationVersion(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.TranslationVersion, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeContract_translationVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeContract", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeContract_promotedAt(ctx context.Context, field graphql.CollectedField, obj *model.DataframeContract) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeContract_promotedAt(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PromotedAt, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeContract_promotedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeContract", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_resourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_resourceType(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ResourceType, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_resourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_fieldRef(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_fieldRef(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.FieldRef, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_fieldRef(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_label(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_label(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Label, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_path(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_path(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Path, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_selector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_selector(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Selector, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
-			return ec.marshalNDataframeFieldSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldSelector(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_selector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeFieldHint",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldSelector(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeFieldHint_kind(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_kind(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Kind, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_docCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_docCount(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DocCount, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
-			return ec.marshalNInt2int(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_docCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type Int does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_sampleCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_sampleCount(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.SampleCount, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
-			return ec.marshalNInt2int(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_sampleCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type Int does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_distinctValues(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_distinctValues(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DistinctValues, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
-			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_distinctValues(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_distinctTruncated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_distinctTruncated(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DistinctTruncated, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_distinctTruncated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type Boolean does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_pivotCandidate(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_pivotCandidate(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotCandidate, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_pivotCandidate(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type Boolean does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_pivotKind(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotKind, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_pivotKind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_pivotColumns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotColumns, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
-			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_pivotColumns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_pivotFamily(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotFamily, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.FhirPivotFamily) graphql.Marshaler {
-			return ec.marshalOFhirPivotFamily2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotFamily(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_pivotFamily(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldHint", field, false, false, errors.New("field of type FhirPivotFamily does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldHint_defaultPivotColumnSelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DefaultPivotColumnSelector, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
-			return ec.marshalODataframeFieldSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldSelector(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_defaultPivotColumnSelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeFieldHint",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldSelector(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeFieldHint_defaultPivotValueSelector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.DefaultPivotValueSelector, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
-			return ec.marshalODataframeFieldSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldSelector(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldHint_defaultPivotValueSelector(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeFieldHint",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldSelector(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeFieldPredicate_path(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldPredicate) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldPredicate_path(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Path, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldPredicate_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldPredicate", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldPredicate_op(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldPredicate) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldPredicate_op(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Op, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.FhirFieldPredicateOperation) graphql.Marshaler {
-			return ec.marshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateOperation(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldPredicate_op(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldPredicate", field, false, false, errors.New("field of type FhirFieldPredicateOperation does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldPredicate_value(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldPredicate) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldPredicate_value(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Value, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldPredicate_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldPredicate", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldSelector_sourcePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldSelector) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldSelector_sourcePath(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.SourcePath, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldSelector_sourcePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldSelector", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeFieldSelector_where(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldSelector) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldSelector_where(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Where, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeFieldPredicate) graphql.Marshaler {
-			return ec.marshalODataframeFieldPredicate2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldPredicate(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldSelector_where(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeFieldSelector",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldPredicate(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeFieldSelector_valuePath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeFieldSelector) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeFieldSelector_valuePath(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ValuePath, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeFieldSelector_valuePath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeFieldSelector", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
 func (ec *executionContext) _DataframeMaterialization_id(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2509,6 +1732,52 @@ func (ec *executionContext) _DataframeMaterialization_revision(ctx context.Conte
 	)
 }
 func (ec *executionContext) fieldContext_DataframeMaterialization_revision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeMaterialization_projectId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeMaterialization_projectId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ProjectID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeMaterialization_projectId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeMaterialization_datasetGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeMaterialization_datasetGeneration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DatasetGeneration, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeMaterialization_datasetGeneration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
@@ -2735,29 +2004,6 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_selector(_ con
 		},
 	}
 	return fc, nil
-}
-
-func (ec *executionContext) _DataframeMaterialization_activeContractVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeMaterialization_activeContractVersion(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ActiveContractVersion, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
-			return ec.marshalOString2ᚖstring(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeMaterialization_activeContractVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _DataframeMaterialization_availability(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
@@ -4233,6 +3479,38 @@ func (ec *executionContext) _DataframeRecipeExecutionOutput_rowCount(ctx context
 }
 func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_rowCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeRecipeExecutionOutput", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeExecutionOutput_columns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeExecutionOutput_columns(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Columns, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
+			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeExecutionOutput_columns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DataframeRecipeExecutionOutput",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeColumn(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _DataframeRecipeExecutionOutput_error(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeExecutionOutput) (ret graphql.Marshaler) {
@@ -6647,6 +5925,144 @@ func (ec *executionContext) fieldContext_DataframeRecipeResultOutput_rowCount(_ 
 	return graphql.NewScalarFieldContext("DataframeRecipeResultOutput", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _DataframeRecipeRevision_projectId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_projectId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ProjectID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_projectId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeRevision_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeRevision_digest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_digest(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Digest, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_digest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeRevision_parentDigest(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_parentDigest(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ParentDigest, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_parentDigest(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeRevision_recipe(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_recipe(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Recipe, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+			return ec.marshalNJSON2encodingᚋjsonᚐRawMessage(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_recipe(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type JSON does not have child fields"))
+}
+
+func (ec *executionContext) _DataframeRecipeRevision_createdAt(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeRevision) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeRecipeRevision_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeRecipeRevision_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeRecipeRevision", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _DataframeRecipeValidation_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRecipeValidation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6743,203 +6159,6 @@ func (ec *executionContext) fieldContext_DataframeRecipeValidation_outputs(_ con
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_DataframeRecipeOutputValidation(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeRelatedResourceHints_viaLabel(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRelatedResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeRelatedResourceHints_viaLabel(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ViaLabel, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeRelatedResourceHints_viaLabel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeRelatedResourceHints", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeRelatedResourceHints_edgeCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRelatedResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeRelatedResourceHints_edgeCount(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.EdgeCount, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
-			return ec.marshalNInt2int(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeRelatedResourceHints_edgeCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeRelatedResourceHints", field, false, false, errors.New("field of type Int does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeRelatedResourceHints_target(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRelatedResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeRelatedResourceHints_target(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Target, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeResourceHints) graphql.Marshaler {
-			return ec.marshalNDataframeResourceHints2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeResourceHints(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeRelatedResourceHints_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeRelatedResourceHints",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeResourceHints(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeResourceHints_resourceType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeResourceHints_resourceType(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ResourceType, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeResourceHints_resourceType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeResourceHints", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeResourceHints_fields(ctx context.Context, field graphql.CollectedField, obj *model.DataframeResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeResourceHints_fields(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Fields, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
-			return ec.marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeResourceHints_fields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeResourceHints",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldHint(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeResourceHints_pivotFields(ctx context.Context, field graphql.CollectedField, obj *model.DataframeResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeResourceHints_pivotFields(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.PivotFields, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
-			return ec.marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeResourceHints_pivotFields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeResourceHints",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeFieldHint(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _DataframeResourceHints_traversals(ctx context.Context, field graphql.CollectedField, obj *model.DataframeResourceHints) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeResourceHints_traversals(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Traversals, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeTraversalHint) graphql.Marshaler {
-			return ec.marshalNDataframeTraversalHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHintᚄ(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeResourceHints_traversals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "DataframeResourceHints",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeTraversalHint(ctx, field)
 		},
 	}
 	return fc, nil
@@ -7260,98 +6479,6 @@ func (ec *executionContext) _DataframeSelector_output(ctx context.Context, field
 }
 func (ec *executionContext) fieldContext_DataframeSelector_output(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("DataframeSelector", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeTraversalHint_fromType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeTraversalHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeTraversalHint_fromType(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.FromType, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeTraversalHint_fromType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeTraversalHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeTraversalHint_label(ctx context.Context, field graphql.CollectedField, obj *model.DataframeTraversalHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeTraversalHint_label(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Label, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeTraversalHint_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeTraversalHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeTraversalHint_toType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeTraversalHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeTraversalHint_toType(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.ToType, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
-			return ec.marshalNString2string(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeTraversalHint_toType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeTraversalHint", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _DataframeTraversalHint_edgeCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeTraversalHint) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_DataframeTraversalHint_edgeCount(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.EdgeCount, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
-			return ec.marshalNInt2int(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_DataframeTraversalHint_edgeCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("DataframeTraversalHint", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
 func (ec *executionContext) _FhirDataframeResult_columns(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeResult) (ret graphql.Marshaler) {
@@ -8369,34 +7496,34 @@ func (ec *executionContext) fieldContext_Mutation_activateProjectRelease(ctx con
 	return fc, nil
 }
 
-func (ec *executionContext) _Mutation_promoteDataframeContract(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Mutation_registerDataframeRecipeRevision(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Mutation_promoteDataframeContract(ctx, field)
+			return ec.fieldContext_Mutation_registerDataframeRecipeRevision(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().PromoteDataframeContract(ctx, fc.Args["input"].(model.PromoteDataframeContractInput))
+			return ec.Resolvers.Mutation().RegisterDataframeRecipeRevision(ctx, fc.Args["input"].(model.RegisterDataframeRecipeRevisionInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeContract) graphql.Marshaler {
-			return ec.marshalNDataframeContract2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeContract(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRecipeRevision) graphql.Marshaler {
+			return ec.marshalNDataframeRecipeRevision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Mutation_promoteDataframeContract(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Mutation_registerDataframeRecipeRevision(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Mutation",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeContract(ctx, field)
+			return ec.childFields_DataframeRecipeRevision(ctx, field)
 		},
 	}
 	defer func() {
@@ -8406,7 +7533,7 @@ func (ec *executionContext) fieldContext_Mutation_promoteDataframeContract(ctx c
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Mutation_promoteDataframeContract_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Mutation_registerDataframeRecipeRevision_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8528,94 +7655,6 @@ func (ec *executionContext) fieldContext_ProjectRelease_state(_ context.Context,
 	return graphql.NewScalarFieldContext("ProjectRelease", field, false, false, errors.New("field of type ProjectReleaseState does not have child fields"))
 }
 
-func (ec *executionContext) _Query_dataframeBuilderIntrospection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_dataframeBuilderIntrospection(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeBuilderIntrospection(ctx, fc.Args["input"].(model.DataframeBuilderIntrospectionInput))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeBuilderIntrospection) graphql.Marshaler {
-			return ec.marshalNDataframeBuilderIntrospection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderIntrospection(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_dataframeBuilderIntrospection(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeBuilderIntrospection(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_dataframeBuilderIntrospection_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_dataframeMaterialization(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_dataframeMaterialization(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeMaterialization(ctx, fc.Args["id"].(string))
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
-		},
-		true,
-		false,
-	)
-}
-func (ec *executionContext) fieldContext_Query_dataframeMaterialization(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_DataframeMaterialization(ctx, field)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_dataframeMaterialization_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Query_dataframeDatasets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8644,6 +7683,50 @@ func (ec *executionContext) fieldContext_Query_dataframeDatasets(_ context.Conte
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_DataframeMaterialization(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_projectDataframeDatasets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_projectDataframeDatasets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ProjectDataframeDatasets(ctx, fc.Args["projectId"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_projectDataframeDatasets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeMaterialization(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_projectDataframeDatasets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -8862,6 +7945,94 @@ func (ec *executionContext) fieldContext_Query_dataframeRecipeExecution(ctx cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_dataframeRecipeExecution_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeRecipeRevision(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeRecipeRevision(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DataframeRecipeRevision(ctx, fc.Args["projectId"].(string), fc.Args["name"].(string), fc.Args["digest"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRecipeRevision) graphql.Marshaler {
+			return ec.marshalODataframeRecipeRevision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeRecipeRevision(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeRecipeRevision(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeRecipeRevision_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_dataframeRecipeRevisions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_dataframeRecipeRevisions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DataframeRecipeRevisions(ctx, fc.Args["projectId"].(string), fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeRecipeRevision) graphql.Marshaler {
+			return ec.marshalNDataframeRecipeRevision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevisionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_dataframeRecipeRevisions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_DataframeRecipeRevision(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_dataframeRecipeRevisions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10191,34 +9362,20 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"materializationId", "selector", "dataType", "groupBy", "filters", "operation", "column"}
+	fieldsInOrder := [...]string{"selector", "groupBy", "filters", "operation", "column"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
-		case "materializationId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("materializationId"))
-			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.MaterializationID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalODataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Selector = data
-		case "dataType":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DataType = data
 		case "groupBy":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("groupBy"))
 			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
@@ -10339,7 +9496,7 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"selector", "dataType", "filters", "specs"}
+	fieldsInOrder := [...]string{"selector", "filters", "specs"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -10348,18 +9505,11 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 		switch k {
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalODataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Selector = data
-		case "dataType":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DataType = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
 			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
@@ -10379,61 +9529,6 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeBuilderIntrospectionInput(ctx context.Context, obj any) (model.DataframeBuilderIntrospectionInput, error) {
-	var it model.DataframeBuilderIntrospectionInput
-	if obj == nil {
-		return it, nil
-	}
-
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	if _, present := asMap["includePivotOnlyFields"]; !present {
-		asMap["includePivotOnlyFields"] = true
-	}
-
-	fieldsInOrder := [...]string{"project", "rootResourceType", "authResourcePaths", "includePivotOnlyFields"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "project":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("project"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Project = data
-		case "rootResourceType":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootResourceType"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.RootResourceType = data
-		case "authResourcePaths":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authResourcePaths"))
-			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.AuthResourcePaths = data
-		case "includePivotOnlyFields":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("includePivotOnlyFields"))
-			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.IncludePivotOnlyFields = data
-		}
-	}
-	return it, nil
-}
-
 func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Context, obj any) (model.DataframeDatasetInput, error) {
 	var it model.DataframeDatasetInput
 	if obj == nil {
@@ -10445,7 +9540,7 @@ func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"selector", "dataType"}
+	fieldsInOrder := [...]string{"selector"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -10454,18 +9549,11 @@ func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Cont
 		switch k {
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalODataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Selector = data
-		case "dataType":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DataType = data
 		}
 	}
 	return it, nil
@@ -10530,7 +9618,7 @@ func (ec *executionContext) unmarshalInputDataframeRecipeBindingsInput(ctx conte
 		asMap["previewLimit"] = 25
 	}
 
-	fieldsInOrder := [...]string{"project", "datasetGeneration", "authResourcePaths", "previewLimit"}
+	fieldsInOrder := [...]string{"project", "recipeDigest", "datasetGeneration", "authResourcePaths", "previewLimit"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -10544,6 +9632,13 @@ func (ec *executionContext) unmarshalInputDataframeRecipeBindingsInput(ctx conte
 				return it, err
 			}
 			it.Project = data
+		case "recipeDigest":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("recipeDigest"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RecipeDigest = data
 		case "datasetGeneration":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("datasetGeneration"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -10585,34 +9680,20 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 		asMap["first"] = 100
 	}
 
-	fieldsInOrder := [...]string{"materializationId", "selector", "dataType", "columns", "filters", "sort", "first", "after"}
+	fieldsInOrder := [...]string{"selector", "columns", "filters", "sort", "first", "after"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
-		case "materializationId":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("materializationId"))
-			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.MaterializationID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalODataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Selector = data
-		case "dataType":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dataType"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.DataType = data
 		case "columns":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("columns"))
 			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
@@ -12023,8 +11104,8 @@ func (ec *executionContext) unmarshalInputPreviewDataframeRecipeInput(ctx contex
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputPromoteDataframeContractInput(ctx context.Context, obj any) (model.PromoteDataframeContractInput, error) {
-	var it model.PromoteDataframeContractInput
+func (ec *executionContext) unmarshalInputRegisterDataframeRecipeRevisionInput(ctx context.Context, obj any) (model.RegisterDataframeRecipeRevisionInput, error) {
+	var it model.RegisterDataframeRecipeRevisionInput
 	if obj == nil {
 		return it, nil
 	}
@@ -12034,27 +11115,41 @@ func (ec *executionContext) unmarshalInputPromoteDataframeContractInput(ctx cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"recipe", "translationVersion"}
+	fieldsInOrder := [...]string{"projectId", "name", "parentDigest", "recipe"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "projectId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectId"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProjectID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "parentDigest":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("parentDigest"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ParentDigest = data
 		case "recipe":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("recipe"))
-			data, err := ec.unmarshalNString2string(ctx, v)
+			data, err := ec.unmarshalNJSON2encodingᚋjsonᚐRawMessage(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Recipe = data
-		case "translationVersion":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("translationVersion"))
-			data, err := ec.unmarshalNString2string(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.TranslationVersion = data
 		}
 	}
 	return it, nil
@@ -12284,79 +11379,6 @@ func (ec *executionContext) _DataframeAggregationsResult(ctx context.Context, se
 	return out
 }
 
-var dataframeBuilderIntrospectionImplementors = []string{"DataframeBuilderIntrospection"}
-
-func (ec *executionContext) _DataframeBuilderIntrospection(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeBuilderIntrospection) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeBuilderIntrospectionImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeBuilderIntrospection")
-		case "project":
-			out.Values[i] = ec._DataframeBuilderIntrospection_project(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "rootResourceType":
-			out.Values[i] = ec._DataframeBuilderIntrospection_rootResourceType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "authResourcePaths":
-			out.Values[i] = ec._DataframeBuilderIntrospection_authResourcePaths(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "root":
-			out.Values[i] = ec._DataframeBuilderIntrospection_root(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "relatedResources":
-			out.Values[i] = ec._DataframeBuilderIntrospection_relatedResources(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "traversals":
-			out.Values[i] = ec._DataframeBuilderIntrospection_traversals(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "fields":
-			out.Values[i] = ec._DataframeBuilderIntrospection_fields(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "pivotFields":
-			out.Values[i] = ec._DataframeBuilderIntrospection_pivotFields(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
 var dataframeColumnImplementors = []string{"DataframeColumn"}
 
 func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeColumn) graphql.Marshaler {
@@ -12369,6 +11391,11 @@ func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.Select
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("DataframeColumn")
+		case "semanticPath":
+			out.Values[i] = ec._DataframeColumn_semanticPath(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "name":
 			out.Values[i] = ec._DataframeColumn_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -12508,263 +11535,6 @@ func (ec *executionContext) _DataframeCompilerPlanDiagnostics(ctx context.Contex
 	return out
 }
 
-var dataframeContractImplementors = []string{"DataframeContract"}
-
-func (ec *executionContext) _DataframeContract(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeContract) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeContractImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeContract")
-		case "recipe":
-			out.Values[i] = ec._DataframeContract_recipe(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "translationVersion":
-			out.Values[i] = ec._DataframeContract_translationVersion(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "promotedAt":
-			out.Values[i] = ec._DataframeContract_promotedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeFieldHintImplementors = []string{"DataframeFieldHint"}
-
-func (ec *executionContext) _DataframeFieldHint(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeFieldHint) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeFieldHintImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeFieldHint")
-		case "resourceType":
-			out.Values[i] = ec._DataframeFieldHint_resourceType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "fieldRef":
-			out.Values[i] = ec._DataframeFieldHint_fieldRef(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "label":
-			out.Values[i] = ec._DataframeFieldHint_label(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "path":
-			out.Values[i] = ec._DataframeFieldHint_path(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "selector":
-			out.Values[i] = ec._DataframeFieldHint_selector(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "kind":
-			out.Values[i] = ec._DataframeFieldHint_kind(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "docCount":
-			out.Values[i] = ec._DataframeFieldHint_docCount(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "sampleCount":
-			out.Values[i] = ec._DataframeFieldHint_sampleCount(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "distinctValues":
-			out.Values[i] = ec._DataframeFieldHint_distinctValues(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "distinctTruncated":
-			out.Values[i] = ec._DataframeFieldHint_distinctTruncated(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "pivotCandidate":
-			out.Values[i] = ec._DataframeFieldHint_pivotCandidate(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "pivotKind":
-			out.Values[i] = ec._DataframeFieldHint_pivotKind(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "pivotColumns":
-			out.Values[i] = ec._DataframeFieldHint_pivotColumns(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "pivotFamily":
-			out.Values[i] = ec._DataframeFieldHint_pivotFamily(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "defaultPivotColumnSelector":
-			out.Values[i] = ec._DataframeFieldHint_defaultPivotColumnSelector(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "defaultPivotValueSelector":
-			out.Values[i] = ec._DataframeFieldHint_defaultPivotValueSelector(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeFieldPredicateImplementors = []string{"DataframeFieldPredicate"}
-
-func (ec *executionContext) _DataframeFieldPredicate(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeFieldPredicate) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeFieldPredicateImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeFieldPredicate")
-		case "path":
-			out.Values[i] = ec._DataframeFieldPredicate_path(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "op":
-			out.Values[i] = ec._DataframeFieldPredicate_op(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "value":
-			out.Values[i] = ec._DataframeFieldPredicate_value(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeFieldSelectorImplementors = []string{"DataframeFieldSelector"}
-
-func (ec *executionContext) _DataframeFieldSelector(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeFieldSelector) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeFieldSelectorImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeFieldSelector")
-		case "sourcePath":
-			out.Values[i] = ec._DataframeFieldSelector_sourcePath(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "where":
-			out.Values[i] = ec._DataframeFieldSelector_where(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "valuePath":
-			out.Values[i] = ec._DataframeFieldSelector_valuePath(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
 var dataframeMaterializationImplementors = []string{"DataframeMaterialization"}
 
 func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeMaterialization) graphql.Marshaler {
@@ -12789,6 +11559,16 @@ func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel a
 			}
 		case "revision":
 			out.Values[i] = ec._DataframeMaterialization_revision(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "projectId":
+			out.Values[i] = ec._DataframeMaterialization_projectId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "datasetGeneration":
+			out.Values[i] = ec._DataframeMaterialization_datasetGeneration(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -12834,11 +11614,6 @@ func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel a
 			}
 		case "selector":
 			out.Values[i] = ec._DataframeMaterialization_selector(ctx, field, obj)
-			if out.Values[i] == graphql.RequiredNull {
-				out.Invalids++
-			}
-		case "activeContractVersion":
-			out.Values[i] = ec._DataframeMaterialization_activeContractVersion(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
@@ -13442,6 +12217,11 @@ func (ec *executionContext) _DataframeRecipeExecutionOutput(ctx context.Context,
 		case "rowCount":
 			out.Values[i] = ec._DataframeRecipeExecutionOutput_rowCount(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "columns":
+			out.Values[i] = ec._DataframeRecipeExecutionOutput_columns(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "error":
@@ -14620,6 +13400,69 @@ func (ec *executionContext) _DataframeRecipeResultOutput(ctx context.Context, se
 	return out
 }
 
+var dataframeRecipeRevisionImplementors = []string{"DataframeRecipeRevision"}
+
+func (ec *executionContext) _DataframeRecipeRevision(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeRevision) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRecipeRevisionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DataframeRecipeRevision")
+		case "projectId":
+			out.Values[i] = ec._DataframeRecipeRevision_projectId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._DataframeRecipeRevision_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "digest":
+			out.Values[i] = ec._DataframeRecipeRevision_digest(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "parentDigest":
+			out.Values[i] = ec._DataframeRecipeRevision_parentDigest(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "recipe":
+			out.Values[i] = ec._DataframeRecipeRevision_recipe(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._DataframeRecipeRevision_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var dataframeRecipeValidationImplementors = []string{"DataframeRecipeValidation"}
 
 func (ec *executionContext) _DataframeRecipeValidation(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRecipeValidation) graphql.Marshaler {
@@ -14649,107 +13492,6 @@ func (ec *executionContext) _DataframeRecipeValidation(ctx context.Context, sel 
 			}
 		case "outputs":
 			out.Values[i] = ec._DataframeRecipeValidation_outputs(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeRelatedResourceHintsImplementors = []string{"DataframeRelatedResourceHints"}
-
-func (ec *executionContext) _DataframeRelatedResourceHints(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRelatedResourceHints) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRelatedResourceHintsImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeRelatedResourceHints")
-		case "viaLabel":
-			out.Values[i] = ec._DataframeRelatedResourceHints_viaLabel(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "edgeCount":
-			out.Values[i] = ec._DataframeRelatedResourceHints_edgeCount(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "target":
-			out.Values[i] = ec._DataframeRelatedResourceHints_target(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeResourceHintsImplementors = []string{"DataframeResourceHints"}
-
-func (ec *executionContext) _DataframeResourceHints(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeResourceHints) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeResourceHintsImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeResourceHints")
-		case "resourceType":
-			out.Values[i] = ec._DataframeResourceHints_resourceType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "fields":
-			out.Values[i] = ec._DataframeResourceHints_fields(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "pivotFields":
-			out.Values[i] = ec._DataframeResourceHints_pivotFields(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "traversals":
-			out.Values[i] = ec._DataframeResourceHints_traversals(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -14914,59 +13656,6 @@ func (ec *executionContext) _DataframeSelector(ctx context.Context, sel ast.Sele
 			}
 		case "output":
 			out.Values[i] = ec._DataframeSelector_output(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var dataframeTraversalHintImplementors = []string{"DataframeTraversalHint"}
-
-func (ec *executionContext) _DataframeTraversalHint(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeTraversalHint) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeTraversalHintImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("DataframeTraversalHint")
-		case "fromType":
-			out.Values[i] = ec._DataframeTraversalHint_fromType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "label":
-			out.Values[i] = ec._DataframeTraversalHint_label(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "toType":
-			out.Values[i] = ec._DataframeTraversalHint_toType(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "edgeCount":
-			out.Values[i] = ec._DataframeTraversalHint_edgeCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -15431,9 +14120,9 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "promoteDataframeContract":
+		case "registerDataframeRecipeRevision":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._Mutation_promoteDataframeContract(ctx, field)
+				return ec._Mutation_registerDataframeRecipeRevision(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -15537,7 +14226,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Query")
-		case "dataframeBuilderIntrospection":
+		case "dataframeDatasets":
 			field := field
 
 			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
@@ -15546,7 +14235,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_dataframeBuilderIntrospection(ctx, field)
+				res = ec._Query_dataframeDatasets(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15559,7 +14248,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "dataframeMaterialization":
+		case "projectDataframeDatasets":
 			field := field
 
 			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
@@ -15568,29 +14257,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_dataframeMaterialization(ctx, field)
-				if res == graphql.RequiredNull {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			rrm := func(ctx context.Context) graphql.Marshaler {
-				return ec.OperationContext.RootResolverMiddleware(ctx,
-					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "dataframeDatasets":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Query_dataframeDatasets(ctx, field)
+				res = ec._Query_projectDataframeDatasets(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15702,6 +14369,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				}()
 				res = ec._Query_dataframeRecipeExecution(ctx, field)
 				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeRecipeRevision":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeRecipeRevision(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "dataframeRecipeRevisions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_dataframeRecipeRevisions(ctx, field)
+				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
@@ -16408,25 +15119,6 @@ func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcom�
 	return ec._DataframeAggregationsResult(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeBuilderIntrospection2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderIntrospection(ctx context.Context, sel ast.SelectionSet, v model.DataframeBuilderIntrospection) graphql.Marshaler {
-	return ec._DataframeBuilderIntrospection(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNDataframeBuilderIntrospection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderIntrospection(ctx context.Context, sel ast.SelectionSet, v *model.DataframeBuilderIntrospection) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeBuilderIntrospection(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalNDataframeBuilderIntrospectionInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeBuilderIntrospectionInput(ctx context.Context, v any) (model.DataframeBuilderIntrospectionInput, error) {
-	res, err := ec.unmarshalInputDataframeBuilderIntrospectionInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
 func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -16463,59 +15155,9 @@ func (ec *executionContext) marshalNDataframeCompilerPlanDiagnostics2ᚖgithub�
 	return ec._DataframeCompilerPlanDiagnostics(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeContract2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeContract(ctx context.Context, sel ast.SelectionSet, v model.DataframeContract) graphql.Marshaler {
-	return ec._DataframeContract(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNDataframeContract2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeContract(ctx context.Context, sel ast.SelectionSet, v *model.DataframeContract) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeContract(ctx, sel, v)
-}
-
 func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeDatasetInput(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
 	res, err := ec.unmarshalInputDataframeDatasetInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNDataframeFieldHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHintᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeFieldHint) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNDataframeFieldHint2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHint(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNDataframeFieldHint2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldHint(ctx context.Context, sel ast.SelectionSet, v *model.DataframeFieldHint) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeFieldHint(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNDataframeFieldSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldSelector(ctx context.Context, sel ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeFieldSelector(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInput(ctx context.Context, v any) (*model.DataframeFilterInput, error) {
@@ -17136,6 +15778,36 @@ func (ec *executionContext) marshalNDataframeRecipeResultOutput2ᚖgithubᚗcom�
 	return ec._DataframeRecipeResultOutput(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNDataframeRecipeRevision2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeRevision) graphql.Marshaler {
+	return ec._DataframeRecipeRevision(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDataframeRecipeRevision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevisionᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRecipeRevision) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDataframeRecipeRevision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDataframeRecipeRevision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeRevision) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DataframeRecipeRevision(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNDataframeRecipeValidation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeValidation(ctx context.Context, sel ast.SelectionSet, v model.DataframeRecipeValidation) graphql.Marshaler {
 	return ec._DataframeRecipeValidation(ctx, sel, &v)
 }
@@ -17148,42 +15820,6 @@ func (ec *executionContext) marshalNDataframeRecipeValidation2ᚖgithubᚗcomᚋ
 		return graphql.Null
 	}
 	return ec._DataframeRecipeValidation(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNDataframeRelatedResourceHints2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRelatedResourceHintsᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRelatedResourceHints) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNDataframeRelatedResourceHints2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRelatedResourceHints(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNDataframeRelatedResourceHints2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRelatedResourceHints(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRelatedResourceHints) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeRelatedResourceHints(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNDataframeResourceHints2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeResourceHints(ctx context.Context, sel ast.SelectionSet, v *model.DataframeResourceHints) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeResourceHints(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRichSourceReuseᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRichSourceReuse) graphql.Marshaler {
@@ -17234,32 +15870,6 @@ func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalypr�
 func (ec *executionContext) unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx context.Context, v any) (*model.DataframeSelectorInput, error) {
 	res, err := ec.unmarshalInputDataframeSelectorInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNDataframeTraversalHint2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHintᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeTraversalHint) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNDataframeTraversalHint2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHint(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNDataframeTraversalHint2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeTraversalHint(ctx context.Context, sel ast.SelectionSet, v *model.DataframeTraversalHint) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._DataframeTraversalHint(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNExplainDataframeRecipeInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐExplainDataframeRecipeInput(ctx context.Context, v any) (model.ExplainDataframeRecipeInput, error) {
@@ -17651,8 +16261,8 @@ func (ec *executionContext) marshalNProjectReleaseState2githubᚗcomᚋcalyprᚋ
 	return v
 }
 
-func (ec *executionContext) unmarshalNPromoteDataframeContractInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐPromoteDataframeContractInput(ctx context.Context, v any) (model.PromoteDataframeContractInput, error) {
-	res, err := ec.unmarshalInputPromoteDataframeContractInput(ctx, v)
+func (ec *executionContext) unmarshalNRegisterDataframeRecipeRevisionInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐRegisterDataframeRecipeRevisionInput(ctx context.Context, v any) (model.RegisterDataframeRecipeRevisionInput, error) {
+	res, err := ec.unmarshalInputRegisterDataframeRecipeRevisionInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
@@ -17685,20 +16295,6 @@ func (ec *executionContext) marshalODataframeAvailability2ᚖgithubᚗcomᚋcaly
 		return graphql.Null
 	}
 	return v
-}
-
-func (ec *executionContext) marshalODataframeFieldPredicate2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldPredicate(ctx context.Context, sel ast.SelectionSet, v *model.DataframeFieldPredicate) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return ec._DataframeFieldPredicate(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalODataframeFieldSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFieldSelector(ctx context.Context, sel ast.SelectionSet, v *model.DataframeFieldSelector) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return ec._DataframeFieldSelector(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx context.Context, v any) ([]*model.DataframeFilterInput, error) {
@@ -17767,19 +16363,18 @@ func (ec *executionContext) marshalODataframeRecipePhysicalExplanation2ᚖgithub
 	return ec._DataframeRecipePhysicalExplanation(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalODataframeRecipeRevision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRecipeRevision(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRecipeRevision) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DataframeRecipeRevision(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelector(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSelector) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._DataframeSelector(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalODataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx context.Context, v any) (*model.DataframeSelectorInput, error) {
-	if v == nil {
-		return nil, nil
-	}
-	res, err := ec.unmarshalInputDataframeSelectorInput(ctx, v)
-	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSortInput(ctx context.Context, v any) (*model.DataframeSortInput, error) {
@@ -17906,22 +16501,6 @@ func (ec *executionContext) unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirPivotFamily2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotFamily(ctx context.Context, v any) (*model.FhirPivotFamily, error) {
-	if v == nil {
-		return nil, nil
-	}
-	var res = new(model.FhirPivotFamily)
-	err := res.UnmarshalGQL(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOFhirPivotFamily2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotFamily(ctx context.Context, sel ast.SelectionSet, v *model.FhirPivotFamily) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return v
-}
-
 func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInputᚄ(ctx context.Context, v any) ([]*model.FhirPivotInput, error) {
 	if v == nil {
 		return nil, nil
@@ -17990,3 +16569,20 @@ func (ec *executionContext) unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcom�
 }
 
 // endregion ***************************** type.gotpl *****************************
+
+
+// JSON scalar support is appended by cmd/gqlgenfix because gqlgen does not
+// emit helpers for the encoding/json.RawMessage model mapping.
+func MarshalJSON(v json.RawMessage) graphql.Marshaler {
+	return graphql.WriterFunc(func(w io.Writer) {
+		_, _ = w.Write(v)
+	})
+}
+
+func (ec *executionContext) unmarshalInputJSON(ctx context.Context, v any) (json.RawMessage, error) {
+	return json.Marshal(v)
+}
+
+func (ec *executionContext) _JSON(ctx context.Context, sel ast.SelectionSet, v json.RawMessage) graphql.Marshaler {
+	return MarshalJSON(v)
+}

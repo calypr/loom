@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/bytedance/sonic"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const relationshipCatalogKeyPrefix = "rfc_"
@@ -37,13 +38,21 @@ func RelationshipCountsFromRawEdges(docs []json.RawMessage) (map[RelationshipKey
 		if edge.Project == "" || edge.FromType == "" || edge.Label == "" || edge.ToType == "" {
 			return nil, fmt.Errorf("relationship edge %d is missing project/from_type/label/to_type", index)
 		}
+		fromType, ok := fhirschema.ConcreteResourceType(edge.FromType)
+		if !ok {
+			return nil, fmt.Errorf("relationship edge %d has unsupported from_type %q", index, edge.FromType)
+		}
+		toType, ok := fhirschema.ConcreteResourceType(edge.ToType)
+		if !ok {
+			return nil, fmt.Errorf("relationship edge %d has unsupported to_type %q", index, edge.ToType)
+		}
 		key := RelationshipKey{
 			Project:           edge.Project,
 			DatasetGeneration: NormalizeDatasetGeneration(edge.DatasetGeneration),
 			AuthResourcePath:  edge.AuthResourcePath,
-			FromType:          edge.FromType,
+			FromType:          fromType,
 			Label:             edge.Label,
-			ToType:            edge.ToType,
+			ToType:            toType,
 		}
 		counts[key]++
 	}

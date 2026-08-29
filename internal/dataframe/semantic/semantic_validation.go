@@ -7,11 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// MaxSemanticTraversalDepth is the maximum number of relationship edges below
-// a semantic-plan root. Keeping this small bounds compiler work and graph-query
-// fanout until a cost model can safely authorize deeper plans.
-const MaxSemanticTraversalDepth = 4
-
 // ValidateSemanticGraph checks the schema and structural safety of an already
 // constructed semantic plan. It performs no observed-data or authorization
 // checks and does not mutate the plan.
@@ -35,20 +30,16 @@ func ValidateSemanticGraph(plan SemanticPlan) error {
 	state := semanticValidationState{
 		aliases: map[string]string{},
 	}
-	return state.validateChildren(plan.Root, 0, []string{plan.Root.ResourceType}, map[string]bool{})
+	return state.validateChildren(plan.Root, []string{plan.Root.ResourceType})
 }
 
 type semanticValidationState struct {
 	aliases map[string]string
 }
 
-func (s *semanticValidationState) validateChildren(parent SemanticNode, depth int, path []string, edgesOnPath map[string]bool) error {
+func (s *semanticValidationState) validateChildren(parent SemanticNode, path []string) error {
 	for index, child := range parent.Children {
-		childDepth := depth + 1
 		location := fmt.Sprintf("%s.children[%d]", strings.Join(path, " -> "), index)
-		if childDepth > MaxSemanticTraversalDepth {
-			return fmt.Errorf("semantic traversal depth %d exceeds maximum %d at %s", childDepth, MaxSemanticTraversalDepth, location)
-		}
 		alias := strings.TrimSpace(child.Alias)
 		if alias == "" {
 			return fmt.Errorf("semantic traversal alias is required at %s", location)
@@ -75,28 +66,13 @@ func (s *semanticValidationState) validateChildren(parent SemanticNode, depth in
 		}
 
 		edge := fmt.Sprintf("%s -[%s]-> %s", parent.ResourceType, child.EdgeLabel, child.ResourceType)
-		edgeKey := parent.ResourceType + "\x00" + child.EdgeLabel + "\x00" + child.ResourceType
-		// A single self-reference (for example, Patient.link.other) is a
-		// normal, finite FHIR relationship and must remain compilable. A route
-		// that repeats the same relationship within one requested path is the
-		// cycle that can accidentally multiply graph work; reject that while the
-		// depth cap protects paths made of distinct relationships.
-		if edgesOnPath[edgeKey] {
-			return fmt.Errorf("semantic traversal cycle detected at %s: %s", location, strings.Join(append(path, edge), " -> "))
-		}
-		nextEdges := cloneTraversalPathSet(edgesOnPath)
-		nextEdges[edgeKey] = true
-		if err := s.validateChildren(child, childDepth, append(path, edge), nextEdges); err != nil {
+		// Semantic plans are finite values: every child is explicitly present in
+		// the request and therefore has a bounded traversal route. Repeating an
+		// edge (including a self-reference) is valid and is left to the explicit
+		// physical cost policy rather than an authoring-time hop or cycle cap.
+		if err := s.validateChildren(child, append(path, edge)); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func cloneTraversalPathSet(in map[string]bool) map[string]bool {
-	out := make(map[string]bool, len(in)+1)
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
 }

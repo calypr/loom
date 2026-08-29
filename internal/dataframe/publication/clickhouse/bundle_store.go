@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -48,6 +49,18 @@ type BundleClickHouseStore interface {
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
 	VerifyOutput(context.Context, string, []clickhouse.Column, int64) error
 	DropTable(context.Context, string) error
+}
+
+type bundleColumnDropper interface {
+	DropColumns(context.Context, string, []string) error
+}
+
+// BundleClickHouseColumnStore is the schema-aware extension implemented by
+// production ClickHouse clients. The base store remains compatible with
+// lightweight readers/fakes that never request column pruning.
+type BundleClickHouseColumnStore interface {
+	BundleClickHouseStore
+	DropColumns(context.Context, string, []string) error
 }
 
 func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCatalog) (*ClickHouseBundleStore, error) {
@@ -163,6 +176,16 @@ type clickHouseBundleTx struct {
 	leaseMu         sync.RWMutex
 	leaseStopOnce   sync.Once
 	leaseStopErr    error
+}
+
+func (t *clickHouseBundleTx) Idempotent() bool { return t.idempotent }
+
+func (t *clickHouseBundleTx) ExistingPublishedOutputs() []publication.PublishedOutput {
+	result := make([]publication.PublishedOutput, 0, len(t.execution.Outputs))
+	for _, output := range t.execution.Outputs {
+		result = append(result, publication.PublishedOutput{Name: output.Name, PhysicalName: output.PhysicalTable, RowCount: output.RowCount, ByteCount: output.ByteCount})
+	}
+	return result
 }
 
 const bundleCleanupTimeout = 10 * time.Second
@@ -293,6 +316,118 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	}
 	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
 	return t.save(ctx)
+}
+
+// SetOutputMetadata persists semantic schema alongside the physical table
+// definition. The optional transaction method preserves compatibility with
+// existing AtomicBundleTx implementations and test fakes.
+func (t *clickHouseBundleTx) SetOutputMetadata(name string, columns []publication.LogicalColumn) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	idx := t.outputIndex(name)
+	if idx < 0 {
+		return fmt.Errorf("bundle output %q was not created", name)
+	}
+	record := &t.execution.Outputs[idx]
+	if len(columns) == 0 {
+		return fmt.Errorf("bundle output %q has no metadata columns", name)
+	}
+	physical := make(map[string]publication.LogicalColumn, len(columns))
+	for _, column := range columns {
+		physical[column.Name] = column
+	}
+	for index := range record.Columns {
+		column := &record.Columns[index]
+		if logical, ok := physical[column.Name]; ok {
+			column.SemanticPath = logical.SemanticPath
+			column.LogicalType = logical.Kind
+			column.Nullable = logical.Nullable
+			column.Repeated = logical.Repeated
+			column.Provenance = logical.Provenance
+			column.LoomOwned = logical.LoomOwned || logical.IsIdentity || column.Name == "__loom_row_id" || column.Name == "auth_resource_path" || column.Name == "project_id"
+		}
+	}
+	return t.save(context.Background())
+}
+
+// FinalizeSchema removes discovered columns that were never populated and
+// persists the retained logical/physical schema before verification.
+func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	for _, schema := range schemas {
+		idx := t.outputIndex(schema.Name)
+		if idx < 0 {
+			return fmt.Errorf("bundle output %q was not created", schema.Name)
+		}
+		record := &t.execution.Outputs[idx]
+		retained := make(map[string]publication.LogicalColumn, len(schema.Columns))
+		for _, column := range schema.Columns {
+			retained[column.Name] = column
+		}
+		var dropped []string
+		seen := make(map[string]bool, len(record.Columns))
+		kept := make([]publication.PhysicalColumn, 0, len(record.Columns))
+		for _, column := range record.Columns {
+			logical, ok := retained[column.Name]
+			if !ok {
+				if column.Name == "__loom_row_id" || column.Name == "auth_resource_path" || column.Name == "project_id" || strings.HasPrefix(column.Name, "__loom_") {
+					seen[column.Name] = true
+					kept = append(kept, column)
+				} else if column.Provenance != publication.ColumnDiscovered {
+					return fmt.Errorf("output %q attempted to remove explicit column %q", schema.Name, column.Name)
+				} else {
+					dropped = append(dropped, column.Name)
+				}
+				continue
+			}
+			seen[column.Name] = true
+			column.SemanticPath, column.LogicalType = logical.SemanticPath, logical.Kind
+			column.Nullable, column.Repeated = logical.Nullable, logical.Repeated
+			column.Provenance, column.LoomOwned = logical.Provenance, logical.LoomOwned || logical.IsIdentity || strings.HasPrefix(column.Name, "__loom_") || column.Name == "auth_resource_path" || column.Name == "project_id"
+			kept = append(kept, column)
+		}
+		if len(dropped) > 0 {
+			dropper, ok := t.store.clickHouse.(bundleColumnDropper)
+			if !ok {
+				return fmt.Errorf("ClickHouse store cannot drop staging columns for output %q", schema.Name)
+			}
+			if err := dropper.DropColumns(ctx, record.PhysicalTable, dropped); err != nil {
+				return err
+			}
+		}
+		record.Columns = kept
+		for name := range retained {
+			if !seen[name] {
+				return fmt.Errorf("output %q retained unknown schema column %q", schema.Name, name)
+			}
+		}
+	}
+	identity := publication.PublicationIdentity{Name: t.execution.Name, TranslationVersion: t.execution.TranslationVersion, Project: t.execution.Project, DatasetGeneration: t.execution.DatasetGeneration, RecipeDigest: t.execution.RecipeDigest, ScopeDigest: t.execution.ScopeDigest, EngineVersion: t.execution.EngineVersion, AuthScopeMode: t.execution.AuthScopeMode, AuthResourcePaths: append([]string(nil), t.execution.AuthResourcePaths...)}
+	t.execution.SchemaDigest = publication.FinalSchemaDigest(identity, schemas)
+	return t.save(ctx)
+}
+
+func (t *clickHouseBundleTx) SetFinalSchemaDigest(digest string) error {
+	if t.idempotent {
+		return nil
+	}
+	if strings.TrimSpace(digest) == "" {
+		return fmt.Errorf("final schema digest is required")
+	}
+	t.execution.SchemaDigest = digest
+	return nil
 }
 
 func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, columns []clickhouse.Column, rows []map[string]any) error {
@@ -518,6 +653,7 @@ func (t *clickHouseBundleTx) fail(ctx context.Context, err error) error {
 }
 
 func (t *clickHouseBundleTx) failPhase(ctx context.Context, phase, output string, err error) error {
+	slog.Error("dataframe bundle publication failed", "phase", phase, "output", output, "error", err)
 	normalized := dataframeerrors.Normalize(err)
 	t.execution.State, t.execution.Error = publication.BundleFailed, err.Error()
 	t.execution.PublishedAt = nil
@@ -539,7 +675,7 @@ func (t *clickHouseBundleTx) failPhase(ctx context.Context, phase, output string
 var bundleOutputRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var schemaIdentifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-var supportedSchemaScalarRE = regexp.MustCompile(`^(String|UUID|Bool|Int8|Int16|Int32|Int64|Int128|Int256|UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Float32|Float64|Date|Date32|DateTime|DateTime64(\([^)]*\))?)$`)
+var supportedSchemaScalarRE = regexp.MustCompile(`^(String|JSON|UUID|Bool|Int8|Int16|Int32|Int64|Int128|Int256|UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Float32|Float64|Date|Date32|DateTime|DateTime64(\([^)]*\))?)$`)
 
 func validateBundleColumn(column publication.PhysicalColumn) error {
 	if column.Name == "" || !schemaIdentifierRE.MatchString(column.Name) || column.Name == "__loom_row_id" {

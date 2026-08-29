@@ -15,6 +15,54 @@ type statusExecutionCatalog struct {
 	executions []publication.BundleExecution
 }
 
+type statusReleaseStore struct {
+	records map[string]dataset.ProjectRelease
+	active  map[string]dataset.ActiveRelease
+}
+
+func newStatusReleaseStore() *statusReleaseStore {
+	return &statusReleaseStore{records: make(map[string]dataset.ProjectRelease), active: make(map[string]dataset.ActiveRelease)}
+}
+
+func (s *statusReleaseStore) SaveRelease(_ context.Context, release dataset.ProjectRelease) (dataset.ProjectRelease, error) {
+	s.records[release.Project+"\x00"+release.ID] = release
+	return release, nil
+}
+
+func (s *statusReleaseStore) ReadRelease(_ context.Context, project, releaseID string) (dataset.ProjectRelease, error) {
+	release, ok := s.records[project+"\x00"+releaseID]
+	if !ok {
+		return dataset.ProjectRelease{}, dataset.ErrReleaseNotFound
+	}
+	return release, nil
+}
+
+func (s *statusReleaseStore) ReadActiveRelease(_ context.Context, project string) (dataset.ActiveRelease, error) {
+	release, ok := s.active[project]
+	if !ok {
+		return dataset.ActiveRelease{}, dataset.ErrNoActiveRelease
+	}
+	return release, nil
+}
+
+func (s *statusReleaseStore) CompareAndSwapActivateRelease(_ context.Context, release dataset.ProjectRelease, expected int64) (dataset.ActiveRelease, error) {
+	current := s.active[release.Project]
+	if current.Revision != expected {
+		return dataset.ActiveRelease{}, dataset.ErrReleaseActivationConflict
+	}
+	active := dataset.ActiveRelease{Release: release, Revision: expected + 1}
+	s.active[release.Project] = active
+	return active, nil
+}
+
+func (s *statusReleaseStore) ListReleaseProjects(context.Context) ([]string, error) {
+	projects := make([]string, 0, len(s.active))
+	for project := range s.active {
+		projects = append(projects, project)
+	}
+	return projects, nil
+}
+
 func (c statusExecutionCatalog) ListExecutions(_ context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	result := make([]publication.BundleExecution, 0)
 	for _, execution := range c.executions {
@@ -29,7 +77,7 @@ func TestReleaseProjectStatusResolverDistinguishesReleaseAndAttemptStates(t *tes
 	ctx := context.Background()
 	now := time.Now().UTC()
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}
-	store := dataset.NewMemoryLifecycleStore()
+	store := newStatusReleaseStore()
 	release := dataset.ProjectRelease{ID: "release-1", Project: "current", Generation: "g1", GitCommit: "g1", Publications: []dataset.ReleasePublication{{Selector: selector, ExecutionID: "published-1", Generation: "g1", VerifiedAt: now}}}
 	if _, err := store.SaveRelease(ctx, release); err != nil {
 		t.Fatal(err)

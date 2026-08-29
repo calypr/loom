@@ -21,7 +21,7 @@ type snapshotRunnerFixture struct {
 }
 
 type stagedManifestRepository struct {
-	*dataset.MemoryLifecycleStore
+	*memoryLifecycleStore
 	manifest dataset.Manifest
 }
 
@@ -36,7 +36,7 @@ func (f *snapshotRunnerFixture) RunGeneration(_ context.Context, request Generat
 }
 
 func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
-	store := dataset.NewMemoryLifecycleStore()
+	store := newMemoryLifecycleStore()
 	runner := &snapshotRunnerFixture{}
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	blobs := LocalSnapshotBlobs{Root: t.TempDir()}
@@ -97,7 +97,7 @@ func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
 
 func TestSnapshotServiceChecksumConflictAndFailurePreservePriorRelease(t *testing.T) {
 	ctx := context.Background()
-	store := dataset.NewMemoryLifecycleStore()
+	store := newMemoryLifecycleStore()
 	now := time.Now().UTC()
 	runner := &snapshotRunnerFixture{err: errors.New("invalid rows")}
 	service := &SnapshotService{Repository: store, Blobs: LocalSnapshotBlobs{Root: t.TempDir()}, Runner: runner, Now: func() time.Time { return now }}
@@ -123,13 +123,13 @@ func TestSnapshotServiceChecksumConflictAndFailurePreservePriorRelease(t *testin
 
 func TestSnapshotFinalizeRecoversWhenLoadCommittedBeforeResponseWasLost(t *testing.T) {
 	ctx := context.Background()
-	memory := dataset.NewMemoryLifecycleStore()
+	memory := newMemoryLifecycleStore()
 	now := time.Now().UTC()
 	ref, _ := dataset.NewRef("project-a", "commit-a")
 	schema, _ := dataset.NewSchemaSnapshot("urn:test", "R5", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"Patient"})
 	manifest, _ := dataset.NewManifest(ref, schema)
 	manifest, _ = manifest.Transition(dataset.StateStaged)
-	repository := &stagedManifestRepository{MemoryLifecycleStore: memory, manifest: manifest}
+	repository := &stagedManifestRepository{memoryLifecycleStore: memory, manifest: manifest}
 	runner := &snapshotRunnerFixture{err: errors.New("connection lost after commit")}
 	service := &SnapshotService{Repository: repository, Blobs: LocalSnapshotBlobs{Root: t.TempDir()}, Runner: runner, Now: func() time.Time { return now }}
 	_, _ = service.CreateOrResume(ctx, "project-a", "commit-a", "", []string{"Patient"})

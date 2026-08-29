@@ -20,17 +20,16 @@ import (
 // authorized project publications. project_id is a public, stable row column;
 // legacy outputs that predate it are filled from the source publication project.
 type FederatedDataset struct {
-	Selector              DataframeSelector
-	ActiveContractVersion string
-	Name                  string
-	Revision              string
-	Sources               []Materialization
-	Columns               []Column
-	RowCount              int64
-	RowCountComplete      bool
-	Availability          FederationAvailability
-	ExpectedProjects      int
-	ProjectStatuses       []ProjectStatus
+	Selector         DataframeSelector
+	Name             string
+	Revision         string
+	Sources          []Materialization
+	Columns          []Column
+	RowCount         int64
+	RowCountComplete bool
+	Availability     FederationAvailability
+	ExpectedProjects int
+	ProjectStatuses  []ProjectStatus
 }
 
 type FederationAvailability string
@@ -84,11 +83,79 @@ type ReleaseExecutionResolver interface {
 	ActiveReleaseSelectors(context.Context, []string) ([]DataframeSelector, map[string]bool, error)
 }
 
+// FederationSnapshotResolver resolves active release execution IDs and their
+// project statuses together. This lets interactive reads avoid independently
+// rediscovering the same release and publication lifecycle metadata.
+type FederationSnapshotResolver interface {
+	ResolveFederationSnapshot(context.Context, []string, DataframeSelector) (map[string]string, []ProjectStatus, bool, error)
+}
+
 func (r *Reader) FederationProjectStatuses(ctx context.Context, projects []string, selector DataframeSelector) ([]ProjectStatus, error) {
 	if r != nil && r.ProjectStatusResolver != nil {
 		return r.ProjectStatusResolver.DataframeProjectStatuses(ctx, append([]string(nil), projects...), selector)
 	}
 	return nil, nil
+}
+
+// CurrentFederatedSnapshot resolves sources and project status through the
+// combined release fast path when available. The legacy discovery methods are
+// retained as a fallback for alternate catalogs and tests.
+func (r *Reader) CurrentFederatedSnapshot(ctx context.Context, projects []string, selector DataframeSelector) ([]Materialization, []ProjectStatus, error) {
+	projects = normalizedProjects(projects)
+	if r != nil && r.FederationSnapshotResolver != nil {
+		if r.Catalog == nil {
+			return nil, nil, fmt.Errorf("bundle catalog dependency is required")
+		}
+		executionIDs, statuses, complete, err := r.FederationSnapshotResolver.ResolveFederationSnapshot(ctx, projects, selector)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !complete {
+			sources, err := r.CurrentFederatedSources(ctx, projects, selector)
+			if err != nil {
+				return nil, nil, err
+			}
+			statuses, err := r.FederationProjectStatuses(ctx, projects, selector)
+			return sources, statuses, err
+		}
+		sources := make([]Materialization, 0, len(executionIDs))
+		for _, project := range projects {
+			executionID := strings.TrimSpace(executionIDs[project])
+			if executionID == "" {
+				continue
+			}
+			execution, err := r.Catalog.GetExecution(ctx, executionID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if execution.Project != project || !execution.State.Successful() {
+				continue
+			}
+			for _, output := range execution.Outputs {
+				if output.Name != selector.Output {
+					continue
+				}
+				executionSelector := output.Selector
+				if !executionSelector.Valid() {
+					executionSelector = execution.Selector(selector.Output)
+				}
+				if executionSelector != selector {
+					continue
+				}
+				materialization := publishedMaterialization(execution, output, selector.Output)
+				materialization.Selector = selector
+				sources = append(sources, materialization)
+				break
+			}
+		}
+		return sources, statuses, nil
+	}
+	sources, err := r.CurrentFederatedSources(ctx, projects, selector)
+	if err != nil {
+		return nil, nil, err
+	}
+	statuses, err := r.FederationProjectStatuses(ctx, projects, selector)
+	return sources, statuses, err
 }
 
 // SourceAccess is the already-resolved visibility for one published project.
@@ -128,22 +195,6 @@ type FederatedStreamRequest struct {
 	Filters         []Filter
 	Sort            *Sort
 	AccessByProject map[string]SourceAccess
-}
-
-// FederatedAggregateRequest describes an aggregate over the same authorized
-// union used by row reads.
-type FederatedAggregateRequest struct {
-	GroupBy         []string
-	Filters         []Filter
-	Operation       string
-	Column          string
-	AccessByProject map[string]SourceAccess
-}
-
-type FederatedAggregateResult struct {
-	Dataset FederatedDataset
-	Columns []string
-	Rows    []map[string]any
 }
 
 func normalizedProjects(projects []string) []string {
@@ -362,11 +413,25 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 				continue
 			}
 		}
+		// Output absence is a normal selector miss, not a catalog failure. In
+		// particular, a newer recipe version may replace Patient with
+		// ResearchSubject while both executions remain in publication history.
+		// Do not ask version-aware catalogs to resolve metadata for an output the
+		// execution never published.
+		if !hasOutputResourceType(execution, selector.Output) {
+			continue
+		}
 		executionSelector, selectorErr := r.selectorForExecution(ctx, execution, selector.Output)
 		if selectorErr != nil {
+			// A stale active-release pointer must degrade that project, not make
+			// every other authorized project's valid publication unreadable.
+			// Status resolution still reports the missing project to callers.
+			if errors.Is(selectorErr, bundlepublication.ErrBundleNotFound) {
+				continue
+			}
 			return nil, selectorErr
 		}
-		if executionSelector != selector || !hasOutputResourceType(execution, selector.Output) {
+		if executionSelector != selector {
 			continue
 		}
 		if current, ok := selected[execution.Project]; ok && current.ID != execution.ID {
@@ -401,27 +466,22 @@ func (r *Reader) CurrentFederatedSources(ctx context.Context, projects []string,
 	return result, nil
 }
 
-func executionTranslationVersion(execution bundlepublication.BundleExecution, legacyDefault string) string {
-	if version := strings.TrimSpace(execution.TranslationVersion); version != "" {
-		return version
-	}
-	return strings.TrimSpace(legacyDefault)
-}
-
 func (r *Reader) selectorForExecution(ctx context.Context, execution bundlepublication.BundleExecution, output string) (DataframeSelector, error) {
 	if resolver, ok := r.Catalog.(ExecutionSelectorResolver); ok {
 		selector, err := resolver.DataframeSelectorForExecution(ctx, execution.ID, output)
-		if err == nil && selector.Valid() {
-			return selector, nil
-		}
-		if strings.TrimSpace(execution.TranslationVersion) != "" {
-			if err == nil {
-				return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
-			}
+		if err != nil {
 			return DataframeSelector{}, err
 		}
+		if selector.Valid() {
+			return selector, nil
+		}
+		return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
 	}
-	return DataframeSelector{Recipe: execution.Name, TranslationVersion: executionTranslationVersion(execution, r.LegacyTranslationVersion), Output: output}, nil
+	selector := DataframeSelector{Recipe: execution.Name, TranslationVersion: strings.TrimSpace(execution.TranslationVersion), Output: output}
+	if !selector.Valid() {
+		return DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "")
+	}
+	return selector, nil
 }
 
 func (r *Reader) CurrentFederatedResourceTypes(ctx context.Context, projects []string) ([]string, error) {
@@ -519,6 +579,37 @@ func (r *Reader) CurrentFederatedSelectors(ctx context.Context, projects []strin
 		result = append(result, selector)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Key() < result[j].Key() })
+	return result, nil
+}
+
+// CurrentProjectDatasets returns the current output materializations for one
+// project without merging them with other projects.
+func (r *Reader) CurrentProjectDatasets(ctx context.Context, project string) ([]Materialization, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
+	selectors, err := r.CurrentFederatedSelectors(ctx, []string{project})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Materialization, 0, len(selectors))
+	for _, selector := range selectors {
+		sources, sourceErr := r.CurrentFederatedSources(ctx, []string{project}, selector)
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		result = append(result, sources...)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name != result[j].Name {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].ID < result[j].ID
+	})
+	if len(result) == 0 {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
+	}
 	return result, nil
 }
 
@@ -639,434 +730,4 @@ func (r *Reader) PublishedProjects(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func (r *Reader) PageFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedPageRequest) (FederatedPage, error) {
-	if r == nil || r.ClickHouse == nil {
-		return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
-	if err != nil {
-		return FederatedPage{}, err
-	}
-	first := req.First
-	if first <= 0 {
-		first = 100
-	}
-	if r.MaxPage > 0 && first > r.MaxPage {
-		first = r.MaxPage
-	}
-	cursor, err := decodeCursor(req.After)
-	if err != nil {
-		return FederatedPage{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidCursor, "")
-	}
-	unionColumns := append([]string(nil), columns...)
-	if req.Sort != nil && !contains(unionColumns, req.Sort.Column) {
-		unionColumns = append(unionColumns, req.Sort.Column)
-	}
-	for _, filter := range req.Filters {
-		if !contains(unionColumns, filter.Column) {
-			unionColumns = append(unionColumns, filter.Column)
-		}
-	}
-	union, unionArgs, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
-	if err != nil {
-		return FederatedPage{}, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return FederatedPage{}, err
-	}
-	queryColumns := append([]string(nil), unionColumns...)
-	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
-	selectColumns := quotedColumns(queryColumns) + ", count() OVER() AS `__loom_total`"
-	readColumns := append(append([]string(nil), queryColumns...), "__loom_total")
-	counted := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", selectColumns, union)
-	queryArgs := append([]any(nil), unionArgs...)
-	queryArgs = append(queryArgs, whereArgs...)
-	if len(where) > 0 {
-		counted += " WHERE " + strings.Join(where, " AND ")
-	}
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_counted", quotedColumns(readColumns), counted)
-	if cursor != nil {
-		cursorWhere, cursorArgs, err := federatedCursorPredicate(cursor, req.Sort)
-		if err != nil {
-			return FederatedPage{}, err
-		}
-		query += " WHERE " + cursorWhere
-		queryArgs = append(queryArgs, cursorArgs...)
-	}
-	if req.Sort != nil {
-		direction := "ASC"
-		if req.Sort.Desc {
-			direction = "DESC"
-		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_global_row_id` ASC", req.Sort.Column, direction)
-	} else {
-		query += " ORDER BY `__loom_global_row_id` ASC"
-	}
-	query += fmt.Sprintf(" LIMIT %d", first+1)
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, readColumns, queryArgs...)
-	if err != nil {
-		return FederatedPage{}, backendCallError(err)
-	}
-	var count int64
-	if len(rows) > 0 {
-		count, err = numericCount(rows[0]["__loom_total"])
-		if err != nil {
-			return FederatedPage{}, err
-		}
-	} else {
-		// A window has no carrier row for an empty page (including an after
-		// cursor beyond the end), so only that case needs the count fallback.
-		count, err = r.federatedCountDataset(ctx, dataset, allowed, req)
-		if err != nil {
-			return FederatedPage{}, err
-		}
-	}
-	hasNext := len(rows) > first
-	if hasNext {
-		rows = rows[:first]
-	}
-	next := ""
-	if hasNext && len(rows) > 0 {
-		last := rows[len(rows)-1]
-		rowID := fmt.Sprint(last["__loom_global_row_id"])
-		var sortValue any
-		if req.Sort != nil {
-			sortValue = last[req.Sort.Column]
-			if sortValue == nil {
-				return FederatedPage{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
-			}
-		}
-		next = encodeCursor(rowID, sortValue)
-	}
-	for _, row := range rows {
-		delete(row, "__loom_total")
-		delete(row, "__loom_row_id")
-		delete(row, "__loom_global_row_id")
-		for _, column := range unionColumns {
-			if !contains(columns, column) {
-				delete(row, column)
-			}
-		}
-	}
-	return FederatedPage{Dataset: dataset, Columns: columns, Rows: rows, TotalCount: count, HasNext: hasNext, NextCursor: next}, nil
-}
-
-func (r *Reader) StreamFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedStreamRequest, visit func(map[string]any) error) (FederatedDataset, error) {
-	if r == nil || r.ClickHouse == nil {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	if visit == nil {
-		return FederatedDataset{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	columns, allowed, err := federatedColumns(dataset, req.Columns, req.Sort)
-	if err != nil {
-		return FederatedDataset{}, err
-	}
-	unionColumns := append([]string(nil), columns...)
-	if req.Sort != nil && !contains(unionColumns, req.Sort.Column) {
-		unionColumns = append(unionColumns, req.Sort.Column)
-	}
-	for _, filter := range req.Filters {
-		if !contains(unionColumns, filter.Column) {
-			unionColumns = append(unionColumns, filter.Column)
-		}
-	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
-	if err != nil {
-		return FederatedDataset{}, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return FederatedDataset{}, err
-	}
-	args = append(args, whereArgs...)
-	queryColumns := append([]string(nil), unionColumns...)
-	queryColumns = append(queryColumns, "__loom_row_id", "__loom_global_row_id")
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_federated", quotedColumns(queryColumns), union)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	if req.Sort != nil {
-		direction := "ASC"
-		if req.Sort.Desc {
-			direction = "DESC"
-		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_global_row_id` ASC", req.Sort.Column, direction)
-	} else {
-		query += " ORDER BY `__loom_global_row_id` ASC"
-	}
-	err = r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
-		delete(row, "__loom_row_id")
-		delete(row, "__loom_global_row_id")
-		for _, column := range unionColumns {
-			if !contains(columns, column) {
-				delete(row, column)
-			}
-		}
-		return visit(row)
-	}, args...)
-	if err != nil {
-		return FederatedDataset{}, backendCallError(err)
-	}
-	return dataset, nil
-}
-
-func (r *Reader) federatedCountDataset(ctx context.Context, dataset FederatedDataset, allowed map[string]struct{}, req FederatedPageRequest) (int64, error) {
-	union, args, err := federatedNormalizedUnion(dataset, datasetVisibleColumns(dataset), req.AccessByProject)
-	if err != nil {
-		return 0, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return 0, err
-	}
-	args = append(args, whereArgs...)
-	query := fmt.Sprintf("SELECT count() AS `__loom_total` FROM (%s) AS __loom_federated", union)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, []string{"__loom_total"}, args...)
-	if err != nil {
-		return 0, backendCallError(err)
-	}
-	var total int64
-	for _, row := range rows {
-		value, err := numericCount(row["__loom_total"])
-		if err != nil {
-			return 0, err
-		}
-		total += value
-	}
-	return total, nil
-}
-
-func datasetVisibleColumns(dataset FederatedDataset) []string {
-	result := make([]string, 0, len(dataset.Columns))
-	for _, column := range dataset.Columns {
-		if column.Name != authResourcePathColumn && column.Name != "__loom_row_id" {
-			result = append(result, column.Name)
-		}
-	}
-	return result
-}
-
-func (r *Reader) AggregateFederatedDataset(ctx context.Context, dataset FederatedDataset, req FederatedAggregateRequest) (FederatedAggregateResult, error) {
-	if r == nil || r.ClickHouse == nil {
-		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	allowed := make(map[string]struct{}, len(dataset.Columns))
-	for _, column := range dataset.Columns {
-		if column.Name == authResourcePathColumn || column.Name == "__loom_row_id" {
-			continue
-		}
-		allowed[column.Name] = struct{}{}
-	}
-	for _, column := range req.GroupBy {
-		if _, ok := allowed[column]; !ok {
-			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	operation := strings.ToUpper(req.Operation)
-	if operation != "COUNT" && operation != "COUNT_DISTINCT" && operation != "SUM" && operation != "AVG" && operation != "MIN" && operation != "MAX" {
-		return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	if operation != "COUNT" {
-		if _, ok := allowed[req.Column]; !ok {
-			return FederatedAggregateResult{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	columns := append([]string(nil), req.GroupBy...)
-	metricName := strings.ToLower(operation)
-	if operation == "COUNT" {
-		metricName = "count"
-	}
-	columns = append(columns, metricName)
-	unionColumns := append([]string(nil), req.GroupBy...)
-	if operation != "COUNT" && !contains(unionColumns, req.Column) {
-		unionColumns = append(unionColumns, req.Column)
-	}
-	for _, filter := range req.Filters {
-		if !contains(unionColumns, filter.Column) {
-			unionColumns = append(unionColumns, filter.Column)
-		}
-	}
-	union, args, err := federatedNormalizedUnion(dataset, unionColumns, req.AccessByProject)
-	if err != nil {
-		return FederatedAggregateResult{}, err
-	}
-	where, whereArgs, err := buildWhere(req.Filters, allowed)
-	if err != nil {
-		return FederatedAggregateResult{}, err
-	}
-	args = append(args, whereArgs...)
-	metric := "count()"
-	switch operation {
-	case "COUNT_DISTINCT":
-		metric = fmt.Sprintf("uniqExact(`%s`)", req.Column)
-	case "SUM":
-		metric = fmt.Sprintf("sum(`%s`)", req.Column)
-	case "AVG":
-		metric = fmt.Sprintf("avg(`%s`)", req.Column)
-	case "MIN":
-		metric = fmt.Sprintf("min(`%s`)", req.Column)
-	case "MAX":
-		metric = fmt.Sprintf("max(`%s`)", req.Column)
-	}
-	selectExpr := make([]string, 0, len(req.GroupBy)+1)
-	for _, group := range req.GroupBy {
-		selectExpr = append(selectExpr, fmt.Sprintf("`%s`", group))
-	}
-	selectExpr = append(selectExpr, metric+" AS `"+metricName+"`")
-	query := fmt.Sprintf("SELECT %s FROM (%s) AS __loom_aggregate", strings.Join(selectExpr, ", "), union)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	query += aggregateGroupOrderClause(req.GroupBy)
-	rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, columns, args...)
-	if err != nil {
-		if r.Logger != nil {
-			r.Logger.Error("clickhouse federated aggregate failed", "query_id", shortQueryID(query), "query", query, "bind_count", len(args), "error", err)
-		}
-		return FederatedAggregateResult{}, backendCallError(err)
-	}
-	return FederatedAggregateResult{Dataset: dataset, Columns: columns, Rows: rows}, nil
-}
-
-func federatedColumns(dataset FederatedDataset, requested []string, sort *Sort) ([]string, map[string]struct{}, error) {
-	for _, column := range requested {
-		if column == authResourcePathColumn {
-			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	allowed := make(map[string]struct{}, len(dataset.Columns))
-	columns := append([]string(nil), requested...)
-	for _, column := range dataset.Columns {
-		if column.Name == "__loom_row_id" {
-			continue
-		}
-		allowed[column.Name] = struct{}{}
-		if len(requested) == 0 {
-			if column.Name != authResourcePathColumn {
-				columns = append(columns, column.Name)
-			}
-		}
-	}
-	if err := validateReaderColumns(columns, allowed); err != nil {
-		return nil, nil, err
-	}
-	if sort != nil {
-		if sort.Column == authResourcePathColumn {
-			return nil, nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-		}
-		if err := validateReaderColumns([]string{sort.Column}, allowed); err != nil {
-			return nil, nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
-		}
-	}
-	return columns, allowed, nil
-}
-
-// federatedNormalizedUnion creates the single typed source union used by rows,
-// counts and aggregates. User predicates are deliberately applied by callers
-// around this union; only per-source authorization remains inside branches.
-func federatedNormalizedUnion(dataset FederatedDataset, columns []string, accessByProject map[string]SourceAccess) (string, []any, error) {
-	branches := make([]string, 0, len(dataset.Sources))
-	args := make([]any, 0)
-	for _, source := range dataset.Sources {
-		present := make(map[string]Column, len(source.Columns))
-		for _, column := range source.Columns {
-			present[column.Name] = column
-		}
-		selects := make([]string, 0, len(columns)+2)
-		for _, column := range columns {
-			target, ok := findColumn(dataset.Columns, column)
-			if !ok {
-				return "", nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-			}
-			if column == projectIDColumn {
-				// The catalog project is authoritative, including for legacy tables
-				// without a physical project_id column.
-				selects = append(selects, fmt.Sprintf("CAST(? AS %s) AS `project_id`", target.ClickHouse))
-				args = append(args, source.Project)
-			} else if sourceColumn, exists := present[column]; exists {
-				selects = append(selects, fmt.Sprintf("CAST(`%s` AS %s) AS `%s`", sourceColumn.Name, target.ClickHouse, column))
-			} else if strings.HasPrefix(target.ClickHouse, "Array(") {
-				selects = append(selects, fmt.Sprintf("CAST([] AS %s) AS `%s`", target.ClickHouse, column))
-			} else {
-				typ := target.ClickHouse
-				if !strings.HasPrefix(typ, "Nullable(") {
-					typ = "Nullable(" + typ + ")"
-				}
-				selects = append(selects, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", typ, column))
-			}
-		}
-		selects = append(selects, "toString(`__loom_row_id`) AS `__loom_row_id`", "concat(?, ':', toString(`__loom_row_id`)) AS `__loom_global_row_id`")
-		branch := "SELECT " + strings.Join(selects, ", ") + " FROM `" + source.PhysicalTable + "`"
-		access := accessByProject[source.Project]
-		if !access.Unrestricted {
-			if _, ok := present[authResourcePathColumn]; ok {
-				branch += " WHERE `auth_resource_path` IN ?"
-				args = append(args, source.ID, access.ResourcePaths)
-			} else {
-				branch += " WHERE 0"
-				args = append(args, source.ID)
-			}
-		} else {
-			args = append(args, source.ID)
-		}
-		branches = append(branches, branch)
-	}
-	return strings.Join(branches, " UNION ALL "), args, nil
-}
-
-func validateReaderColumns(columns []string, allowed map[string]struct{}) error {
-	for _, column := range columns {
-		if column == "__loom_row_id" || column == "__loom_global_row_id" {
-			return fmt.Errorf("column %q is internal to dataframe pagination", column)
-		}
-		if _, ok := allowed[column]; !ok {
-			return fmt.Errorf("column %q is not in federated dataset schema", column)
-		}
-	}
-	return nil
-}
-
-func quotedColumns(columns []string) string {
-	quoted := make([]string, len(columns))
-	for index, column := range columns {
-		quoted[index] = fmt.Sprintf("`%s`", column)
-	}
-	return strings.Join(quoted, ", ")
-}
-
-func aggregateGroupOrderClause(groupBy []string) string {
-	if len(groupBy) == 0 {
-		return ""
-	}
-	columns := quotedColumns(groupBy)
-	return " GROUP BY " + columns + " ORDER BY " + columns
-}
-
-func shortQueryID(query string) string {
-	digest := sha256.Sum256([]byte(query))
-	return hex.EncodeToString(digest[:8])
-}
-
-func federatedCursorPredicate(cursor *pageCursor, sort *Sort) (string, []any, error) {
-	if cursor == nil || cursor.RowID == "" {
-		return "", nil, fmt.Errorf("invalid federated cursor")
-	}
-	if sort == nil {
-		return "`__loom_global_row_id` > ?", []any{cursor.RowID}, nil
-	}
-	if cursor.SortValue == nil {
-		return "", nil, fmt.Errorf("federated keyset cursor is missing sort value")
-	}
-	op := ">"
-	if sort.Desc {
-		op = "<"
-	}
-	return fmt.Sprintf("(`%s` %s ? OR (`%s` = ? AND `__loom_global_row_id` > ?))", sort.Column, op, sort.Column), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }

@@ -37,10 +37,7 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 		}
 		sort.SliceStable(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
 		for _, candidate := range selected {
-			name := projectionName(set, candidate.Path)
-			if _, exists := seen[name]; exists {
-				return nil, fmt.Errorf("projection set %q produced duplicate column %q", set.Name, name)
-			}
+			name := uniqueProjectionName(set, candidate.Path, seen)
 			seen[name] = struct{}{}
 			selectPath := strings.TrimPrefix(candidate.Path, ".")
 			if alias != "" && alias != "root" {
@@ -48,7 +45,7 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 			} else {
 				selectPath = "root." + selectPath
 			}
-			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}})
+			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true})
 		}
 	}
 	return fields, nil
@@ -165,6 +162,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 			}
 			pivot.ValueExpr = recipe.Expression{Select: qualifyDiscoveredSelector(alias, valueSelect)}
 		}
+		pivot.Discovered = true
 		pivot.Discovery = nil
 		resolved = append(resolved, *pivot)
 	}
@@ -192,6 +190,7 @@ func relativePivotPath(itemSource, selector string) string {
 func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
+		wasUnresolved := len(dynamic.Columns) == 0
 		if len(dynamic.Columns) > 0 {
 			continue
 		}
@@ -232,6 +231,9 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 			return fmt.Errorf("dynamic column %q discovery found %d columns, exceeding maxColumns %d", dynamic.Name, len(values), dynamic.MaxColumns)
 		}
 		dynamic.Columns = sortedValues(values)
+		if wasUnresolved {
+			dynamic.Discovered = true
+		}
 		// A keyed family is optional: a valid FHIR dataset may have no values
 		// for an extension/identifier family at all. Keep the declaration with
 		// an empty frozen column set so resolution remains schema-stable and the
@@ -383,6 +385,29 @@ func projectionName(set recipe.CatalogProjection, fieldPath string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+// uniqueProjectionName preserves the established PATH column spelling when it
+// is unambiguous. FHIR catalogs may contain both scalar and repeated variants
+// of a path (for example author.reference and author[].reference), which
+// normalize to the same SQL-safe name. Keep both catalog-backed fields rather
+// than rejecting an otherwise valid, dataset-independent recipe.
+func uniqueProjectionName(set recipe.CatalogProjection, fieldPath string, used map[string]struct{}) string {
+	base := projectionName(set, fieldPath)
+	if _, exists := used[base]; !exists {
+		return base
+	}
+	suffix := "__alternate"
+	if strings.Contains(fieldPath, "[]") {
+		suffix = "__repeated"
+	}
+	name := base + suffix
+	for index := 2; ; index++ {
+		if _, exists := used[name]; !exists {
+			return name
+		}
+		name = fmt.Sprintf("%s%s_%d", base, suffix, index)
+	}
+}
+
 func sortedValues(values map[string]struct{}) []string {
 	result := make([]string, 0, len(values))
 	for value := range values {
@@ -394,7 +419,7 @@ func sortedValues(values map[string]struct{}) []string {
 
 func hasCatalogDeclarations(bundle recipe.Bundle) bool {
 	for _, output := range bundle.Outputs {
-		if len(output.CatalogProjections) > 0 || hasCatalogPivots(output.Pivots) || hasCatalogDynamic(output.DynamicColumns) {
+		if len(output.CatalogProjections) > 0 || hasCatalogPivots(output.Pivots) || hasCatalogDynamic(output.DynamicColumns) || len(output.ExtensionColumns) > 0 {
 			return true
 		}
 		for _, traversal := range output.Traversals {
@@ -407,7 +432,7 @@ func hasCatalogDeclarations(bundle recipe.Bundle) bool {
 }
 
 func traversalHasCatalog(traversal recipe.Traversal) bool {
-	return len(traversal.CatalogProjections) > 0 || hasCatalogPivots(traversal.Pivots) || hasCatalogDynamic(traversal.DynamicColumns)
+	return len(traversal.CatalogProjections) > 0 || hasCatalogPivots(traversal.Pivots) || hasCatalogDynamic(traversal.DynamicColumns) || len(traversal.ExtensionColumns) > 0
 }
 
 func hasCatalogPivots(pivots []recipe.Pivot) bool {

@@ -15,6 +15,15 @@ type verificationFixture struct {
 	errors  map[string]error
 }
 
+type manifestReaderFixture struct {
+	manifest Manifest
+	err      error
+}
+
+func (f manifestReaderFixture) ReadManifest(context.Context, Ref) (Manifest, error) {
+	return f.manifest, f.err
+}
+
 func (f *verificationFixture) VerifyPublication(_ context.Context, _, _ string, selector DataframeSelector) (PublicationVerification, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -53,6 +62,86 @@ func TestReleaseActivationRequiresPublishedQueryableGenerationAndPreservesPointe
 	}
 }
 
+func TestValidateGenerationRequiresExistingStagedSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	service := ReleaseService{Snapshots: store}
+
+	if err := service.ValidateGeneration(ctx, "project-a", "missing"); !errors.Is(err, ErrSnapshotNotFound) {
+		t.Fatalf("missing generation validation = %v", err)
+	}
+
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	snapshot, err := NewSnapshotGeneration("project-a", "loading", "", []string{"Patient"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateOrResumeSnapshot(ctx, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ValidateGeneration(ctx, "project-a", "loading"); !errors.Is(err, ErrReleaseRequirementsUnmet) {
+		t.Fatalf("loading generation validation = %v", err)
+	}
+
+	stageSnapshot(t, store, "project-a", "staged", now)
+	if err := service.ValidateGeneration(ctx, "project-a", "staged"); err != nil {
+		t.Fatalf("staged generation validation = %v", err)
+	}
+}
+
+func TestValidateGenerationAcceptsLegacyStagedManifestWithoutSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	ref, err := NewRef("project-a", "legacy-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := NewSchemaSnapshot("schema-a", "R4", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"Patient"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := NewManifest(ref, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = manifest.Transition(StateReady)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := DataframeSelector{Recipe: "explorer", TranslationVersion: "v1", Output: "Patient"}
+	verifier := &verificationFixture{results: map[string]PublicationVerification{
+		selector.Key(): published(selector, "execution-a", ref.Generation, time.Now().UTC()),
+	}, errors: map[string]error{}}
+	service := ReleaseService{Snapshots: store, Manifests: manifestReaderFixture{manifest: manifest}, Releases: store, Verifier: verifier, Required: []DataframeSelector{selector}}
+	if err := service.ValidateGeneration(ctx, ref.Project, ref.Generation); err != nil {
+		t.Fatalf("legacy staged manifest validation = %v", err)
+	}
+	if release, err := service.Create(ctx, ActivationRequest{Project: ref.Project, Generation: ref.Generation}); err != nil || release.Generation != ref.Generation {
+		t.Fatalf("legacy staged manifest release = %#v, %v", release, err)
+	}
+}
+
+func TestValidateGenerationRejectsLegacyLoadingManifestWithoutSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	ref, err := NewRef("project-a", "legacy-loading")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := NewSchemaSnapshot("schema-a", "R4", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"Patient"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := NewManifest(ref, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := ReleaseService{Snapshots: store, Manifests: manifestReaderFixture{manifest: manifest}}
+	if err := service.ValidateGeneration(ctx, ref.Project, ref.Generation); !errors.Is(err, ErrReleaseRequirementsUnmet) {
+		t.Fatalf("legacy loading manifest validation = %v", err)
+	}
+}
+
 func TestReleaseActivationCarriesOptionalPublicationAsStale(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryLifecycleStore()
@@ -82,6 +171,39 @@ func TestReleaseActivationCarriesOptionalPublicationAsStale(t *testing.T) {
 	}
 	if !bySelector[optional.Key()].Stale || bySelector[optional.Key()].ExecutionID != "optional-a" || bySelector[required.Key()].Stale {
 		t.Fatalf("carried publications = %#v", second.Release.Publications)
+	}
+}
+
+func TestReleaseActivationAddsPublicationWithoutDroppingSameGenerationPublications(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	stageSnapshot(t, store, "project-a", "commit-a", now)
+	firstSelector := DataframeSelector{Recipe: "explorer-one", TranslationVersion: "v1", Output: "Patient"}
+	secondSelector := DataframeSelector{Recipe: "explorer-two", TranslationVersion: "v1", Output: "Observation"}
+	verifier := &verificationFixture{results: map[string]PublicationVerification{
+		firstSelector.Key():  published(firstSelector, "execution-a", "commit-a", now),
+		secondSelector.Key(): published(secondSelector, "execution-b", "commit-a", now),
+	}, errors: map[string]error{}}
+	service := ReleaseService{Snapshots: store, Releases: store, Verifier: verifier, Now: func() time.Time { return now }}
+
+	first, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: 0, OptionalSelectors: []DataframeSelector{firstSelector}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: first.Revision, OptionalSelectors: []DataframeSelector{secondSelector}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Revision != 2 || len(second.Release.Publications) != 2 {
+		t.Fatalf("second activation = %#v", second)
+	}
+	bySelector := map[string]ReleasePublication{}
+	for _, publication := range second.Release.Publications {
+		bySelector[publication.Selector.Key()] = publication
+	}
+	if bySelector[firstSelector.Key()].ExecutionID != "execution-a" || bySelector[firstSelector.Key()].Stale || bySelector[secondSelector.Key()].ExecutionID != "execution-b" || bySelector[secondSelector.Key()].Stale {
+		t.Fatalf("same-generation publications = %#v", second.Release.Publications)
 	}
 }
 

@@ -55,6 +55,24 @@ func TestResolveCatalogProjectionBeforeSemanticTyping(t *testing.T) {
 	}
 }
 
+func TestResolveCatalogProjectionKeepsPathsThatNormalizeToTheSameColumn(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "catalog", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"author*"}, Kinds: []string{"scalar"}, MaxColumns: 4, ValueMode: recipe.ValueModeFirst}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{
+		{ResourceType: "DocumentReference", Path: "author.reference", Kind: "scalar"},
+		{ResourceType: "DocumentReference", Path: "author[].reference", Kind: "scalar"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := resolved.Bundle.Outputs[0].Fields
+	if len(fields) != 2 || fields[0].Name != "author_reference" || fields[1].Name != "author_reference__repeated" {
+		t.Fatalf("resolved fields = %#v", fields)
+	}
+}
+
 func TestResolveDiscoveryFreezesPivotAndKeyedColumns(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "catalog", TranslationVersion: "1", Outputs: []recipe.Output{{
 		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
@@ -97,6 +115,46 @@ func TestResolveTransformsDiscoveredDynamicKeys(t *testing.T) {
 	columns := resolved.Bundle.Outputs[0].DynamicColumns[0].Columns
 	if got, want := strings.Join(columns, ","), "sha256,source_path"; got != want {
 		t.Fatalf("transformed dynamic columns = %q, want %q", got, want)
+	}
+}
+
+func TestResolveExtensionColumnsFreezesURLMappings(t *testing.T) {
+	prefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "extensions", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		ExtensionColumns: []recipe.ExtensionColumn{{Name: "attachment", ColumnPrefix: &prefix, MaxColumns: 4, Source: recipe.Expression{Select: "root.content[].attachment.extension[]"}}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{fields: []FieldCandidate{
+		{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", DistinctValues: []string{"http://example.org/source_path", "http://example.org/sha256"}},
+		{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].valueString", Kind: "scalar"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := resolved.Bundle.Outputs[0].ExtensionColumns[0].Columns
+	if len(columns) != 2 || columns[0].Name != "sha256" || columns[1].Name != "source_path" {
+		t.Fatalf("unexpected extension mappings: %#v", columns)
+	}
+	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"}); err != nil {
+		t.Fatalf("resolved extension columns did not type-check: %v", err)
+	}
+}
+
+func TestResolveExtensionColumnsPreservesPrimitiveMapping(t *testing.T) {
+	prefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "extensions", TranslationVersion: "1", Outputs: []recipe.Output{{
+		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file",
+		ExtensionColumns: []recipe.ExtensionColumn{{Name: "attachment", ColumnPrefix: &prefix, MaxColumns: 4, Source: recipe.Expression{Select: "root.content[].attachment.extension[]"}}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{
+		{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}, {URL: "http://example.org/sha256", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := resolved.Bundle.Outputs[0].ExtensionColumns[0].Columns
+	if columns[0].Name != "sha256" || columns[1].Name != "source_path" || columns[0].ValuePath != "valueString" || columns[1].ValuePath != "valueUrl" {
+		t.Fatalf("primitive mappings were not retained: %#v", columns)
 	}
 }
 

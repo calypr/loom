@@ -41,6 +41,26 @@ func TestCacheDiscoverFieldsCachesAndInvalidatesByProject(t *testing.T) {
 	}
 }
 
+func TestCacheClonesExtensionObservations(t *testing.T) {
+	cache := NewCache()
+	value := PopulatedField{ResourceType: "DocumentReference", Path: "extension[].url", ExtensionValues: []ExtensionValueObservation{{URL: "u", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
+	discover := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+		return []PopulatedField{value}, nil
+	})
+	first, err := discover(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0].ExtensionValues[0].URL = "mutated"
+	second, err := discover(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second[0].ExtensionValues[0].URL != "u" {
+		t.Fatalf("cached extension observation mutated: %#v", second[0].ExtensionValues)
+	}
+}
+
 func TestCacheDiscoverReferencesSeparatesAuthScopes(t *testing.T) {
 	cache := NewCache()
 	calls := 0

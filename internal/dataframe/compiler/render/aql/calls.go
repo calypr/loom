@@ -22,6 +22,12 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		}
 		args[index] = value
 	}
+	if name == "canonical_json" {
+		if len(args) != 1 {
+			return "", fmt.Errorf("canonical_json requires 1 argument, got %d", len(args))
+		}
+		return fmt.Sprintf("{\"__loom_postquery_call\": %q, \"__loom_postquery_args\": [%s]}", name, strings.Join(args, ", ")), nil
+	}
 	if nestedUUID {
 		return fmt.Sprintf("{\"__loom_postquery_call\": %q, \"__loom_postquery_target\": %q, \"__loom_postquery_args\": [%s]}", name, call.TargetKind, strings.Join(args, ", ")), nil
 	}

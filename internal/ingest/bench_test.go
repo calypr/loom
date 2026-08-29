@@ -215,8 +215,8 @@ func BenchmarkFieldCatalogProfiling(b *testing.B) {
 	}
 
 	b.Run("WithShapeCache", func(b *testing.B) {
-		cache := catalog.NewShapePlanCache()
-		profiler := catalog.NewProfilerForGeneration("BENCHMARK", "", "pathA", "Observation", cache)
+		cache := catalog.NewShapePlanCacheWithLimit(catalog.DefaultProfileLimits().MaxShapePlans)
+		profiler := catalog.NewProfilerForGenerationWithLimits("BENCHMARK", "", "pathA", "Observation", cache, catalog.DefaultProfileLimits())
 		timings := map[string]float64{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -232,8 +232,8 @@ func BenchmarkFieldCatalogProfiling(b *testing.B) {
 		timings := map[string]float64{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			cache := catalog.NewShapePlanCache()
-			profiler := catalog.NewProfilerForGeneration("BENCHMARK", "", "pathA", "Observation", cache)
+			cache := catalog.NewShapePlanCacheWithLimit(catalog.DefaultProfileLimits().MaxShapePlans)
+			profiler := catalog.NewProfilerForGenerationWithLimits("BENCHMARK", "", "pathA", "Observation", cache, catalog.DefaultProfileLimits())
 			var payload map[string]any
 			if err := sonic.ConfigFastest.Unmarshal(lines[i%len(lines)], &payload); err != nil {
 				b.Fatalf("decode payload: %v", err)

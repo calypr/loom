@@ -60,6 +60,29 @@ func TestMapDataframeErrorBackendIsRetryable(t *testing.T) {
 	}
 }
 
+func TestMapDataframeErrorPreviewClassifications(t *testing.T) {
+	for _, test := range []struct {
+		code      dataframeerrors.ErrorCode
+		status    int
+		retryable bool
+	}{
+		{dataframeerrors.CodePlanTooExpensive, http.StatusTooManyRequests, false},
+		{dataframeerrors.CodeReceiptStoreUnavailable, http.StatusServiceUnavailable, true},
+		{dataframeerrors.CodePreviewTimeout, http.StatusGatewayTimeout, true},
+		{dataframeerrors.CodePreviewResponseTooLarge, http.StatusRequestEntityTooLarge, false},
+		{dataframeerrors.CodeDynamicSchemaDrift, http.StatusConflict, false},
+		{dataframeerrors.CodeRecipeContractViolation, http.StatusConflict, false},
+	} {
+		mapped := MapDataframeError(dataframeerrors.NewError(test.code, "private", dataframeerrors.WithRetryable(test.retryable)), "req-preview")
+		if mapped.Status != test.status || mapped.Body.Error.Code != string(test.code) || mapped.Body.Error.Retryable != test.retryable {
+			t.Errorf("%s mapped = %#v", test.code, mapped)
+		}
+		if mapped.Body.Error.Message == "private" {
+			t.Errorf("%s leaked private message", test.code)
+		}
+	}
+}
+
 func TestMapDataframeErrorFiberStatus(t *testing.T) {
 	for _, test := range []struct {
 		err  error

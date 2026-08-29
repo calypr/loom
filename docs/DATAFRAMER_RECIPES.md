@@ -16,13 +16,20 @@ selected fields, and bounded column discovery. It does not contain project
 IDs, authorization paths, Arango collection names, AQL, ClickHouse table
 names, or SQL.
 
+This document describes the native recipe language used by repository, ETL,
+and developer workflows. It is not the browser Builder contract. The Builder
+sends the intent-only V2 document described in
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md); Loom lowers that document to
+a native recipe and then runs the recipe compiler described here. Do not make
+frontend code construct or repair recipe ASTs.
+
 The deployed default is ordinary JSON loaded from
 `server.dataframer.recipe`. It is required only when ClickHouse is enabled.
 
-Loom does not currently provide a graphical recipe builder. A frontend builder
-is the intended normal authoring experience. Until that exists, do not write a
-recipe from memory: discover the loaded graph, prototype the shape through
-`runFhirDataframe`, and then promote the proven shape into a persistent recipe.
+For direct recipe authoring, do not write a recipe from memory: discover the
+loaded graph, prototype the shape through `runFhirDataframe`, and then promote
+the proven shape into a persistent recipe. For Builder authoring, use the V2
+REST contract instead of this native recipe format.
 
 ## Recommended workflow
 
@@ -133,7 +140,8 @@ grain:
 
 These names are public API:
 
-- `outputs[].name` becomes the flat API `dataType`.
+- `outputs[].name` becomes the `output` component of the exact dataframe
+  selector `(recipe, translationVersion, output)`.
 - `fields[].name`, pivot names, and dynamic-column names contribute public
   column names.
 - A traversal `alias` namespaces fields from the related resource.
@@ -148,68 +156,23 @@ must deliberately produce multiple rows.
 
 ## Step 2: discover the graph that is actually loaded
 
-Run `dataframeBuilderIntrospection` against the project and proposed root.
-This reports populated fields, pivot candidates, and valid outbound
-relationships. Do not infer relationship labels from FHIR property names.
+Use the REST V2 authoring compiler and its server-owned catalog discovery. It
+reports populated fields, route candidates, and valid relationships for the
+selected generation. Do not infer relationship labels from FHIR property names
+or manufacture browser selector IDs. See
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md).
 
-```graphql
-query RecipeDiscovery($input: DataframeBuilderIntrospectionInput!) {
-  dataframeBuilderIntrospection(input: $input) {
-    rootResourceType
-    root {
-      fields {
-        fieldRef
-        path
-      }
-      pivotFields {
-        fieldRef
-        path
-        pivotFamily
-        pivotColumns
-      }
-      traversals {
-        fromType
-        label
-        toType
-        edgeCount
-      }
-    }
-    relatedResources {
-      viaLabel
-      edgeCount
-      target {
-        resourceType
-        fields {
-          fieldRef
-          path
-        }
-      }
-    }
-  }
-}
-```
-
-```json
-{
-  "input": {
-    "project": "HTAN_INT-BForePC",
-    "rootResourceType": "DocumentReference",
-    "includePivotOnlyFields": true
-  }
-}
-```
-
-For a second hop, rerun introspection with the first-hop target as the root.
-For example:
+For a second hop, select the first-hop target in the authoring request. For
+example:
 
 ```text
 DocumentReference --subject_Specimen--> Specimen
 Specimen          --subject_Patient----> Patient
 ```
 
-Both labels and target types must be confirmed by introspection. A relationship
-with `edgeCount: 0` is not useful for that project even if the FHIR schema
-allows it.
+Both labels and target types must be confirmed by the catalog. A relationship
+with no discovered candidates is not useful for that project even if the FHIR
+schema allows it.
 
 ## Step 3: prototype before persisting
 
@@ -232,7 +195,7 @@ The GraphQL input and persistent recipe use the same concepts:
 | `project`, `limit`, authorization | Runtime bindings; never stored |
 
 The copy-paste GraphQL examples in
-[the Quickstart](QUICKSTART.md#5-run-a-builder-introspection-query) cover
+[the Quickstart](QUICKSTART.md#6-run-a-sample-dataframe-query) cover
 introspection and dataframe execution.
 
 ## Minimal recipe
@@ -455,6 +418,13 @@ automatically include fields from traversed resources; add a projection to
 each traversal that needs it.
 
 ### Key/value families
+
+Use `dynamicColumns` for identifiers and general key/value arrays. For
+schema-aware FHIR extensions, prefer `extensionColumns` on an output or
+traversal: it recursively discovers nested `Extension` URLs, freezes
+URL-to-value mappings and logical types, and emits canonical JSON strings for
+mixed or complex values. `maxColumns` is required; an explicit empty
+`columnPrefix` preserves bare names such as `source_path` and `sha256`.
 
 Use `dynamicColumns` for identifiers, extensions, and similar arrays whose key
 becomes part of the column name:

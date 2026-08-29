@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
@@ -19,8 +20,7 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 		if column.Name == "auth_resource_path" || column.Name == "__loom_row_id" {
 			continue
 		}
-		logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
-		columns = append(columns, &model.DataframeColumn{Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: filterable, Sortable: sortable, Aggregatable: aggregatable})
+		columns = append(columns, ColumnModel(column))
 	}
 	var readyAt *string
 	if value.ReadyAt != nil {
@@ -35,6 +35,7 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 	result := &model.DataframeMaterialization{
 		ID: value.ID, Name: value.Name, Revision: revision,
+		ProjectID: value.Project, DatasetGeneration: value.DatasetGeneration,
 		State: model.DataframeMaterializationState(value.State), Columns: columns,
 		RowCount:  rowCount,
 		CreatedAt: value.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
@@ -43,11 +44,6 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 	if value.Selector.Valid() {
 		result.Selector = &model.DataframeSelector{Recipe: value.Selector.Recipe, TranslationVersion: value.Selector.TranslationVersion, Output: value.Selector.Output}
-		activeVersion := value.ActiveContractVersion
-		if activeVersion == "" {
-			activeVersion = value.Selector.TranslationVersion
-		}
-		result.ActiveContractVersion = &activeVersion
 	}
 	if value.Availability != "" {
 		availability := model.DataframeAvailability(value.Availability)
@@ -90,6 +86,27 @@ func projectStatusModels(values []materialization.ProjectStatus) []*model.Datafr
 	return result
 }
 
+// ColumnFromPhysical adapts candidate execution metadata before activation.
+// It intentionally mirrors the published materialization representation while
+// retaining semantic identity for browser-side configuration.
+func ColumnFromPhysical(column publication.PhysicalColumn) *model.DataframeColumn {
+	return ColumnModel(materialization.Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated})
+}
+
+func ColumnModel(column materialization.Column) *model.DataframeColumn {
+	logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
+	if column.LogicalType != "" {
+		logical = column.LogicalType
+	}
+	if column.Nullable {
+		nullable = true
+	}
+	if column.Repeated {
+		repeated = true
+	}
+	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: filterable, Sortable: sortable, Aggregatable: aggregatable}
+}
+
 func PersistedFailure(raw, code string, retryable bool) (message, failureCode *string, failureRetryable *bool) {
 	if code == "" && raw == "" {
 		return nil, nil, nil
@@ -108,7 +125,7 @@ func FederatedMaterialization(dataset materialization.FederatedDataset) *model.D
 		ID: "federated:" + dataset.Selector.Key(), Name: dataset.Name, Revision: dataset.Revision,
 		DatasetGeneration: "federated:" + dataset.Revision, State: materialization.StateReady,
 		Columns: dataset.Columns, RowCount: dataset.RowCount, RowCountKnown: dataset.RowCountComplete,
-		Selector: dataset.Selector, Availability: dataset.Availability, ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: dataset.ProjectStatuses, ActiveContractVersion: dataset.ActiveContractVersion,
+		Selector: dataset.Selector, Availability: dataset.Availability, ExpectedProjects: dataset.ExpectedProjects, ProjectStatuses: dataset.ProjectStatuses,
 	})
 }
 

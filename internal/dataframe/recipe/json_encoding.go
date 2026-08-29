@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -40,6 +41,7 @@ type OutputExplanation struct {
 	TraversalNames     []string `json:"traversalNames,omitempty"`
 	Expanded           bool     `json:"expanded,omitempty"`
 	DynamicColumns     []string `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []string `json:"extensionColumns,omitempty"`
 	CatalogProjections []string `json:"catalogProjections,omitempty"`
 }
 
@@ -174,6 +176,51 @@ func (e *Expression) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(object["args"], &e.Args); err != nil {
 			return fmt.Errorf("args must be an array: %w", err)
 		}
+	}
+	return nil
+}
+
+// UnmarshalJSON accepts the small amount of field metadata emitted by the
+// Explorer Builder while keeping that presentation metadata out of the
+// executable recipe. The Builder historically included catalog information
+// alongside the semantic field declaration; those values are useful to the
+// UI, but the recipe compiler derives them from the expression and schema.
+// Keep this compatibility surface explicit so unrelated recipe typos remain
+// strict parse errors.
+func (f *Field) UnmarshalJSON(data []byte) error {
+	type fieldJSON struct {
+		Name      string       `json:"name"`
+		FieldRef  string       `json:"fieldRef,omitempty"`
+		Expr      Expression   `json:"expr"`
+		Fallbacks []Expression `json:"fallbacks,omitempty"`
+		ValueMode ValueMode    `json:"valueMode,omitempty"`
+
+		// Explorer Builder catalog/presentation metadata. These fields are
+		// intentionally not copied into Field.
+		LogicalType   string `json:"logicalType,omitempty"`
+		Repeated      bool   `json:"repeated,omitempty"`
+		Family        string `json:"family,omitempty"`
+		SelectionKey  string `json:"selectionKey,omitempty"`
+		ValueSelector string `json:"valueSelector,omitempty"`
+		FamilyName    string `json:"familyName,omitempty"`
+		FamilyKind    string `json:"familyKind,omitempty"`
+	}
+	var value fieldJSON
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("field contains trailing JSON")
+		}
+		return err
+	}
+	*f = Field{
+		Name: value.Name, FieldRef: value.FieldRef, Expr: value.Expr,
+		Fallbacks: value.Fallbacks, ValueMode: value.ValueMode,
 	}
 	return nil
 }

@@ -52,6 +52,10 @@ func lifecycleBindVars(project string) map[string]any {
 	}
 }
 
+func lifecycleCollectionBindVars() map[string]any {
+	return map[string]any{"@lifecycle_collection": LifecycleCollection}
+}
+
 func validateProject(project string) error {
 	_, err := publication.NewRef(project, "generation-project-validation")
 	return err
@@ -149,7 +153,13 @@ func manifestDocumentKey(ref publication.Ref) string {
 	return documentKey("manifest", ref.Project, ref.Generation)
 }
 
+// ManifestDocumentKey and ActiveDocumentKey deliberately expose only the
+// minimum composite-transaction identities needed by Loom-owned aggregates.
+// Callers must not reimplement the private document-key algorithm.
+func ManifestDocumentKey(ref publication.Ref) string { return manifestDocumentKey(ref) }
+
 func activeDocumentKey(project string) string { return documentKey("active", project) }
+func ActiveDocumentKey(project string) string { return activeDocumentKey(project) }
 
 func documentKey(kind string, values ...string) string {
 	hash := sha256.New()

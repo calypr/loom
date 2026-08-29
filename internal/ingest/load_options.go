@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -18,6 +19,10 @@ type LoadOptions struct {
 	BatchSize        int
 	ProgressEvery    int
 	WriterCount      int
+	WorkerCount      int
+	LineQueueSize    int
+	WriteQueueSize   int
+	CatalogLimits    catalog.ProfileLimits
 	Truncate         bool
 	FailFast         bool
 	UseGeneric       bool
@@ -30,6 +35,9 @@ type LoadOptions struct {
 	// StageOnly leaves a successfully loaded immutable generation STAGED. It is
 	// selected for reads only after project-release activation succeeds.
 	StageOnly bool
+	// DeferActivation is the compatibility spelling used by the generation-load
+	// HTTP API. Like StageOnly, it leaves the generation STAGED and inactive.
+	DeferActivation bool
 	// PreflightSampleRows bounds the number of payloads inspected from every
 	// staged file before Loom opens or mutates Arango. Zero uses the safe
 	// default; full row validation still happens in the loader.
@@ -80,6 +88,16 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 	if opts.WriterCount <= 0 {
 		opts.WriterCount = 8
 	}
+	if opts.WorkerCount <= 0 {
+		opts.WorkerCount = opts.WriterCount
+	}
+	if opts.LineQueueSize <= 0 {
+		opts.LineQueueSize = 1024
+	}
+	if opts.WriteQueueSize <= 0 {
+		opts.WriteQueueSize = 16
+	}
+	opts.CatalogLimits = catalog.NormalizeProfileLimits(opts.CatalogLimits)
 	if opts.WriteAPI == "" {
 		opts.WriteAPI = "import"
 	}

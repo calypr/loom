@@ -582,17 +582,6 @@ type ComplexityRoot struct {
 		Materialization func(childComplexity int) int
 	}
 
-	DataframeBuilderIntrospection struct {
-		AuthResourcePaths func(childComplexity int) int
-		Fields            func(childComplexity int) int
-		PivotFields       func(childComplexity int) int
-		Project           func(childComplexity int) int
-		RelatedResources  func(childComplexity int) int
-		Root              func(childComplexity int) int
-		RootResourceType  func(childComplexity int) int
-		Traversals        func(childComplexity int) int
-	}
-
 	DataframeColumn struct {
 		Aggregatable   func(childComplexity int) int
 		ClickhouseType func(childComplexity int) int
@@ -601,6 +590,7 @@ type ComplexityRoot struct {
 		Name           func(childComplexity int) int
 		Nullable       func(childComplexity int) int
 		Repeated       func(childComplexity int) int
+		SemanticPath   func(childComplexity int) int
 		Sortable       func(childComplexity int) int
 	}
 
@@ -616,62 +606,26 @@ type ComplexityRoot struct {
 		TraversalSets                     func(childComplexity int) int
 	}
 
-	DataframeContract struct {
-		PromotedAt         func(childComplexity int) int
-		Recipe             func(childComplexity int) int
-		TranslationVersion func(childComplexity int) int
-	}
-
-	DataframeFieldHint struct {
-		DefaultPivotColumnSelector func(childComplexity int) int
-		DefaultPivotValueSelector  func(childComplexity int) int
-		DistinctTruncated          func(childComplexity int) int
-		DistinctValues             func(childComplexity int) int
-		DocCount                   func(childComplexity int) int
-		FieldRef                   func(childComplexity int) int
-		Kind                       func(childComplexity int) int
-		Label                      func(childComplexity int) int
-		Path                       func(childComplexity int) int
-		PivotCandidate             func(childComplexity int) int
-		PivotColumns               func(childComplexity int) int
-		PivotFamily                func(childComplexity int) int
-		PivotKind                  func(childComplexity int) int
-		ResourceType               func(childComplexity int) int
-		SampleCount                func(childComplexity int) int
-		Selector                   func(childComplexity int) int
-	}
-
-	DataframeFieldPredicate struct {
-		Op    func(childComplexity int) int
-		Path  func(childComplexity int) int
-		Value func(childComplexity int) int
-	}
-
-	DataframeFieldSelector struct {
-		SourcePath func(childComplexity int) int
-		ValuePath  func(childComplexity int) int
-		Where      func(childComplexity int) int
-	}
-
 	DataframeMaterialization struct {
-		ActiveContractVersion func(childComplexity int) int
-		Availability          func(childComplexity int) int
-		Columns               func(childComplexity int) int
-		Completeness          func(childComplexity int) int
-		CreatedAt             func(childComplexity int) int
-		Error                 func(childComplexity int) int
-		ErrorCode             func(childComplexity int) int
-		ErrorRetryable        func(childComplexity int) int
-		ExpectedProjectCount  func(childComplexity int) int
-		ID                    func(childComplexity int) int
-		IncludedProjectCount  func(childComplexity int) int
-		Name                  func(childComplexity int) int
-		ProjectStatuses       func(childComplexity int) int
-		ReadyAt               func(childComplexity int) int
-		Revision              func(childComplexity int) int
-		RowCount              func(childComplexity int) int
-		Selector              func(childComplexity int) int
-		State                 func(childComplexity int) int
+		Availability         func(childComplexity int) int
+		Columns              func(childComplexity int) int
+		Completeness         func(childComplexity int) int
+		CreatedAt            func(childComplexity int) int
+		DatasetGeneration    func(childComplexity int) int
+		Error                func(childComplexity int) int
+		ErrorCode            func(childComplexity int) int
+		ErrorRetryable       func(childComplexity int) int
+		ExpectedProjectCount func(childComplexity int) int
+		ID                   func(childComplexity int) int
+		IncludedProjectCount func(childComplexity int) int
+		Name                 func(childComplexity int) int
+		ProjectID            func(childComplexity int) int
+		ProjectStatuses      func(childComplexity int) int
+		ReadyAt              func(childComplexity int) int
+		Revision             func(childComplexity int) int
+		RowCount             func(childComplexity int) int
+		Selector             func(childComplexity int) int
+		State                func(childComplexity int) int
 	}
 
 	DataframeOptimizationDecision struct {
@@ -752,6 +706,7 @@ type ComplexityRoot struct {
 	}
 
 	DataframeRecipeExecutionOutput struct {
+		Columns        func(childComplexity int) int
 		Error          func(childComplexity int) int
 		ErrorCode      func(childComplexity int) int
 		ErrorRetryable func(childComplexity int) int
@@ -916,24 +871,20 @@ type ComplexityRoot struct {
 		Rows     func(childComplexity int) int
 	}
 
+	DataframeRecipeRevision struct {
+		CreatedAt    func(childComplexity int) int
+		Digest       func(childComplexity int) int
+		Name         func(childComplexity int) int
+		ParentDigest func(childComplexity int) int
+		ProjectID    func(childComplexity int) int
+		Recipe       func(childComplexity int) int
+	}
+
 	DataframeRecipeValidation struct {
 		Name               func(childComplexity int) int
 		Outputs            func(childComplexity int) int
 		RecipeDigest       func(childComplexity int) int
 		TranslationVersion func(childComplexity int) int
-	}
-
-	DataframeRelatedResourceHints struct {
-		EdgeCount func(childComplexity int) int
-		Target    func(childComplexity int) int
-		ViaLabel  func(childComplexity int) int
-	}
-
-	DataframeResourceHints struct {
-		Fields       func(childComplexity int) int
-		PivotFields  func(childComplexity int) int
-		ResourceType func(childComplexity int) int
-		Traversals   func(childComplexity int) int
 	}
 
 	DataframeRichSourceReuse struct {
@@ -956,13 +907,6 @@ type ComplexityRoot struct {
 		Output             func(childComplexity int) int
 		Recipe             func(childComplexity int) int
 		TranslationVersion func(childComplexity int) int
-	}
-
-	DataframeTraversalHint struct {
-		EdgeCount func(childComplexity int) int
-		FromType  func(childComplexity int) int
-		Label     func(childComplexity int) int
-		ToType    func(childComplexity int) int
 	}
 
 	DiagnosticReport struct {
@@ -1927,7 +1871,7 @@ type ComplexityRoot struct {
 		ActivateProjectRelease           func(childComplexity int, input model.ActivateProjectReleaseInput) int
 		MaterializeDataframeRecipeBundle func(childComplexity int, input model.MaterializeDataframeRecipeInput) int
 		PreviewDataframeRecipe           func(childComplexity int, input model.PreviewDataframeRecipeInput) int
-		PromoteDataframeContract         func(childComplexity int, input model.PromoteDataframeContractInput) int
+		RegisterDataframeRecipeRevision  func(childComplexity int, input model.RegisterDataframeRecipeRevisionInput) int
 		RunDataframeRecipe               func(childComplexity int, input model.RunDataframeRecipeInput) int
 		RunFhirDataframe                 func(childComplexity int, input model.FhirDataframeInput, limit *int) int
 		StartDataframeMaterialization    func(childComplexity int, input model.StartDataframeMaterializationInput) int
@@ -2412,41 +2356,42 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		BodyStructure                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Condition                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		DataframeAggregate            func(childComplexity int, input model.DataframeAggregateInput) int
-		DataframeAggregations         func(childComplexity int, input model.DataframeAggregationsInput) int
-		DataframeBuilderIntrospection func(childComplexity int, input model.DataframeBuilderIntrospectionInput) int
-		DataframeDataset              func(childComplexity int, input model.DataframeDatasetInput) int
-		DataframeDatasets             func(childComplexity int) int
-		DataframeMaterialization      func(childComplexity int, id string) int
-		DataframeRecipeExecution      func(childComplexity int, id string) int
-		DataframeRows                 func(childComplexity int, input model.DataframeRowsInput) int
-		DiagnosticReport              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		DocumentReference             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ExplainDataframeRecipe        func(childComplexity int, input model.ExplainDataframeRecipeInput) int
-		ExplainFhirGraph              func(childComplexity int, input model.FhirGraphQueryInput, live *bool) int
-		FamilyMemberHistory           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		FhirGraph                     func(childComplexity int, input model.FhirGraphQueryInput) int
-		Group                         func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ImagingStudy                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Medication                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationAdministration      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationRequest             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		MedicationStatement           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Observation                   func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Organization                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Patient                       func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Practitioner                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		PractitionerRole              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		PreflightDataframeRecipe      func(childComplexity int, input model.PreflightDataframeRecipeInput) int
-		Procedure                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ResearchStudy                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		ResearchSubject               func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Specimen                      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Substance                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		SubstanceDefinition           func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
-		Task                          func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		BodyStructure            func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Condition                func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		DataframeAggregate       func(childComplexity int, input model.DataframeAggregateInput) int
+		DataframeAggregations    func(childComplexity int, input model.DataframeAggregationsInput) int
+		DataframeDataset         func(childComplexity int, input model.DataframeDatasetInput) int
+		DataframeDatasets        func(childComplexity int) int
+		DataframeRecipeExecution func(childComplexity int, id string) int
+		DataframeRecipeRevision  func(childComplexity int, projectID string, name string, digest string) int
+		DataframeRecipeRevisions func(childComplexity int, projectID string, name string) int
+		DataframeRows            func(childComplexity int, input model.DataframeRowsInput) int
+		DiagnosticReport         func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		DocumentReference        func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ExplainDataframeRecipe   func(childComplexity int, input model.ExplainDataframeRecipeInput) int
+		ExplainFhirGraph         func(childComplexity int, input model.FhirGraphQueryInput, live *bool) int
+		FamilyMemberHistory      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		FhirGraph                func(childComplexity int, input model.FhirGraphQueryInput) int
+		Group                    func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ImagingStudy             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Medication               func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationAdministration func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationRequest        func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		MedicationStatement      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Observation              func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Organization             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Patient                  func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Practitioner             func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		PractitionerRole         func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		PreflightDataframeRecipe func(childComplexity int, input model.PreflightDataframeRecipeInput) int
+		Procedure                func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ProjectDataframeDatasets func(childComplexity int, projectID string) int
+		ResearchStudy            func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		ResearchSubject          func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Specimen                 func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Substance                func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		SubstanceDefinition      func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
+		Task                     func(childComplexity int, project string, filters []*model.FhirFilterInput, limit *int) int
 	}
 
 	Range struct {
@@ -5494,55 +5439,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeAggregationsResult.Materialization(childComplexity), true
 
-	case "DataframeBuilderIntrospection.authResourcePaths":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.AuthResourcePaths == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.AuthResourcePaths(childComplexity), true
-	case "DataframeBuilderIntrospection.fields":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.Fields == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.Fields(childComplexity), true
-	case "DataframeBuilderIntrospection.pivotFields":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.PivotFields == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.PivotFields(childComplexity), true
-	case "DataframeBuilderIntrospection.project":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.Project == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.Project(childComplexity), true
-	case "DataframeBuilderIntrospection.relatedResources":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.RelatedResources == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.RelatedResources(childComplexity), true
-	case "DataframeBuilderIntrospection.root":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.Root == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.Root(childComplexity), true
-	case "DataframeBuilderIntrospection.rootResourceType":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.RootResourceType == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.RootResourceType(childComplexity), true
-	case "DataframeBuilderIntrospection.traversals":
-		if e.ComplexityRoot.DataframeBuilderIntrospection.Traversals == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeBuilderIntrospection.Traversals(childComplexity), true
-
 	case "DataframeColumn.aggregatable":
 		if e.ComplexityRoot.DataframeColumn.Aggregatable == nil {
 			break
@@ -5585,6 +5481,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeColumn.Repeated(childComplexity), true
+	case "DataframeColumn.semanticPath":
+		if e.ComplexityRoot.DataframeColumn.SemanticPath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeColumn.SemanticPath(childComplexity), true
 	case "DataframeColumn.sortable":
 		if e.ComplexityRoot.DataframeColumn.Sortable == nil {
 			break
@@ -5647,166 +5549,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeCompilerPlanDiagnostics.TraversalSets(childComplexity), true
 
-	case "DataframeContract.promotedAt":
-		if e.ComplexityRoot.DataframeContract.PromotedAt == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeContract.PromotedAt(childComplexity), true
-	case "DataframeContract.recipe":
-		if e.ComplexityRoot.DataframeContract.Recipe == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeContract.Recipe(childComplexity), true
-	case "DataframeContract.translationVersion":
-		if e.ComplexityRoot.DataframeContract.TranslationVersion == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeContract.TranslationVersion(childComplexity), true
-
-	case "DataframeFieldHint.defaultPivotColumnSelector":
-		if e.ComplexityRoot.DataframeFieldHint.DefaultPivotColumnSelector == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.DefaultPivotColumnSelector(childComplexity), true
-	case "DataframeFieldHint.defaultPivotValueSelector":
-		if e.ComplexityRoot.DataframeFieldHint.DefaultPivotValueSelector == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.DefaultPivotValueSelector(childComplexity), true
-	case "DataframeFieldHint.distinctTruncated":
-		if e.ComplexityRoot.DataframeFieldHint.DistinctTruncated == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.DistinctTruncated(childComplexity), true
-	case "DataframeFieldHint.distinctValues":
-		if e.ComplexityRoot.DataframeFieldHint.DistinctValues == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.DistinctValues(childComplexity), true
-	case "DataframeFieldHint.docCount":
-		if e.ComplexityRoot.DataframeFieldHint.DocCount == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.DocCount(childComplexity), true
-	case "DataframeFieldHint.fieldRef":
-		if e.ComplexityRoot.DataframeFieldHint.FieldRef == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.FieldRef(childComplexity), true
-	case "DataframeFieldHint.kind":
-		if e.ComplexityRoot.DataframeFieldHint.Kind == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.Kind(childComplexity), true
-	case "DataframeFieldHint.label":
-		if e.ComplexityRoot.DataframeFieldHint.Label == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.Label(childComplexity), true
-	case "DataframeFieldHint.path":
-		if e.ComplexityRoot.DataframeFieldHint.Path == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.Path(childComplexity), true
-	case "DataframeFieldHint.pivotCandidate":
-		if e.ComplexityRoot.DataframeFieldHint.PivotCandidate == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.PivotCandidate(childComplexity), true
-	case "DataframeFieldHint.pivotColumns":
-		if e.ComplexityRoot.DataframeFieldHint.PivotColumns == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.PivotColumns(childComplexity), true
-	case "DataframeFieldHint.pivotFamily":
-		if e.ComplexityRoot.DataframeFieldHint.PivotFamily == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.PivotFamily(childComplexity), true
-	case "DataframeFieldHint.pivotKind":
-		if e.ComplexityRoot.DataframeFieldHint.PivotKind == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.PivotKind(childComplexity), true
-	case "DataframeFieldHint.resourceType":
-		if e.ComplexityRoot.DataframeFieldHint.ResourceType == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.ResourceType(childComplexity), true
-	case "DataframeFieldHint.sampleCount":
-		if e.ComplexityRoot.DataframeFieldHint.SampleCount == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.SampleCount(childComplexity), true
-	case "DataframeFieldHint.selector":
-		if e.ComplexityRoot.DataframeFieldHint.Selector == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldHint.Selector(childComplexity), true
-
-	case "DataframeFieldPredicate.op":
-		if e.ComplexityRoot.DataframeFieldPredicate.Op == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldPredicate.Op(childComplexity), true
-	case "DataframeFieldPredicate.path":
-		if e.ComplexityRoot.DataframeFieldPredicate.Path == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldPredicate.Path(childComplexity), true
-	case "DataframeFieldPredicate.value":
-		if e.ComplexityRoot.DataframeFieldPredicate.Value == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldPredicate.Value(childComplexity), true
-
-	case "DataframeFieldSelector.sourcePath":
-		if e.ComplexityRoot.DataframeFieldSelector.SourcePath == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldSelector.SourcePath(childComplexity), true
-	case "DataframeFieldSelector.valuePath":
-		if e.ComplexityRoot.DataframeFieldSelector.ValuePath == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldSelector.ValuePath(childComplexity), true
-	case "DataframeFieldSelector.where":
-		if e.ComplexityRoot.DataframeFieldSelector.Where == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeFieldSelector.Where(childComplexity), true
-
-	case "DataframeMaterialization.activeContractVersion":
-		if e.ComplexityRoot.DataframeMaterialization.ActiveContractVersion == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeMaterialization.ActiveContractVersion(childComplexity), true
 	case "DataframeMaterialization.availability":
 		if e.ComplexityRoot.DataframeMaterialization.Availability == nil {
 			break
@@ -5831,6 +5573,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeMaterialization.CreatedAt(childComplexity), true
+	case "DataframeMaterialization.datasetGeneration":
+		if e.ComplexityRoot.DataframeMaterialization.DatasetGeneration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeMaterialization.DatasetGeneration(childComplexity), true
 	case "DataframeMaterialization.error":
 		if e.ComplexityRoot.DataframeMaterialization.Error == nil {
 			break
@@ -5873,6 +5621,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeMaterialization.Name(childComplexity), true
+	case "DataframeMaterialization.projectId":
+		if e.ComplexityRoot.DataframeMaterialization.ProjectID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeMaterialization.ProjectID(childComplexity), true
 	case "DataframeMaterialization.projectStatuses":
 		if e.ComplexityRoot.DataframeMaterialization.ProjectStatuses == nil {
 			break
@@ -6236,6 +5990,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeRecipeExecution.TranslationVersion(childComplexity), true
 
+	case "DataframeRecipeExecutionOutput.columns":
+		if e.ComplexityRoot.DataframeRecipeExecutionOutput.Columns == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeExecutionOutput.Columns(childComplexity), true
 	case "DataframeRecipeExecutionOutput.error":
 		if e.ComplexityRoot.DataframeRecipeExecutionOutput.Error == nil {
 			break
@@ -6869,6 +6629,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataframeRecipeResultOutput.Rows(childComplexity), true
 
+	case "DataframeRecipeRevision.createdAt":
+		if e.ComplexityRoot.DataframeRecipeRevision.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.CreatedAt(childComplexity), true
+	case "DataframeRecipeRevision.digest":
+		if e.ComplexityRoot.DataframeRecipeRevision.Digest == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.Digest(childComplexity), true
+	case "DataframeRecipeRevision.name":
+		if e.ComplexityRoot.DataframeRecipeRevision.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.Name(childComplexity), true
+	case "DataframeRecipeRevision.parentDigest":
+		if e.ComplexityRoot.DataframeRecipeRevision.ParentDigest == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.ParentDigest(childComplexity), true
+	case "DataframeRecipeRevision.projectId":
+		if e.ComplexityRoot.DataframeRecipeRevision.ProjectID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.ProjectID(childComplexity), true
+	case "DataframeRecipeRevision.recipe":
+		if e.ComplexityRoot.DataframeRecipeRevision.Recipe == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRecipeRevision.Recipe(childComplexity), true
+
 	case "DataframeRecipeValidation.name":
 		if e.ComplexityRoot.DataframeRecipeValidation.Name == nil {
 			break
@@ -6893,50 +6690,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRecipeValidation.TranslationVersion(childComplexity), true
-
-	case "DataframeRelatedResourceHints.edgeCount":
-		if e.ComplexityRoot.DataframeRelatedResourceHints.EdgeCount == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeRelatedResourceHints.EdgeCount(childComplexity), true
-	case "DataframeRelatedResourceHints.target":
-		if e.ComplexityRoot.DataframeRelatedResourceHints.Target == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeRelatedResourceHints.Target(childComplexity), true
-	case "DataframeRelatedResourceHints.viaLabel":
-		if e.ComplexityRoot.DataframeRelatedResourceHints.ViaLabel == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeRelatedResourceHints.ViaLabel(childComplexity), true
-
-	case "DataframeResourceHints.fields":
-		if e.ComplexityRoot.DataframeResourceHints.Fields == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeResourceHints.Fields(childComplexity), true
-	case "DataframeResourceHints.pivotFields":
-		if e.ComplexityRoot.DataframeResourceHints.PivotFields == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeResourceHints.PivotFields(childComplexity), true
-	case "DataframeResourceHints.resourceType":
-		if e.ComplexityRoot.DataframeResourceHints.ResourceType == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeResourceHints.ResourceType(childComplexity), true
-	case "DataframeResourceHints.traversals":
-		if e.ComplexityRoot.DataframeResourceHints.Traversals == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeResourceHints.Traversals(childComplexity), true
 
 	case "DataframeRichSourceReuse.aggregateConsumers":
 		if e.ComplexityRoot.DataframeRichSourceReuse.AggregateConsumers == nil {
@@ -7018,31 +6771,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeSelector.TranslationVersion(childComplexity), true
-
-	case "DataframeTraversalHint.edgeCount":
-		if e.ComplexityRoot.DataframeTraversalHint.EdgeCount == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeTraversalHint.EdgeCount(childComplexity), true
-	case "DataframeTraversalHint.fromType":
-		if e.ComplexityRoot.DataframeTraversalHint.FromType == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeTraversalHint.FromType(childComplexity), true
-	case "DataframeTraversalHint.label":
-		if e.ComplexityRoot.DataframeTraversalHint.Label == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeTraversalHint.Label(childComplexity), true
-	case "DataframeTraversalHint.toType":
-		if e.ComplexityRoot.DataframeTraversalHint.ToType == nil {
-			break
-		}
-
-		return e.ComplexityRoot.DataframeTraversalHint.ToType(childComplexity), true
 
 	case "DiagnosticReport.basedOn":
 		if e.ComplexityRoot.DiagnosticReport.BasedOn == nil {
@@ -11958,17 +11686,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PreviewDataframeRecipe(childComplexity, args["input"].(model.PreviewDataframeRecipeInput)), true
-	case "Mutation.promoteDataframeContract":
-		if e.ComplexityRoot.Mutation.PromoteDataframeContract == nil {
+	case "Mutation.registerDataframeRecipeRevision":
+		if e.ComplexityRoot.Mutation.RegisterDataframeRecipeRevision == nil {
 			break
 		}
 
-		args, err := ec.field_Mutation_promoteDataframeContract_args(ctx, rawArgs)
+		args, err := ec.field_Mutation_registerDataframeRecipeRevision_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.PromoteDataframeContract(childComplexity, args["input"].(model.PromoteDataframeContractInput)), true
+		return e.ComplexityRoot.Mutation.RegisterDataframeRecipeRevision(childComplexity, args["input"].(model.RegisterDataframeRecipeRevisionInput)), true
 	case "Mutation.runDataframeRecipe":
 		if e.ComplexityRoot.Mutation.RunDataframeRecipe == nil {
 			break
@@ -14546,17 +14274,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeAggregations(childComplexity, args["input"].(model.DataframeAggregationsInput)), true
-	case "Query.dataframeBuilderIntrospection":
-		if e.ComplexityRoot.Query.DataframeBuilderIntrospection == nil {
-			break
-		}
-
-		args, err := ec.field_Query_dataframeBuilderIntrospection_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.DataframeBuilderIntrospection(childComplexity, args["input"].(model.DataframeBuilderIntrospectionInput)), true
 	case "Query.dataframeDataset":
 		if e.ComplexityRoot.Query.DataframeDataset == nil {
 			break
@@ -14574,17 +14291,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeDatasets(childComplexity), true
-	case "Query.dataframeMaterialization":
-		if e.ComplexityRoot.Query.DataframeMaterialization == nil {
-			break
-		}
-
-		args, err := ec.field_Query_dataframeMaterialization_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.ComplexityRoot.Query.DataframeMaterialization(childComplexity, args["id"].(string)), true
 	case "Query.dataframeRecipeExecution":
 		if e.ComplexityRoot.Query.DataframeRecipeExecution == nil {
 			break
@@ -14596,6 +14302,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DataframeRecipeExecution(childComplexity, args["id"].(string)), true
+	case "Query.dataframeRecipeRevision":
+		if e.ComplexityRoot.Query.DataframeRecipeRevision == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeRecipeRevision_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeRecipeRevision(childComplexity, args["projectId"].(string), args["name"].(string), args["digest"].(string)), true
+	case "Query.dataframeRecipeRevisions":
+		if e.ComplexityRoot.Query.DataframeRecipeRevisions == nil {
+			break
+		}
+
+		args, err := ec.field_Query_dataframeRecipeRevisions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DataframeRecipeRevisions(childComplexity, args["projectId"].(string), args["name"].(string)), true
 	case "Query.dataframeRows":
 		if e.ComplexityRoot.Query.DataframeRows == nil {
 			break
@@ -14817,6 +14545,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Procedure(childComplexity, args["project"].(string), args["filters"].([]*model.FhirFilterInput), args["limit"].(*int)), true
+	case "Query.projectDataframeDatasets":
+		if e.ComplexityRoot.Query.ProjectDataframeDatasets == nil {
+			break
+		}
+
+		args, err := ec.field_Query_projectDataframeDatasets_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ProjectDataframeDatasets(childComplexity, args["projectId"].(string)), true
 	case "Query.ResearchStudy":
 		if e.ComplexityRoot.Query.ResearchStudy == nil {
 			break
@@ -20041,7 +19780,6 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataframeAggregateInput,
 		ec.unmarshalInputDataframeAggregationSpecInput,
 		ec.unmarshalInputDataframeAggregationsInput,
-		ec.unmarshalInputDataframeBuilderIntrospectionInput,
 		ec.unmarshalInputDataframeDatasetInput,
 		ec.unmarshalInputDataframeFilterInput,
 		ec.unmarshalInputDataframeRecipeBindingsInput,
@@ -20067,7 +19805,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputMaterializeDataframeRecipeInput,
 		ec.unmarshalInputPreflightDataframeRecipeInput,
 		ec.unmarshalInputPreviewDataframeRecipeInput,
-		ec.unmarshalInputPromoteDataframeContractInput,
+		ec.unmarshalInputRegisterDataframeRecipeRevisionInput,
 		ec.unmarshalInputRunDataframeRecipeInput,
 		ec.unmarshalInputStartDataframeMaterializationInput,
 		ec.unmarshalInputValidateDataframeRecipeInput,
@@ -20147,17 +19885,15 @@ func newExecutionContext(
 
 var sources = []*ast.Source{
 	{Name: "../../../../internal/api/graphql/graph/schema/schema.graphqls", Input: `type Query {
-  dataframeBuilderIntrospection(
-    input: DataframeBuilderIntrospectionInput!
-  ): DataframeBuilderIntrospection!
-
-  dataframeMaterialization(id: ID!): DataframeMaterialization
   dataframeDatasets: [DataframeMaterialization!]!
+  projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
   dataframeAggregate(input: DataframeAggregateInput!): DataframeAggregateResult!
   dataframeAggregations(input: DataframeAggregationsInput!): DataframeAggregationsResult!
   dataframeRecipeExecution(id: ID!): DataframeRecipeExecution
+  dataframeRecipeRevision(projectId: String!, name: String!, digest: String!): DataframeRecipeRevision
+  dataframeRecipeRevisions(projectId: String!, name: String!): [DataframeRecipeRevision!]!
   explainDataframeRecipe(input: ExplainDataframeRecipeInput!): DataframeRecipeExplanation!
   preflightDataframeRecipe(input: PreflightDataframeRecipeInput!): DataframeRecipePreflight!
   fhirGraph(input: FhirGraphQueryInput!): FhirGraphQueryResult!
@@ -20177,7 +19913,7 @@ type Mutation {
   materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
   startDataframeMaterialization(input: StartDataframeMaterializationInput!): DataframeRecipeExecution!
   activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
-  promoteDataframeContract(input: PromoteDataframeContractInput!): DataframeContract!
+	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
 }
 
 input StartDataframeMaterializationInput {
@@ -20202,19 +19938,25 @@ type ProjectRelease {
 
 enum ProjectReleaseState { ACTIVE }
 
-input PromoteDataframeContractInput {
-  recipe: String!
-  translationVersion: String!
+input RegisterDataframeRecipeRevisionInput {
+  projectId: String!
+  name: String!
+  parentDigest: String
+  recipe: JSON!
 }
 
-type DataframeContract {
-  recipe: String!
-  translationVersion: String!
-  promotedAt: String!
+type DataframeRecipeRevision {
+  projectId: String!
+  name: String!
+  digest: String!
+  parentDigest: String
+  recipe: JSON!
+  createdAt: String!
 }
 
 input DataframeRecipeBindingsInput {
   project: String!
+  recipeDigest: String
   datasetGeneration: String
   authResourcePaths: [String!]
   previewLimit: Int = 25
@@ -20462,6 +20204,7 @@ type DataframeRecipeExecutionOutput {
   name: String!
   state: DataframeRecipeExecutionState!
   rowCount: Int
+  columns: [DataframeColumn!]!
   error: String
   errorCode: String
   errorRetryable: Boolean
@@ -20477,6 +20220,7 @@ enum DataframeMaterializationState {
 }
 
 type DataframeColumn {
+  semanticPath: String!
   name: String!
   clickhouseType: String!
   logicalType: String!
@@ -20491,6 +20235,8 @@ type DataframeMaterialization {
   id: ID!
   name: String!
   revision: String!
+  projectId: String!
+  datasetGeneration: String!
   state: DataframeMaterializationState!
   columns: [DataframeColumn!]!
   rowCount: Int
@@ -20500,7 +20246,6 @@ type DataframeMaterialization {
   errorCode: String
   errorRetryable: Boolean
   selector: DataframeSelector
-  activeContractVersion: String
   availability: DataframeAvailability
   completeness: Float
   includedProjectCount: Int
@@ -20547,8 +20292,7 @@ type DataframeProjectStatus {
 }
 
 input DataframeDatasetInput {
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
 }
 
 input DataframeFilterInput {
@@ -20563,11 +20307,7 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
-  # Legacy callers may target one published physical materialization directly.
-  # When omitted, the request uses the project-federated dataframe.
-  materializationId: ID
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   columns: [String!]
   filters: [DataframeFilterInput!]
   sort: DataframeSortInput
@@ -20589,11 +20329,7 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
-  # Legacy callers may target one published physical materialization directly.
-  # When omitted, the request uses the project-federated dataframe.
-  materializationId: ID
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
   operation: String!
@@ -20617,8 +20353,7 @@ input DataframeAggregationSpecInput {
 }
 
 input DataframeAggregationsInput {
-  selector: DataframeSelectorInput
-  dataType: String @deprecated(reason: "Use selector")
+  selector: DataframeSelectorInput!
   filters: [DataframeFilterInput!]
   specs: [DataframeAggregationSpecInput!]!
 }
@@ -20626,80 +20361,6 @@ input DataframeAggregationsInput {
 type DataframeAggregationsResult {
   materialization: DataframeMaterialization!
   aggregations: JSON!
-}
-
-input DataframeBuilderIntrospectionInput {
-  project: String!
-  rootResourceType: String!
-  authResourcePaths: [String!]
-  includePivotOnlyFields: Boolean = true
-}
-
-type DataframeBuilderIntrospection {
-  project: String!
-  rootResourceType: String!
-  authResourcePaths: [String!]!
-  root: DataframeResourceHints!
-  relatedResources: [DataframeRelatedResourceHints!]!
-  traversals: [DataframeTraversalHint!]!
-  fields: [DataframeFieldHint!]!
-  pivotFields: [DataframeFieldHint!]!
-}
-
-type DataframeResourceHints {
-  resourceType: String!
-  fields: [DataframeFieldHint!]!
-  pivotFields: [DataframeFieldHint!]!
-  traversals: [DataframeTraversalHint!]!
-}
-
-type DataframeRelatedResourceHints {
-  viaLabel: String!
-  edgeCount: Int!
-  target: DataframeResourceHints!
-}
-
-type DataframeTraversalHint {
-  fromType: String!
-  label: String!
-  toType: String!
-  edgeCount: Int!
-}
-
-type DataframeFieldHint {
-  resourceType: String!
-  fieldRef: String!
-  label: String!
-  path: String!
-  selector: DataframeFieldSelector!
-  kind: String!
-  docCount: Int!
-  sampleCount: Int!
-  distinctValues: [String!]!
-  distinctTruncated: Boolean!
-  pivotCandidate: Boolean!
-  pivotKind: String
-  pivotColumns: [String!]!
-  pivotFamily: FhirPivotFamily
-  defaultPivotColumnSelector: DataframeFieldSelector
-  defaultPivotValueSelector: DataframeFieldSelector
-}
-
-type DataframeFieldSelector {
-  sourcePath: String
-  where: DataframeFieldPredicate
-  valuePath: String!
-}
-
-type DataframeFieldPredicate {
-  path: String!
-  op: FhirFieldPredicateOperation!
-  value: String!
-}
-
-enum FhirPivotFamily {
-  CODEABLE_CONCEPT
-  OBSERVATION_CODE_VALUE
 }
 
 input FhirFieldSelectInput {
@@ -24688,30 +24349,10 @@ func (ec *executionContext) childFields_DataframeAggregationsResult(ctx context.
 	return nil, fmt.Errorf("no field named %q was found under type DataframeAggregationsResult", field.Name)
 }
 
-func (ec *executionContext) childFields_DataframeBuilderIntrospection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "project":
-		return ec.fieldContext_DataframeBuilderIntrospection_project(ctx, field)
-	case "rootResourceType":
-		return ec.fieldContext_DataframeBuilderIntrospection_rootResourceType(ctx, field)
-	case "authResourcePaths":
-		return ec.fieldContext_DataframeBuilderIntrospection_authResourcePaths(ctx, field)
-	case "root":
-		return ec.fieldContext_DataframeBuilderIntrospection_root(ctx, field)
-	case "relatedResources":
-		return ec.fieldContext_DataframeBuilderIntrospection_relatedResources(ctx, field)
-	case "traversals":
-		return ec.fieldContext_DataframeBuilderIntrospection_traversals(ctx, field)
-	case "fields":
-		return ec.fieldContext_DataframeBuilderIntrospection_fields(ctx, field)
-	case "pivotFields":
-		return ec.fieldContext_DataframeBuilderIntrospection_pivotFields(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeBuilderIntrospection", field.Name)
-}
-
 func (ec *executionContext) childFields_DataframeColumn(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
+	case "semanticPath":
+		return ec.fieldContext_DataframeColumn_semanticPath(ctx, field)
 	case "name":
 		return ec.fieldContext_DataframeColumn_name(ctx, field)
 	case "clickhouseType":
@@ -24756,80 +24397,6 @@ func (ec *executionContext) childFields_DataframeCompilerPlanDiagnostics(ctx con
 	return nil, fmt.Errorf("no field named %q was found under type DataframeCompilerPlanDiagnostics", field.Name)
 }
 
-func (ec *executionContext) childFields_DataframeContract(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "recipe":
-		return ec.fieldContext_DataframeContract_recipe(ctx, field)
-	case "translationVersion":
-		return ec.fieldContext_DataframeContract_translationVersion(ctx, field)
-	case "promotedAt":
-		return ec.fieldContext_DataframeContract_promotedAt(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeContract", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeFieldHint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "resourceType":
-		return ec.fieldContext_DataframeFieldHint_resourceType(ctx, field)
-	case "fieldRef":
-		return ec.fieldContext_DataframeFieldHint_fieldRef(ctx, field)
-	case "label":
-		return ec.fieldContext_DataframeFieldHint_label(ctx, field)
-	case "path":
-		return ec.fieldContext_DataframeFieldHint_path(ctx, field)
-	case "selector":
-		return ec.fieldContext_DataframeFieldHint_selector(ctx, field)
-	case "kind":
-		return ec.fieldContext_DataframeFieldHint_kind(ctx, field)
-	case "docCount":
-		return ec.fieldContext_DataframeFieldHint_docCount(ctx, field)
-	case "sampleCount":
-		return ec.fieldContext_DataframeFieldHint_sampleCount(ctx, field)
-	case "distinctValues":
-		return ec.fieldContext_DataframeFieldHint_distinctValues(ctx, field)
-	case "distinctTruncated":
-		return ec.fieldContext_DataframeFieldHint_distinctTruncated(ctx, field)
-	case "pivotCandidate":
-		return ec.fieldContext_DataframeFieldHint_pivotCandidate(ctx, field)
-	case "pivotKind":
-		return ec.fieldContext_DataframeFieldHint_pivotKind(ctx, field)
-	case "pivotColumns":
-		return ec.fieldContext_DataframeFieldHint_pivotColumns(ctx, field)
-	case "pivotFamily":
-		return ec.fieldContext_DataframeFieldHint_pivotFamily(ctx, field)
-	case "defaultPivotColumnSelector":
-		return ec.fieldContext_DataframeFieldHint_defaultPivotColumnSelector(ctx, field)
-	case "defaultPivotValueSelector":
-		return ec.fieldContext_DataframeFieldHint_defaultPivotValueSelector(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeFieldHint", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeFieldPredicate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "path":
-		return ec.fieldContext_DataframeFieldPredicate_path(ctx, field)
-	case "op":
-		return ec.fieldContext_DataframeFieldPredicate_op(ctx, field)
-	case "value":
-		return ec.fieldContext_DataframeFieldPredicate_value(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeFieldPredicate", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeFieldSelector(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "sourcePath":
-		return ec.fieldContext_DataframeFieldSelector_sourcePath(ctx, field)
-	case "where":
-		return ec.fieldContext_DataframeFieldSelector_where(ctx, field)
-	case "valuePath":
-		return ec.fieldContext_DataframeFieldSelector_valuePath(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeFieldSelector", field.Name)
-}
-
 func (ec *executionContext) childFields_DataframeMaterialization(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -24838,6 +24405,10 @@ func (ec *executionContext) childFields_DataframeMaterialization(ctx context.Con
 		return ec.fieldContext_DataframeMaterialization_name(ctx, field)
 	case "revision":
 		return ec.fieldContext_DataframeMaterialization_revision(ctx, field)
+	case "projectId":
+		return ec.fieldContext_DataframeMaterialization_projectId(ctx, field)
+	case "datasetGeneration":
+		return ec.fieldContext_DataframeMaterialization_datasetGeneration(ctx, field)
 	case "state":
 		return ec.fieldContext_DataframeMaterialization_state(ctx, field)
 	case "columns":
@@ -24856,8 +24427,6 @@ func (ec *executionContext) childFields_DataframeMaterialization(ctx context.Con
 		return ec.fieldContext_DataframeMaterialization_errorRetryable(ctx, field)
 	case "selector":
 		return ec.fieldContext_DataframeMaterialization_selector(ctx, field)
-	case "activeContractVersion":
-		return ec.fieldContext_DataframeMaterialization_activeContractVersion(ctx, field)
 	case "availability":
 		return ec.fieldContext_DataframeMaterialization_availability(ctx, field)
 	case "completeness":
@@ -25034,6 +24603,8 @@ func (ec *executionContext) childFields_DataframeRecipeExecutionOutput(ctx conte
 		return ec.fieldContext_DataframeRecipeExecutionOutput_state(ctx, field)
 	case "rowCount":
 		return ec.fieldContext_DataframeRecipeExecutionOutput_rowCount(ctx, field)
+	case "columns":
+		return ec.fieldContext_DataframeRecipeExecutionOutput_columns(ctx, field)
 	case "error":
 		return ec.fieldContext_DataframeRecipeExecutionOutput_error(ctx, field)
 	case "errorCode":
@@ -25356,6 +24927,24 @@ func (ec *executionContext) childFields_DataframeRecipeResultOutput(ctx context.
 	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeResultOutput", field.Name)
 }
 
+func (ec *executionContext) childFields_DataframeRecipeRevision(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "projectId":
+		return ec.fieldContext_DataframeRecipeRevision_projectId(ctx, field)
+	case "name":
+		return ec.fieldContext_DataframeRecipeRevision_name(ctx, field)
+	case "digest":
+		return ec.fieldContext_DataframeRecipeRevision_digest(ctx, field)
+	case "parentDigest":
+		return ec.fieldContext_DataframeRecipeRevision_parentDigest(ctx, field)
+	case "recipe":
+		return ec.fieldContext_DataframeRecipeRevision_recipe(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_DataframeRecipeRevision_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeRevision", field.Name)
+}
+
 func (ec *executionContext) childFields_DataframeRecipeValidation(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "name":
@@ -25368,32 +24957,6 @@ func (ec *executionContext) childFields_DataframeRecipeValidation(ctx context.Co
 		return ec.fieldContext_DataframeRecipeValidation_outputs(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeRecipeValidation", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeRelatedResourceHints(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "viaLabel":
-		return ec.fieldContext_DataframeRelatedResourceHints_viaLabel(ctx, field)
-	case "edgeCount":
-		return ec.fieldContext_DataframeRelatedResourceHints_edgeCount(ctx, field)
-	case "target":
-		return ec.fieldContext_DataframeRelatedResourceHints_target(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeRelatedResourceHints", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeResourceHints(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "resourceType":
-		return ec.fieldContext_DataframeResourceHints_resourceType(ctx, field)
-	case "fields":
-		return ec.fieldContext_DataframeResourceHints_fields(ctx, field)
-	case "pivotFields":
-		return ec.fieldContext_DataframeResourceHints_pivotFields(ctx, field)
-	case "traversals":
-		return ec.fieldContext_DataframeResourceHints_traversals(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeResourceHints", field.Name)
 }
 
 func (ec *executionContext) childFields_DataframeRichSourceReuse(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -25438,20 +25001,6 @@ func (ec *executionContext) childFields_DataframeSelector(ctx context.Context, f
 		return ec.fieldContext_DataframeSelector_output(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type DataframeSelector", field.Name)
-}
-
-func (ec *executionContext) childFields_DataframeTraversalHint(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "fromType":
-		return ec.fieldContext_DataframeTraversalHint_fromType(ctx, field)
-	case "label":
-		return ec.fieldContext_DataframeTraversalHint_label(ctx, field)
-	case "toType":
-		return ec.fieldContext_DataframeTraversalHint_toType(ctx, field)
-	case "edgeCount":
-		return ec.fieldContext_DataframeTraversalHint_edgeCount(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type DataframeTraversalHint", field.Name)
 }
 
 func (ec *executionContext) childFields_DiagnosticReport(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {

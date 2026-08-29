@@ -154,6 +154,12 @@ func cloneFields(in []PopulatedField) []PopulatedField {
 		if in[i].PivotColumns != nil {
 			out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
 		}
+		if in[i].ExtensionValues != nil {
+			out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
+			for j := range out[i].ExtensionValues {
+				out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
+			}
+		}
 	}
 	return out
 }

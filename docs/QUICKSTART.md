@@ -24,15 +24,10 @@ This starts:
 
 - ArangoDB at [http://127.0.0.1:8529](http://127.0.0.1:8529)
 
-If you also want the research/benchmark databases, the larger stack is:
-
-- [`experimental/docker/docker-compose.full.yml`](../experimental/docker/docker-compose.full.yml)
-
 ## 2. Generate code and build binaries
 
 ```bash
-make generate-fhir
-make generate-graphql
+make generate
 make build
 ```
 
@@ -96,86 +91,23 @@ On macOS you can jump straight to Apollo with:
 open http://127.0.0.1:8080/apollo
 ```
 
-## 5. Run a builder introspection query
+## 5. Inspect and author an Explorer
 
-Use this first. It tells you what traversals and fields are actually populated
-for the chosen root resource type.
+Current Builder authoring uses the versioned REST V2 workflow. List project
+Explorers, then load the selected Explorer's
+`/authoring/v2/builder` state. Save canonical drafts with `PUT /draft`, compile
+to an immutable receipt with `POST /compile`, preview that receipt with
+`POST /preview`, and activate it only with `POST /publish`. Loom owns catalog
+resolution, recipe lowering, compilation, materialization, persistence, and
+diagnostics.
 
-To promote a proven interactive query into the server's persistent default,
-follow the [dataframer recipe authoring guide](DATAFRAMER_RECIPES.md).
+Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
+request/response behavior and the canonical
+[OpenAPI contract](../openapi/openapi.yaml) for exact wire schemas.
 
-### Query
-
-```graphql
-query BuilderIntrospection($input: DataframeBuilderIntrospectionInput!) {
-  dataframeBuilderIntrospection(input: $input) {
-    project
-    rootResourceType
-    authResourcePaths
-    root {
-      resourceType
-      fields {
-        fieldRef
-        label
-        path
-        selector {
-          sourcePath
-          valuePath
-          where {
-            path
-            op
-            value
-          }
-        }
-      }
-      pivotFields {
-        fieldRef
-        label
-        pivotFamily
-        pivotColumns
-        defaultPivotColumnSelector {
-          sourcePath
-          valuePath
-        }
-        defaultPivotValueSelector {
-          sourcePath
-          valuePath
-        }
-      }
-      traversals {
-        fromType
-        label
-        toType
-        edgeCount
-      }
-    }
-    relatedResources {
-      viaLabel
-      edgeCount
-      target {
-        resourceType
-        fields {
-          fieldRef
-          label
-          path
-        }
-      }
-    }
-  }
-}
-```
-
-### Variables
-
-```json
-{
-  "input": {
-    "project": "ARANGODB_PROTO",
-    "rootResourceType": "Patient",
-    "includePivotOnlyFields": true
-  }
-}
-```
+The workflow is deliberately not a GraphQL introspection query: Loom validates
+catalog selections, dataset generation, recipe compilation, preview, and
+publication through the same server-owned REST capability path.
 
 ## 6. Run a sample dataframe query
 

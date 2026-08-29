@@ -18,6 +18,27 @@ func TestResourceTypesAreSortedDefensiveCopy(t *testing.T) {
 	}
 }
 
+func TestConcreteResourceTypeRejectsDefinitionsAndUnknowns(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  string
+		ok    bool
+	}{
+		{value: " Patient ", want: "Patient", ok: true},
+		{value: "organization", want: "Organization", ok: true},
+		{value: "PractitionerQualification", ok: false},
+		{value: "qualification", ok: false},
+		{value: "issuer", ok: false},
+		{value: "Resource", ok: false},
+		{value: "CustomResource", ok: false},
+	} {
+		got, ok := ConcreteResourceType(test.value)
+		if got != test.want || ok != test.ok {
+			t.Errorf("ConcreteResourceType(%q) = %q, %v; want %q, %v", test.value, got, ok, test.want, test.ok)
+		}
+	}
+}
+
 func TestDefinitionExistsIncludesBackbonesWithoutTreatingThemAsResources(t *testing.T) {
 	if !DefinitionExists("Patient") {
 		t.Fatal("Patient should be a generated definition")

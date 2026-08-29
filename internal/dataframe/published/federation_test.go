@@ -66,38 +66,20 @@ func TestReconcileExcludesMalformedSourceAndDegrades(t *testing.T) {
 func TestExactSelectorDoesNotMixRecipesSharingOutput(t *testing.T) {
 	now := time.Now().UTC()
 	executions := []bundlepublication.BundleExecution{
-		{ID: "recipe-a", BundleIdentity: bundlepublication.BundleIdentity{Name: "recipe-a", Project: "p"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "a"}}},
-		{ID: "recipe-b", BundleIdentity: bundlepublication.BundleIdentity{Name: "recipe-b", Project: "p"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "b"}}},
+		{ID: "recipe-a", BundleIdentity: bundlepublication.BundleIdentity{Name: "recipe-a", TranslationVersion: "v1", Project: "p"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "a"}}},
+		{ID: "recipe-b", BundleIdentity: bundlepublication.BundleIdentity{Name: "recipe-b", TranslationVersion: "v1", Project: "p"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "b"}}},
 	}
 	pointers := map[string]bundlepublication.BundlePointer{}
 	for _, execution := range executions {
 		pointers[execution.PointerName()] = bundlepublication.BundlePointer{ExecutionID: execution.ID}
 	}
-	reader := Reader{Catalog: &federationCatalog{executions: executions, pointers: pointers}, LegacyTranslationVersion: "v1"}
+	reader := Reader{Catalog: &federationCatalog{executions: executions, pointers: pointers}}
 	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, DataframeSelector{Recipe: "recipe-a", TranslationVersion: "v1", Output: "DocumentReference"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(sources) != 1 || sources[0].PhysicalTable != "a" {
 		t.Fatalf("sources = %#v", sources)
-	}
-}
-
-func TestLegacyReadyExecutionUsesLegacyPointerAndDefaultVersion(t *testing.T) {
-	now := time.Now().UTC()
-	execution := bundlepublication.BundleExecution{ID: "legacy", BundleIdentity: bundlepublication.BundleIdentity{Name: "documents", Project: "p", DatasetGeneration: "g"}, State: bundlepublication.BundleReady, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: "DocumentReference", PhysicalTable: "legacy_table", State: bundlepublication.BundleReady}}}
-	catalog := &versionedFederationCatalog{federationCatalog: &federationCatalog{executions: []bundlepublication.BundleExecution{execution}, pointers: map[string]bundlepublication.BundlePointer{execution.PointerName(): {ExecutionID: execution.ID}}}, selectors: map[string]DataframeSelector{}}
-	reader := Reader{Catalog: catalog, LegacyTranslationVersion: "v1"}
-	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, DataframeSelector{Recipe: "documents", TranslationVersion: "v1", Output: "DocumentReference"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sources) != 1 || sources[0].PhysicalTable != "legacy_table" {
-		t.Fatalf("legacy sources = %#v", sources)
-	}
-	projects, err := reader.PublishedProjects(context.Background())
-	if err != nil || len(projects) != 1 || projects[0] != "p" {
-		t.Fatalf("legacy projects = %#v, %v", projects, err)
 	}
 }
 
@@ -123,6 +105,35 @@ func TestRecipeVersionsRemainIndependentlyQueryable(t *testing.T) {
 	}
 }
 
+func TestVersionedExecutionWithoutRequestedOutputIsSkipped(t *testing.T) {
+	now := time.Now().UTC()
+	execution := bundlepublication.BundleExecution{
+		ID: "research-subject", BundleIdentity: bundlepublication.BundleIdentity{
+			Name: "calypr-meta-default", TranslationVersion: "v2", Project: "p", DatasetGeneration: "g",
+		},
+		State: bundlepublication.BundlePublished, UpdatedAt: now,
+		Outputs: []bundlepublication.BundleOutputRecord{{Name: "ResearchSubject", PhysicalTable: "research_subject"}},
+	}
+	catalog := &missingOutputSelectorCatalog{federationCatalog: &federationCatalog{
+		executions: []bundlepublication.BundleExecution{execution},
+		pointers:   map[string]bundlepublication.BundlePointer{execution.PointerName(): {ExecutionID: execution.ID}},
+	}}
+	reader := Reader{Catalog: catalog}
+
+	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"p"}, DataframeSelector{
+		Recipe: "calypr-meta-default", TranslationVersion: "v2", Output: "Patient",
+	})
+	if err != nil {
+		t.Fatalf("CurrentFederatedSources() error = %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("sources = %#v, want no Patient publication", sources)
+	}
+	if catalog.selectorCalls != 0 {
+		t.Fatalf("selector resolver called %d times for absent output", catalog.selectorCalls)
+	}
+}
+
 func TestFederatedUnionSynthesizesProjectIDForLegacySource(t *testing.T) {
 	dataset := FederatedDataset{
 		Columns: []Column{{Name: "id", ClickHouse: "String"}, {Name: projectIDColumn, ClickHouse: "String"}},
@@ -140,10 +151,19 @@ func TestFederatedUnionSynthesizesProjectIDForLegacySource(t *testing.T) {
 	}
 }
 
-func TestAggregateGroupOrderClauseGroupsBeforeOrdering(t *testing.T) {
-	clause := aggregateGroupOrderClause([]string{"project_id", "status"})
-	if clause != " GROUP BY `project_id`, `status` ORDER BY `project_id`, `status`" {
-		t.Fatalf("aggregate group/order clause = %q", clause)
+func TestFederatedColumnsRejectsUnknownTableColumnAsInvalidRequest(t *testing.T) {
+	_, _, err := federatedColumns(FederatedDataset{
+		Columns: []Column{{Name: "patient_id", ClickHouse: "String"}},
+	}, []string{"stale_column"}, nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		t.Fatalf("error = %v, want typed user error", err)
+	}
+	if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+		t.Fatalf("error code = %q, want INVALID_REQUEST", userErr.Code())
+	}
+	if userErr.Retryable() {
+		t.Fatal("unknown table column must not be retryable")
 	}
 }
 
@@ -156,6 +176,31 @@ type federationCatalog struct {
 type versionedFederationCatalog struct {
 	*federationCatalog
 	selectors map[string]DataframeSelector
+}
+
+type missingOutputSelectorCatalog struct {
+	*federationCatalog
+	selectorCalls int
+}
+
+type staleExecutionSelectorCatalog struct {
+	*federationCatalog
+	selectors map[string]DataframeSelector
+	staleID   string
+}
+
+func (c *staleExecutionSelectorCatalog) DataframeSelectorForExecution(_ context.Context, executionID, output string) (DataframeSelector, error) {
+	if executionID == c.staleID {
+		return DataframeSelector{}, bundlepublication.ErrBundleNotFound
+	}
+	selector := c.selectors[executionID]
+	selector.Output = output
+	return selector, nil
+}
+
+func (c *missingOutputSelectorCatalog) DataframeSelectorForExecution(context.Context, string, string) (DataframeSelector, error) {
+	c.selectorCalls++
+	return DataframeSelector{}, bundlepublication.ErrBundleNotFound
 }
 
 type releaseExecutionFixture map[string]string
@@ -200,6 +245,23 @@ func TestActiveReleaseExecutionOverridesMutablePublicationPointer(t *testing.T) 
 	}
 }
 
+func TestStaleReleaseExecutionDoesNotPoisonValidFederatedSource(t *testing.T) {
+	now := time.Now().UTC()
+	selector := DataframeSelector{Recipe: "explorer_project_default", TranslationVersion: "repository-commit", Output: "Patient"}
+	valid := bundlepublication.BundleExecution{ID: "valid", BundleIdentity: bundlepublication.BundleIdentity{Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Project: "valid-project", DatasetGeneration: "g1"}, State: bundlepublication.BundlePublished, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: selector.Output, PhysicalTable: "patient_valid", State: bundlepublication.BundlePublished}}}
+	stale := bundlepublication.BundleExecution{ID: "stale", BundleIdentity: bundlepublication.BundleIdentity{Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Project: "stale-project", DatasetGeneration: "g2"}, State: bundlepublication.BundlePublished, UpdatedAt: now, Outputs: []bundlepublication.BundleOutputRecord{{Name: selector.Output, PhysicalTable: "patient_stale", State: bundlepublication.BundlePublished}}}
+	catalog := &staleExecutionSelectorCatalog{federationCatalog: &federationCatalog{executions: []bundlepublication.BundleExecution{valid, stale}}, selectors: map[string]DataframeSelector{valid.ID: selector}, staleID: stale.ID}
+	reader := Reader{Catalog: catalog, ReleaseExecutionResolver: releaseExecutionFixture{"valid-project": valid.ID, "stale-project": stale.ID}}
+
+	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"valid-project", "stale-project"}, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].Project != "valid-project" || sources[0].PhysicalTable != "patient_valid" {
+		t.Fatalf("sources = %#v", sources)
+	}
+}
+
 func (c *federationCatalog) ListExecutions(_ context.Context, state bundlepublication.BundleState, before time.Time) ([]bundlepublication.BundleExecution, error) {
 	result := make([]bundlepublication.BundleExecution, 0, len(c.executions))
 	for _, execution := range c.executions {
@@ -218,56 +280,4 @@ type noActiveFederationResolver struct{}
 
 func (noActiveFederationResolver) ResolveActiveManifest(context.Context, string) (publication.Manifest, error) {
 	return publication.Manifest{}, publication.ErrNoActiveGeneration
-}
-
-func TestFederationFallsBackToUnversionedPublicationsWithoutActiveManifest(t *testing.T) {
-	now := time.Now().UTC()
-	executions := []bundlepublication.BundleExecution{
-		{
-			ID: "unversioned", BundleIdentity: bundlepublication.BundleIdentity{
-				Name: "research-subject", Project: "project-a",
-			}, State: bundlepublication.BundleReady, UpdatedAt: now,
-			Outputs: []bundlepublication.BundleOutputRecord{
-				{Name: "ResearchSubject", PhysicalTable: "loom_research_subject"},
-				{Name: "patients", PhysicalTable: "loom_patients"},
-			},
-		},
-		{
-			ID: "versioned", BundleIdentity: bundlepublication.BundleIdentity{
-				Name: "research-subject", Project: "project-a", DatasetGeneration: "generation-a",
-			}, State: bundlepublication.BundleReady, UpdatedAt: now,
-			Outputs: []bundlepublication.BundleOutputRecord{{Name: "ResearchSubject", PhysicalTable: "loom_research_subject_v1"}},
-		},
-	}
-	pointers := map[string]bundlepublication.BundlePointer{}
-	for _, execution := range executions {
-		pointers[execution.PointerName()] = bundlepublication.BundlePointer{
-			Name: execution.PointerName(), ExecutionID: execution.ID,
-		}
-	}
-	reader := &Reader{
-		Catalog:                  &federationCatalog{executions: executions, pointers: pointers},
-		ActiveManifestResolver:   noActiveFederationResolver{},
-		LegacyTranslationVersion: "legacy",
-	}
-
-	sources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, DataframeSelector{Recipe: "research-subject", TranslationVersion: "legacy", Output: "ResearchSubject"})
-	if err != nil {
-		t.Fatalf("CurrentFederatedSources() error = %v", err)
-	}
-	if len(sources) != 1 || sources[0].ID != "unversioned:ResearchSubject" {
-		t.Fatalf("sources = %#v, want only unversioned publication", sources)
-	}
-
-	resourceTypes, err := reader.CurrentFederatedResourceTypes(context.Background(), []string{"project-a"})
-	if err != nil {
-		t.Fatalf("CurrentFederatedResourceTypes() error = %v", err)
-	}
-	if len(resourceTypes) != 1 || resourceTypes[0] != "ResearchSubject" {
-		t.Fatalf("resource types = %#v, want unversioned resource types", resourceTypes)
-	}
-	patients, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, DataframeSelector{Recipe: "research-subject", TranslationVersion: "legacy", Output: "patients"})
-	if err != nil || len(patients) != 1 || patients[0].ID != "unversioned:patients" {
-		t.Fatalf("exact non-FHIR output sources = %#v, %v", patients, err)
-	}
 }

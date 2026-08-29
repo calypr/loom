@@ -50,3 +50,43 @@ func validateDynamicColumns(items []DynamicColumn, path string, budget *int) err
 	}
 	return nil
 }
+
+func validateExtensionColumns(items []ExtensionColumn, path string, budget *int) error {
+	seen := map[string]bool{}
+	for index, item := range items {
+		p := fmt.Sprintf("%s[%d]", path, index)
+		if err := validateRecipeName(item.Name, p+".name"); err != nil {
+			return err
+		}
+		if seen[item.Name] {
+			return validationError("duplicate_name", p+".name", "duplicate extension column name")
+		}
+		seen[item.Name] = true
+		if item.ColumnPrefix != nil && *item.ColumnPrefix != "" {
+			if err := validateRecipeName(*item.ColumnPrefix, p+".columnPrefix"); err != nil {
+				return err
+			}
+		}
+		if item.MaxColumns <= 0 {
+			return validationError("invalid_limit", p+".maxColumns", "must be greater than zero")
+		}
+		if err := validateExpressionBudget(item.Source, p+".source", budget); err != nil {
+			return err
+		}
+		seenColumns := map[string]bool{}
+		for columnIndex, column := range item.Columns {
+			cp := fmt.Sprintf("%s.columns[%d]", p, columnIndex)
+			if strings.TrimSpace(column.Name) == "" || strings.TrimSpace(column.URL) == "" {
+				return validationError("required", cp, "name and url are required")
+			}
+			if seenColumns[column.Name] {
+				return validationError("duplicate_name", cp+".name", "duplicate extension column")
+			}
+			seenColumns[column.Name] = true
+			if strings.TrimSpace(column.ValueType) == "" {
+				return validationError("required", cp+".valueType", "valueType is required")
+			}
+		}
+	}
+	return nil
+}

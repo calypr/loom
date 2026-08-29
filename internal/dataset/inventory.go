@@ -15,6 +15,15 @@ type ProjectInventory struct {
 	Executions ExecutionProjectSource
 }
 
+func sortedSet(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
 // ExpectedProjects returns only caller-authorized identities in auth mode. In
 // no-auth development mode it exposes every project observed through snapshot
 // sessions, releases, or publication attempts, including projects that never

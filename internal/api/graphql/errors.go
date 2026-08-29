@@ -34,7 +34,9 @@ func PresentGraphQLError(err error, requestID string) *gqlerror.Error {
 		// their path/location while giving clients one stable non-retryable code.
 		if gqlErr.Err == nil {
 			copy := *gqlErr
-			copy.Extensions = map[string]any{"code": "GRAPHQL_VALIDATION_FAILED", "retryable": false}
+			if len(copy.Extensions) == 0 {
+				copy.Extensions = map[string]any{"code": "GRAPHQL_VALIDATION_FAILED", "retryable": false}
+			}
 			if requestID != "" {
 				copy.Extensions["requestId"] = requestID
 			}

@@ -1,9 +1,11 @@
 # Dataframer recipe reference and operating manual
 
-This is the field-by-field reference for Loom dataframer recipes.  Read the
-[authoring guide](DATAFRAMER_RECIPES.md) first for the short workflow; use this
-document when making a real change, reviewing one, or diagnosing an unexpected
-column.
+This is the field-by-field reference for Loom's native dataframer recipes.
+Read the [recipe authoring guide](DATAFRAMER_RECIPES.md) first for the short
+workflow; use this document when making a real change, reviewing one, or
+diagnosing an unexpected column. Browser Builder authoring is documented in
+[EXPLORER_AUTHORING.md](EXPLORER_AUTHORING.md) and should not construct these
+recipe packets directly.
 
 The goal of a recipe is to describe a stable, reviewable mapping from FHIR
 resources and relationships to dataframe rows.  It is deliberately independent
@@ -330,6 +332,48 @@ unless an excluded root was already impossible.  The default recipe’s
 traversals attach context without changing the root output identity.
 
 ## Dynamic columns: controlled key/value flattening
+
+### `extensionColumns`: typed URL-keyed Extension values
+
+For recipes that need a stable, loss-aware mapping of FHIR `Extension`
+values, use `extensionColumns` on either an output or a traversal. `source`
+must be a schema-valid repeated `Extension` selector and `maxColumns` is
+required. Discovery walks nested `extension[]` arrays and freezes each URL's
+normalized final segment (for example `source_path` and `sha256`). An explicit
+empty `columnPrefix` publishes those names without a family prefix.
+
+When discovery observes one primitive `value[x]` kind for a URL, the resulting
+column retains that nullable logical type. URLs with mixed or complex values
+are represented as canonical JSON strings. The frozen URL, source path, value
+selector, and logical type are included in the resolved schema digest.
+
+```json
+{
+  "name": "attachment",
+  "columnPrefix": "",
+  "source": {"select": "root.content[].attachment.extension[]"},
+  "maxColumns": 16
+}
+```
+
+`dynamicColumns` remains available for general key/value arrays and retains
+its existing behavior.
+
+### Published schema finalization
+
+Preflight and preview report the conservative candidate schema produced by
+catalog discovery. During publication, discovered columns that are missing or
+null in every staged row are removed (empty repeated arrays are also empty);
+`false`, zero, and empty strings count as populated. Authored and Loom-owned
+columns are always retained. The published execution metadata, ClickHouse
+table, Explorer schema, and API responses all use this retained schema.
+
+Published `schemaDigest` values use the versioned final-schema algorithm over
+the recipe digest, scope digest, dataset generation, output order, and ordered
+logical column contracts. Physical table names and discovery provenance are
+excluded. Newly materialized outputs therefore may have a different digest
+from their preflight candidate, and an existing publication changes only after
+normal rematerialization.
 
 Use a dynamic column family when FHIR represents repeated key/value metadata
 and each known key should become its own column.  This is the correct tool for

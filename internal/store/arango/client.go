@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,6 +25,19 @@ type Client struct {
 	dbName string
 	client *http.Client
 }
+
+// Transaction is the narrow query surface used by stores that need to make
+// several collection updates visible as one Arango transaction.
+type Transaction interface {
+	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
+}
+
+type TransactionCollections struct {
+	Read  []string
+	Write []string
+}
+
+type TransactionFunc func(context.Context, Transaction) error
 
 var bufferPool = sync.Pool{
 	New: func() any {
@@ -146,25 +160,74 @@ func (c *Client) InsertBatchRaw(ctx context.Context, collection string, docs []j
 }
 
 func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
-	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
-	if err != nil {
+	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
+}
+
+func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
+	if fn == nil {
+		return fmt.Errorf("Arango transaction callback is required")
+	}
+	return c.db.WithTransaction(ctx, driver.TransactionCollections{
+		Read:  collections.Read,
+		Write: collections.Write,
+	}, nil, nil, nil, func(txCtx context.Context, tx driver.Transaction) error {
+		return fn(txCtx, transactionClient{queryer: tx})
+	})
+}
+
+type transactionClient struct {
+	queryer driver.DatabaseQuery
+}
+
+func (t transactionClient) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
+	return queryRows(ctx, t.queryer, query, batchSize, bindVars, visit)
+}
+
+func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) (resultErr error) {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	defer cursor.Close()
-	for cursor.HasMore() {
+	cursor, err := queryer.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
+	if err != nil {
+		return fmt.Errorf("arango query: %w", err)
+	}
+	defer func() {
+		closeErr := cursor.Close()
+		if closeErr != nil {
+			wrapped := fmt.Errorf("close arango query cursor: %w", closeErr)
+			resultErr = errors.Join(resultErr, wrapped)
+		}
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			resultErr = err
+			return resultErr
+		}
+		if !cursor.HasMore() {
+			return resultErr
+		}
 		var row map[string]any
 		_, err := cursor.ReadDocument(ctx, &row)
 		if err != nil {
-			if shared.IsNoMoreDocuments(err) {
-				return nil
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				resultErr = ctxErr
+				return resultErr
 			}
-			return err
+			if shared.IsNoMoreDocuments(err) {
+				return resultErr
+			}
+			resultErr = fmt.Errorf("read arango query cursor: %w", err)
+			return resultErr
+		}
+		if err := ctx.Err(); err != nil {
+			resultErr = err
+			return resultErr
 		}
 		if err := visit(row); err != nil {
-			return err
+			resultErr = err
+			return resultErr
 		}
 	}
-	return nil
 }
 
 func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error) {

@@ -26,8 +26,6 @@ type ServerConfig struct {
 	Schema                     string                      `yaml:"schema"`
 	ClickHouse                 ClickHouseConfig            `yaml:"clickhouse"`
 	Dataframer                 DataframerConfig            `yaml:"dataframer"`
-	DefaultRecipe              string                      `yaml:"default_recipe"`
-	DefaultTranslationVersion  string                      `yaml:"default_translation_version"`
 	RecipeBatchRows            int                         `yaml:"recipe_batch_rows"`
 	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
 	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
@@ -119,6 +117,14 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if err != nil {
 			return Config{}, err
 		}
+		// --no-auth is an explicit local-development override. Keep the
+		// configuration file authoritative for normal server settings, but honor
+		// this flag even when the server is started with --config (as the Helm
+		// local-development path does).
+		if noAuth {
+			cfg.Server.AllowUnauthenticated = true
+			cfg.Auth.AllowUnauthenticated = true
+		}
 		if err := cfg.Validate(); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
 		}
@@ -189,15 +195,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_DIRECTORY")); value != "" {
 		cfg.Server.SnapshotDirectory = value
 	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_DEFAULT_RECIPE")); value != "" {
-		cfg.Server.DefaultRecipe = value
-	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_DEFAULT_TRANSLATION_VERSION")); value != "" {
-		cfg.Server.DefaultTranslationVersion = value
-	}
-	if (cfg.Server.DefaultRecipe == "") != (cfg.Server.DefaultTranslationVersion == "") {
-		return Config{}, fmt.Errorf("LOOM_DEFAULT_RECIPE and LOOM_DEFAULT_TRANSLATION_VERSION must be set together")
-	}
 	if value := strings.TrimSpace(os.Getenv("LOOM_PUBLICATION_WORKER_LEASE")); value != "" {
 		lease, err := time.ParseDuration(value)
 		if err != nil {
@@ -217,9 +214,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 
 func (c Config) Validate() error {
 	cfg := c
-	if (strings.TrimSpace(cfg.Server.DefaultRecipe) == "") != (strings.TrimSpace(cfg.Server.DefaultTranslationVersion) == "") {
-		return fmt.Errorf("server.default_recipe and server.default_translation_version must be set together")
-	}
 	if cfg.Server.ClickHouse.Enabled && strings.TrimSpace(cfg.Server.Dataframer.Recipe) == "" {
 		return fmt.Errorf("server.dataframer.recipe is required when server.clickhouse.enabled is true")
 	}

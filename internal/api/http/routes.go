@@ -9,16 +9,9 @@ import (
 
 func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
-	s.registerHealthRoutes()
 }
 
-func (s *HTTPServer) registerHealthRoutes() {
-	s.app.Get("/health", s.health)
-	s.app.Get("/livez", s.liveness)
-	s.app.Get("/readyz", s.readiness)
-}
-
-func (s *HTTPServer) health(c fiber.Ctx) error {
+func (s *HTTPServer) HandleHealth(c fiber.Ctx) error {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if time.Since(s.lastHealth) < 30*time.Second {
@@ -31,11 +24,11 @@ func (s *HTTPServer) health(c fiber.Ctx) error {
 	return s.writeHealth(c, result)
 }
 
-func (s *HTTPServer) liveness(c fiber.Ctx) error {
+func (s *HTTPServer) HandleLiveness(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "live"})
 }
 
-func (s *HTTPServer) readiness(c fiber.Ctx) error {
+func (s *HTTPServer) HandleReadiness(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
 	result := s.checkDependencies(ctx)

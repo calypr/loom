@@ -133,6 +133,12 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 	}
 	plan.DynamicMaps = append(plan.DynamicMaps, dynamicMaps...)
 	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, dynamicMaps...)
+	extensionMaps, err := buildRecipeExtensionMaps(output.ExtensionColumns, scope, "extensionColumns", "", output.RootResourceType)
+	if err != nil {
+		return OutputPlan{}, err
+	}
+	plan.DynamicMaps = append(plan.DynamicMaps, extensionMaps...)
+	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, extensionMaps...)
 	return plan, nil
 }
 
@@ -159,6 +165,11 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 		return SemanticNode{}, err
 	}
 	node.DynamicMaps = dynamicMaps
+	extensionMaps, err := buildRecipeExtensionMaps(input.ExtensionColumns, scope, path+".extensionColumns", alias, input.ToResourceType)
+	if err != nil {
+		return SemanticNode{}, err
+	}
+	node.DynamicMaps = append(node.DynamicMaps, extensionMaps...)
 	node.Filters, err = LowerRecipeFiltersForAlias(input.ToResourceType, alias, input.Filters)
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s.filters: %w", path, err)
@@ -191,6 +202,82 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	return node, nil
 }
 
+func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, path, scopeAlias, resourceType string) ([]SemanticDynamicMap, error) {
+	result := make([]SemanticDynamicMap, 0)
+	for index, item := range items {
+		if item.Columns == nil {
+			return nil, fmt.Errorf("%s[%d] extension column %q is unresolved; resolve it through schema discovery first", path, index, item.Name)
+		}
+		if len(item.Columns) == 0 {
+			continue
+		}
+		source, err := scope.expression(item.Source, fmt.Sprintf("%s[%d].source", path, index))
+		if err != nil {
+			return nil, err
+		}
+		selector := source.Expression.Selector
+		if selector == nil || source.Type.Cardinality != expression.Many {
+			return nil, fmt.Errorf("%s[%d].source must be a repeated Extension selector", path, index)
+		}
+		binding, ok := scope.aliases[selector.Context]
+		if selector.Context == "" {
+			binding, ok = scope.aliases["root"]
+		}
+		if !ok {
+			return nil, fmt.Errorf("%s[%d].source context %q is not in scope", path, index, selector.Context)
+		}
+		selectorPath := strings.TrimPrefix(strings.TrimSpace(selector.Path), ".")
+		if prefix := strings.TrimSuffix(binding.Prefix, "."); prefix != "" && strings.HasPrefix(selectorPath, prefix+".") {
+			selectorPath = strings.TrimPrefix(selectorPath, prefix+".")
+		}
+		resolved, valid := fhirschema.ResolvePath(binding.ResourceType, selectorPath)
+		if !valid || resolved.PropertyRef != "Extension" {
+			return nil, fmt.Errorf("%s[%d].source must select a schema-valid repeated Extension", path, index)
+		}
+		for _, mapping := range item.Columns {
+			sourceExpr := item.Source
+			if mapping.SourcePath != "" {
+				prefix := "root"
+				if scopeAlias != "" {
+					prefix = scopeAlias
+				}
+				sourceExpr = recipe.Expression{Select: prefix + "." + strings.TrimPrefix(mapping.SourcePath, ".")}
+			}
+			value := recipe.Expression{Select: "item." + mapping.ValuePath}
+			if mapping.ValuePath == "" {
+				value = recipe.Expression{Call: "canonical_json", Args: []recipe.Expression{{Document: &recipe.DocumentRef{Context: "item"}}}}
+			}
+			key := recipe.Expression{Call: "sanitize_name", Args: []recipe.Expression{{Call: "last_segment", Args: []recipe.Expression{{Select: "item.url"}}}}}
+			rawSourceKey := strings.TrimRight(strings.TrimSpace(mapping.URL), "/")
+			if split := strings.LastIndexAny(rawSourceKey, "/#"); split >= 0 {
+				rawSourceKey = rawSourceKey[split+1:]
+			}
+			sourceKey := sanitize(rawSourceKey)
+			if sourceKey == "" {
+				return nil, fmt.Errorf("%s[%d] extension URL %q has no usable column key", path, index, mapping.URL)
+			}
+			dynamic := recipe.DynamicColumn{
+				Name: item.Name + "__" + mapping.Name, ColumnPrefix: item.ColumnPrefix,
+				Source: sourceExpr, Key: &key, Value: &value, Columns: []string{mapping.Name}, MaxColumns: item.MaxColumns,
+				ColumnTypes: map[string]string{mapping.Name: mapping.ValueType}, ColumnSourceKeys: map[string]string{mapping.Name: sourceKey},
+				Discovered: true,
+			}
+			maps, err := buildRecipeDynamicMaps([]recipe.DynamicColumn{dynamic}, scope, path, scopeAlias, resourceType)
+			if err != nil {
+				return nil, err
+			}
+			for index := range maps {
+				// Each extension mapping projects one URL from an Extension array.
+				// Other URLs in the same array are valid siblings and may have their
+				// own independently discovered mappings.
+				maps[index].AllowUnknownKeys = true
+			}
+			result = append(result, maps...)
+		}
+	}
+	return result, nil
+}
+
 func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path, scopeAlias, resourceType string) ([]SemanticDynamicMap, error) {
 	result := make([]SemanticDynamicMap, 0, len(items))
 	for index, dynamic := range items {
@@ -200,7 +287,7 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
-		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns}
+		item := SemanticDynamicMap{Name: dynamic.Name, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: len(dynamic.ColumnSourceKeys) > 0, Discovered: dynamic.Discovered}
 		if dynamic.ColumnPrefix != nil {
 			prefix := *dynamic.ColumnPrefix
 			item.ColumnPrefix = &prefix

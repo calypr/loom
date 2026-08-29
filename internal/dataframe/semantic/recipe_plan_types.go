@@ -57,10 +57,11 @@ type SemanticExpression struct {
 }
 
 type SemanticProjection struct {
-	Name      string
-	FieldRef  string
-	ValueMode string
-	Expr      SemanticExpression
+	Name       string
+	FieldRef   string
+	ValueMode  string
+	Expr       SemanticExpression
+	Discovered bool
 }
 
 // UnnestJoinMode makes null/empty collection behavior explicit at the
@@ -119,15 +120,22 @@ func (u SemanticUnnest) Validate() error {
 }
 
 type SemanticDynamicMap struct {
-	Name         string
-	ColumnPrefix *string
-	ScopeAlias   string
-	ResourceType string
-	Source       SemanticExpression
-	Key          *SemanticExpression
-	Value        *SemanticExpression
-	Columns      []string
-	MaxColumns   int
+	Name             string
+	ColumnPrefix     *string
+	ScopeAlias       string
+	ResourceType     string
+	Source           SemanticExpression
+	Key              *SemanticExpression
+	Value            *SemanticExpression
+	Columns          []string
+	ColumnTypes      map[string]string
+	ColumnSourceKeys map[string]string
+	// AllowUnknownKeys is used by schema-aware projections that intentionally
+	// select one key from a shared runtime map. Other keys in that map are
+	// siblings, not schema drift; frozen matching keys still receive type checks.
+	AllowUnknownKeys bool
+	MaxColumns       int
+	Discovered       bool
 }
 
 // RecipePlanExplanation is stable diagnostic output and contains only logical

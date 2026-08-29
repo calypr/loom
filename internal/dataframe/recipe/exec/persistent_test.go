@@ -55,25 +55,17 @@ func TestPersistentRegistryRetainsVersions(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
-	first, err := registry.RegisterDefault(context.Background(), bundle)
+	first, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bundle.TranslationVersion = "changed"
-	second, err := registry.RegisterDefault(context.Background(), bundle)
+	second, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Digest == second.Digest || len(store.entries) != 2 {
 		t.Fatalf("recipe history was not retained: first=%#v second=%#v stored=%#v", first, second, store.entries)
-	}
-	loadedFirst, err := registry.LoadVersion(context.Background(), "default", "v")
-	if err != nil || loadedFirst.Digest != first.Digest {
-		t.Fatalf("first version is not independently queryable: loaded=%#v err=%v", loadedFirst, err)
-	}
-	loadedSecond, err := registry.LoadVersion(context.Background(), "default", "changed")
-	if err != nil || loadedSecond.Digest != second.Digest {
-		t.Fatalf("second version is not independently queryable: loaded=%#v err=%v", loadedSecond, err)
 	}
 }
 

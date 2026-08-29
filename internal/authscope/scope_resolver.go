@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 type ResourceAccessClient interface {
@@ -199,6 +200,30 @@ func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal
 		}
 	}
 	return fmt.Errorf("%w: auth_resource_path %q is outside caller scope for project %q", ErrForbidden, normalized, project)
+}
+
+// AuthorizeReadProject verifies project-level read access without attempting
+// to resolve a dataset-generation scope. Explorer lifecycle metadata is
+// stored independently of a dataframe generation, so using
+// ResolveReadScope here would intersect the caller's Fence grants with the
+// empty-generation catalog namespace and incorrectly reject valid users.
+// Generation-specific catalog and dataframe callers must continue using
+// ResolveReadScopeForGeneration.
+func (r *ScopeResolver) AuthorizeReadProject(ctx context.Context, principal *Principal, project string) error {
+	callerPaths, restricted, err := r.resolveCallerPaths(ctx, principal, PermissionRead, "*")
+	if err != nil {
+		return err
+	}
+	if !restricted {
+		return nil
+	}
+	projectKey := projectid.Legacy(projectid.Canonical(project))
+	for _, path := range callerPaths {
+		if path == projectKey {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: caller has no read access to project %q", ErrForbidden, project)
 }
 
 // ResolveWriteScopeForGeneration proves that the caller may publish or mutate

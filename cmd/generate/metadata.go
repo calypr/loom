@@ -37,15 +37,12 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	seenTraversalKeys := map[string]struct{}{}
 	for _, k := range keys {
 		def := schema.Defs[k]
-		if def == nil || len(def.Links) == 0 {
+		if !isFHIRRootResourceDefinition(k, def) || len(def.Links) == 0 {
 			continue
 		}
 		for _, link := range def.Links {
-			toType := refName(link.TargetSchema.Ref)
-			if strings.TrimSpace(toType) == "" {
-				toType = targetTypeFromLabel(link.Rel)
-			}
-			if strings.TrimSpace(link.Rel) == "" || strings.TrimSpace(toType) == "" {
+			toType, ok := schemaConcreteLinkTargetType(schema, link)
+			if strings.TrimSpace(link.Rel) == "" || !ok {
 				continue
 			}
 			forwardKey := traversalKey(k, link.Rel, toType)
@@ -62,6 +59,33 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	}
 	sb.WriteString("}\n")
 	return os.WriteFile(path, []byte(sb.String()), 0644)
+}
+
+// schemaConcreteLinkTargetType resolves a graph link target from schema
+// semantics. Relationship labels are only a compatibility fallback for older
+// schema entries; the fallback is accepted only when it resolves to a
+// concrete root, so labels can never introduce a graph node by themselves.
+func schemaConcreteLinkTargetType(schema *Schema, link Link) (string, bool) {
+	candidates := []string{refName(link.TargetSchema.Ref)}
+	if candidates[0] == "" {
+		for _, regex := range link.TargetHints.RegexMatch {
+			candidate := strings.TrimSuffix(strings.TrimSpace(regex), "/*")
+			if candidate != "" {
+				candidates = append(candidates, candidate)
+			}
+		}
+		candidates = append(candidates, targetTypeFromLabel(link.Rel))
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if isFHIRRootResourceDefinition(candidate, schema.Defs[candidate]) {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 // schemaFHIRRootResourceTypes discovers compiler-visible collections from the

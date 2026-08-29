@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -39,13 +40,13 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 		identityAdded := false
 		for _, column := range output.OutputSchema {
 			if column.Identity && column.Name == "__loom_row_id" {
-				columns = append(columns, publication.LogicalColumn{Name: column.Name, Kind: "string", IsIdentity: true})
+				columns = append(columns, publication.LogicalColumn{Name: column.Name, SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
 				identityAdded = true
 				break
 			}
 		}
 		if !identityAdded {
-			columns = append(columns, publication.LogicalColumn{Name: "__loom_row_id", Kind: "string", IsIdentity: true})
+			columns = append(columns, publication.LogicalColumn{Name: "__loom_row_id", SemanticPath: "loom:row_id", Kind: "string", IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
 		}
 		for _, column := range output.OutputSchema {
 			if column.Internal {
@@ -58,7 +59,15 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 			if kind == "" {
 				kind = "string"
 			}
-			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable})
+			semanticPath := column.SemanticPath
+			if semanticPath == "" {
+				semanticPath = output.RootResourceType + "." + column.Name
+			}
+			provenance := publication.ColumnExplicit
+			if column.Discovered {
+				provenance = publication.ColumnDiscovered
+			}
+			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
 		}
 		return columns
 	}
@@ -81,7 +90,8 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	identity := publication.BundleIdentity{
 		Name: name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion,
-		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
+		OutputName: incrementalPublicationOutput(bindings, streams),
+		Project:    bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest,
 		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v1",
 		AuthScopeMode:     string(bindings.AuthScopeMode),
@@ -108,7 +118,8 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	publicationIdentity := publication.PublicationIdentity{
 		Name: identity.Name, TranslationVersion: identity.TranslationVersion,
-		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration,
+		OutputName: identity.OutputName,
+		Project:    identity.Project, DatasetGeneration: identity.DatasetGeneration,
 		RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest,
 		ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
 		AuthScopeMode:     identity.AuthScopeMode,
@@ -116,6 +127,21 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	}
 	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{BatchRows: batchRows, BatchBytes: batchBytes})
 	return identity, err
+}
+
+func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []engine.OutputStream) string {
+	if len(bindings.OutputNames) != 1 || len(streams) != 1 {
+		return ""
+	}
+	return streams[0].Name
+}
+
+func recipeResolvedDynamicColumnCounts(plan engine.Resolved) map[string]int {
+	counts := make(map[string]int, len(plan.Semantic.ResolvedColumns))
+	for dynamicMap, columns := range plan.Semantic.ResolvedColumns {
+		counts[dynamicMap] = len(columns)
+	}
+	return counts
 }
 
 func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
@@ -130,11 +156,37 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
 		_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
+			logger.Info("recipe materialization resolved",
+				"name", name,
+				"project", bindings.Project,
+				"resolved_schema_digest", full.ResolvedSchemaDigest,
+				"dynamic_column_counts", recipeResolvedDynamicColumnCounts(full),
+			)
 			var err error
 			identity, err = publishResolvedRecipe(ctx, recipeEngine, bundleTarget, name, bindings, full, batchRows, batchBytes)
 			return err
 		})
 		if err != nil {
+			var dynamicDrift *engine.DynamicDriftError
+			if errors.As(err, &dynamicDrift) {
+				logger.Error("recipe materialization dynamic schema drift",
+					"name", name,
+					"project", bindings.Project,
+					"dynamic_map", dynamicDrift.DynamicName,
+					"unexpected_key", dynamicDrift.Key,
+					"frozen_key_count", dynamicDrift.FrozenKeyCount,
+				)
+				err = dataframeerrors.Wrap(
+					err,
+					dataframeerrors.CodeSchemaConflict,
+					"recipe dynamic-column schema does not match observed data",
+					dataframeerrors.WithDetails(map[string]any{
+						"dynamicMap":     dynamicDrift.DynamicName,
+						"unexpectedKey":  dynamicDrift.Key,
+						"frozenKeyCount": dynamicDrift.FrozenKeyCount,
+					}),
+				)
+			}
 			logger.Error("recipe materialization failed", "name", name, "project", bindings.Project, "error", err.Error())
 			return graphresolver.RecipeExecution{}, err
 		}
@@ -143,7 +195,15 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
 			return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
 		}
-		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: identity.RecipeDigest, ResolvedSchemaDigest: identity.SchemaDigest, SourceGeneration: identity.DatasetGeneration, State: string(publication.BundlePublished)}, nil
+		outputs := make([]graphresolver.RecipeExecutionOutput, 0, len(published.Outputs))
+		for _, output := range published.Outputs {
+			rowCount := int(output.RowCount)
+			outputs = append(outputs, graphresolver.RecipeExecutionOutput{
+				Name: output.Name, State: string(output.State.Canonical()), RowCount: &rowCount,
+				Columns: append([]publication.PhysicalColumn(nil), output.Columns...),
+			})
+		}
+		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest, SourceGeneration: published.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
 	}
 }
 

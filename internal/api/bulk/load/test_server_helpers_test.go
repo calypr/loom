@@ -1,22 +1,16 @@
 package load
 
 import (
-	"context"
-	"errors"
-
-	"github.com/calypr/loom/internal/api/bulk/dump"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/gofiber/fiber/v3"
 )
 
 type HTTPConfig struct {
 	Service       *Service
-	RawExporter   dump.RawExporter
 	Authenticator authscope.Authenticator
 	Authorizer    authscope.Authorizer
 }
-
-type RawDumpRequest = dump.RawDumpRequest
 
 func NewHTTPServer(cfg HTTPConfig) (*httpapi.HTTPServer, error) {
 	s, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: cfg.Authenticator, Authorizer: cfg.Authorizer})
@@ -27,15 +21,33 @@ func NewHTTPServer(cfg HTTPConfig) (*httpapi.HTTPServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.RegisterRoutes(s.App())
-	if cfg.RawExporter != nil {
-		dump.NewHandler(dump.Config{RawExporter: cfg.RawExporter}).RegisterRoutes(s.App())
-	}
+	registerTestRoutes(s.App(), h)
 	return s, nil
 }
 
-type denyAuthorizer struct{}
+// registerTestRoutes keeps package-level handler tests focused on transport
+// behavior. Production route ownership lives exclusively in generated/loomapi.
+func registerTestRoutes(router fiber.Router, h *Handler) {
+	router.Put("/api/v1/projects/:project/resources/:resourceType", h.HandleResource)
+	router.Post("/api/v1/datasets/:project/generations/:generation", h.HandleCreateGeneration)
+	router.Post("/api/v1/datasets/:project/generations/:generation/activate", h.HandleActivateGeneration)
+	router.Put("/api/v1/raw", h.HandleLoadRaw)
+	registerTestSnapshotRoutes(router, h)
+}
 
-func (denyAuthorizer) AuthorizeWrite(context.Context, *authscope.Principal, string, string) error {
-	return errors.New("nope")
+func registerTestSnapshotRoutes(router fiber.Router, h *Handler) {
+	if h.snapshots != nil {
+		router.Post("/api/v1/projects/:project/generations/:generation", h.HandleCreateSnapshot)
+		router.Get("/api/v1/projects/:project/generations/:generation", h.HandleSnapshotStatus)
+		router.Put("/api/v1/projects/:project/generations/:generation/resources/:resourceType", h.HandleUploadSnapshotResource)
+		router.Post("/api/v1/projects/:project/generations/:generation/finalize", h.HandleFinalizeSnapshot)
+		router.Delete("/api/v1/projects/:project/generations/:generation", h.HandleAbortSnapshot)
+	}
+	if h.releases != nil {
+		router.Post("/api/v1/projects/:project/releases/activate", h.HandleActivateReleaseCompatibility)
+		router.Post("/api/v1/projects/:project/releases", h.HandleCreateRelease)
+		router.Post("/api/v1/projects/:project/releases/:release/activate", h.HandleActivateRelease)
+		router.Get("/api/v1/projects/:project/releases/active", h.HandleActiveRelease)
+		router.Get("/api/v1/projects/:project/releases/:release", h.HandleReleaseStatus)
+	}
 }

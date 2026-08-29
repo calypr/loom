@@ -64,14 +64,39 @@ func ResourceTypes() []string {
 	return out
 }
 
-// HasResource reports whether resourceType is a generated FHIR resource type.
-func HasResource(resourceType string) bool {
+// ConcreteResourceType resolves a graph resource type without requiring
+// callers at discovery boundaries to already know the generated schema's
+// casing. Only concrete FHIR roots are accepted. Backbone definitions,
+// abstract Resource, and caller-supplied custom types are intentionally not
+// resources even when they are present in generatedDefinitions.
+func ConcreteResourceType(resourceType string) (string, bool) {
 	resourceType = strings.TrimSpace(resourceType)
 	if resourceType == "" {
-		return false
+		return "", false
 	}
 	index := sort.SearchStrings(generatedResourceTypes, resourceType)
-	return index < len(generatedResourceTypes) && generatedResourceTypes[index] == resourceType
+	if index < len(generatedResourceTypes) && generatedResourceTypes[index] == resourceType {
+		return resourceType, true
+	}
+	for _, candidate := range generatedResourceTypes {
+		if strings.EqualFold(candidate, resourceType) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// CanonicalResourceType is retained as a compatibility name for callers that
+// need a canonical concrete resource type.
+func CanonicalResourceType(resourceType string) (string, bool) {
+	return ConcreteResourceType(resourceType)
+}
+
+// HasResource reports whether resourceType is a generated concrete FHIR
+// resource root.
+func HasResource(resourceType string) bool {
+	_, ok := ConcreteResourceType(resourceType)
+	return ok
 }
 
 // ResourceExists is the explicit predicate form of HasResource.

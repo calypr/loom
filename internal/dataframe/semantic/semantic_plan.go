@@ -44,6 +44,7 @@ type SemanticField struct {
 	Expr       *expression.Expression
 	ExprType   expression.Type
 	SourcePath string
+	Discovered bool
 }
 
 type SemanticPivot struct {
@@ -58,6 +59,7 @@ type SemanticPivot struct {
 	ItemResourceType string
 	Columns          []string
 	Family           string
+	Discovered       bool
 }
 
 type SemanticAggregate struct {

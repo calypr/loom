@@ -15,17 +15,6 @@ func targetTypeFromLabel(label string) string {
 	return parts[len(parts)-1]
 }
 
-func generatedForwardTargetType(structName string, link Link) string {
-	labelTargetType := targetTypeFromLabel(link.Rel)
-	if strings.TrimSpace(structName) != "ResearchSubject" || strings.TrimSpace(link.Rel) != "study" {
-		return labelTargetType
-	}
-	if targetType := refName(link.TargetSchema.Ref); targetType == "ResearchStudy" {
-		return targetType
-	}
-	return labelTargetType
-}
-
 func toGoName(s string) string {
 	if s == "" {
 		return ""

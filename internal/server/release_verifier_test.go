@@ -7,13 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
-
-type releaseQueryFixture struct {
-	row   map[string]any
-	binds map[string]interface{}
-}
 
 type exactExecutionFixture struct {
 	project, generation string
@@ -25,14 +19,6 @@ type exactExecutionFixture struct {
 func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	f.project, f.generation, f.selector = project, generation, selector
 	return f.execution, f.output, nil
-}
-
-func (f *releaseQueryFixture) QueryRows(_ context.Context, _ string, _ int, binds map[string]interface{}, visit arangostore.RowVisitor) error {
-	f.binds = binds
-	if f.row != nil {
-		return visit(f.row)
-	}
-	return nil
 }
 
 func TestPublicationVerificationUsesExactSelectorAndQueryableEvidence(t *testing.T) {

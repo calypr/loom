@@ -78,6 +78,31 @@ func TestParseRejectsDuplicateUnknownAndStorageFields(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsBuilderFieldMetadataWithoutPersistingIt(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","fieldRef":"DocumentReference.status","expr":{"select":"root.status"},"logicalType":"scalar","repeated":false,"family":"field","selectionKey":"DocumentReference.status","valueSelector":"status","familyName":"Fields","familyKind":"FIELD"}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(canonical, []byte("logicalType")) || bytes.Contains(canonical, []byte("selectionKey")) {
+		t.Fatalf("Builder metadata leaked into executable recipe: %s", canonical)
+	}
+	if !bytes.Contains(canonical, []byte(`"fieldRef":"DocumentReference.status"`)) {
+		t.Fatalf("semantic field provenance was lost: %s", canonical)
+	}
+}
+
+func TestParseStillRejectsUnknownBuilderFieldMetadata(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","expr":{"select":"root.status"},"logicalTypo":"scalar"}]}]}`
+	if _, err := Parse([]byte(input)); err == nil || !strings.HasPrefix(err.Error(), "parse_error ") {
+		t.Fatalf("expected strict parse error, got %v", err)
+	}
+}
+
 func TestValidationRejectsVersionNamesAndArity(t *testing.T) {
 	bad := []string{
 		`{"recipeSchemaVersion":2,"name":"x","translationVersion":"1","outputs":[]}`,

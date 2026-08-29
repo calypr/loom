@@ -1,18 +1,22 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/gofiber/fiber/v3"
 )
 
 func TestHealthDoesNotRequireAuthentication(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"}, Authorizer: authscope.AllowAllAuthorizer{}})
+	server, err := newTestHTTPServer(HTTPConfig{Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"}, Authorizer: authscope.AllowAllAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +31,7 @@ func TestHealthDoesNotRequireAuthentication(t *testing.T) {
 }
 
 func TestHealthRoutesDoNotRequireAuthentication(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authenticator: authscope.BasicAuthenticator{Username: "u", Password: "p"},
 		Authorizer:    authscope.AllowAllAuthorizer{},
 	})
@@ -48,7 +52,7 @@ func TestHealthRoutesDoNotRequireAuthentication(t *testing.T) {
 
 func TestLivenessDoesNotCheckDependencies(t *testing.T) {
 	checks := 0
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authorizer: authscope.AllowAllAuthorizer{},
 		CoreReadyCheck: func(_ context.Context) error {
 			checks++
@@ -91,7 +95,7 @@ func TestReadinessRequiresCoreAndClickHouse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := NewHTTPServer(HTTPConfig{
+			server, err := newTestHTTPServer(HTTPConfig{
 				Authorizer: authscope.AllowAllAuthorizer{},
 				CoreReadyCheck: func(_ context.Context) error {
 					return tt.coreErr
@@ -121,7 +125,7 @@ func TestReadinessRequiresCoreAndClickHouse(t *testing.T) {
 }
 
 func TestHealthRetainsDegradedClickHouseCompatibility(t *testing.T) {
-	server, err := NewHTTPServer(HTTPConfig{
+	server, err := newTestHTTPServer(HTTPConfig{
 		Authorizer:        authscope.AllowAllAuthorizer{},
 		ClickHouseEnabled: true,
 		ClickHouseReadyCheck: func(_ context.Context) error {
@@ -148,5 +152,70 @@ func TestHealthRetainsDegradedClickHouseCompatibility(t *testing.T) {
 func TestNewHTTPServerRequiresAuthorizer(t *testing.T) {
 	if _, err := NewHTTPServer(HTTPConfig{}); err == nil {
 		t.Fatal("expected missing authorizer error")
+	}
+}
+
+func newTestHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
+	server, err := NewHTTPServer(cfg)
+	if err != nil {
+		return nil, err
+	}
+	server.App().Get("/health", server.HandleHealth)
+	server.App().Get("/livez", server.HandleLiveness)
+	server.App().Get("/readyz", server.HandleReadiness)
+	return server, nil
+}
+
+func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.App().Put("/authoring-failure", func(c fiber.Ctx) error {
+		return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error": fiber.Map{
+				"code":    "UNSUPPORTED_ROW_GRAIN",
+				"message": "the selected base resource has no supported row grain",
+			},
+			"diagnostics": []fiber.Map{{
+				"stage":        "lower",
+				"code":         "UNSUPPORTED_ROW_GRAIN",
+				"jsonPath":     "$.document.baseNodeId",
+				"resourceType": "patient",
+			}},
+		})
+	})
+
+	request := httptest.NewRequest(http.MethodPut, "/authoring-failure?auth_resource_path=%2Fprograms%2FHTAN_INT%2Fprojects%2FBForePC", nil)
+	request.Header.Set("X-Request-ID", "request-diagnostic")
+	response, err := server.App().Test(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", response.StatusCode)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		"http request failed",
+		"request_id=request-diagnostic",
+		"error_code=UNSUPPORTED_ROW_GRAIN",
+		"error_message=",
+		"supported row grain",
+		"error_diagnostics=",
+		"resourceType",
+		"patient",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("logs missing %q:\n%s", want, logText)
+		}
 	}
 }

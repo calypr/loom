@@ -260,8 +260,8 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	identities := []publication.BundleIdentity{
-		{Name: "observation", Project: "project-a", DatasetGeneration: "generation-1"},
-		{Name: "observation", Project: "project-b", DatasetGeneration: "generation-1"},
+		{Name: "observation", TranslationVersion: "legacy", Project: "project-a", DatasetGeneration: "generation-1"},
+		{Name: "observation", TranslationVersion: "legacy", Project: "project-b", DatasetGeneration: "generation-1"},
 	}
 	for index, identity := range identities {
 		execution := publication.BundleExecution{
@@ -272,7 +272,7 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 		catalog.executions[execution.ID] = execution
 		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
-	reader := &dfpublished.Reader{Catalog: catalog, LegacyTranslationVersion: "legacy"}
+	reader := &dfpublished.Reader{Catalog: catalog}
 	selector := dfpublished.DataframeSelector{Recipe: "observation", TranslationVersion: "legacy", Output: "Observation"}
 	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, selector)
 	if err != nil {
@@ -398,5 +398,84 @@ func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("transaction cleanup did not cancel lease renewal")
+	}
+}
+
+func TestClickHouseBundleCandidateIsInvisibleUntilReadyPointerCAS(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g1", Name: "Observation"}
+	tx, err := store.BeginBundleFor(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.GetPointer(context.Background(), identity.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
+		t.Fatalf("candidate became visible before commit: %v", err)
+	}
+	if err := tx.InsertRows(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.GetPointer(context.Background(), identity.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
+		t.Fatalf("candidate became visible before CAS: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	pointer, err := catalog.GetPointer(context.Background(), identity.PointerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer.ExecutionID == "" {
+		t.Fatal("successful CAS published an empty execution ID")
+	}
+	execution, err := catalog.GetExecution(context.Background(), pointer.ExecutionID)
+	if err != nil || !execution.State.Successful() {
+		t.Fatalf("published execution = %#v, err = %v", execution, err)
+	}
+}
+
+func TestClickHouseBundleFailedCandidatePreservesOldPointer(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := publication.BundleExecution{
+		ID: "old", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g1", Name: "Observation"},
+		State: publication.BundleReady, UpdatedAt: time.Now().UTC(),
+		Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_bundle_old_Observation", State: publication.BundleReady}},
+	}
+	catalog.executions[old.ID] = old
+	catalog.pointers[old.PointerName()] = publication.BundlePointer{Name: old.PointerName(), ExecutionID: old.ID}
+	client.tables[old.Outputs[0].PhysicalTable] = nil
+
+	client.failInsert = true
+	candidateIdentity := old.BundleIdentity
+	candidateIdentity.RecipeDigest = "new-recipe"
+	tx, err := store.BeginBundleFor(context.Background(), candidateIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.InsertRows(context.Background(), "Observation", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); err == nil {
+		t.Fatal("failed candidate insert unexpectedly succeeded")
+	}
+	_ = tx.Abort(context.Background(), errors.New("candidate failed"))
+	pointer, err := catalog.GetPointer(context.Background(), old.PointerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pointer.ExecutionID != old.ID {
+		t.Fatalf("failed candidate changed visible pointer to %q", pointer.ExecutionID)
 	}
 }

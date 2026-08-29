@@ -14,6 +14,11 @@ Loom is deliberately not an arbitrary AQL gateway, ClickHouse SQL proxy, or a
 replacement FHIR model. It is a recipe-driven graph-to-flat data service with
 explicit authorization and publication boundaries.
 
+Explorer Builder authoring is intent-driven: the browser submits the versioned
+V2 authoring document, Loom lowers it to a native recipe, and the existing
+recipe compiler produces the scoped plan/AQL. The browser never constructs or
+repairs the recipe AST. See [the Explorer authoring contract](docs/EXPLORER_AUTHORING.md).
+
 ```mermaid
 flowchart LR
     NDJSON["FHIR NDJSON"] --> Ingest["Ingest and catalog"]
@@ -25,7 +30,7 @@ flowchart LR
     Publish --> ClickHouse["Versioned flat tables"]
     Publish --> Catalog["Arango publication catalog"]
     Catalog["Arango publication catalog"] --> Graph["POST /graphql/graph"]
-    ClickHouse --> Flat
+    ClickHouse --> Graph
     Arango --> Graph["POST /graphql/graph"]
     Arango --> Dataframe["POST /graphql/dataframe"]
     Compile --> Graph
@@ -39,13 +44,13 @@ flowchart LR
 - Populated-field, reference, traversal, and pivot discovery.
 - Strict, versioned dataframe recipes and compiler-backed AQL execution.
 - Scoped publication of recipe outputs into ClickHouse.
-- A durable Arango catalog that maps logical dataframe names to current READY
-  ClickHouse outputs.
+- A durable Arango catalog that maps exact dataframe selectors to current
+  published outputs.
 - Multi-project, `project_id`-identifiable and `auth_resource_path`-scoped flat-data reads.
 
 Loom does **not** expose arbitrary ClickHouse tables, arbitrary SQL, or an
-Elasticsearch/Guppy fallback. A logical `dataType` is a catalog alias, never a
-browser-supplied physical table name.
+Elasticsearch/Guppy fallback. Published dataframe reads require an exact
+recipe, translation-version, and output selector.
 
 ## Runtime surfaces
 
@@ -53,22 +58,21 @@ browser-supplied physical table name.
 | --- | --- |
 | `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
-| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, builder introspection, recipe validation, preview, execution, and publication. |
+| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
-| `POST /graphql/graph` | Graph and published-dataframe API: graph reads, recipe control, and ClickHouse publication reads. |
-| `POST /graphql/flat` | Compatibility alias for `/graphql/graph` published-dataframe queries. |
+| `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
 | `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
 
-The server exposes only the primary resource upload route from the bulk
-load package. Raw, generation, and dump handlers remain available to
-in-cluster operators and direct database tooling, but are not public routes.
-The `:project` path parameter is required: it is the tenancy identity used for
-authorization and becomes the published row `project_id` (for example,
-`HTAN_INT-BForePC`).
+The canonical contract for every server route is
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, ingestion,
+snapshot/release, recipe execution, GraphQL transport, Explorer lifecycle, and
+Explorer authoring operations. The `:project` path parameter is the tenancy
+identity used for authorization and becomes the published row `project_id`
+(for example, `HTAN_INT-BForePC`).
 
 ## Data lifecycle
 
@@ -148,7 +152,7 @@ Useful local URLs:
 - [Graph Playground](http://127.0.0.1:8080/graphql/graph)
 - [Apollo Sandbox](http://127.0.0.1:8080/apollo)
 - FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
-- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph` (legacy alias: `/graphql/flat`)
+- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph`
 - [Health summary](http://127.0.0.1:8080/health)
 - [Process liveness](http://127.0.0.1:8080/livez)
 - [Dependency readiness](http://127.0.0.1:8080/readyz)
@@ -159,9 +163,10 @@ Run the checked-in graph dataframe example after the server is up:
 make dataframe-demo
 ```
 
-See [the Quickstart](docs/QUICKSTART.md) for the complete local setup flow and
-[the GraphQL API guide](docs/GRAPHQL_API.md) for copy-paste examples of the
-graph/compiler and published flat-reader APIs.
+See [the documentation index](docs/README.md) for the complete guide map,
+[the Quickstart](docs/QUICKSTART.md) for local setup, and
+[the Explorer authoring guide](docs/EXPLORER_AUTHORING.md) for the current
+Builder contract.
 
 ## Graph and flat GraphQL contracts
 
@@ -223,19 +228,22 @@ query ExplorerRows($input: DataframeRowsInput!) {
 ```json
 {
   "input": {
-    "dataType": "cases",
+    "selector": {
+      "recipe": "documents",
+      "translationVersion": "v2",
+      "output": "DocumentReference"
+    },
     "first": 100,
     "sort": { "column": "case_id" }
   }
 }
 ```
 
-The preferred reader input is the exact selector `(recipe,
-translationVersion, output)`. The deprecated `dataType` form remains
-available through the configured default recipe and translation version. Loom
-derives the authorized project set from the principal, selects each project's
-active pointer-backed publication, reconciles compatible outputs, and
-federates them into one logical dataframe. Every row exposes `project_id`,
+The reader requires the exact selector `(recipe, translationVersion, output)`.
+There is no server-side default recipe or `dataType` alias. Loom derives the
+authorized project set from the principal, selects each project's active
+pointer-backed publication, reconciles compatible outputs, and federates them
+into one logical dataframe. Every row exposes `project_id`,
 derived from the publication project identity (for example,
 `HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
 columns. Rows remain permissive JSON; columns and capabilities are discovered
@@ -286,6 +294,7 @@ without rebuilding the server image.
 | Path | Responsibility |
 | --- | --- |
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
+| [`openapi/`](openapi) | Canonical Loom HTTP specification and generator configuration. |
 | [`schemas/`](schemas) | Source FHIR graph schema. |
 | [`gqlgen.yml`](gqlgen.yml) | gqlgen source configuration. |
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
@@ -297,6 +306,7 @@ without rebuilding the server image.
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
 | [`internal/catalog`](internal/catalog) | Evidence of populated fields, references, and authorization paths. |
+| [`internal/explorer`](internal/explorer) | V2 authoring intent, resolved Builder models, server compilation receipts, immutable revisions, publication state, and legacy migration types. |
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
@@ -313,6 +323,7 @@ without rebuilding the server image.
 make build                 # server and CLI binaries
 make generate-fhir         # generated FHIR structs and schema metadata
 make generate-graphql      # gqlgen bindings
+make generate-openapi      # Loom HTTP models and strict Fiber server
 make graphql-check         # GraphQL and dataframe checks
 make test                  # full Go test suite
 make conformance           # compiler conformance corpus
@@ -333,13 +344,14 @@ go test ./...
 
 ## Further reading
 
+- [Documentation index](docs/README.md)
+- [OpenAPI contract](openapi/README.md)
 - [Quickstart](docs/QUICKSTART.md)
+- [Explorer authoring contract](docs/EXPLORER_AUTHORING.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)
 - [Dataframer recipe reference and operating manual](docs/DATAFRAMER_RECIPE_REFERENCE.md)
 - [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
-- [ClickHouse reader contract and execution plan](docs/CLICKHOUSE_GRAPHQL_READER_EXECUTION_PLAN.md)
-- [Explorer/Loom parity plan](docs/EXPLORER_LOOM_SLICE_PARITY_PLAN.md)
 - [Experimental local stack](experimental/README.md)
 
 The Helm chart lives in the separate `gen3-helm` repository under `helm/loom`.

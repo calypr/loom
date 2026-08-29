@@ -6,7 +6,6 @@ Loom has two GraphQL routes with different responsibilities:
 - `/graphql/dataframe` compiles and executes FHIR dataframe requests against
   the authorized Arango graph.
 - `/graphql/graph` also reads published dataframe outputs from ClickHouse.
-- `/graphql/flat` remains as a compatibility alias for published-dataframe queries.
 
 All surfaces are authorization-aware. Clients provide logical names and FHIR
 fields; they do not provide AQL, SQL, physical collection names, or physical
@@ -20,7 +19,6 @@ The useful development URLs are:
 ```text
 GraphQL graph: http://127.0.0.1:8080/graphql/graph
 GraphQL dataframe: http://127.0.0.1:8080/graphql/dataframe
-GraphQL flat (compatibility alias): http://127.0.0.1:8080/graphql/flat
 Playground:    http://127.0.0.1:8080/graphql/graph
 Apollo:        http://127.0.0.1:8080/apollo
 ```
@@ -33,44 +31,15 @@ pasted into Apollo Sandbox or sent as a normal GraphQL HTTP POST.
 The graph endpoint is the Arango/compiler surface for explicit graph traversal,
 typed FHIR reads, discovery, and recipe control operations.
 
-### Discover populated fields and routes
+### Explorer authoring and catalog discovery
 
-Use builder introspection before constructing a dataframe query. It reports
-populated field references and generated traversal routes for the selected
-project and root resource.
-
-```graphql
-query Builder($input: DataframeBuilderIntrospectionInput!) {
-  dataframeBuilderIntrospection(input: $input) {
-    project
-    rootResourceType
-    authResourcePaths
-    root {
-      resourceType
-      fields { fieldRef label path }
-      traversals { fromType label toType edgeCount }
-    }
-    relatedResources {
-      viaLabel
-      edgeCount
-      target { resourceType fields { fieldRef label path } }
-    }
-  }
-}
-```
-
-```json
-{
-  "input": {
-    "project": "ARANGODB_PROTO",
-    "rootResourceType": "Patient"
-  }
-}
-```
-
-Field references are resolved against the active READY generation and the
-caller's authorization scope. Do not assume that a syntactically valid FHIR
-field is populated in every project.
+Explorer authoring is not a GraphQL operation. The Builder uses the versioned
+REST V2 intent contract documented in
+[`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). GraphQL Explorer lifecycle
+and Builder-introspection fields are not part of the current contract; the REST
+authoring compiler resolves catalog selections and the active dataset
+generation through one server-owned path. The native recipe compiler remains
+the shared execution backend after authoring intent has been lowered.
 
 ### FHIR dataframe compilation
 
@@ -299,9 +268,9 @@ returned through this API.
 
 ## Published dataframe API
 
-The published-dataframe fields read only published, READY outputs from ClickHouse.
-The client supplies the logical `dataType`; Loom resolves the authorized
-project set and current READY publication from the catalog.
+The published-dataframe fields read only published outputs from ClickHouse.
+The client supplies the exact selector; Loom resolves the authorized project
+set and current publication from the catalog.
 
 ### Discover datasets and columns
 
@@ -341,11 +310,20 @@ query Dataset($input: DataframeDatasetInput!) {
 ```
 
 ```json
-{ "input": { "dataType": "cases" } }
+{
+  "input": {
+    "selector": {
+      "recipe": "documents",
+      "translationVersion": "v2",
+      "output": "DocumentReference"
+    }
+  }
+}
 ```
 
 Use the returned column metadata to choose valid projection, filter, sort, and
-aggregation fields. A logical `dataType` is not a physical table name.
+aggregation fields. The selector is the logical identity; it is not a physical
+table name.
 
 ### Read rows
 
@@ -364,7 +342,11 @@ query Rows($input: DataframeRowsInput!) {
 ```json
 {
   "input": {
-    "dataType": "cases",
+    "selector": {
+      "recipe": "documents",
+      "translationVersion": "v2",
+      "output": "DocumentReference"
+    },
     "columns": ["case_id", "status", "amount"],
     "filters": [
       { "column": "status", "op": "EQ", "value": "open" },
@@ -417,7 +399,11 @@ query Aggregate($input: DataframeAggregateInput!) {
 ```json
 {
   "input": {
-    "dataType": "cases",
+    "selector": {
+      "recipe": "documents",
+      "translationVersion": "v2",
+      "output": "DocumentReference"
+    },
     "groupBy": ["status"],
     "filters": [{ "column": "amount", "op": "GTE", "value": 100 }],
     "operation": "COUNT",
@@ -432,10 +418,10 @@ Supported aggregate operations are `COUNT`, `COUNT_DISTINCT`, `SUM`, `AVG`,
 
 ## Authorization and generations
 
-Graph reads resolve the active READY dataset generation for the requested
-project. Flat reads resolve authorized current READY publications for the
-logical `dataType`. Clients should not send generation IDs or physical table
-names as query selectors.
+Graph reads resolve the active dataset generation for the requested project.
+Flat reads resolve authorized current publications for the exact selector.
+Clients should not send generation IDs or physical table names as query
+selectors.
 
 `authResourcePaths` on graph requests is a narrowing request. It cannot widen
 the principal's authorized scope. Flat reads apply authorization to each

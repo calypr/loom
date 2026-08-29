@@ -19,7 +19,7 @@ func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
 	}
 }
 
-func TestParseServerOptionsConfigOverridesFlags(t *testing.T) {
+func TestParseServerOptionsConfigRetainsSettingsButNoAuthOverridesAuth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	contents := "server:\n  listen: :19092\n  allow_unauthenticated: false\n  clickhouse:\n    enabled: false\nauth:\n  mode: basic\n  basic:\n    username: loom\n    password: secret\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -29,8 +29,8 @@ func TestParseServerOptionsConfigOverridesFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseServerOptions() error = %v", err)
 	}
-	if options.Server.Listen != ":19092" || options.Server.AllowUnauthenticated || options.Auth.AllowUnauthenticated {
-		t.Fatalf("YAML did not retain precedence: %#v", options)
+	if options.Server.Listen != ":19092" || !options.Server.AllowUnauthenticated || !options.Auth.AllowUnauthenticated {
+		t.Fatalf("configuration/--no-auth resolution = %#v", options)
 	}
 }
 
@@ -127,13 +127,11 @@ func TestRequiredDataframeSelectorsAndSnapshotRetentionFromEnvironment(t *testin
 	t.Setenv("LOOM_SNAPSHOT_DIRECTORY", t.TempDir())
 	t.Setenv("LOOM_PUBLICATION_WORKER_LEASE", "90s")
 	t.Setenv("LOOM_PUBLICATION_MAX_ATTEMPTS", "5")
-	t.Setenv("LOOM_DEFAULT_RECIPE", "core")
-	t.Setenv("LOOM_DEFAULT_TRANSLATION_VERSION", "v1")
 	cfg, err := LoadConfig("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour || cfg.Server.PublicationWorkerLease != 90*time.Second || cfg.Server.PublicationMaxAttempts != 5 || cfg.Server.DefaultRecipe != "core" || cfg.Server.DefaultTranslationVersion != "v1" {
+	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour || cfg.Server.PublicationWorkerLease != 90*time.Second || cfg.Server.PublicationMaxAttempts != 5 {
 		t.Fatalf("environment config = %#v", cfg.Server)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {

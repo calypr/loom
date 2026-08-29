@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -34,7 +35,12 @@ import (
 	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/explorer"
+	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -92,15 +98,16 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
 	}
-	if err := lifecycleClient.Bootstrap(ctx, dataframeContractBootstrapSpec()); err != nil {
-		degradation = recordDegradation(logger, degradation, "bootstrap dataframe contract registry", err)
+	if err := lifecycleClient.Bootstrap(ctx, recipearango.RevisionBootstrapSpec()); err != nil {
+		degradation = recordDegradation(logger, degradation, "bootstrap recipe revision registry", err)
+	}
+	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+		return fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
-	initialRecipe := strings.TrimSpace(serverConfig.Server.DefaultRecipe)
-	initialVersion := strings.TrimSpace(serverConfig.Server.DefaultTranslationVersion)
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -110,24 +117,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterDefault(ctx, defaultBundle); err != nil {
+		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
-		if initialRecipe == "" && initialVersion == "" {
-			initialRecipe, initialVersion = defaultBundle.Name, defaultBundle.TranslationVersion
-		}
 	}
-	contractStore := dataframeContractStore{query: lifecycleClient}
-	contractState := &dataframeContractState{}
-	contract, contractErr := contractStore.Load(ctx)
-	if errors.Is(contractErr, errNoDataframeContract) && initialRecipe != "" && initialVersion != "" {
-		contract, contractErr = contractStore.Promote(ctx, initialRecipe, initialVersion)
-	}
-	if contractErr != nil && !errors.Is(contractErr, errNoDataframeContract) {
-		degradation = recordDegradation(logger, degradation, "load dataframe contract", contractErr)
-		contract = promotedDataframeContract{Recipe: initialRecipe, TranslationVersion: initialVersion}
-	}
-	contractState.Set(contract)
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create dataset lifecycle store: %w", err)
@@ -179,8 +172,13 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver}
 	}
+	recipeRevisions, err := recipearango.NewRevisionRegistry(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create recipe revision registry: %w", err)
+	}
 	recipeEngine, err := engine.New(engine.Config{
 		Registry:      recipeRegistry,
+		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
@@ -224,7 +222,24 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	verificationStore := publicationVerificationStore{executions: publishedRegistry, query: lifecycleClient}
-	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
+		expectedRevision := int64(0)
+		active, err := releaseService.Active(ctx, project)
+		if err == nil {
+			expectedRevision = active.Revision
+		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
+			return err
+		}
+		_, err = releaseService.Activate(ctx, publicationcontract.ActivationRequest{
+			Project: project, Generation: generation, GitCommit: generation,
+			ExpectedRevision: expectedRevision, OptionalSelectors: selectors,
+		})
+		return err
+	}
+	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
+		return releaseService.ValidateGeneration(ctx, project, generation)
+	}
 	noAuthEnabled := serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated
 	var candidateProjects func(context.Context) ([]string, error)
 	if noAuthEnabled {
@@ -237,6 +252,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		statusResolver := releaseProjectStatusResolver{releases: lifecycleStore, executions: publishedRegistry}
 		materializationReader.ProjectStatusResolver = statusResolver
 		materializationReader.ReleaseExecutionResolver = statusResolver
+		materializationReader.FederationSnapshotResolver = statusResolver
 	}
 	var exactStarter graphresolver.ExactMaterializationStarter
 	if publicationWorker != nil {
@@ -274,27 +290,23 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return graphresolver.ProjectRelease{ID: active.Release.ID, Project: active.Release.Project, Generation: active.Release.Generation, Revision: strconv.FormatInt(active.Revision, 10), State: "ACTIVE"}, nil
 	}
-	contractPromoter := func(ctx context.Context, recipeName, version string) (graphresolver.DataframeContract, error) {
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).LoadVersion(ctx, recipeName, version); err != nil {
-			return graphresolver.DataframeContract{}, err
-		}
-		contract, err := contractStore.Promote(ctx, recipeName, version)
-		if err != nil {
-			return graphresolver.DataframeContract{}, err
-		}
-		contractState.Set(contract)
-		return graphresolver.DataframeContract{Recipe: contract.Recipe, TranslationVersion: contract.TranslationVersion, PromotedAt: contract.PromotedAt.Format(time.RFC3339Nano)}, nil
+	explorerStore, err := explorerarango.New(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer store: %w", err)
 	}
-	contractAuthorizer := func(ctx context.Context) error {
-		principal, ok := authscope.PrincipalFromContext(ctx)
-		if !ok || principal == nil {
-			return authscope.ErrUnauthenticated
-		}
-		if noAuthEnabled || strings.EqualFold(serverConfig.Auth.Mode, "basic") || strings.EqualFold(principal.Claims["loom_operator"], "true") {
-			return nil
-		}
-		return authscope.ErrForbidden
+	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
 	}
+	capabilityResolver, err := newExplorerCapabilityResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
+	if err != nil {
+		return fmt.Errorf("create Explorer capability resolver: %w", err)
+	}
+	explorerService, err := explorer.NewService(explorerStore)
+	if err != nil {
+		return fmt.Errorf("create Explorer service: %w", err)
+	}
+	explorerMaterializer := explorerBundleMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes)
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -313,22 +325,23 @@ func run(ctx context.Context, serverConfig Config) error {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
 		RecipeAuthorizer:            recipeAuthorization{resolver: scopeResolver},
+		RecipeRevisions:             recipeRevisions,
 		RecipeExecutions:            graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 		RecipeMaterialize:           recipeMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ExactMaterializationStarter: exactStarter,
 		ProjectReleaseActivator:     releaseActivator,
-		DataframeContractPromoter:   contractPromoter,
-		DataframeContractAuthorizer: contractAuthorizer,
 		CandidateProjects:           candidateProjects,
-		DefaultContract:             contractState.Current,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
 		Schema:            serverConfig.Server.Schema,
 	}}
 	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{
-		Runner: ingestRunner, GenerationRunner: ingestRunner,
-		Logger: logger,
+		Runner:              ingestRunner,
+		GenerationRunner:    ingestRunner,
+		GenerationActivator: lifecycleStore,
+		DataframeReleases:   publishedRegistry,
+		Logger:              logger,
 		OnSuccess: func(project string) {
 			discoveryCache.InvalidateProject(project)
 			if scopeResolver != nil {
@@ -350,6 +363,129 @@ func run(ctx context.Context, serverConfig Config) error {
 	} else if len(deletedGenerations) != 0 {
 		logger.Info("snapshot retention cleanup complete", "deleted_generations", len(deletedGenerations))
 	}
+	// CompileReceipt is the native V2 path.
+	compileReceipt := func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+		started := time.Now()
+		authorized := request.Authorized.Clone()
+		if strings.TrimSpace(authorized.Snapshot.Token) == "" {
+			var err error
+			authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
+			if err != nil {
+				return nil, err
+			}
+		} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+			return nil, capability.ErrStaleSnapshot
+		}
+		snapshot := authorized.Snapshot
+		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return nil, capability.ErrStaleSnapshot
+		}
+		workspace := request.Workspace.NormalizePresentationOrders()
+		intentDigest, err := workspace.Digest()
+		if err != nil {
+			return nil, err
+		}
+		normalized, err := workspace.CanonicalJSON()
+		if err != nil {
+			return nil, err
+		}
+		translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot)
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode})
+		if err != nil {
+			return nil, err
+		}
+		emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
+		presentationByEmission := map[string]explorercompilation.PresentationColumn{}
+		for _, presentation := range translated.Presentations {
+			for _, column := range presentation.Columns {
+				presentationByEmission[column.EmissionID] = column
+			}
+		}
+		for _, column := range translated.EmittedColumns {
+			emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: column.ProjectionMode, PublicColumn: column.PublicColumn, Label: presentationByEmission[column.EmissionID].Label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+		}
+		mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
+		for _, mapping := range translated.IdentityMappings {
+			mappings = append(mappings, explorer.IdentityMapping{OutputID: mapping.OutputID, CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, ProjectionMode: mapping.ProjectionMode, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
+		}
+		contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
+		if err != nil {
+			return nil, err
+		}
+		contractDigest, err := explorer.CompilationArtifactDigest(contract)
+		if err != nil {
+			return nil, err
+		}
+		resolvedRecipeDigest, err := resolved.Bundle.Digest()
+		if err != nil {
+			return nil, err
+		}
+		compiledConfig, err := compiledExplorerWorkspaceConfigV2(request.Project, request.ExplorerID, translated)
+		if err != nil {
+			return nil, err
+		}
+		fingerprints := resolvedOutputFingerprints(resolved)
+		receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+		receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(receipt)
+		if err != nil {
+			return nil, err
+		}
+		stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+		if err != nil {
+			return nil, err
+		}
+		verificationBindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
+		if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, verificationBindings); err != nil {
+			return nil, explorerConflict("compile", "COMPILATION_NONDETERMINISTIC", "the compiler could not reproduce the stored receipt artifact", map[string]any{"receiptId": stored.ID})
+		}
+		receiptBytes := 0
+		if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
+			receiptBytes = len(raw)
+		}
+		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
+		return stored, nil
+	}
+	lifecycleConfig := ExplorerV2LifecycleConfig{
+		CompileReceipt: compileReceipt,
+		Capability: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
+			return capabilityResolver.Resolve(ctx, project, generation)
+		},
+		CapabilityToken:               capabilityResolver.ResolveToken,
+		AuthorizedCapabilityCompile:   capabilityResolver.ResolveForCompilation,
+		AuthorizedCapabilityExecution: capabilityResolver.ResolveForExecution,
+		Logger:                        logger,
+		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
+			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
+		},
+		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
+			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
+		},
+		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (engine.PreviewSummary, error) {
+			if receipt == nil {
+				return engine.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+			}
+			output := ""
+			if len(bindings.OutputNames) > 0 {
+				output = bindings.OutputNames[0]
+			}
+			return recipeEngine.PreviewOutput(ctx, resolved, engine.PreviewRequest{Output: output, Limit: bindings.PreviewLimit}, visit)
+		},
+		Materialize:               explorerMaterializer,
+		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
+		ActivateRelease:           activateExplorerRelease,
+	}
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
 			return lifecycleClient.QueryRows(ctx, "RETURN {ready: true}", 1, nil, func(map[string]any) error { return nil })
@@ -366,7 +502,13 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver); err != nil {
+	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
+		if scopeResolver == nil {
+			return nil
+		}
+		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
+	}, explorerService, explorerMaterializer, lifecycleConfig)
+	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if publicationWorker != nil {

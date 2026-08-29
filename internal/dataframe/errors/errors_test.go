@@ -20,7 +20,10 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeRecipeExecutionNotFound, CodeExportLimitExceeded, CodeIngestPreflightFailed,
 		CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown, CodeInvalidGenerationFile,
 		CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
-		CodePublicationLeaseLost, CodeOutputEncodingFailed,
+		CodePublicationLeaseLost, CodePublicationFailed, CodeOutputEncodingFailed,
+		CodeDynamicSchemaDrift, CodeRecipeContractViolation, CodeFederationIncompatible,
+		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
+		CodePreviewResponseTooLarge,
 	}
 	seen := make(map[ErrorCode]struct{}, len(codes))
 	for _, code := range codes {
@@ -133,7 +136,28 @@ func TestNormalizeRedactsAdapterOwnedUserErrors(t *testing.T) {
 }
 
 func TestErrorClassification(t *testing.T) {
-	if !IsRetryableCode(CodeBackendUnavailable) || IsRetryableCode(CodeClientCanceled) {
+	if !IsRetryableCode(CodeBackendUnavailable) || !IsRetryableCode(CodeReceiptStoreUnavailable) || !IsRetryableCode(CodePreviewTimeout) || IsRetryableCode(CodePreviewResponseTooLarge) || IsRetryableCode(CodeClientCanceled) {
 		t.Fatal("unexpected retryable classification")
+	}
+}
+
+func TestPreviewErrorDefaults(t *testing.T) {
+	for _, test := range []struct {
+		code    ErrorCode
+		message string
+	}{
+		{CodeReceiptStoreUnavailable, "the compilation receipt store is temporarily unavailable"},
+		{CodePreviewTimeout, "the preview took too long to complete"},
+		{CodePreviewResponseTooLarge, "the preview response is too large"},
+	} {
+		t.Run(string(test.code), func(t *testing.T) {
+			err := NewError(test.code, "")
+			if err.Error() != test.message {
+				t.Fatalf("default message = %q, want %q", err.Error(), test.message)
+			}
+			if PublicMessage(err) != test.message {
+				t.Fatalf("public message = %q, want %q", PublicMessage(err), test.message)
+			}
+		})
 	}
 }

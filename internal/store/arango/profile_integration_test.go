@@ -180,6 +180,106 @@ func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
 	}
 }
 
+// TestReceiptPreviewExplainAgainstArango is an opt-in contract smoke test for
+// the canonical query shapes emitted from immutable compilation receipts. It
+// deliberately asserts only that Arango can produce a plan (and records index
+// observations); physical index choice can vary with the provisioned corpus
+// and optimizer version.
+func TestReceiptPreviewExplainAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
+		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run receipt preview EXPLAIN fixtures")
+	}
+	url := os.Getenv("LOOM_ARANGO_URL")
+	if url == "" {
+		url = "http://127.0.0.1:8529"
+	}
+	database := os.Getenv("LOOM_ARANGO_DATABASE")
+	if database == "" {
+		database = "fhir_proto"
+	}
+	project := os.Getenv("LOOM_ARANGO_PROJECT")
+	if project == "" {
+		project = "ARANGODB_PROTO"
+	}
+	client, err := Open(context.Background(), url, database)
+	if err != nil {
+		t.Fatalf("open Arango: %v", err)
+	}
+	defer client.Close(context.Background())
+	for _, shape := range receiptPreviewCorpus(project) {
+		shape := shape
+		t.Run(shape.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			result, err := client.Explain(ctx, ExplainRequest{Query: shape.query, BindVars: shape.bindVars})
+			if err != nil {
+				t.Fatalf("EXPLAIN %s: %v\nAQL:\n%s", shape.name, err, shape.query)
+			}
+			assessment := AssessExplainResult(result)
+			if result.Plan == nil && len(result.Plans) == 0 {
+				t.Fatalf("EXPLAIN %s returned no plan", shape.name)
+			}
+			t.Logf("receipt preview shape=%s indexes=%#v full_scans=%#v", shape.name, assessment.Indexes, assessment.FullCollectionScans)
+		})
+	}
+}
+
+func receiptPreviewCorpus(project string) []profileCorpusShape {
+	return []profileCorpusShape{
+		{
+			name: "project-generation-sort-limit",
+			query: `FOR root IN Patient
+  FILTER root.project == @project
+  FILTER root.dataset_generation == @generation
+  SORT root._key ASC
+  LIMIT @limit
+  RETURN {"_key": root._key}`,
+			bindVars: map[string]any{"project": project, "generation": "generation-a", "limit": 5},
+		},
+		{
+			name: "restricted-scope-sort-limit",
+			query: `FOR root IN Patient
+  FILTER root.project == @project
+  FILTER root.dataset_generation == @generation
+  FILTER root.auth_resource_path IN @auth_paths
+  SORT root._key ASC
+  LIMIT @limit
+  RETURN {"_key": root._key}`,
+			bindVars: map[string]any{"project": project, "generation": "generation-a", "auth_paths": []string{"Patient/one", "Patient/two"}, "limit": 5},
+		},
+		{
+			name: "relationship-inbound-direction",
+			query: `FOR root IN Patient
+  FILTER root.project == @project
+  FILTER root.dataset_generation == @generation
+  SORT root._key ASC
+  LIMIT @limit
+  LET related = (FOR node, edge IN 1..1 INBOUND root fhir_edge
+    FILTER edge._to == root._id
+    FILTER edge.project == @project AND edge.dataset_generation == @generation
+    FILTER edge.label == @label
+    RETURN node._key)
+  RETURN {"_key": root._key, "related": related}`,
+			bindVars: map[string]any{"project": project, "generation": "generation-a", "label": "subject_Patient", "limit": 5},
+		},
+		{
+			name: "relationship-outbound-direction",
+			query: `FOR root IN ResearchSubject
+  FILTER root.project == @project
+  FILTER root.dataset_generation == @generation
+  SORT root._key ASC
+  LIMIT @limit
+  LET related = (FOR node, edge IN 1..1 OUTBOUND root fhir_edge
+    FILTER edge._from == root._id
+    FILTER edge.project == @project AND edge.dataset_generation == @generation
+    FILTER edge.label == @label
+    RETURN node._key)
+  RETURN {"_key": root._key, "related": related}`,
+			bindVars: map[string]any{"project": project, "generation": "generation-a", "label": "study", "limit": 5},
+		},
+	}
+}
+
 func assessmentHasIndexCollection(assessment ExplainAssessment, collection string) bool {
 	for _, index := range assessment.Indexes {
 		if index.Collection == collection {

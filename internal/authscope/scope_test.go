@@ -213,6 +213,31 @@ func TestAuthorizeProjectUsesPrincipalAllowlist(t *testing.T) {
 	}
 }
 
+func TestAuthorizeReadProjectDoesNotRequireEmptyGenerationCatalog(t *testing.T) {
+	client := &recordingResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/BForePC"}}
+	resolver := NewScopeResolver(ScopeResolverConfig{
+		ResourceAccess: client,
+		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			t.Fatalf("project authorization must not resolve a generation catalog")
+			return nil, nil
+		},
+	})
+
+	if err := resolver.AuthorizeReadProject(context.Background(), &Principal{AuthorizationHeader: "Bearer token"}, "HTAN_INT/BForePC"); err != nil {
+		t.Fatalf("expected project read access, got %v", err)
+	}
+}
+
+func TestAuthorizeReadProjectRejectsMissingProjectGrant(t *testing.T) {
+	client := &recordingResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/Other"}}
+	resolver := NewScopeResolver(ScopeResolverConfig{ResourceAccess: client})
+
+	err := resolver.AuthorizeReadProject(context.Background(), &Principal{AuthorizationHeader: "Bearer token"}, "HTAN_INT/BForePC")
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected forbidden project read, got %v", err)
+	}
+}
+
 func TestScopeResolverUsesWritePermissionForWriteScope(t *testing.T) {
 	client := &recordingResourceAccessClient{resources: []string{"/programs/example/projects/allowed"}}
 	resolver := NewScopeResolver(ScopeResolverConfig{
