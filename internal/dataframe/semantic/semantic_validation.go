@@ -8,29 +8,29 @@ import (
 )
 
 // ValidateSemanticGraph checks the schema and structural safety of an already
-// constructed semantic plan. It performs no observed-data or authorization
-// checks and does not mutate the plan.
-func ValidateSemanticGraph(plan SemanticPlan) error {
-	if strings.TrimSpace(plan.Root.ResourceType) == "" {
+// constructed semantic graph. It performs no observed-data or authorization
+// checks and does not mutate the graph.
+func ValidateSemanticGraph(root SemanticNode) error {
+	if strings.TrimSpace(root.ResourceType) == "" {
 		return fmt.Errorf("semantic graph root resource type is required")
 	}
-	if plan.Root.Alias != "root" {
-		return fmt.Errorf("semantic graph root alias must be %q, got %q", "root", plan.Root.Alias)
+	if root.Alias != "root" {
+		return fmt.Errorf("semantic graph root alias must be %q, got %q", "root", root.Alias)
 	}
-	if strings.TrimSpace(plan.Root.EdgeLabel) != "" {
-		return fmt.Errorf("semantic graph root must not declare edge label %q", plan.Root.EdgeLabel)
+	if strings.TrimSpace(root.EdgeLabel) != "" {
+		return fmt.Errorf("semantic graph root must not declare edge label %q", root.EdgeLabel)
 	}
-	if plan.Root.MatchMode != "" {
-		return fmt.Errorf("semantic graph root must not declare traversal match mode %q", plan.Root.MatchMode)
+	if root.MatchMode != "" {
+		return fmt.Errorf("semantic graph root must not declare traversal match mode %q", root.MatchMode)
 	}
-	if !fhirschema.HasResource(plan.Root.ResourceType) {
-		return fmt.Errorf("semantic graph root resource type %q is not represented by the active generated FHIR schema", plan.Root.ResourceType)
+	if !fhirschema.HasResource(root.ResourceType) {
+		return fmt.Errorf("semantic graph root resource type %q is not represented by the active generated FHIR schema", root.ResourceType)
 	}
 
 	state := semanticValidationState{
 		aliases: map[string]string{},
 	}
-	return state.validateChildren(plan.Root, []string{plan.Root.ResourceType})
+	return state.validateChildren(root, []string{root.ResourceType})
 }
 
 type semanticValidationState struct {

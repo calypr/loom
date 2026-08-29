@@ -20,6 +20,6 @@ func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode
 	}
 }
 
-func semanticAuthScopeUnrestricted(plan semantic.SemanticPlan) bool {
-	return effectiveAuthScopeUnrestricted(plan.AuthResourcePaths, plan.AuthScopeMode)
+func semanticAuthScopeUnrestricted(context semantic.ExecutionContext) bool {
+	return effectiveAuthScopeUnrestricted(context.AuthResourcePaths, context.AuthScopeMode)
 }

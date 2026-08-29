@@ -125,30 +125,18 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 }
 
 func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
-	root := cloneRecipeNodeForPhysical(output.Root)
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
-	semanticInput := semantic.SemanticPlan{
-		Version:               1,
-		Project:               bindings.Project,
-		DatasetGeneration:     bindings.DatasetGeneration,
-		AuthResourcePaths:     append([]string(nil), bindings.AuthResourcePaths...),
-		AuthScopeMode:         bindings.AuthScopeMode,
-		TraversalColumnNaming: output.TraversalColumnNaming,
-		Root:                  root,
-		RowIdentity:           &identity,
+	context := semantic.ExecutionContext{
+		Project:           bindings.Project,
+		DatasetGeneration: bindings.DatasetGeneration,
+		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		AuthScopeMode:     bindings.AuthScopeMode,
 	}
-	physical, err := BuildGenericPhysicalPlanWithPolicy(semanticInput, policy)
+	physical, err := buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
 	if err != nil {
-		return CompiledRecipeOutput{}, err
-	}
-
-	// Recipe expressions are richer than selector-only GraphQL fields.  The
-	// generic plan supplies the complete scoped traversal/set structure; patch
-	// only the expression payloads using the already checked recipe AST.
-	if err := patchRecipeExpressions(&physical, output); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
 	if err := appendRecipeIdentity(&physical, output); err != nil {

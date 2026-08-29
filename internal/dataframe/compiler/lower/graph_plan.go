@@ -17,57 +17,57 @@ const (
 // BuildGraphPhysicalPlan lowers an explicit graph frontend onto the same
 // scoped root/traversal lowering used by dataframe recipes. Each route gets
 // its own path set, so sibling branches form independent unions.
-func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
+func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if limit < 1 || limit > 10000 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph limit must be between 1 and 10000")
 	}
-	if strings.TrimSpace(plan.Project) == "" {
+	if strings.TrimSpace(context.Project) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
-	plan.Root = normalizeGraphMatchModes(plan.Root)
-	if err := semantic.ValidateSemanticGraph(plan); err != nil {
+	output.Root = normalizeGraphMatchModes(output.Root)
+	if err := semantic.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if countGraphTraversals(plan.Root) > maxGraphTraversalDeclarations {
+	if countGraphTraversals(output.Root) > maxGraphTraversalDeclarations {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph traversal declaration count exceeds %d", maxGraphTraversalDeclarations)
 	}
-	if err := validateGraphNode(plan.Root, true); err != nil {
+	if err := validateGraphNode(output.Root, true); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
 	physical := ir.PhysicalPlan{
 		Version: 1,
-		Source:  ir.PhysicalSource{SemanticNode: plan.Root.Alias, ResourceType: plan.Root.ResourceType},
+		Source:  ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 		BindVars: map[string]any{
-			"root_collection":                  plan.Root.ResourceType,
-			"project":                          plan.Project,
-			datasetGenerationBindKey:           datasetGenerationBindValue(plan.DatasetGeneration),
-			"auth_resource_paths":              append([]string(nil), plan.AuthResourcePaths...),
-			"auth_resource_paths_unrestricted": semanticAuthScopeUnrestricted(plan),
+			"root_collection":                  output.Root.ResourceType,
+			"project":                          context.Project,
+			datasetGenerationBindKey:           datasetGenerationBindValue(context.DatasetGeneration),
+			"auth_resource_paths":              append([]string(nil), context.AuthResourcePaths...),
+			"auth_resource_paths_unrestricted": semanticAuthScopeUnrestricted(context),
 			"scope_allowed":                    true,
 			graphLookaheadBindKey:              limit + 1,
 		},
 		Operations: []ir.PhysicalOperation{{
 			Kind:     ir.PhysicalRootScanOp,
-			Source:   ir.PhysicalSource{SemanticNode: plan.Root.Alias, ResourceType: plan.Root.ResourceType},
+			Source:   ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 			RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"},
 		}},
 	}
-	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", plan.Root)
-	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", plan.Root)
-	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", plan.Root)
-	if err := appendRootPhysicalFilters(&physical, plan.Root); err != nil {
+	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", output.Root)
+	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", output.Root)
+	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", output.Root)
+	if err := appendRootPhysicalFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if err := appendRequiredTraversalMatchFilters(&physical, graphRequiredSemiJoinRoot(plan.Root)); err != nil {
+	if err := appendRequiredTraversalMatchFilters(&physical, graphRequiredSemiJoinRoot(output.Root)); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
 	physical.Operations = append(physical.Operations, ir.PhysicalOperation{
 		Kind:   ir.PhysicalPathSeedOp,
-		Source: ir.PhysicalSource{SemanticNode: plan.Root.Alias, ResourceType: plan.Root.ResourceType},
+		Source: ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 		PathSeed: &ir.PhysicalPathSeed{Variable: "path_root", RouteOrder: 0, Node: ir.PhysicalPathNode{
-			Alias: graphAlias(plan.Root, "root"), ResourceType: plan.Root.ResourceType,
+			Alias: graphAlias(output.Root, "root"), ResourceType: output.Root.ResourceType,
 			Value: ir.PhysicalValue{Variable: "root"},
 		}},
 	})
@@ -77,8 +77,8 @@ func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.Phy
 	// child. Once any REQUIRED route is declared, however, returning the root
 	// itself would leak a path the caller did not ask for; required semi-joins
 	// below still gate root membership.
-	pathSets := make([]string, 0, countGraphTraversals(plan.Root)+1)
-	if !graphHasRequiredTraversal(plan.Root) {
+	pathSets := make([]string, 0, countGraphTraversals(output.Root)+1)
+	if !graphHasRequiredTraversal(output.Root) {
 		pathSets = append(pathSets, "path_root")
 	}
 	routeOrder := 1
@@ -132,7 +132,7 @@ func BuildGraphPhysicalPlan(plan semantic.SemanticPlan, limit int, policy ir.Phy
 		}
 		return nil
 	}
-	if err := walk(plan.Root, "path_root"); err != nil {
+	if err := walk(output.Root, "path_root"); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 	physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalGraphReturnOp, GraphReturn: &ir.PhysicalGraphReturn{PathSets: pathSets, LimitBindKey: graphLookaheadBindKey}})
@@ -190,15 +190,13 @@ func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, p
 		return ir.PhysicalPlan{}, fmt.Errorf("graph query requires exactly one output, got %d", len(resolved.SemanticPlan.Outputs))
 	}
 	output := resolved.SemanticPlan.Outputs[0]
-	plan := semantic.SemanticPlan{
-		Version:           1,
+	context := semantic.ExecutionContext{
 		Project:           resolved.SemanticPlan.Bindings.Project,
 		DatasetGeneration: resolved.SemanticPlan.Bindings.DatasetGeneration,
 		AuthResourcePaths: append([]string(nil), resolved.SemanticPlan.Bindings.AuthResourcePaths...),
 		AuthScopeMode:     resolved.SemanticPlan.Bindings.AuthScopeMode,
-		Root:              output.Root,
 	}
-	return BuildGraphPhysicalPlan(plan, limit, policy)
+	return BuildGraphPhysicalPlan(output, context, limit, policy)
 }
 
 func graphAlias(node semantic.SemanticNode, fallback string) string {

@@ -10,60 +10,72 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// BuildGenericPhysicalPlanWithPolicy threads an explicit optimizer policy
-// through physical construction so prepared-selector ablations happen before
-// references to prepared variables are attached to projections.
-func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
-	if strings.TrimSpace(semantic.Project) == "" {
+// BuildGenericPhysicalPlanWithPolicy lowers one canonical output with an
+// explicit request execution context. Keeping these values separate prevents
+// runtime provenance from being mistaken for semantic output structure.
+func BuildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
+	return buildGenericPhysicalPlanWithPolicy(output, context, policy, nil)
+}
+
+// buildGenericPhysicalPlanWithPolicy is the shared physical-plan builder. A
+// field lowerer is supplied by frontends whose canonical semantic fields are
+// richer than selector metadata (for example persisted recipe expressions).
+// A nil lowerer retains the selector-only GraphQL/dataframe behavior.
+func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy, lowerer semanticFieldProjectionLowerer) (ir.PhysicalPlan, error) {
+	if strings.TrimSpace(context.Project) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
-	if err := semanticpkg.ValidateSemanticGraph(semantic); err != nil {
+	if err := semanticpkg.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if !fhirschema.ResourceExists(semantic.Root.ResourceType) {
-		return ir.PhysicalPlan{}, fmt.Errorf("root resource type %q is not represented by the generated FHIR schema", semantic.Root.ResourceType)
+	if !fhirschema.ResourceExists(output.Root.ResourceType) {
+		return ir.PhysicalPlan{}, fmt.Errorf("root resource type %q is not represented by the generated FHIR schema", output.Root.ResourceType)
 	}
-	if err := validateGenericPhysicalNode(semantic.Root, true); err != nil {
+	if err := validateGenericPhysicalNode(output.Root, true); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
 	physical := ir.PhysicalPlan{
 		Version: 1,
 		Source: ir.PhysicalSource{
-			SemanticNode: semantic.Root.Alias,
-			ResourceType: semantic.Root.ResourceType,
+			SemanticNode: output.Root.Alias,
+			ResourceType: output.Root.ResourceType,
 		},
 		BindVars: map[string]any{
-			"root_collection":                  semantic.Root.ResourceType,
-			"project":                          semantic.Project,
-			datasetGenerationBindKey:           datasetGenerationBindValue(semantic.DatasetGeneration),
-			"auth_resource_paths":              append([]string(nil), semantic.AuthResourcePaths...),
-			"auth_resource_paths_unrestricted": semanticAuthScopeUnrestricted(semantic),
+			"root_collection":                  output.Root.ResourceType,
+			"project":                          context.Project,
+			datasetGenerationBindKey:           datasetGenerationBindValue(context.DatasetGeneration),
+			"auth_resource_paths":              append([]string(nil), context.AuthResourcePaths...),
+			"auth_resource_paths_unrestricted": semanticAuthScopeUnrestricted(context),
 			"scope_allowed":                    true,
 		},
 		Operations: []ir.PhysicalOperation{
 			{
 				Kind:     ir.PhysicalRootScanOp,
-				Source:   ir.PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType},
+				Source:   ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 				RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"},
 			},
 		},
 	}
-	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", semantic.Root)
-	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", semantic.Root)
-	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", semantic.Root)
-	if err := appendRootPhysicalFilters(&physical, semantic.Root); err != nil {
+	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", output.Root)
+	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", output.Root)
+	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", output.Root)
+	if err := appendRootPhysicalFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if err := appendRequiredTraversalMatchFilters(&physical, semantic.Root); err != nil {
+	if err := appendRequiredTraversalMatchFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
 	childSetIndex := 0
 	returnProjections := []ir.PhysicalProjection{}
-	var walk func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string) error
-	walk = func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string) error {
+	rootBindings := map[string]physicalSemanticBinding{
+		"root": {ResourceType: output.Root.ResourceType, Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}},
+	}
+	var walk func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error
+	walk = func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error {
 		for _, child := range parent.Children {
+			childBindings := clonePhysicalSemanticBindings(bindings)
 			if child.MatchMode.Required() {
 				// Required routes are represented by the root semi-join emitted
 				// above for membership, but they may still need a materialized
@@ -73,16 +85,17 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 				if physicalNodeNeedsMaterializedSet(child) {
 					childSetIndex++
 					childProjectionPrefix := child.Alias
-					if semantic.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
+					if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
 						childProjectionPrefix = projectionPrefix + "__" + child.Alias
 					}
-					set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy)
+					childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
+					set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 					if err != nil {
 						return err
 					}
 					physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
 					returnProjections = append(returnProjections, projections...)
-					if err := walk(child, set.Variable, childProjectionPrefix); err != nil {
+					if err := walk(child, set.Variable, childProjectionPrefix, childBindings); err != nil {
 						return err
 					}
 				}
@@ -114,7 +127,8 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 				physical.Operations = appendProjectScope(physical.Operations, []string{edgeVariable, nodeVariable}, child.EdgeLabel, child)
 				physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{edgeVariable, nodeVariable}, child.EdgeLabel, child)
 				physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: nodeVariable, Path: []string{"auth_resource_path"}}}, fmt.Sprintf("traversal_%d_scope_allowed", traversalIndex), child)
-				if err := walk(child, nodeVariable, projectionPrefix); err != nil {
+				childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: nodeVariable, Path: []string{"payload"}}}
+				if err := walk(child, nodeVariable, projectionPrefix, childBindings); err != nil {
 					return err
 				}
 				continue
@@ -124,25 +138,26 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 			// filters and projections to be applied before materialization.
 			childSetIndex++
 			childProjectionPrefix := child.Alias
-			if semantic.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
+			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
 				childProjectionPrefix = projectionPrefix + "__" + child.Alias
 			}
-			set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy)
+			childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
+			set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 			if err != nil {
 				return err
 			}
 			physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: child.EdgeLabel}, Set: &set})
 			returnProjections = append(returnProjections, projections...)
-			if err := walk(child, set.Variable, childProjectionPrefix); err != nil {
+			if err := walk(child, set.Variable, childProjectionPrefix, childBindings); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(semantic.Root, "root", ""); err != nil {
+	if err := walk(output.Root, "root", "", rootBindings); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	projections, err := rootPhysicalProjections(&physical, semantic.Root)
+	projections, err := rootPhysicalProjections(&physical, output.Root, nil, rootBindings, lowerer)
 	if err != nil {
 		return ir.PhysicalPlan{}, err
 	}
@@ -151,7 +166,7 @@ func BuildGenericPhysicalPlanWithPolicy(semantic semanticpkg.SemanticPlan, polic
 	physical.DeferredExpressionLets = nil
 	physical.Operations = append(physical.Operations, ir.PhysicalOperation{
 		Kind:   ir.PhysicalReturnOp,
-		Source: ir.PhysicalSource{SemanticNode: semantic.Root.Alias, ResourceType: semantic.Root.ResourceType, SemanticField: "_key"},
+		Source: ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType, SemanticField: "_key"},
 		Return: &ir.PhysicalReturn{Projections: projections},
 	})
 	if err := physical.Validate(); err != nil {

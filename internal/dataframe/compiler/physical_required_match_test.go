@@ -10,12 +10,9 @@ import (
 )
 
 func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
-			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
-		}}},
-	})
+	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+		Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
+	}}}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,12 +44,9 @@ func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1, Project: "project-1",
-		Root: semantic.SemanticNode{Alias: "root", ResourceType: "ResearchSubject", Children: []semantic.SemanticNode{{
-			Alias: "study", ResourceType: "ResearchStudy", EdgeLabel: "study", MatchMode: spec.TraversalMatchRequired,
-		}}},
-	})
+	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "ResearchSubject", Children: []semantic.SemanticNode{{
+		Alias: "study", ResourceType: "ResearchStudy", EdgeLabel: "study", MatchMode: spec.TraversalMatchRequired,
+	}}}}, semantic.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,13 +67,10 @@ func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
 }
 
 func TestBuildPhysicalPlanRequiredTraversalWithFilterUsesTypedPredicate(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1, Project: "project-1",
-		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
-			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
-			Filters: []spec.TypedFilter{{FieldRef: "Condition.id", Selector: "id", FieldKind: spec.FilterString, Operator: spec.FilterExists}},
-		}}},
-	})
+	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+		Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
+		Filters: []spec.TypedFilter{{FieldRef: "Condition.id", Selector: "id", FieldKind: spec.FilterString, Operator: spec.FilterExists}},
+	}}}}, semantic.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

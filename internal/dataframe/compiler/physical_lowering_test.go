@@ -8,19 +8,16 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func TestBuildPhysicalPlanUsesSemanticPlanDirectly(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1,
-		Project: "project-1",
-		Root: semantic.SemanticNode{
-			Alias:        "root",
-			ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
-				Alias:        "specimen",
-				ResourceType: "Specimen",
-				EdgeLabel:    "subject_Patient",
-			}},
-		},
+func TestBuildPhysicalPlanUsesOutputPlanDirectly(t *testing.T) {
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias:        "root",
+		ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias:        "specimen",
+			ResourceType: "Specimen",
+			EdgeLabel:    "subject_Patient",
+		}},
+	},
 	})
 	if err != nil {
 		t.Fatalf("BuildPhysicalPlan() error = %v", err)
@@ -35,18 +32,11 @@ func TestBuildPhysicalPlanLowersRootSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1,
-		Project: "project-1",
-		Root: semantic.SemanticNode{
-			Alias:        "root",
-			ResourceType: "Patient",
-			Fields: []semantic.SemanticField{{
-				Name:     "gender",
-				FieldRef: "gender",
-				Selector: selector,
-			}},
-		},
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias:        "root",
+		ResourceType: "Patient",
+		Fields:       []semantic.SemanticField{testSemanticField("gender", selector, "")},
+	},
 	})
 	if err != nil {
 		t.Fatalf("BuildPhysicalPlan() error = %v", err)

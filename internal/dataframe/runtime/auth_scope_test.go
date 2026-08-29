@@ -11,12 +11,11 @@ import (
 )
 
 func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.SemanticPlan{
-		Version:       1,
-		Project:       "P1",
-		AuthScopeMode: authscope.ReadScopeRestricted,
-		Root:          semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
-	}, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(
+		semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
+		semantic.ExecutionContext{Project: "P1", AuthScopeMode: authscope.ReadScopeRestricted},
+		ir.DefaultPhysicalOptimizationPolicy(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

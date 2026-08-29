@@ -48,7 +48,7 @@ func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindin
 func testRecipeValidation() engine.Validation {
 	plan := semantic.RecipePlan{Version: 1, RecipeDigest: "recipe", TranslationVersion: "legacy", Outputs: []semantic.OutputPlan{{
 		Name: "rows", RootResourceType: "Patient", RowGrain: spec.RowGrainResource,
-		DeclaredOrder: []string{"id"}, Fields: []semantic.SemanticProjection{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []semantic.SemanticField{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}}},
 	}}}
 	return engine.Validation{Plan: plan}
 }

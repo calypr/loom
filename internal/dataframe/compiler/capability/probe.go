@@ -186,7 +186,8 @@ func ProbeRoot(ctx context.Context, request RootRequest, options ...Options) (Re
 	if !ok {
 		return Result{}, fmt.Errorf("resource type %q has no supported row grain", canonical)
 	}
-	physical, rendered, err := compile(ctx, request.Scope, semantic.SemanticPlan{Version: 1, Project: request.Project, DatasetGeneration: request.DatasetGeneration, AuthResourcePaths: cloneStrings(request.AuthResourcePaths), AuthScopeMode: request.AuthScopeMode, Root: semantic.SemanticNode{Alias: "root", ResourceType: canonical}}, optionsFor(options))
+	output := semantic.OutputPlan{RootResourceType: canonical, Root: semantic.SemanticNode{Alias: "root", ResourceType: canonical}}
+	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	_ = physical
 	if err != nil {
 		return Result{}, err
@@ -210,8 +211,8 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 	}
 	toType, _ := fhirschema.ConcreteResourceType(request.ToResourceType)
 	child := semantic.SemanticNode{Alias: routeAlias(request.Alias, 1), ResourceType: toType, EdgeLabel: request.EdgeLabel, MatchMode: request.MatchMode}
-	plan := semantic.SemanticPlan{Version: 1, Project: request.Project, DatasetGeneration: request.DatasetGeneration, AuthResourcePaths: cloneStrings(request.AuthResourcePaths), AuthScopeMode: request.AuthScopeMode, Root: semantic.SemanticNode{Alias: "root", ResourceType: rootType, Children: []semantic.SemanticNode{child}}}
-	physical, rendered, err := compile(ctx, request.Scope, plan, optionsFor(options))
+	output := semantic.OutputPlan{RootResourceType: rootType, Root: semantic.SemanticNode{Alias: "root", ResourceType: rootType, Children: []semantic.SemanticNode{child}}}
+	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	if err != nil {
 		return Result{}, err
 	}
@@ -374,12 +375,17 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	if err := validateCandidateProjection(prepared, mode); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
-	field := semantic.SemanticField{Name: "candidate", FieldRef: prepared.fieldRef, Selector: prepared.selector, ValueMode: valueMode(mode), ExprType: expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}}
+	fieldType := expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}
 	if prepared.primitive != fhirschema.PrimitiveUnknown {
-		field.ExprType.Kind = expressionKind(prepared.primitive)
+		fieldType.Kind = expressionKind(prepared.primitive)
 	}
 	if prepared.repeated {
-		field.ExprType.Cardinality = expression.Many
+		fieldType.Cardinality = expression.Many
+	}
+	field := semantic.SemanticField{
+		Name: "candidate", FieldRef: prepared.fieldRef,
+		Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: prepared.selector.CanonicalPath()}), Type: fieldType},
+		Projection: mode,
 	}
 	root := prepared.root
 	target := &root
@@ -401,8 +407,8 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 		selector := prepared.selector
 		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector}}
 	}
-	plan := semantic.SemanticPlan{Version: 1, Root: root}
-	physical, rendered, err := compile(ctx, prepared.scope, plan, options)
+	output := semantic.OutputPlan{RootResourceType: root.ResourceType, Root: root}
+	physical, rendered, err := compile(ctx, prepared.scope, output, options)
 	return physical, rendered, err
 }
 
@@ -416,21 +422,23 @@ func validateCandidateProjection(prepared preparedCandidate, mode spec.Projectio
 	return nil
 }
 
-func compile(ctx context.Context, scope Scope, plan semantic.SemanticPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
+func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
 	if err := contextErr(ctx); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
 	options = options.normalized()
 	if options.Cost != nil {
-		if err := options.Cost.Allow(ctx, CostEstimate{TraversalCount: countSemanticTraversals(plan.Root)}); err != nil {
+		if err := options.Cost.Allow(ctx, CostEstimate{TraversalCount: countSemanticTraversals(output.Root)}); err != nil {
 			return ir.PhysicalPlan{}, Rendered{}, err
 		}
 	}
-	plan.Project = scope.Project
-	plan.DatasetGeneration = scope.DatasetGeneration
-	plan.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
-	plan.AuthScopeMode = scope.AuthScopeMode
-	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(plan, options.Policy)
+	context := semantic.ExecutionContext{
+		Project:           scope.Project,
+		DatasetGeneration: scope.DatasetGeneration,
+		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
+		AuthScopeMode:     scope.AuthScopeMode,
+	}
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(output, context, options.Policy)
 	if err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
@@ -603,19 +611,6 @@ func expressionKind(primitive fhirschema.PrimitiveKind) expression.ValueKind {
 		return expression.KindString
 	default:
 		return expression.KindObject
-	}
-}
-
-func valueMode(mode spec.ProjectionMode) string {
-	switch mode {
-	case spec.ProjectionFirst:
-		return "FIRST"
-	case spec.ProjectionArray:
-		return "ALL"
-	case spec.ProjectionDistinctArray:
-		return "DISTINCT"
-	default:
-		return "AUTO"
 	}
 }
 

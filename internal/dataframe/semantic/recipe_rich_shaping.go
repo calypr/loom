@@ -341,10 +341,10 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 				return nil, fmt.Errorf("%s.name %q is duplicated", fieldPath, field.Name)
 			}
 			seenFields[field.Name] = struct{}{}
-			if semanticField.Expr == nil || semanticField.Expr.Selector == nil {
+			if semanticField.Expr.Expression.Selector == nil {
 				return nil, fmt.Errorf("%s.expr must be a selector for canonical slice lowering", fieldPath)
 			}
-			if err := ensureSelectorOwnedByNode(semanticField.Expr.Selector.Context, alias, fieldPath+".expr"); err != nil {
+			if err := ensureSelectorOwnedByNode(semanticField.Expr.Expression.Selector.Context, alias, fieldPath+".expr"); err != nil {
 				return nil, err
 			}
 			semanticSlice.Fields = append(semanticSlice.Fields, semanticField)

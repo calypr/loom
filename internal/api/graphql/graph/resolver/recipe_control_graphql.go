@@ -68,11 +68,9 @@ func graphqlRecipeBindings(bindings *model.DataframeRecipeBindingsInput) (recipe
 }
 
 func outputValidation(output semantic.OutputPlan) *model.DataframeRecipeOutputValidation {
-	fields := append([]string(nil), output.DeclaredOrder...)
-	if len(fields) == 0 {
-		for _, field := range output.Fields {
-			fields = append(fields, field.Name)
-		}
+	fields := make([]string, 0, len(output.Root.Fields))
+	for _, field := range output.Root.Fields {
+		fields = append(fields, field.Name)
 	}
 	dynamic := make([]string, 0, len(output.DynamicMaps))
 	for _, value := range output.DynamicMaps {
@@ -179,7 +177,7 @@ func arangoAssessment(value engine.ExplainAssessment) *model.DataframeRecipeAran
 func preflightResult(plan semantic.ResolvedRecipePlan, name string) *model.DataframeRecipePreflight {
 	columns := make([]*model.DataframeRecipeColumn, 0)
 	for _, output := range plan.SemanticPlan.Outputs {
-		for _, field := range output.Fields {
+		for _, field := range output.Root.Fields {
 			columns = append(columns, &model.DataframeRecipeColumn{
 				Output: output.Name, Name: field.Name, LogicalType: string(field.Expr.Type.Kind),
 				Repeated: field.Expr.Type.Cardinality == "many",

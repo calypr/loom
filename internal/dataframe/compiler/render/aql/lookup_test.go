@@ -26,12 +26,11 @@ func TestRenderPhysicalLookupExpression(t *testing.T) {
 			MatchBindKey: "dynamic_key",
 		},
 	}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.SemanticPlan{
-		Version:           1,
-		Project:           "project-1",
-		AuthResourcePaths: []string{"/programs/p1"},
-		Root:              semantic.SemanticNode{Alias: "root", ResourceType: "Patient"},
-	}, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(
+		semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
+		semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}},
+		ir.DefaultPhysicalOptimizationPolicy(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

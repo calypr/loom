@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +13,56 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
+
+func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *testing.T) {
+	literal := func(value string) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.Quote(value))}
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "direct-expression",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "label", Expr: recipe.Expression{Call: "concat", Args: []recipe.Expression{literal("a"), literal("b")}}}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var label *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "label" {
+				label = projection.Expression
+			}
+		}
+	}
+	if label == nil || label.Kind != ir.PhysicalCallExpression || label.Call == nil || label.Call.Name != "concat" {
+		t.Fatalf("label projection = %#v, want direct concat call", label)
+	}
+	if len(label.Call.Args) != 2 || label.Call.Args[0].Kind != ir.PhysicalLiteralExpression || label.Call.Args[1].Kind != ir.PhysicalLiteralExpression {
+		t.Fatalf("label call args = %#v, want two physical literals", label.Call.Args)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[0].Literal.BindKey]; !ok {
+		t.Fatalf("first literal bind %q is missing: %#v", label.Call.Args[0].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[1].Literal.BindKey]; !ok {
+		t.Fatalf("second literal bind %q is missing: %#v", label.Call.Args[1].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+}
 
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	bundle := compilerFixtureBundle(t)

@@ -40,11 +40,9 @@ type OutputPlan struct {
 	// must not infer cardinality-changing behavior from a transport-facing
 	// explanation field; the typed UNNEST operation is authoritative.
 	Unnest             *SemanticUnnest
-	Fields             []SemanticProjection
 	DynamicMaps        []SemanticDynamicMap
 	CatalogProjections []string
 	Collision          string
-	DeclaredOrder      []string
 }
 
 // SemanticExpression keeps the checked typed AST together with the logical
@@ -55,14 +53,6 @@ type SemanticExpression struct {
 	Type       expression.Type
 	SourcePath string
 	Context    string
-}
-
-type SemanticProjection struct {
-	Name       string
-	FieldRef   string
-	ValueMode  string
-	Expr       SemanticExpression
-	Discovered bool
 }
 
 // UnnestJoinMode makes null/empty collection behavior explicit at the
@@ -184,7 +174,7 @@ func (p RecipePlan) Explain() RecipePlanExplanation {
 	out := RecipePlanExplanation{Version: p.Version, RecipeDigest: p.RecipeDigest, TranslationVersion: p.TranslationVersion, Outputs: make([]OutputPlanExplanation, 0, len(p.Outputs))}
 	for _, output := range p.Outputs {
 		e := OutputPlanExplanation{Name: output.Name, Root: output.RootResourceType, RowGrain: output.RowGrain, DynamicMap: make([]string, 0, len(output.DynamicMaps)), CatalogProjections: append([]string(nil), output.CatalogProjections...)}
-		for _, field := range output.Fields {
+		for _, field := range output.Root.Fields {
 			e.Fields = append(e.Fields, explainExpression(field.Expr))
 		}
 		if output.Identity != nil {

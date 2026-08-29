@@ -49,7 +49,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 }
 
 func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{Version: 1, Project: "p", Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,18 +232,17 @@ func TestOptimizePhysicalPlanReportsExplicitRuleDisable(t *testing.T) {
 
 func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	semantic := semantic.SemanticPlan{
-		Version: 1, Project: "p", Root: semantic.SemanticNode{
-			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
-				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-				Aggregates: []semantic.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
-				Slices:     []semantic.SemanticSlice{{Name: "representative", Limit: 1, Fields: []semantic.SemanticField{{Name: "status", Selector: status}}}},
-			}},
-		},
+	output := semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
+			Aggregates: []semantic.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
+			Slices:     []semantic.SemanticSlice{{Name: "representative", Limit: 1, Fields: []semantic.SemanticField{testSemanticField("status", status, "")}}},
+		}},
+	},
 	}
 	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, policy)
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(output, semantic.ExecutionContext{Project: "p"}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,19 +261,18 @@ func TestBuildGenericPhysicalPlanPolicyDisablesPreparedSelectors(t *testing.T) {
 }
 
 func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
-	semantic := semantic.SemanticPlan{
-		Version: 1, Project: "p", Root: semantic.SemanticNode{
-			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "count", Operation: "COUNT"}}}},
-		},
+	output := semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "count", Operation: "COUNT"}}}},
+	},
 	}
 	fullPolicy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false)
-	full, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, fullPolicy)
+	full, err := lower.BuildGenericPhysicalPlanWithPolicy(output, semantic.ExecutionContext{Project: "p"}, fullPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	compactPolicy := ir.DefaultPhysicalOptimizationPolicy()
-	compact, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic, compactPolicy)
+	compact, err := lower.BuildGenericPhysicalPlanWithPolicy(output, semantic.ExecutionContext{Project: "p"}, compactPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,13 +407,10 @@ func physicalSetIndex(plan ir.PhysicalPlan, set ir.PhysicalSet) int {
 
 func physicalScopedSiblingPlan(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1, Project: "project-1", AuthResourcePaths: []string{"/programs/p1"},
-		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{
-			{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Condition.id", Selector: mustPhysicalSelector(t, "id")}}},
-			{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Specimen.id", Selector: mustPhysicalSelector(t, "id")}}},
-		}},
-	})
+	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{
+		{Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{testSemanticField("id", mustPhysicalSelector(t, "id"), "")}},
+		{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Fields: []semantic.SemanticField{testSemanticField("id", mustPhysicalSelector(t, "id"), "")}},
+	}}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}

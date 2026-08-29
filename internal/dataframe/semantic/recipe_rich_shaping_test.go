@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
@@ -113,7 +114,7 @@ func TestLowerRecipeSlicesUsesProjectionFallbacksAndPredicate(t *testing.T) {
 		t.Fatalf("slice = %#v", slices)
 	}
 	field := slices[0].Fields[0]
-	if len(field.Fallbacks) != 1 || field.ValueMode != string(recipe.ValueModeFirst) {
+	if len(field.Fallbacks) != 1 || field.Projection != spec.ProjectionFirst {
 		t.Fatalf("slice field = %#v", field)
 	}
 }

@@ -9,6 +9,40 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+// PrimarySelector derives the schema selector used by the physical compiler
+// from the checked primary expression. Semantic plans keep expressions as
+// their single source of truth so diagnostics, type information, and
+// lowering cannot observe different selector values.
+func (field SemanticField) PrimarySelector() (spec.Selector, error) {
+	if field.Expr.Expression.Selector == nil {
+		return spec.Selector{}, fmt.Errorf("field %q expression is not a selector", field.Name)
+	}
+	selector, err := spec.ParseSelector(field.Expr.Expression.Selector.Path)
+	if err != nil {
+		return spec.Selector{}, fmt.Errorf("field %q selector: %w", field.Name, err)
+	}
+	return selector, nil
+}
+
+// FallbackSelectors derives the ordered selector fallback chain from checked
+// semantic expressions. Fallbacks are selector-only in the current recipe
+// contract; rejecting anything else here keeps that constraint at the
+// semantic/physical boundary instead of relying on a parallel selector list.
+func (field SemanticField) FallbackSelectors() ([]spec.Selector, error) {
+	selectors := make([]spec.Selector, 0, len(field.Fallbacks))
+	for index, fallback := range field.Fallbacks {
+		if fallback.Expression.Selector == nil {
+			return nil, fmt.Errorf("field %q fallback %d is not a selector", field.Name, index)
+		}
+		selector, err := spec.ParseSelector(fallback.Expression.Selector.Path)
+		if err != nil {
+			return nil, fmt.Errorf("field %q fallback %d selector: %w", field.Name, index, err)
+		}
+		selectors = append(selectors, selector)
+	}
+	return selectors, nil
+}
+
 // SelectionSemanticSpec is the compiler-ready meaning of one field selection.
 // It deliberately contains selectors and schema facts, not rendered AQL.
 type SelectionSemanticSpec struct {
@@ -29,11 +63,19 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 	if !fhirschema.HasResource(resourceType) {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: resource type %q is not in the active FHIR schema", field.Name, resourceType)
 	}
-	repeated, paths, err := spec.SelectorCardinality(resourceType, field.Selector)
+	selector, err := field.PrimarySelector()
+	if err != nil {
+		return SelectionSemanticSpec{}, err
+	}
+	fallbacks, err := field.FallbackSelectors()
+	if err != nil {
+		return SelectionSemanticSpec{}, err
+	}
+	repeated, paths, err := spec.SelectorCardinality(resourceType, selector)
 	if err != nil {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
 	}
-	for fallbackIndex, fallback := range field.Fallbacks {
+	for fallbackIndex, fallback := range fallbacks {
 		fallbackRepeated, fallbackPaths, err := spec.SelectorCardinality(resourceType, fallback)
 		if err != nil {
 			return SelectionSemanticSpec{}, fmt.Errorf("field %q fallback %d: %w", field.Name, fallbackIndex, err)
@@ -46,8 +88,17 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 	if repeated {
 		cardinality = spec.CardinalityMany
 	}
-	projection, legacyAuto, err := projectionForValueMode(field.ValueMode, cardinality)
-	if err != nil {
+	projection := field.Projection
+	legacyAuto := false
+	if projection == "" {
+		// Direct semantic graph callers may omit Projection. Preserve the
+		// historical AUTO behavior for that transport-neutral input while
+		// recipe plans record the resolved projection explicitly.
+		projection, legacyAuto, err = projectionForValueMode("", cardinality)
+		if err != nil {
+			return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
+		}
+	} else if err := projection.Validate(); err != nil {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
 	}
 	if err := spec.ValidateProjection(cardinality, projection); err != nil {
@@ -60,7 +111,7 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 	return SelectionSemanticSpec{
 		Alias: nodeAlias + "." + name, NodeAlias: nodeAlias,
 		ResourceType: resourceType, FieldRef: field.FieldRef,
-		Selector: field.Selector, Fallbacks: append([]spec.Selector(nil), field.Fallbacks...),
+		Selector: selector, Fallbacks: fallbacks,
 		Cardinality: cardinality, Projection: projection, LegacyAuto: legacyAuto,
 		RepeatedPaths: paths,
 	}, nil

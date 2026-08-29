@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent semantic.SemanticNode, parentVariable string, child semantic.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
+func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent semantic.SemanticNode, parentVariable string, child semantic.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
 	prefix := fmt.Sprintf("child_set_%d", setIndex)
 	targetVariable := fmt.Sprintf("%s_node", prefix)
 	edgeVariable := fmt.Sprintf("%s_edge", prefix)
@@ -76,22 +76,12 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 	set := ir.PhysicalSet{Variable: prefix, Subplan: subplan, Unique: true, SortByKey: true, Output: output}
 	projections := make([]ir.PhysicalProjection, 0, len(child.Fields))
 	for index, field := range child.Fields {
-		selection, err := semantic.ResolveSemanticField(child.ResourceType, child.Alias, index, field)
+		projection, err := lowerSemanticFieldProjection(physical, child, index, field, ir.PhysicalValue{Variable: set.Variable}, bindings, lowerer)
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		cardinality, distinct := ir.PhysicalScalarCardinality, false
-		nullBehavior := ir.PhysicalPreserveNull
-		switch selection.Projection {
-		case spec.ProjectionArray:
-			cardinality, nullBehavior = ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull
-		case spec.ProjectionDistinctArray:
-			cardinality, distinct, nullBehavior = ir.PhysicalArrayCardinality, true, ir.PhysicalEmptyOnNull
-		case spec.ProjectionScalar, spec.ProjectionFirst:
-		default:
-			return ir.PhysicalSet{}, nil, fmt.Errorf("child field %q has unsupported projection %q", field.Name, selection.Projection)
-		}
-		projections = append(projections, ir.PhysicalProjection{Name: projectionPrefix + "__" + field.Name, Expression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: set.Variable}, ResourceType: child.ResourceType, Selector: selection.Selector, Fallbacks: append([]spec.Selector(nil), selection.Fallbacks...), Distinct: distinct, ExecutionMode: selectorExecutionMode(child.ResourceType, selection.Selector, selection.Fallbacks...)}}})
+		projection.Name = projectionPrefix + "__" + field.Name
+		projections = append(projections, projection)
 	}
 	for _, aggregate := range child.Aggregates {
 		expression, err := physicalAggregateExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, aggregate, true)

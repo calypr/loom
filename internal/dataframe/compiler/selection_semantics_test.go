@@ -9,7 +9,7 @@ import (
 
 func TestResolveSemanticFieldScalarAuto(t *testing.T) {
 	selector, _ := spec.ParseSelector("gender")
-	got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "gender", Selector: selector})
+	got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("gender", selector, ""))
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestResolveSemanticFieldScalarAuto(t *testing.T) {
 
 func TestResolveSemanticFieldDetectsRepeatedAncestor(t *testing.T) {
 	selector, _ := spec.ParseSelector("name[].family")
-	got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "family", Selector: selector})
+	got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("family", selector, ""))
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
@@ -43,7 +43,8 @@ func TestResolveSemanticFieldValueModes(t *testing.T) {
 		{"DISTINCT", spec.ProjectionDistinctArray},
 	}
 	for _, test := range tests {
-		got, err := semantic.ResolveSemanticField("Patient", "root", 0, semantic.SemanticField{Name: "id", Selector: selector, ValueMode: test.mode})
+		projection := map[string]spec.ProjectionMode{"FIRST": spec.ProjectionFirst, "ALL": spec.ProjectionArray, "DISTINCT": spec.ProjectionDistinctArray}[test.mode]
+		got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("id", selector, projection))
 		if err != nil {
 			t.Errorf("mode %s: %v", test.mode, err)
 			continue
@@ -63,10 +64,10 @@ func TestResolveSemanticFieldRejectsInvalidSemantics(t *testing.T) {
 		resourceType string
 		field        semantic.SemanticField
 	}{
-		{"unknown resource", "Imaginary", semantic.SemanticField{Name: "x", Selector: valid}},
-		{"unknown path", "Patient", semantic.SemanticField{Name: "x", Selector: missing}},
-		{"invalid value mode", "Patient", semantic.SemanticField{Name: "x", Selector: valid, ValueMode: "SCALAR"}},
-		{"implicit array traversal", "Patient", semantic.SemanticField{Name: "x", Selector: implicitArray}},
+		{"unknown resource", "Imaginary", testSemanticField("x", valid, "")},
+		{"unknown path", "Patient", testSemanticField("x", missing, "")},
+		{"invalid value mode", "Patient", testSemanticField("x", valid, "invalid")},
+		{"implicit array traversal", "Patient", testSemanticField("x", implicitArray, "")},
 		{"empty selector", "Patient", semantic.SemanticField{Name: "x"}},
 	}
 	for _, test := range tests {
