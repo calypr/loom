@@ -8,10 +8,10 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
-func resolvedOutputArtifacts(resolved engine.Resolved) (map[string]string, map[string]map[string]string, error) {
+func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]string, map[string]map[string]string, error) {
 	result := make(map[string]string, len(resolved.Compiled.Outputs))
 	provenance := make(map[string]map[string]string, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {

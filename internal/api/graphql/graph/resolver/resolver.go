@@ -7,10 +7,10 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	dataset "github.com/calypr/loom/internal/dataset"
 )
@@ -19,12 +19,12 @@ import (
 // recipe GraphQL fields. It intentionally returns logical plans only; no
 // AQL, SQL, table names, or credentials cross this boundary.
 type RecipeControl interface {
-	Validate(context.Context, string, recipe.RuntimeBindings) (engine.Validation, error)
+	Validate(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Validation, error)
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
-	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error)
+	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (dataframeexecution.PhysicalExplanation, error)
 	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
-	Preview(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
-	Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error)
+	Preview(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error)
+	Run(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error)
 }
 
 // RecipeExecution is the stable logical execution record exposed by GraphQL.

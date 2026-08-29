@@ -2,7 +2,7 @@ package queryapi
 
 // This file contains the transport-neutral FHIR document query facade.  It
 // deliberately delegates planning, authorization, generation resolution, and
-// execution to the same dataframe recipe/compiler/runtime path as the rest of
+// execution to the same dataframe recipe/compiler/execution path as the rest of
 // GraphQL; no AQL or Arango client is constructed here.
 
 import (

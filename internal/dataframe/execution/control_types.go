@@ -1,7 +1,7 @@
 // Package control exposes the backend-neutral control-plane operations
 // needed by GraphQL or HTTP adapters. It deliberately contains no transport
 // types and no translation-specific output names.
-package engine
+package execution
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"

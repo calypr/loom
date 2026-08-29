@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -71,7 +71,7 @@ type CompileReceiptRequest struct {
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
-type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (engine.PreviewSummary, error)
+type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
 // Execution is the small logical publication result needed by Explorer. It
 // intentionally avoids the GraphQL resolver's execution type.
@@ -177,7 +177,7 @@ type PreviewRequest struct {
 type PreviewResult struct {
 	Receipt *explorer.CompilationReceipt
 	Columns []explorer.EmittedColumn
-	Summary engine.PreviewSummary
+	Summary dataframeexecution.PreviewSummary
 	Rows    map[string][]map[string]any
 }
 

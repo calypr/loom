@@ -10,7 +10,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -154,7 +154,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	if body == nil {
 		return result, malformedRouteError("preview", errors.New("receiptId and outputId are required"))
 	}
-	limit := engine.DefaultPreviewLimit
+	limit := dataframeexecution.DefaultPreviewLimit
 	if body.Limit != nil {
 		limit = *body.Limit
 		if limit == 0 {

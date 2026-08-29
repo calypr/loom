@@ -5,30 +5,30 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type fakeRecipeControl struct {
-	validation   engine.Validation
+	validation   dataframeexecution.Validation
 	plan         semantic.ResolvedRecipePlan
 	resolveCalls *int
 }
 
-func (f fakeRecipeControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error) {
-	return engine.PhysicalExplanation{}, nil
+func (f fakeRecipeControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (dataframeexecution.PhysicalExplanation, error) {
+	return dataframeexecution.PhysicalExplanation{}, nil
 }
 
-func (f fakeRecipeControl) Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
+func (f fakeRecipeControl) Run(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}, {"id": "p2"}}
-	return engine.Preview{Plan: f.plan, Outputs: []engine.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return dataframeexecution.Preview{Plan: f.plan, Outputs: []dataframeexecution.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
-func (f fakeRecipeControl) Validate(context.Context, string, recipe.RuntimeBindings) (engine.Validation, error) {
+func (f fakeRecipeControl) Validate(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Validation, error) {
 	return f.validation, nil
 }
 func (f fakeRecipeControl) Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
@@ -40,17 +40,17 @@ func (f fakeRecipeControl) Resolve(context.Context, string, recipe.RuntimeBindin
 	}
 	return f.plan, nil
 }
-func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
+func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}}
-	return engine.Preview{Plan: f.plan, Outputs: []engine.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return dataframeexecution.Preview{Plan: f.plan, Outputs: []dataframeexecution.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
-func testRecipeValidation() engine.Validation {
+func testRecipeValidation() dataframeexecution.Validation {
 	plan := semantic.RecipePlan{Version: 1, RecipeDigest: "recipe", TranslationVersion: "legacy", Outputs: []semantic.OutputPlan{{
 		Name: "rows", RootResourceType: "Patient", RowGrain: spec.RowGrainResource,
 		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []semantic.SemanticField{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}}},
 	}}}
-	return engine.Validation{Plan: plan}
+	return dataframeexecution.Validation{Plan: plan}
 }
 
 func semanticTypeString() (value semantic.SemanticExpression) {

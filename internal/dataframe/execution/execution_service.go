@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"context"
@@ -41,9 +41,9 @@ func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Res
 	return result, nil
 }
 
-func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (StreamResult, error) {
+func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (streamResult, error) {
 	if visit == nil {
-		return StreamResult{}, fmt.Errorf("row visitor is required")
+		return streamResult{}, fmt.Errorf("row visitor is required")
 	}
 	columns := materializedColumns(compiled.Columns, compiled.PivotFields)
 	seenColumns := make(map[string]struct{}, len(columns))
@@ -56,7 +56,7 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	var rowMaterialization time.Duration
 	queryStarted := time.Now()
 	if s.queryRows == nil {
-		return StreamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	err := s.queryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
 		rowStarted := time.Now()
@@ -87,7 +87,7 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	}
 	sort.Strings(newColumns)
 	columns = append(columns, newColumns...)
-	result := StreamResult{
+	result := streamResult{
 		Columns:  columns,
 		RowCount: rowCount,
 		Diagnostics: QueryDiagnostics{

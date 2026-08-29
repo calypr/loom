@@ -1,4 +1,4 @@
-package engine
+package execution
 
 import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"

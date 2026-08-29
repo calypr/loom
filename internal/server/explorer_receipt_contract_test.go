@@ -12,8 +12,8 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -22,7 +22,7 @@ import (
 )
 
 func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
-	recipeEngine, err := engine.New(engine.Config{
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{},
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			return nil
@@ -86,7 +86,7 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 }
 
 func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(t *testing.T) {
-	recipeEngine, err := engine.New(engine.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(
 }
 
 func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *testing.T) {
-	recipeEngine, err := engine.New(engine.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,15 +243,15 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			}
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (engine.PreviewSummary, error) {
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
 			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath {
 				t.Fatalf("preview bindings widened or requested publication metadata: receipt=%#v bindings=%#v", receipt, bindings)
 			}
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
-				return engine.PreviewSummary{}, err
+				return dataframeexecution.PreviewSummary{}, err
 			}
-			return engine.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", PlanFingerprint: "test", TraversalCount: 0}, nil
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", PlanFingerprint: "test", TraversalCount: 0}, nil
 		},
 	}
 	app := fiber.New()

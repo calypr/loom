@@ -6,7 +6,7 @@ import (
 
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
@@ -166,7 +166,7 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 
 func previewLimit(value *int) int {
 	if value == nil {
-		return engine.DefaultPreviewLimit
+		return dataframeexecution.DefaultPreviewLimit
 	}
 	if *value == 0 {
 		return -1

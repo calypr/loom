@@ -4,8 +4,8 @@ import (
 	"context"
 
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -48,7 +48,7 @@ func newExplorerLifecycleApplication(store *explorer.Service, config ExplorerV2L
 		}
 	}
 	if config.PreviewReceipt != nil {
-		appConfig.PreviewReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (engine.PreviewSummary, error) {
+		appConfig.PreviewReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			return config.PreviewReceipt(ctx, receipt, bindings, visit)
 		}
 	}

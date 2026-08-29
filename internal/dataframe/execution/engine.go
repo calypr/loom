@@ -1,8 +1,8 @@
-// Package engine is Loom's production recipe execution seam. It owns
+// Package execution is Loom's production recipe execution seam. It owns
 // recipe resolution, scoped discovery, canonical compiler orchestration, and
 // streaming row execution; transport adapters do not interpret recipes or
 // construct AQL.
-package engine
+package execution
 
 import (
 	"context"

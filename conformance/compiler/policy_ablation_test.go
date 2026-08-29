@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/store/arango"
 )
 
-func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled runtime.CompiledQuery) (arango.ExplainResult, error) {
+func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled dataframeexecution.CompiledQuery) (arango.ExplainResult, error) {
 	client, err := arango.Open(ctx, opts.URL, opts.Database)
 	if err != nil {
 		return arango.ExplainResult{}, err

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
@@ -196,7 +196,7 @@ func firstNonEmptyWorkspaceTitle(values ...string) string {
 // describes the exact resolved semantic artifact frozen in the receipt. It
 // intentionally compares no AQL or physical IR because those are
 // request-scoped implementation details.
-func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *engine.Resolved) error {
+func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -248,18 +248,18 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *e
 // even when the caller intends to execute only one output. OutputNames is an
 // execution selector: allowing it to narrow compilation here would compare a
 // partial fingerprint and column set with the receipt's full contract.
-func compileValidatedReceiptResolution(ctx context.Context, recipeEngine *engine.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (engine.Resolved, error) {
+func compileValidatedReceiptResolution(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (dataframeexecution.Resolved, error) {
 	validationBindings := bindings
 	validationBindings.OutputNames = nil
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, receipt.Bundle, validationBindings)
 	if err != nil {
-		return engine.Resolved{}, err
+		return dataframeexecution.Resolved{}, err
 	}
 	if err := validateReceiptResolution(receipt, &resolved); err != nil {
-		return engine.Resolved{}, err
+		return dataframeexecution.Resolved{}, err
 	}
 	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
-		return engine.Resolved{}, contractMismatch("public_columns", "", "receipt public columns", err.Error())
+		return dataframeexecution.Resolved{}, contractMismatch("public_columns", "", "receipt public columns", err.Error())
 	}
 	return resolved, nil
 }

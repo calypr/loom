@@ -1,4 +1,4 @@
-package engine
+package execution
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
-	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -20,7 +19,7 @@ import (
 // physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
 	Engine            *Engine
-	ExplainConnection func(context.Context, runtime.CompiledQuery) (ExplainAssessment, error)
+	ExplainConnection func(context.Context, CompiledQuery) (ExplainAssessment, error)
 }
 
 func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Validation, error) {
@@ -79,7 +78,7 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		item := PhysicalOutputExplanation{
-			Name: output.Name, PlanFingerprint: runtime.CompiledQueryFingerprint(compiled),
+			Name: output.Name, PlanFingerprint: CompiledQueryFingerprint(compiled),
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {

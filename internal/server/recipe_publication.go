@@ -13,11 +13,11 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 )
 
 func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
@@ -31,7 +31,7 @@ func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
 // compiler schema to the backend-neutral publication schema. Publication must
 // not reconstruct nested names from semantic recipe nodes because those names
 // are finalized by physical lowering.
-func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publication.LogicalColumn {
+func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName string) []publication.LogicalColumn {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name != outputName {
 			continue
@@ -74,7 +74,7 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 	return []publication.LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}}
 }
 
-func recipeOutputRootResourceType(plan engine.Resolved, outputName string) string {
+func recipeOutputRootResourceType(plan dataframeexecution.Resolved, outputName string) string {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name == outputName {
 			return output.RootResourceType
@@ -83,7 +83,7 @@ func recipeOutputRootResourceType(plan engine.Resolved, outputName string) strin
 	return ""
 }
 
-func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full engine.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
+func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
 	streams, err := recipeEngine.Streams(ctx, full)
 	if err != nil {
 		return publication.BundleIdentity{}, err
@@ -129,14 +129,14 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	return identity, err
 }
 
-func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []engine.OutputStream) string {
+func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []dataframeexecution.OutputStream) string {
 	if len(bindings.OutputNames) != 1 || len(streams) != 1 {
 		return ""
 	}
 	return streams[0].Name
 }
 
-func recipeResolvedDynamicColumnCounts(plan engine.Resolved) map[string]int {
+func recipeResolvedDynamicColumnCounts(plan dataframeexecution.Resolved) map[string]int {
 	counts := make(map[string]int, len(plan.Semantic.ResolvedColumns))
 	for dynamicMap, columns := range plan.Semantic.ResolvedColumns {
 		counts[dynamicMap] = len(columns)
@@ -144,7 +144,7 @@ func recipeResolvedDynamicColumnCounts(plan engine.Resolved) map[string]int {
 	return counts
 }
 
-func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+func recipeMaterializer(recipeEngine *dataframeexecution.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
 	return func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
 		if bundleTarget == nil {
 			cause := degradation
@@ -155,7 +155,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 		}
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
-		_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
+		_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full dataframeexecution.Resolved) error {
 			logger.Info("recipe materialization resolved",
 				"name", name,
 				"project", bindings.Project,
@@ -167,7 +167,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 			return err
 		})
 		if err != nil {
-			var dynamicDrift *engine.DynamicDriftError
+			var dynamicDrift *dataframeexecution.DynamicDriftError
 			if errors.As(err, &dynamicDrift) {
 				logger.Error("recipe materialization dynamic schema drift",
 					"name", name,
@@ -207,7 +207,7 @@ func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Ta
 	}
 }
 
-func recipePublicationProcessor(recipeEngine *engine.Engine, logger *slog.Logger, batchRows, batchBytes int) publicationclickhouse.ExecutionProcessor {
+func recipePublicationProcessor(recipeEngine *dataframeexecution.Engine, logger *slog.Logger, batchRows, batchBytes int) publicationclickhouse.ExecutionProcessor {
 	return func(ctx context.Context, execution publication.BundleExecution, target publication.Target) error {
 		mode := authscope.ReadScopeMode(execution.AuthScopeMode)
 		if mode == "" { // Compatibility for executions created before scope mode was persisted.
@@ -221,7 +221,7 @@ func recipePublicationProcessor(recipeEngine *engine.Engine, logger *slog.Logger
 			AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...),
 			AuthScopeMode:     mode, IncludeAuthResourcePath: true,
 		}
-		_, err := recipeEngine.MaterializeVersion(ctx, execution.Name, execution.TranslationVersion, bindings, func(ctx context.Context, full engine.Resolved) error {
+		_, err := recipeEngine.MaterializeVersion(ctx, execution.Name, execution.TranslationVersion, bindings, func(ctx context.Context, full dataframeexecution.Resolved) error {
 			_, publishErr := publishResolvedRecipe(ctx, recipeEngine, target, execution.Name, bindings, full, batchRows, batchBytes)
 			return publishErr
 		})

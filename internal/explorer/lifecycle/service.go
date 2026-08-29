@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -245,9 +245,9 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 		return PreviewResult{}, malformed("preview", "receiptId and outputId are required", nil)
 	}
 	if request.Limit == 0 {
-		request.Limit = engine.DefaultPreviewLimit
+		request.Limit = dataframeexecution.DefaultPreviewLimit
 	}
-	if request.Limit > engine.MaxPreviewLimit {
+	if request.Limit > dataframeexecution.MaxPreviewLimit {
 		return PreviewResult{}, unprocessable("preview", "INVALID_PREVIEW_LIMIT", "limit must be between 1 and 1000", nil)
 	}
 	if s.config.Capability.ForExecution == nil {

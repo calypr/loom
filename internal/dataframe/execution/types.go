@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"time"
@@ -33,10 +33,10 @@ type QueryDiagnostics struct {
 	Plan               ir.CompilerPlanDiagnostics
 }
 
-// StreamResult describes rows delivered to a streaming caller. Columns are
-// finalized only after iteration because flattened pivots can add bounded,
-// data-dependent output keys.
-type StreamResult struct {
+// streamResult is the internal result of generic compiled-query iteration.
+// The public recipe-facing StreamResult remains in engine.go and carries the
+// output name and publication-safe columns.
+type streamResult struct {
 	Columns     []string
 	RowCount    int
 	Diagnostics QueryDiagnostics

@@ -185,7 +185,7 @@ GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated gqlgen executor and internal resolver binding
   -> internal/api/graphql/graph/query.Service
-  -> dataframe/runtime.Service
+  -> dataframe/execution.Service
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
   -> dataframe/compiler/ir typed physical plan
@@ -195,7 +195,7 @@ GraphQL request
   -> Arango query execution/streaming
 ```
 
-Runtime preparation and execution live in `internal/dataframe/runtime`;
+Runtime preparation and execution live in `internal/dataframe/execution`;
 compiler orchestration lives in `internal/dataframe/compiler`; structured transport
 errors live in `internal/dataframe/errors`. `internal/catalog` owns scoped observed-field
 and relationship facts. `internal/fhir/schema` owns structural metadata and
@@ -239,7 +239,7 @@ When adding code, use this lookup table:
 | FHIR edge route or endpoint lowering | `internal/dataframe/compiler/lower` |
 | Cost-gated physical rewrite | `internal/dataframe/compiler/optimize` |
 | AQL text or bind emission | `internal/dataframe/compiler/render/aql` |
-| Catalog, auth, generation, cursor, or profiling | `internal/dataframe/runtime` |
+| Catalog, auth, generation, cursor, or profiling | `internal/dataframe/execution` |
 
 For the complete ownership map, see the package guide in this document and the
 [documentation index](README.md). Historical package-reorganization plans may

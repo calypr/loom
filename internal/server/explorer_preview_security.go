@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -41,7 +41,7 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 // exactly the same public columns. Column order is deliberately not compared:
 // the compiler owns execution order while the receipt's output contract owns
 // presentation order. Internal identity/provenance projections are excluded.
-func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved engine.Resolved) error {
+func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return receiptExecutionContractError("receipt is required")
 	}

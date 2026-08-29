@@ -1,6 +1,6 @@
-// Package engine contains the exact named-UUID contract shared by
+// Package execution contains the exact named-UUID contract shared by
 // compiler-owned post-query execution and legacy differential tests.
-package engine
+package execution
 
 import (
 	"fmt"

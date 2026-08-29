@@ -24,15 +24,14 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
-	dataframeruntime "github.com/calypr/loom/internal/dataframe/runtime"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
@@ -141,7 +140,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeruntime.NewService(dataframeruntime.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
 		return lifecycleClient.QueryRows(ctx, query, batch, binds, visit)
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
@@ -176,7 +175,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create recipe revision registry: %w", err)
 	}
-	recipeEngine, err := engine.New(engine.Config{
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:      recipeRegistry,
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
@@ -314,14 +313,14 @@ func run(ctx context.Context, serverConfig Config) error {
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
 			ActiveManifestResolver: activeManifestResolver,
-			Explain: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) error {
+			Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
 				_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
 				return err
 			},
 		},
 		MaterializationReader: materializationReader,
 		Logger:                logger,
-		RecipeControl: engine.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeruntime.CompiledQuery) (engine.ExplainAssessment, error) {
+		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}},
 		RecipeAuthorizer:            recipeAuthorization{resolver: scopeResolver},
@@ -470,19 +469,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		Preview: func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 			return recipeEngine.PreviewBundle(ctx, bundle, bindings)
 		},
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (engine.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil {
-				return engine.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
 			}
 			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
-				return engine.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+				return dataframeexecution.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
 			}
 			output := ""
 			if len(bindings.OutputNames) > 0 {
 				output = bindings.OutputNames[0]
 			}
-			return recipeEngine.PreviewOutput(ctx, resolved, engine.PreviewRequest{Output: output, Limit: bindings.PreviewLimit}, visit)
+			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit}, visit)
 		},
 		Materialize:               explorerMaterializer,
 		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),

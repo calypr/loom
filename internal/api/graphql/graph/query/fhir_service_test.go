@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
 type fhirLimitResourceAccess struct {
@@ -51,7 +51,7 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 				DiscoverFields: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 					return nil, nil
 				},
-				Dataframes: runtime.NewService(runtime.ServiceConfig{
+				Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
 					QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 						return nil
 					},
