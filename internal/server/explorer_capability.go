@@ -48,26 +48,6 @@ type explorerCapabilityResolver struct {
 	builds    singleflight.Group
 }
 
-type ExplorerCapabilityReader func(context.Context, string, string, string) (capability.Snapshot, error)
-type ExplorerCapabilityTokenReader func(context.Context, string, string) (capability.Snapshot, error)
-
-// AuthorizedCapability is the capability contract handed to compilation and
-// execution.  The scope is part of the contract: callers must not derive it
-// again from a token or accidentally turn a restricted-empty scope into an
-// unrestricted one.  Both values are copied before they cross this boundary.
-type AuthorizedCapability = lifecycle.AuthorizedCapability
-
-// ExplorerAuthorizedCapabilityCompilationReader accepts an opaque snapshot
-// token for a new compile. Implementations must require that token to belong
-// to the currently active dataset generation.
-type ExplorerAuthorizedCapabilityCompilationReader func(context.Context, string, string) (AuthorizedCapability, error)
-
-// ExplorerAuthorizedCapabilityExecutionReader loads an exact retained token
-// for preview/materialization. Implementations may accept inactive generations
-// while retained, but must re-authorize the caller against the token's exact
-// generation and scope digest.
-type ExplorerAuthorizedCapabilityExecutionReader func(context.Context, string, string) (AuthorizedCapability, error)
-
 func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*explorerCapabilityResolver, error) {
 	if evidence == nil || manifests == nil || snapshots == nil {
 		return nil, fmt.Errorf("Explorer capability evidence, manifest resolver, and snapshot repository are required")
@@ -179,49 +159,49 @@ func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, 
 // preview and other execution paths may use an inactive generation while its
 // immutable capability remains available. The caller's current effective
 // scope must still match the scope digest captured by the snapshot.
-func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
 	snapshot, err := r.snapshots.GetByToken(ctx, token)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	if snapshot.Identity.Project != project {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	scope, err := r.resolveScope(ctx, principal, projectid.Legacy(project), snapshot.Identity.Generation)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	if explorerScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	if err := snapshot.ValidateToken(token); err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
-	return AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
+	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
 // ResolveForCompilation loads an exact token for a new compile. Unlike
 // execution, compilation is only valid against the currently active immutable
 // dataset generation; a retained inactive token is rejected even when its
 // scope is otherwise still authorized.
-func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	manifest, err := dataset.ResolveActive(ctx, r.manifests, projectid.Legacy(project))
 	if err != nil {
-		return AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
+		return lifecycle.AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
 	}
 	if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	return authorized.Clone(), nil
 }

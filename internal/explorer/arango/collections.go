@@ -7,7 +7,10 @@ const (
 	ExplorersCollection           = "loom_explorers"
 	RevisionsCollection           = "loom_explorer_revisions"
 	CompilationReceiptsCollection = "loom_explorer_compilation_receipts"
-	RepositoryConfigsCollection   = "loom_repository_explorer_configs"
+	// LegacyRepositoryConfigsCollection is read only. It remains in bootstrap
+	// for one compatibility window so startup can migrate old default-owner
+	// pointers into loom_explorers; no current workflow writes it.
+	LegacyRepositoryConfigsCollection = "loom_repository_explorer_configs"
 )
 
 // CollectionSpecs is deliberately non-truncating: both draft history pointers
@@ -15,13 +18,13 @@ const (
 func CollectionSpecs() []store.CollectionSpec {
 	return []store.CollectionSpec{
 		{Name: ExplorersCollection, Indexes: [][]string{{"project", "explorerId"}}},
-		{Name: RevisionsCollection, Indexes: [][]string{{"project", "explorerId", "createdAt"}, {"project", "status"}, {"project", "explorerId", "sourceCommit", "definitionDigest", "sourceGeneration"}}},
+		{Name: RevisionsCollection, Indexes: [][]string{{"project", "explorerId", "createdAt"}, {"project", "status"}}},
 		{Name: CompilationReceiptsCollection, Indexes: [][]string{
 			{"project", "explorerId", "intentDigest"},
 			{"project", "explorerId", "createdAt"},
 			{"project", "explorerId", "compilationKey", "receiptFormatVersion", "compilerContractVersion"},
 		}},
-		{Name: RepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
+		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
 	}
 }

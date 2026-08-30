@@ -116,21 +116,6 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 	return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
 }
 
-func (h *explorerHTTPHandlers) compileAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.CompileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {
-	var result loomapi.CompileResponse
-	if err := h.authoringWriteDirect(ctx, project); err != nil {
-		return result, err
-	}
-	if body == nil {
-		return result, malformedRouteError("intent", errors.New("request body is required"))
-	}
-	receipt, err := h.application.Compile(ctx, lifecycle.CompileRequest{Project: project, ExplorerID: explorerID, Workspace: body.Workspace, SnapshotToken: body.SnapshotToken, RequestID: requestIDFromContext(ctx)})
-	if err != nil {
-		return result, err
-	}
-	return v2ReceiptResponse(receipt, body.Workspace), nil
-}
-
 func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {
 	var result loomapi.CompileResponse
 	if err := h.authoringWriteDirect(ctx, project); err != nil {

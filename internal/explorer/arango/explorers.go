@@ -28,7 +28,7 @@ func (s *Store) Get(ctx context.Context, project, id string) (*explorer.Explorer
 	}
 	return out, nil
 }
-func (s *Store) CreateInteractive(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
+func (s *Store) Create(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
 	raw, err := document(e, explorerKey(e.Project, e.ExplorerID))
 	if err != nil {
 		return nil, err
@@ -42,7 +42,4 @@ func (s *Store) CreateInteractive(ctx context.Context, e explorer.Explorer) (*ex
 		return nil, explorer.ErrDraftConflict
 	}
 	return out, nil
-}
-func (s *Store) CreateRepository(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
-	return s.CreateInteractive(ctx, e)
 }

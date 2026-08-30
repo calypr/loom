@@ -39,17 +39,11 @@ func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision,
 	return out, nil
 }
 
-// TransitionRevision updates lifecycle fields only. The AQL never accepts a
-// replacement definition/recipe document, preserving revision immutability.
-func (s *Store) TransitionRevision(ctx context.Context, id string, status explorer.RevisionStatus, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+// FailRevision records the only non-activation revision transition performed
+// outside the atomic activation workflows.
+func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	now := time.Now().UTC()
-	patch := map[string]any{"status": status, "diagnostics": diagnostics}
-	if status == explorer.RevisionReady {
-		patch["readyAt"] = now
-	}
-	if status == explorer.RevisionFailed {
-		patch["failedAt"] = now
-	}
+	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}
 	var out *explorer.Revision
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH @patch IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": id, "patch": patch}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
 	if err != nil {

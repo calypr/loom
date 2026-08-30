@@ -33,6 +33,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
@@ -243,6 +244,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer store: %w", err)
 	}
+	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
+		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
+	}
 	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
@@ -295,18 +299,20 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create generation load service: %w", err)
 	}
-	compileReceipt := func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger)
 	}
-	lifecycleConfig := ExplorerV2LifecycleConfig{
+	lifecycleConfig := lifecycle.Config{
 		CompileReceipt: compileReceipt,
-		Capability: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
-			return capabilityResolver.Resolve(ctx, project, generation)
+		Capability: lifecycle.CapabilityResolver{
+			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
+				return capabilityResolver.Resolve(ctx, project, generation)
+			},
+			Token:          capabilityResolver.ResolveToken,
+			ForCompilation: capabilityResolver.ResolveForCompilation,
+			ForExecution:   capabilityResolver.ResolveForExecution,
+			Catalog:        authoringV2Catalog,
 		},
-		CapabilityToken:               capabilityResolver.ResolveToken,
-		AuthorizedCapabilityCompile:   capabilityResolver.ResolveForCompilation,
-		AuthorizedCapabilityExecution: capabilityResolver.ResolveForExecution,
-		Logger:                        logger,
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},

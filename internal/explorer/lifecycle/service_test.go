@@ -22,7 +22,7 @@ import (
 )
 
 type fakeStore struct {
-	Store
+	explorer.Store
 	listValues []explorer.Explorer
 	state      explorer.ExplorerStateV1
 	created    *explorer.Explorer
@@ -39,38 +39,38 @@ func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
 	return append([]explorer.Explorer(nil), f.listValues...), nil
 }
 
-func (f *fakeStore) LoadExplorerState(context.Context, string, string) (explorer.ExplorerStateV1, error) {
-	return f.state, nil
-}
-
-func (f *fakeStore) CreateInteractiveFrom(_ context.Context, project, id, title, source, actor string) (*explorer.Explorer, error) {
-	value := &explorer.Explorer{Project: project, ExplorerID: id, Title: title, ManagementMode: explorer.ManagementInteractive, UpdatedBy: actor}
-	f.created = value
-	return value, nil
+func (f *fakeStore) Create(_ context.Context, value explorer.Explorer) (*explorer.Explorer, error) {
+	f.created = &value
+	return &value, nil
 }
 
 func (f *fakeStore) Get(context.Context, string, string) (*explorer.Explorer, error) {
 	if f.created != nil {
 		return f.created, nil
 	}
+	if f.state.ExplorerID != "" {
+		return &explorer.Explorer{Project: f.state.Project, ExplorerID: f.state.ExplorerID, Title: f.state.Title, ManagementMode: f.state.Management}, nil
+	}
 	return &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients"}, nil
 }
 
-func (f *fakeStore) ApplyWorkspaceCommands(context.Context, string, string, authoringv2.CatalogSnapshot, authoringv2.ApplyCommandsRequest, string) (*authoringv2.ApplyCommandsResponse, error) {
+func (f *fakeStore) SaveDraft(_ context.Context, value explorer.Explorer, _ int64, _ ...string) (*explorer.Explorer, error) {
 	if f.applyErr != nil {
 		return nil, f.applyErr
 	}
-	return &authoringv2.ApplyCommandsResponse{}, nil
+	value.DraftVersion++
+	f.created = &value
+	return &value, nil
 }
 
-func (f *fakeStore) CompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
+func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
 	if f.receipt == nil {
 		return nil, explorer.ErrNotFound
 	}
 	return f.receipt, nil
 }
 
-func (f *fakeStore) ActiveRevision(context.Context, string, string) (*explorer.Revision, error) {
+func (f *fakeStore) GetRevision(context.Context, string) (*explorer.Revision, error) {
 	return nil, explorer.ErrNotFound
 }
 
@@ -87,10 +87,6 @@ func (f *fakeStore) PublishAuthoring(_ context.Context, _ explorer.CompilationRe
 	return &revision, nil
 }
 
-func (f *fakeStore) UpsertRepositoryV2(context.Context, explorer.CompilationReceipt, string, string, []explorer.Materialization, explorer.DatasetMetadata, explorer.PublicationMetadata) (*explorer.Explorer, *explorer.Revision, error) {
-	return nil, nil, errors.New("not used")
-}
-
 func (f *fakeStore) FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error) {
 	return nil, nil
 }
@@ -102,11 +98,17 @@ func (f *fakeStore) ActivateRepositoryGeneration(context.Context, string, string
 	return nil
 }
 
-func (f *fakeStore) SaveRepositoryConfig(context.Context, explorer.RepositoryConfig) (*explorer.RepositoryConfig, error) {
-	if f.order != nil {
-		*f.order = append(*f.order, "save-config")
+func newTestService(t *testing.T, store *fakeStore, config Config) *Service {
+	t.Helper()
+	domain, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return &explorer.RepositoryConfig{}, nil
+	service, err := New(domain, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
 }
 
 func readySnapshot(project, generation, token string, scope authscope.ReadScope) capability.Snapshot {
@@ -123,7 +125,7 @@ func testConfig(snapshot capability.Snapshot) Config {
 			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
-			return authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Complete: true, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
+			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}}
 }
@@ -165,10 +167,7 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 
 func TestListGetCreateUseApplicationStore(t *testing.T) {
 	store := &fakeStore{listValues: []explorer.Explorer{{ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive}}}
-	service, err := New(store, Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newTestService(t, store, Config{})
 	list, err := service.List(context.Background(), "project-a")
 	if err != nil || len(list.Summaries) != 1 || list.Summaries[0].ExplorerID != "patients" {
 		t.Fatalf("list = %#v, err=%v", list, err)
@@ -197,7 +196,7 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeStore{applyErr: test.err}
-			service, _ := New(store, testConfig(snapshot))
+			service := newTestService(t, store, testConfig(snapshot))
 			_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 			var value *Error
 			if !errors.As(err, &value) || value.Class != ClassConflict || value.Code != test.code {
@@ -223,7 +222,7 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 			config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 				return dataframeexecution.PreviewSummary{}, nil
 			}
-			service, _ := New(store, config)
+			service := newTestService(t, store, config)
 			_, err := service.Preview(context.Background(), PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
 			var value *Error
 			if !errors.As(err, &value) || value.Code != test.wantCode {
@@ -260,7 +259,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 		order = append(order, "materialize")
 		return Execution{ID: "execution-a", Outputs: []ExecutionOutput{{Name: "patients", State: "READY"}}}, nil
 	}
-	service, _ := New(store, config)
+	service := newTestService(t, store, config)
 	result, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err != nil || result.Revision == nil || !store.published {
 		t.Fatalf("publish = %#v, err=%v", result, err)
@@ -283,7 +282,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, errors.New("release preparation failed")
 	}
-	service, _ = New(store, config)
+	service = newTestService(t, store, config)
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
@@ -292,8 +291,8 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 
 func TestServiceUsesConfiguredClock(t *testing.T) {
 	clock := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
-	service, err := New(&fakeStore{}, Config{Now: func() time.Time { return clock }})
-	if err != nil || service.now() != clock {
-		t.Fatalf("clock=%v, err=%v", service.now(), err)
+	service := newTestService(t, &fakeStore{}, Config{Now: func() time.Time { return clock }})
+	if service.now() != clock {
+		t.Fatalf("clock=%v", service.now())
 	}
 }

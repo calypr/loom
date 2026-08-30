@@ -18,24 +18,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// Store is the persistence surface required by Explorer workflows. The
-// concrete Explorer service implements this interface; tests can provide a
-// small fake without constructing a database-backed service.
-type Store interface {
-	List(context.Context, string) ([]explorer.Explorer, error)
-	Get(context.Context, string, string) (*explorer.Explorer, error)
-	LoadExplorerState(context.Context, string, string) (explorer.ExplorerStateV1, error)
-	CreateInteractiveFrom(context.Context, string, string, string, string, string) (*explorer.Explorer, error)
-	ApplyWorkspaceCommands(context.Context, string, string, authoringv2.CatalogSnapshot, authoringv2.ApplyCommandsRequest, string) (*authoringv2.ApplyCommandsResponse, error)
-	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
-	CompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-	PublishAuthoring(context.Context, explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease, int64) (*explorer.Revision, error)
-	UpsertRepositoryV2(context.Context, explorer.CompilationReceipt, string, string, []explorer.Materialization, explorer.DatasetMetadata, explorer.PublicationMetadata) (*explorer.Explorer, *explorer.Revision, error)
-	FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error)
-	ActivateRepositoryGeneration(context.Context, string, string, string) error
-	SaveRepositoryConfig(context.Context, explorer.RepositoryConfig) (*explorer.RepositoryConfig, error)
-}
-
 // CapabilityResolver resolves the current or a retained immutable capability
 // snapshot. The callbacks deliberately return domain values and do not expose
 // HTTP, Fiber, GraphQL, or generated API types.
@@ -144,7 +126,7 @@ type BuilderRequest struct {
 	ExplorerID string
 }
 
-type CompileRequest struct {
+type compileRequest struct {
 	Project       string
 	ExplorerID    string
 	Workspace     authoringv2.Workspace

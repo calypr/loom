@@ -19,14 +19,15 @@ type explorerHTTPHandlers struct {
 	application   *lifecycle.Service
 }
 
-func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, configs ...ExplorerV2LifecycleConfig) *explorerHTTPHandlers {
-	config := ExplorerV2LifecycleConfig{}
+func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, configs ...lifecycle.Config) *explorerHTTPHandlers {
+	config := lifecycle.Config{}
 	if len(configs) > 0 {
 		config = configs[0]
 	}
+	application, _ := lifecycle.New(explorers, config)
 	return &explorerHTTPHandlers{
 		authorizer:    authorizer,
 		authorizeRead: authorizeRead,
-		application:   newExplorerLifecycleApplication(explorers, config),
+		application:   application,
 	}
 }

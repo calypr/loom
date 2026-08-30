@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -43,10 +44,10 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	for id := range occurrences {
 		nodes[id] = &semanticRecipeNode{}
 	}
-	emitted := make([]EmittedColumn, 0, len(document.Columns))
-	mappings := make([]IdentityMapping, 0, len(document.Columns))
+	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
+	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
-	contract := OutputContract{OutputID: document.Output.ID, Columns: make([]OutputColumn, 0, len(document.Columns))}
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
 
 	for index, column := range document.Columns {
 		occurrence := occurrences[column.OccurrenceID]
@@ -104,9 +105,9 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			visible = false
 		}
 		emissionID := column.Column
-		emission := EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, LogicalType: logicalType, Filterable: filterable, Chartable: chartable}
+		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable}
 		emitted = append(emitted, emission)
-		mappings = append(mappings, IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
+		mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
 		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, Pinned: pinned}
 		if column.Filter != nil {
 			presented.FilterLabel = firstNonEmpty(column.Filter.Label, column.Label)
@@ -123,7 +124,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 		}
 		presentation.Columns = append(presentation.Columns, presented)
-		contract.Columns = append(contract.Columns, OutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})
+		contract.Columns = append(contract.Columns, explorer.PublicOutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})
 	}
 
 	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}

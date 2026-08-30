@@ -197,36 +197,6 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 	}
 }
 
-func (r *HTTPRoutes) CompileExplorerBuilder(ctx context.Context, request loomapi.CompileExplorerBuilderRequestObject) (loomapi.CompileExplorerBuilderResponseObject, error) {
-	project := string(request.Project)
-	explorerID := string(request.ExplorerId)
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "compileExplorerBuilder", explorerUnavailable("compile", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.CompileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
-	value, err := r.explorer.compileAuthoringDirect(ctx, project, explorerID, request.Body)
-	if err == nil {
-		return loomapi.CompileExplorerBuilder200JSONResponse(value), nil
-	}
-	status, failure := authoringErrorForOpenAPI(ctx, "compileExplorerBuilder", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.CompileExplorerBuilder400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.CompileExplorerBuilder403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.CompileExplorerBuilder409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.CompileExplorerBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.CompileExplorerBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.CompileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("compileExplorerBuilder", status)
-	}
-}
-
 func (r *HTTPRoutes) ReconcileExplorerBuilder(ctx context.Context, request loomapi.ReconcileExplorerBuilderRequestObject) (loomapi.ReconcileExplorerBuilderResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)

@@ -65,28 +65,6 @@ paths:
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-    post:
-      operationId: compileExplorerBuilder
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompileRequest'
-      responses:
-        '200':
-          description: Immutable compilation receipt.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompileResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -896,13 +874,6 @@ components:
         type: {type: string, minLength: 1}
         title: {type: string}
         order: {type: integer, minimum: 0}
-    CompileRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace, snapshotToken]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
-        snapshotToken: {type: string, minLength: 1}
     ApplyCommandsRequest:
       type: object
       additionalProperties: false

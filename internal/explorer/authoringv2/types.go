@@ -3,11 +3,6 @@
 // contracts: this package describes user intent and catalog facts only.
 package authoringv2
 
-import (
-	"net/url"
-	"strings"
-)
-
 const (
 	APIVersion       = "loom.calypr.org/explorer-authoring/v2"
 	Kind             = "ExplorerBuilderDocument"
@@ -17,9 +12,8 @@ const (
 	RootOccurrenceID = "base"
 )
 
-// Document is the complete durable Builder intent. A route is a finite edge
-// path from RootNodeID. Its root occurrence is always "base" and its tail is
-// computed from the path; neither is a second authored node identity.
+// Document is the complete durable Builder intent. Route occurrences form a
+// semantic resource tree rooted at RootResourceType.
 type Document struct {
 	APIVersion       string        `json:"-"`
 	Kind             string        `json:"kind"`
@@ -29,30 +23,12 @@ type Document struct {
 	Columns          []Column      `json:"columns"`
 	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
 	Actions          []Action      `json:"actions,omitempty"`
-
-	// The opaque, linear authoring model is retained only for source-compatible
-	// internal tests while the hard-cut wire decoder rejects those fields.
-	RootNodeID   string                  `json:"-"`
-	RouteSteps   []RouteStep             `json:"-"`
-	Selections   []Selection             `json:"-"`
-	Presentation map[string]Presentation `json:"-"`
 }
 
 type Output struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	RowLabel string `json:"rowLabel,omitempty"`
-}
-
-type RouteStep struct {
-	EdgeID       string `json:"edgeId"`
-	OccurrenceID string `json:"occurrenceId,omitempty"`
-}
-
-type Selection struct {
-	CandidateID    string `json:"candidateId"`
-	OccurrenceID   string `json:"occurrenceId,omitempty"`
-	ProjectionMode string `json:"projectionMode"`
 }
 
 // Workspace is the atomic authoring unit. Documents are independent table
@@ -75,17 +51,6 @@ type Tab struct {
 	Visible  bool   `json:"visible"`
 }
 
-// Presentation contains display intent only. In particular, it has no
-// selector, expression, physical collection, or generated-column fields.
-type Presentation struct {
-	Label   string              `json:"label,omitempty"`
-	Visible *bool               `json:"visible,omitempty"`
-	Order   *int                `json:"order,omitempty"`
-	Table   *TablePresentation  `json:"table,omitempty"`
-	Filter  *FilterPresentation `json:"filter,omitempty"`
-	Chart   *ChartPresentation  `json:"chart,omitempty"`
-}
-
 type TablePresentation struct {
 	Visible      *bool  `json:"visible,omitempty"`
 	Order        *int   `json:"order,omitempty"`
@@ -100,11 +65,6 @@ type ChartPresentation struct {
 	Type  string `json:"type"`
 	Title string `json:"title,omitempty"`
 	Order *int   `json:"order,omitempty"`
-}
-
-func PresentationKey(candidateID, occurrenceID, projectionMode string) string {
-	encode := func(value string) string { return strings.ReplaceAll(url.QueryEscape(value), "+", "%20") }
-	return encode(candidateID) + "::" + encode(occurrenceID) + "::" + encode(projectionMode)
 }
 
 // CatalogSnapshot is an immutable, authorization-scoped projection. The
@@ -183,22 +143,11 @@ type RoutePolicy struct {
 
 // BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
-	APIVersion     string     `json:"apiVersion"`
-	Kind           string     `json:"kind"`
-	LifecycleState string     `json:"lifecycleState"`
-	DraftVersion   int64      `json:"draftVersion"`
-	DraftDigest    string     `json:"draftDigest"`
-	Workspace      *Workspace `json:"workspace"`
-	// Document is retained only as a source-compatible internal migration aid.
-	Document *Document       `json:"-"`
-	Catalog  CatalogSnapshot `json:"catalog"`
-}
-
-// RouteOccurrence is derived, never wire-authored. The first occurrence has
-// ID "base". Unnamed route steps receive stable step-N IDs; TailOccurrence
-// returns the final derived occurrence (base for an empty route).
-type RouteOccurrence struct {
-	ID             string
-	NodeID         string
-	IncomingEdgeID string
+	APIVersion     string          `json:"apiVersion"`
+	Kind           string          `json:"kind"`
+	LifecycleState string          `json:"lifecycleState"`
+	DraftVersion   int64           `json:"draftVersion"`
+	DraftDigest    string          `json:"draftDigest"`
+	Workspace      *Workspace      `json:"workspace"`
+	Catalog        CatalogSnapshot `json:"catalog"`
 }

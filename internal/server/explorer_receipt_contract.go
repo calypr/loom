@@ -16,10 +16,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func compileExplorerReceipt(ctx context.Context, request ExplorerV2ReceiptCompileRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger) (*explorer.CompilationReceipt, error) {
+func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger) (*explorer.CompilationReceipt, error) {
 	started := time.Now()
 	authorized := request.Authorized.Clone()
 	if strings.TrimSpace(authorized.Snapshot.Token) == "" {
@@ -53,20 +54,6 @@ func compileExplorerReceipt(ctx context.Context, request ExplorerV2ReceiptCompil
 	if err != nil {
 		return nil, err
 	}
-	presentationByEmission := make(map[string]explorercompilation.PresentationColumn)
-	for _, presentation := range translated.Presentations {
-		for _, column := range presentation.Columns {
-			presentationByEmission[column.EmissionID] = column
-		}
-	}
-	emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
-	for _, column := range translated.EmittedColumns {
-		emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: column.ProjectionMode, PublicColumn: column.PublicColumn, Label: presentationByEmission[column.EmissionID].Label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
-	}
-	mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
-	for _, mapping := range translated.IdentityMappings {
-		mappings = append(mappings, explorer.IdentityMapping{OutputID: mapping.OutputID, CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, ProjectionMode: mapping.ProjectionMode, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
-	}
 	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
 	if err != nil {
 		return nil, err
@@ -87,7 +74,7 @@ func compileExplorerReceipt(ctx context.Context, request ExplorerV2ReceiptCompil
 	if err != nil {
 		return nil, fmt.Errorf("build receipt execution contract: %w", err)
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
 		return nil, err

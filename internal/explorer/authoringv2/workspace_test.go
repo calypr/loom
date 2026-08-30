@@ -8,7 +8,8 @@ import (
 )
 
 func workspaceDocument(id string) Document {
-	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootNodeID: "patient", RouteSteps: []RouteStep{}, Selections: []Selection{{CandidateID: "patient-id", OccurrenceID: RootOccurrenceID, ProjectionMode: "SCALAR"}}, Presentation: map[string]Presentation{}}
+	visible := true
+	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &TablePresentation{Visible: &visible}}}}
 }
 
 func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *testing.T) {
@@ -52,7 +53,7 @@ func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *tes
 }
 
 func fiveTableWorkspace() Workspace {
-	w := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Documents: []Document{}, Tabs: []Tab{}}
+	w := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Five tables"}, Documents: []Document{}, Tabs: []Tab{}}
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("output_%d", i)
 		w.Documents = append(w.Documents, workspaceDocument(id))
@@ -98,39 +99,11 @@ func TestWorkspaceRejectsDuplicateAndMissingMappings(t *testing.T) {
 	}
 }
 
-func TestDerivedOccurrencesStayOmittedAndAreUnique(t *testing.T) {
-	d := workspaceDocument("out")
-	d.RouteSteps = []RouteStep{{EdgeID: "patient-encounter"}, {EdgeID: "encounter-self"}}
-	occ, err := d.Occurrences(testCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if occ[1].ID != "step-1" || occ[2].ID != "step-2" || d.RouteSteps[0].OccurrenceID != "" {
-		t.Fatalf("occurrences=%#v document=%#v", occ, d)
-	}
-	d.RouteSteps[1].OccurrenceID = "step-1"
-	if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate route occurrence") {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-func TestWorkspacePresentationCapabilitiesAndVisibleColumns(t *testing.T) {
+func TestWorkspacePublicationRequiresVisibleColumns(t *testing.T) {
 	w := fiveTableWorkspace()
-	catalog := testCatalog()
-	catalog.Candidates[0].Filterable = false
-	catalog.Candidates[0].Chartable = false
-	key := PresentationKey("patient-id", "base", "SCALAR")
-	w.Documents[0].Presentation[key] = Presentation{Filter: &FilterPresentation{Label: "ID"}}
-	state := BuilderState{APIVersion: APIVersion, Kind: StateKind, Workspace: &w, Catalog: catalog}
-	if err := state.Validate(); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_FILTER") {
-		t.Fatalf("error=%v", err)
-	}
-	w.Documents[0].Presentation[key] = Presentation{Chart: &ChartPresentation{Type: "bar"}}
-	if err := state.Validate(); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_CHART") {
-		t.Fatalf("error=%v", err)
-	}
 	hidden := false
-	w.Documents[0].Presentation[key] = Presentation{Visible: &hidden}
+	w.Documents[0].Columns[0].Table.Visible = &hidden
+	state := BuilderState{APIVersion: APIVersion, Kind: StateKind, Workspace: &w, Catalog: testCatalog()}
 	if err := state.Validate(); err != nil {
 		t.Fatalf("mutable Builder state rejected an all-hidden table: %v", err)
 	}
@@ -139,10 +112,9 @@ func TestWorkspacePresentationCapabilitiesAndVisibleColumns(t *testing.T) {
 	}
 }
 
-func TestBuilderAllowsVisibleTableWithNoSelectionsUntilPublication(t *testing.T) {
+func TestBuilderAllowsVisibleTableWithNoColumnsUntilPublication(t *testing.T) {
 	w := fiveTableWorkspace()
-	w.Documents[0].Selections = []Selection{}
-	w.Documents[0].Presentation = map[string]Presentation{}
+	w.Documents[0].Columns = []Column{}
 	state := BuilderState{APIVersion: APIVersion, Kind: StateKind, Workspace: &w, Catalog: testCatalog()}
 	if err := state.Validate(); err != nil {
 		t.Fatalf("transitional empty table rejected by Builder: %v", err)

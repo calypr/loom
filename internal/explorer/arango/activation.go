@@ -38,6 +38,11 @@ FILTER d._key == @key
 UPDATE d WITH @patch IN @@c
 RETURN NEW`
 
+const ownerActivationUpdateAQL = `FOR d IN @@c
+FILTER d._key == @key
+REPLACE d WITH MERGE(UNSET(d, "activeConfig", "recipeDigest", "resolvedSchemaDigest", "sourceGeneration", "dataset", "publication", "emittedColumns", "materializations", "diagnostics"), {activeRevisionId: @revisionId}) IN @@c
+RETURN NEW`
+
 type activationState struct {
 	owner     map[string]any
 	candidate map[string]any
@@ -161,10 +166,6 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 	if err != nil {
 		return err
 	}
-	candidate, err := decode[explorer.Revision](state.candidate)
-	if err != nil {
-		return fmt.Errorf("decode activation candidate: %w", err)
-	}
 	if state.prior != nil {
 		priorKey, err := activationDocumentKey(state.prior)
 		if err != nil {
@@ -183,22 +184,25 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 	if err != nil {
 		return err
 	}
-	return updateActivationDocument(ctx, tx, ExplorersCollection, ownerKey, activeExplorerPatch(candidate, candidateKey, now))
+	return updateActiveExplorerDocument(ctx, tx, ownerKey, candidateKey)
 }
 
-func activeExplorerPatch(candidate explorer.Revision, revisionKey string, now time.Time) map[string]any {
-	publication := candidate.Publication
-	materializations, dataset := explorer.WithDataframeSelectors(candidate.Recipe, candidate.Materializations, candidate.Dataset)
-	publication.State = string(explorer.RevisionActive)
-	publication.RevisionID = revisionKey
-	publication.UpdatedAt = now
-	return map[string]any{
-		"activeRevisionId": revisionKey, "activeConfig": candidate.Config,
-		"recipeDigest": candidate.RecipeDigest, "resolvedSchemaDigest": candidate.ResolvedSchemaDigest,
-		"sourceGeneration": candidate.SourceGeneration, "dataset": dataset,
-		"publication": publication, "emittedColumns": candidate.EmittedColumns,
-		"materializations": materializations, "diagnostics": candidate.Diagnostics,
+func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, ownerKey, revisionID string) error {
+	var updated bool
+	err := tx.QueryRows(ctx, ownerActivationUpdateAQL, 1, map[string]any{"@c": ExplorersCollection, "key": ownerKey, "revisionId": revisionID}, func(map[string]any) error {
+		if updated {
+			return fmt.Errorf("activation owner update returned more than one document")
+		}
+		updated = true
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+	if !updated {
+		return explorer.ErrDraftConflict
+	}
+	return nil
 }
 
 func updateActivationDocument(ctx context.Context, tx store.RowQueryer, collection, key string, patch map[string]any) error {

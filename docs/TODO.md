@@ -1,27 +1,20 @@
 # Architectural TODOs
 
-## Consolidate Explorer persistence boundaries
+## Explorer persistence follow-up
 
-Revisit the two broad, overlapping Explorer interfaces during the Explorer
-package audit:
+The package audit removed the lifecycle mirror interface, repository-config
+read/write methods, duplicate create methods, and generic revision transition.
+`lifecycle.Service` now uses `explorer.Service` directly and its implementation
+is organized by query, authoring, preview, interactive publication, and
+repository publication workflows.
 
-- `internal/explorer/store.go` defines a 14-method `Store` covering repository
-  configuration, explorers, drafts, compilation receipts, revisions,
-  publication, and activation.
-- `internal/explorer/lifecycle/types.go` defines a 12-method `Store` that
-  largely mirrors `explorer.Service` to support lifecycle orchestration and
-  tests.
+The remaining `internal/explorer.Store` has 11 methods spanning owner drafts,
+immutable receipts/revisions, atomic interactive publication, and repository
+activation. Revisit it only after deciding whether these records will continue
+to share one Arango transaction boundary; do not replace it mechanically with
+many one-method interfaces for tests.
 
-Do not mechanically split these into more interfaces. First decide which
-Explorer workflows and compatibility tracks remain, assign persistence and
-workflow ownership to their packages, and then remove or narrow the interfaces
-that no longer represent real external boundaries.
-
-Completion criteria:
-
-- Explorer persistence responsibilities have explicit owners.
-- Lifecycle orchestration does not mirror the entire Explorer service solely
-  for tests.
-- Remaining interfaces are consumer-owned and limited to the workflows their
-  consumers actually execute.
-- Obsolete workflow methods, adapters, fakes, and tests are deleted together.
+The old `loom_repository_explorer_configs` collection is read-only migration
+input for one compatibility window. Startup restores a missing canonical
+default owner from its active revision. Remove the legacy collection spec and
+migration after deployed instances have crossed that window.

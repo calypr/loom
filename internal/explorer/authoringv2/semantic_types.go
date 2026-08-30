@@ -82,16 +82,7 @@ type FileActions struct {
 
 var physicalColumnPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func (d Document) semantic() bool {
-	return strings.TrimSpace(d.RootResourceType) != "" || strings.TrimSpace(d.Route.ResourceType) != "" || len(d.Columns) != 0
-}
-
-func (d Document) UsesSemanticColumns() bool { return d.semantic() }
-
 func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
-	if !d.semantic() {
-		return nil, nil
-	}
 	if strings.TrimSpace(d.RootResourceType) == "" {
 		return nil, fmt.Errorf("rootResourceType is required")
 	}

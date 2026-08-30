@@ -32,13 +32,6 @@ func NewService(store Store) (*Service, error) {
 func (s *Service) List(ctx context.Context, project string) ([]Explorer, error) {
 	return s.store.List(ctx, projectid.Legacy(project))
 }
-func (s *Service) RepositoryConfig(ctx context.Context, project string) (*RepositoryConfig, error) {
-	return s.store.GetRepositoryConfig(ctx, projectid.Legacy(project))
-}
-func (s *Service) SaveRepositoryConfig(ctx context.Context, value RepositoryConfig) (*RepositoryConfig, error) {
-	value.Project = projectid.Legacy(value.Project)
-	return s.store.SaveRepositoryConfig(ctx, value)
-}
 func (s *Service) Get(ctx context.Context, project, id string) (*Explorer, error) {
 	return s.store.Get(ctx, projectid.Legacy(project), id)
 }
@@ -52,25 +45,6 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	project = projectid.Canonical(project)
 	id = strings.TrimSpace(id)
 	owner, err := s.Get(ctx, project, id)
-	if errors.Is(err, ErrNotFound) && id == "default" {
-		// Repository bootstrap can briefly expose its repository record before
-		// the Explorer identity is created. Preserve the read contract for that
-		// window without manufacturing editable authoring state.
-		repository, repositoryErr := s.RepositoryConfig(ctx, project)
-		if repositoryErr != nil {
-			return ExplorerStateV1{}, err
-		}
-		owner = &Explorer{
-			Project:          projectid.Legacy(project),
-			ExplorerID:       "default",
-			Title:            configV2Title(repository.Config),
-			ManagementMode:   ManagementRepository,
-			ActiveRevisionID: repository.ActiveRevisionID,
-			Publication:      repository.Publication,
-			UpdatedAt:        repository.UpdatedAt,
-		}
-		err = nil
-	}
 	if err != nil {
 		return ExplorerStateV1{}, err
 	}
@@ -83,7 +57,7 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 		markNotPublished(&state)
 		return state, nil
 	}
-	revision, err := s.Revision(ctx, owner.ActiveRevisionID)
+	revision, err := s.store.GetRevision(ctx, owner.ActiveRevisionID)
 	if err != nil {
 		return ExplorerStateV1{}, fmt.Errorf("load active Explorer revision %q: %w", owner.ActiveRevisionID, err)
 	}
@@ -95,12 +69,14 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	state.Generated.ResolvedSchemaDigest = revision.ResolvedSchemaDigest
 	state.Generated.SourceGeneration = revision.SourceGeneration
 	state.Generated.EmittedColumns = append([]EmittedColumn(nil), revision.EmittedColumns...)
-	state.Generated.Materializations, state.Generated.Dataset = WithDataframeSelectors(revision.Recipe, revision.Materializations, revision.Dataset)
+	state.Generated.Materializations = append([]Materialization(nil), revision.Materializations...)
+	state.Generated.Dataset = revision.Dataset
+	state.Generated.Dataset.Outputs = append([]DatasetOutput(nil), revision.Dataset.Outputs...)
 	state.Generated.Publication = revision.Publication
 	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]Diagnostic(nil), revision.Diagnostics...)
-	state.Runtime = s.BuildViewerProjection(revision)
+	state.Runtime = BuildViewerProjection(revision)
 	if state.Runtime == nil || len(state.Runtime.Outputs) == 0 {
 		state.Generated.Publication.State = ExplorerRuntimeV1NotPublished
 		if state.Runtime != nil {
@@ -109,14 +85,6 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 		}
 	}
 	return state, nil
-}
-
-// BuildViewerProjection derives the renderer-facing state from one immutable
-// revision. It is deliberately tolerant of revisions that contain an
-// executable recipe but no authored presentation: the default table is
-// generated from the query and publication metadata.
-func (s *Service) BuildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
-	return buildViewerProjection(revision)
 }
 
 func newExplorerStateResponse(owner *Explorer) ExplorerStateV1 {
@@ -133,16 +101,7 @@ func newExplorerStateResponse(owner *Explorer) ExplorerStateV1 {
 			Version: owner.DraftVersion,
 			Digest:  owner.DraftDigest,
 		},
-		Generated: ExplorerStateV1Generated{
-			RecipeDigest:         owner.RecipeDigest,
-			ResolvedSchemaDigest: owner.ResolvedSchemaDigest,
-			SourceGeneration:     owner.SourceGeneration,
-			EmittedColumns:       append([]EmittedColumn(nil), owner.EmittedColumns...),
-			Materializations:     append([]Materialization(nil), owner.Materializations...),
-			Dataset:              owner.Dataset,
-			Publication:          owner.Publication,
-			Diagnostics:          append([]Diagnostic(nil), owner.Diagnostics...),
-		},
+		Generated: ExplorerStateV1Generated{},
 		ActiveURL: explorerURL(project, owner.ExplorerID),
 		UpdatedBy: owner.UpdatedBy,
 		UpdatedAt: owner.UpdatedAt,
@@ -155,26 +114,18 @@ func markNotPublished(state *ExplorerStateV1) {
 	state.Runtime = nil
 }
 
-func configV2Title(raw json.RawMessage) string {
-	var config ConfigV2
-	if json.Unmarshal(raw, &config) != nil || strings.TrimSpace(config.Explorer.Title) == "" {
-		return "Default"
-	}
-	return config.Explorer.Title
-}
-
 func explorerURL(project, id string) string {
 	return "/api/v1/projects/" + url.PathEscape(project) + "/explorers/" + url.PathEscape(id)
 }
 
-// CreateEmptyInteractive creates only the Explorer identity. Unpublished
+// createEmptyInteractive creates only the Explorer identity. Unpublished
 // Explorers have no persisted authoring content and hydrate as an empty valid
 // Builder model.
-func (s *Service) CreateEmptyInteractive(ctx context.Context, project, id, title, actor string) (*Explorer, error) {
+func (s *Service) createEmptyInteractive(ctx context.Context, project, id, title, actor string) (*Explorer, error) {
 	if id == "" || id == "default" {
 		return nil, fmt.Errorf("invalid interactive Explorer identity")
 	}
-	return s.store.CreateInteractive(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
+	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
 // CreateInteractiveFrom creates a new Explorer identity and, when requested,
@@ -182,7 +133,7 @@ func (s *Service) CreateEmptyInteractive(ctx context.Context, project, id, title
 // reconstruct or re-identify that workspace.
 func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title, sourceExplorerID, actor string) (*Explorer, error) {
 	if strings.TrimSpace(sourceExplorerID) == "" {
-		return s.CreateEmptyInteractive(ctx, project, id, title, actor)
+		return s.createEmptyInteractive(ctx, project, id, title, actor)
 	}
 	if id == "" || id == "default" {
 		return nil, fmt.Errorf("invalid interactive Explorer identity")
@@ -200,7 +151,7 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 		raw = revision.AuthoringBundle
 	}
 	if len(raw) == 0 {
-		return s.CreateEmptyInteractive(ctx, project, id, title, actor)
+		return s.createEmptyInteractive(ctx, project, id, title, actor)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(raw)
 	if err != nil {
@@ -215,7 +166,7 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	if err != nil {
 		return nil, err
 	}
-	return s.store.CreateInteractive(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
+	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
 // ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
@@ -298,9 +249,6 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 	}
 	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
 }
-func (s *Service) Revision(ctx context.Context, id string) (*Revision, error) {
-	return s.store.GetRevision(ctx, id)
-}
 func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revision, error) {
 	e, err := s.store.Get(ctx, projectid.Legacy(project), id)
 	if err != nil {
@@ -312,7 +260,7 @@ func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revi
 	return s.store.GetRevision(ctx, e.ActiveRevisionID)
 }
 func (s *Service) FailRevision(ctx context.Context, id string, diagnostics []Diagnostic) (*Revision, error) {
-	return s.store.TransitionRevision(ctx, id, RevisionFailed, diagnostics)
+	return s.store.FailRevision(ctx, id, diagnostics)
 }
 
 // CompilationReceiptForExplorer performs the tenant-scoped lookup used by
@@ -365,9 +313,9 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationRec
 	}
 	owner, err := s.store.Get(ctx, storageProject, "default")
 	if errors.Is(err, ErrNotFound) {
-		owner, err = s.store.CreateRepository(ctx, Explorer{Project: storageProject, ExplorerID: "default", Title: title, ManagementMode: ManagementRepository, DraftConfig: workspace, DraftVersion: 1, DraftDigest: receipt.IntentDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, Publication: publication, UpdatedBy: actor, UpdatedAt: s.now()})
+		owner, err = s.store.Create(ctx, Explorer{Project: storageProject, ExplorerID: "default", Title: title, ManagementMode: ManagementRepository, DraftConfig: workspace, DraftVersion: 1, DraftDigest: receipt.IntentDigest, UpdatedBy: actor, UpdatedAt: s.now()})
 	} else if err == nil {
-		owner.Title, owner.DraftConfig, owner.DraftDigest, owner.SourceGeneration, owner.Dataset, owner.Publication, owner.UpdatedBy = title, workspace, receipt.IntentDigest, receipt.SourceGeneration, dataset, publication, actor
+		owner.Title, owner.DraftConfig, owner.DraftDigest, owner.UpdatedBy = title, workspace, receipt.IntentDigest, actor
 		owner, err = s.store.SaveDraft(ctx, *owner, owner.DraftVersion)
 	}
 	if err != nil {
@@ -375,7 +323,7 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationRec
 	}
 	revisionID := RepositoryRevisionID(project, sourceCommit, receipt.IntentDigest, receipt.SourceGeneration, receipt.ID)
 	now := s.now()
-	revision, err := s.store.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, ConfigDigest: receipt.IntentDigest, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, SourceCommit: sourceCommit, Dataset: dataset, Publication: publication, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
+	revision, err := s.store.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, Publication: publication, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
 	if err != nil {
 		return nil, nil, err
 	}

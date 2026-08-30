@@ -18,6 +18,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -178,7 +179,7 @@ func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(
 			Tabs:      []authoringv2.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
 		},
 		Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Outputs: []recipe.Output{{Name: "out"}}},
-		EmittedColumns: []explorercompilation.EmittedColumn{
+		EmittedColumns: []explorer.EmittedColumn{
 			{EmissionID: "column_b", OutputID: "out", PublicColumn: "column_b"},
 			{EmissionID: "column_a", OutputID: "out", PublicColumn: "column_a"},
 		},
@@ -218,31 +219,17 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "custom", "Custom", "test"); err != nil {
+	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "custom", "Custom", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	compileCalls := 0
 	previewCalls := 0
-	config := ExplorerV2LifecycleConfig{
-		Capability:      func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		CapabilityToken: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		AuthorizedCapabilityCompile: func(_ context.Context, _, token string) (AuthorizedCapability, error) {
-			if err := snapshot.ValidateToken(token); err != nil {
-				return AuthorizedCapability{}, err
-			}
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-		},
-		AuthorizedCapabilityExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: executionScope}, nil
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: executionScope}, nil
+			},
 		},
 		ReceiptLookup: service.CompilationReceiptForExplorer,
-		CompileReceipt: func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
-			compileCalls++
-			if request.Authorized.Snapshot.Token != snapshot.Token || !request.Authorized.Scope.Unrestricted() {
-				t.Fatalf("compile lost authorized capability: %#v", request.Authorized)
-			}
-			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
-		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
 			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath {
@@ -254,32 +241,17 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe", PlanFingerprint: "test", TraversalCount: 0}, nil
 		},
 	}
-	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
-	body := `{"workspace":` + string(baselineExplorerWorkspaceV2()) + `,"snapshotToken":"` + snapshot.Token + `"}`
-	compiled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", body)
-	if compiled.StatusCode != http.StatusOK {
-		t.Fatalf("compile status=%d body=%s", compiled.StatusCode, compiled.Body)
-	}
-	ownerAfterCompile, err := service.Get(context.Background(), "project-a", "custom")
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ownerAfterCompile.ActiveRevisionID != "" || len(ownerAfterCompile.DraftConfig) != 0 {
-		t.Fatalf("compile mutated active or draft state: %#v", ownerAfterCompile)
-	}
-	var result struct {
-		ReceiptID       string `json:"receiptId"`
-		CompilerVersion string `json:"compilerVersion"`
-	}
-	if err := json.Unmarshal([]byte(compiled.Body), &result); err != nil {
+	receipt, err := persistTestNativeReceipt(context.Background(), t, service, lifecycle.CompileReceiptRequest{Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}}, snapshot)
+	if err != nil {
 		t.Fatal(err)
 	}
-	wantCompilerVersion := explorer.CurrentCompilerContractVersion + "+" + explorercompilation.TranslationVersion
-	if result.CompilerVersion != wantCompilerVersion {
-		t.Fatalf("compilerVersion=%q, want %q", result.CompilerVersion, wantCompilerVersion)
-	}
-	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	preview := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+receipt.ID+`","outputId":"patients","limit":5}`)
 	if preview.StatusCode != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", preview.StatusCode, preview.Body)
 	}
@@ -290,10 +262,10 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	if ownerAfterPreview.ActiveRevisionID != "" || len(ownerAfterPreview.DraftConfig) != 0 {
 		t.Fatalf("preview mutated active or draft state: %#v", ownerAfterPreview)
 	}
-	if compileCalls != 1 || previewCalls != 1 {
-		t.Fatalf("compile calls=%d preview calls=%d", compileCalls, previewCalls)
+	if previewCalls != 1 {
+		t.Fatalf("preview calls=%d", previewCalls)
 	}
-	unknown := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"missing","limit":5}`)
+	unknown := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+receipt.ID+`","outputId":"missing","limit":5}`)
 	if unknown.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(unknown.Body, `"code":"UNKNOWN_AUTHORING_OUTPUT"`) || previewCalls != 1 {
 		t.Fatalf("unknown output status=%d calls=%d body=%s", unknown.StatusCode, previewCalls, unknown.Body)
 	}
@@ -301,13 +273,13 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 		"/api/v1/projects/project-b/explorers/custom/authoring/v2/preview",
 		"/api/v1/projects/project-a/explorers/other/authoring/v2/preview",
 	} {
-		foreign := requestJSON(t, app, http.MethodPost, path, `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
+		foreign := requestJSON(t, app, http.MethodPost, path, `{"receiptId":"`+receipt.ID+`","outputId":"patients","limit":5}`)
 		if foreign.StatusCode != http.StatusNotFound || !strings.Contains(foreign.Body, `"code":"COMPILE_RECEIPT_NOT_FOUND"`) || previewCalls != 1 {
 			t.Fatalf("foreign receipt path=%s status=%d calls=%d body=%s", path, foreign.StatusCode, previewCalls, foreign.Body)
 		}
 	}
 	executionScope = authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
-	widened := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+result.ReceiptID+`","outputId":"patients","limit":5}`)
+	widened := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/preview", `{"receiptId":"`+receipt.ID+`","outputId":"patients","limit":5}`)
 	if widened.StatusCode != http.StatusConflict || !strings.Contains(widened.Body, `"code":"RECEIPT_STALE"`) || previewCalls != 1 {
 		t.Fatalf("scope mismatch status=%d calls=%d body=%s", widened.StatusCode, previewCalls, widened.Body)
 	}
@@ -319,16 +291,19 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "custom", "Custom", "test"); err != nil {
+	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "custom", "Custom", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	config := ExplorerV2LifecycleConfig{
-		Capability:      func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		CapabilityToken: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		AuthorizedCapabilityCompile: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			},
+			Catalog: authoringV2Catalog,
 		},
-		CompileReceipt: func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
 	}
@@ -380,7 +355,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newTestExplorerStore()
-	if _, err := store.CreateInteractive(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: explorer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
+	if _, err := store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "source", Title: "Source", ManagementMode: explorer.ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest}); err != nil {
 		t.Fatal(err)
 	}
 	service, err := explorer.NewService(store)
@@ -388,7 +363,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
 	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers", `{"name":"Cloned Explorer","title":"Cloned Explorer","sourceExplorerId":"source"}`)
 	if created.StatusCode != http.StatusCreated {
 		t.Fatalf("clone status=%d body=%s", created.StatusCode, created.Body)
@@ -406,7 +381,7 @@ func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {
 	}
 }
 
-func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request ExplorerV2ReceiptCompileRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
+func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request lifecycle.CompileReceiptRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
 	t.Helper()
 	workspace := request.Workspace
 	normalized, err := workspace.CanonicalJSON()

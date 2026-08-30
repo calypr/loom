@@ -14,7 +14,9 @@ import (
 // publication state to the renderer-facing contract. It intentionally does
 // not require an authored ConfigView: a valid recipe is enough to produce a
 // default table that a client can extend with presentation choices.
-func buildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
+// BuildViewerProjection is the pure immutable-revision to Viewer wire
+// projection. It performs no persistence lookup and has no service state.
+func BuildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
 	if revision == nil {
 		return nil
 	}

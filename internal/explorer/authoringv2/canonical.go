@@ -10,30 +10,6 @@ import (
 	"sort"
 )
 
-func (d Document) CanonicalJSON() ([]byte, error) {
-	if err := d.Validate(); err != nil {
-		return nil, err
-	}
-	n := d
-	n.RouteSteps = append([]RouteStep(nil), d.RouteSteps...)
-	n.Selections = append([]Selection(nil), d.Selections...)
-	sort.SliceStable(n.Selections, func(i, j int) bool {
-		left := n.Selections[i].CandidateID + "\x00" + n.Selections[i].OccurrenceID
-		right := n.Selections[j].CandidateID + "\x00" + n.Selections[j].OccurrenceID
-		return left < right
-	})
-	if n.RouteSteps == nil {
-		n.RouteSteps = []RouteStep{}
-	}
-	if n.Selections == nil {
-		n.Selections = []Selection{}
-	}
-	if n.Presentation == nil {
-		n.Presentation = map[string]Presentation{}
-	}
-	return json.Marshal(n)
-}
-
 func (w Workspace) CanonicalJSON() ([]byte, error) {
 	if err := w.Validate(); err != nil {
 		return nil, err
@@ -44,21 +20,6 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		n.Documents[i].APIVersion = ""
 		if n.Documents[i].Columns == nil {
 			n.Documents[i].Columns = []Column{}
-		}
-		n.Documents[i].Selections = append([]Selection(nil), n.Documents[i].Selections...)
-		sort.SliceStable(n.Documents[i].Selections, func(a, b int) bool {
-			left := n.Documents[i].Selections[a]
-			right := n.Documents[i].Selections[b]
-			return left.CandidateID+"\x00"+left.OccurrenceID+"\x00"+left.ProjectionMode < right.CandidateID+"\x00"+right.OccurrenceID+"\x00"+right.ProjectionMode
-		})
-		if n.Documents[i].RouteSteps == nil {
-			n.Documents[i].RouteSteps = []RouteStep{}
-		}
-		if n.Documents[i].Selections == nil {
-			n.Documents[i].Selections = []Selection{}
-		}
-		if n.Documents[i].Presentation == nil {
-			n.Documents[i].Presentation = map[string]Presentation{}
 		}
 	}
 	n.Tabs = append([]Tab(nil), w.Tabs...)
@@ -188,15 +149,6 @@ func presentationOrder(column Column) (class, order int) {
 
 func (w Workspace) Digest() (string, error) {
 	raw, err := w.CanonicalJSON()
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-func (d Document) Digest() (string, error) {
-	raw, err := d.CanonicalJSON()
 	if err != nil {
 		return "", err
 	}

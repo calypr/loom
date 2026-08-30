@@ -87,35 +87,16 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 type testExplorerStore struct {
 	explorer.Store
 	mu        sync.Mutex
-	configs   map[string]explorer.RepositoryConfig
 	explorers map[string]explorer.Explorer
 	receipts  map[string]explorer.CompilationReceipt
 	revisions map[string]explorer.Revision
 }
 
 func newTestExplorerStore() *testExplorerStore {
-	return &testExplorerStore{configs: map[string]explorer.RepositoryConfig{}, explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}}
+	return &testExplorerStore{explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}}
 }
 
 func testExplorerKey(project, id string) string { return project + "\x00" + id }
-
-func (s *testExplorerStore) GetRepositoryConfig(_ context.Context, project string) (*explorer.RepositoryConfig, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	value, ok := s.configs[project]
-	if !ok {
-		return nil, explorer.ErrNotFound
-	}
-	return &value, nil
-}
-
-func (s *testExplorerStore) SaveRepositoryConfig(_ context.Context, value explorer.RepositoryConfig) (*explorer.RepositoryConfig, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	value.ExplorerID, value.Management = "default", explorer.ManagementRepository
-	s.configs[value.Project] = value
-	return &value, nil
-}
 
 func (s *testExplorerStore) List(_ context.Context, project string) ([]explorer.Explorer, error) {
 	s.mu.Lock()
@@ -139,11 +120,7 @@ func (s *testExplorerStore) Get(_ context.Context, project, id string) (*explore
 	return &value, nil
 }
 
-func (s *testExplorerStore) CreateInteractive(_ context.Context, value explorer.Explorer) (*explorer.Explorer, error) {
-	return s.create(value)
-}
-
-func (s *testExplorerStore) CreateRepository(_ context.Context, value explorer.Explorer) (*explorer.Explorer, error) {
+func (s *testExplorerStore) Create(_ context.Context, value explorer.Explorer) (*explorer.Explorer, error) {
 	return s.create(value)
 }
 
@@ -222,14 +199,14 @@ func (s *testExplorerStore) GetRevision(_ context.Context, id string) (*explorer
 	return &value, nil
 }
 
-func (s *testExplorerStore) TransitionRevision(_ context.Context, id string, status explorer.RevisionStatus, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+func (s *testExplorerStore) FailRevision(_ context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	value, ok := s.revisions[id]
 	if !ok {
 		return nil, explorer.ErrNotFound
 	}
-	value.Status, value.Diagnostics = status, append([]explorer.Diagnostic(nil), diagnostics...)
+	value.Status, value.Diagnostics = explorer.RevisionFailed, append([]explorer.Diagnostic(nil), diagnostics...)
 	s.revisions[id] = value
 	return &value, nil
 }
@@ -250,9 +227,7 @@ func (s *testExplorerStore) activateLocked(project, explorerID, revisionID strin
 	if !ok {
 		return explorer.ErrNotFound
 	}
-	owner.ActiveRevisionID, owner.ActiveConfig = revision.ID, append([]byte(nil), revision.Config...)
-	owner.RecipeDigest, owner.ResolvedSchemaDigest, owner.SourceGeneration = revision.RecipeDigest, revision.ResolvedSchemaDigest, revision.SourceGeneration
-	owner.Materializations, owner.Dataset, owner.Publication = revision.Materializations, revision.Dataset, revision.Publication
+	owner.ActiveRevisionID = revision.ID
 	owner.UpdatedAt = time.Now().UTC()
 	s.explorers[key] = owner
 	revision.Status = explorer.RevisionActive
