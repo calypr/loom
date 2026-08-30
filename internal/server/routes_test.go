@@ -16,10 +16,6 @@ import (
 
 type routeRunner struct{}
 
-func (routeRunner) Run(context.Context, loadapi.ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
-	return ingest.LoadSummary{}, nil
-}
-
 func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
 	return ingest.LoadSummary{}, nil
 }
@@ -32,11 +28,11 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{Loader: routeRunner{}})
+	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{LoadGeneration: routeRunner{}.RunGeneration})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, nil, nil, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}, &explorerHTTPHandlers{lifecycle: &explorerLifecycleHandlers{}, authoring: &explorerAuthoringHandlers{}}); err != nil {
+	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}, &explorerHTTPHandlers{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +88,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnsupportedMediaType {
-		t.Fatalf("resource route status = %d, want %d", resp.StatusCode, http.StatusUnsupportedMediaType)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("removed resource route status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 }

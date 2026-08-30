@@ -6,9 +6,7 @@ they call domain services but do not define storage or ingestion behavior.
 
 - `http` provides shared Fiber transport middleware, authentication, errors,
   and health checks.
-- `bulk/load` owns import and raw/generation load endpoints.
-- `bulk/dump` owns raw, generation, and dataframe export endpoints.
-- `graphql/graph` owns the graph and FHIR/dataframe GraphQL surface.
+- `bulk/load` owns the multipart generation upload and activation endpoints.
 - `graphql/graph` owns both the graph and ClickHouse-backed published-dataframe fields.
 
 `internal/server` composes these adapters and supplies their dependencies.

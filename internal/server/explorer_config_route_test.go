@@ -54,7 +54,7 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		},
 		ActivateRelease: activateRelease,
 	}
-	registerTestExplorerRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
 	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerWorkspaceV2()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {

@@ -61,9 +61,10 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
   catalog diagnostics.
 
 `cmd/arango-fhir-server` owns the HTTP process. Generated OpenAPI registration
-mounts health, ingestion, snapshot/release, recipe execution, GraphQL, and
+mounts health, generation ingestion/activation, recipe execution, GraphQL, and
 Explorer operations; handwritten strict-interface implementations remain under
-`internal/server`.
+`internal/server`. Snapshot and standalone release-management HTTP APIs are not
+part of the server surface; Explorer publication owns its release transaction.
 
 The GraphQL dataframe mutation is the live compiler transport. Explorer V2
 authoring adds an intent-to-native-recipe lowering phase, then calls the same

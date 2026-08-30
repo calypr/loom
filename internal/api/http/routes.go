@@ -11,11 +11,6 @@ func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
 }
 
-func (s *HTTPServer) HandleHealth(c fiber.Ctx) error {
-	body, status := s.Health(c.Context())
-	return c.Status(status).JSON(body)
-}
-
 // Health computes the cached dependency health response for generated HTTP
 // routes without requiring a Fiber context.
 func (s *HTTPServer) Health(parent context.Context) (map[string]any, int) {
@@ -31,18 +26,8 @@ func (s *HTTPServer) Health(parent context.Context) (map[string]any, int) {
 	return healthBody(result), result.httpStatus
 }
 
-func (s *HTTPServer) HandleLiveness(c fiber.Ctx) error {
-	body, status := s.Liveness(c.Context())
-	return c.Status(status).JSON(body)
-}
-
 func (s *HTTPServer) Liveness(context.Context) (map[string]any, int) {
 	return map[string]any{"status": "live"}, fiber.StatusOK
-}
-
-func (s *HTTPServer) HandleReadiness(c fiber.Ctx) error {
-	body, status := s.Readiness(c.Context())
-	return c.Status(status).JSON(body)
 }
 
 func (s *HTTPServer) Readiness(parent context.Context) (map[string]any, int) {

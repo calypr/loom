@@ -16,9 +16,7 @@ A recipe version is identified by `(name, translationVersion)`. Versions are
 retained. A version may be replaced only before its first durable execution is
 created; after that point its content digest is immutable.
 
-An immutable FHIR generation is identified by `(projectID, gitCommit)`. A
-resource upload within it is identified by `(projectID, gitCommit,
-resourceType)`, and its checksum is part of the idempotency contract.
+An immutable FHIR generation is identified by `(projectID, gitCommit)`.
 
 ## States
 
@@ -70,18 +68,14 @@ Every read requires an explicit authorized project; cross-project discovery
 and schema reconciliation are not supported. Explorer Preview and Publish are
 the supported materialization workflow.
 
-## Snapshot HTTP API
+## Ingest API
 
-Snapshot operations are idempotent:
-
-1. create or resume a generation keyed by Git commit;
-2. upload one resource type with checksum verification;
-3. finalize a complete generation as `STAGED`;
-4. inspect generation status; and
-5. abort an unfinalized generation without changing the active release.
-
-Repeating an operation with identical content succeeds. Different content for
-the same generation/resource identity returns a non-retryable conflict.
+ETL uploads a complete multipart generation through
+`POST /api/v1/datasets/{project}/generations/{generation}` and activates it
+through the corresponding `/activate` operation after dataframe publication.
+The operator CLI retains both mutable local loading and immutable generation
+loading. Loom does not expose the retired per-resource snapshot or standalone
+release-management HTTP workflows.
 
 ## Error taxonomy
 
@@ -90,8 +84,6 @@ Public structured errors use stable codes:
 - `DYNAMIC_SCHEMA_DRIFT`: runtime/project-specific fields cannot be reconciled;
 - `RECIPE_CONTRACT_VIOLATION`: a recipe output violates its declared contract;
 - `PUBLICATION_FAILED`: materialization or output verification failed;
-- `CHECKSUM_CONFLICT`: an immutable resource key was reused with new content;
-- `GENERATION_INCOMPLETE`: finalize was requested before all uploads completed;
 - `RELEASE_REQUIREMENTS_UNMET`: required selectors are not published and
   queryable for the staged generation;
 - `RELEASE_ACTIVATION_CONFLICT`: compare-and-swap observed a newer active
@@ -108,9 +100,6 @@ HTTP status or message.
   for release activation.
 - `LOOM_PUBLICATION_WORKER_LEASE`: publication worker lease duration.
 - `LOOM_PUBLICATION_MAX_ATTEMPTS`: bounded publication retry count.
-- `LOOM_SNAPSHOT_RETENTION`: inactive generation/release retention duration.
-- `LOOM_ETL_LEGACY_MUTABLE_UPLOAD`: ETL rollout escape hatch; snapshot mode is
-  the default after integration acceptance.
 
 Configuration files may expose equivalent structured fields, but environment
 names and meanings remain stable.

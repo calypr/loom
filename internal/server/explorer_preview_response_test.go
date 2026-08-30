@@ -10,7 +10,6 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/gofiber/fiber/v3"
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
@@ -47,13 +46,12 @@ func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = encoder.Visit(map[string]any{"value": strings.Repeat("x", 2048)})
-	if !errors.Is(err, ErrPreviewResponseTooLarge) {
+	if err := encoder.Visit(map[string]any{"value": strings.Repeat("x", 2048)}); !errors.Is(err, ErrPreviewResponseTooLarge) {
 		t.Fatalf("Visit error = %v, want %v", err, ErrPreviewResponseTooLarge)
 	}
 }
 
-func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
+func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 	tests := []struct {
 		name   string
 		err    error
@@ -70,17 +68,9 @@ func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			app := fiber.New()
-			app.Get("/", func(c fiber.Ctx) error { return previewRouteFailure(c, test.err) })
-			response := requestJSON(t, app, http.MethodGet, "/", "")
-			if response.StatusCode != test.status || !strings.Contains(response.Body, `"code":"`+test.code+`"`) {
-				t.Fatalf("status=%d body=%s, want status=%d code=%s", response.StatusCode, response.Body, test.status, test.code)
-			}
-			if strings.Contains(response.Body, "private") {
-				t.Fatalf("private cause leaked: %s", response.Body)
-			}
-			if test.name == "receipt" && (!strings.Contains(response.Body, `"component":"output_execution"`) || !strings.Contains(response.Body, `"outputId":"patients"`)) {
-				t.Fatalf("receipt mismatch details missing: %s", response.Body)
+			var got *explorer.AuthoringError
+			if !errors.As(previewRouteError(test.err), &got) || got.Status != test.status || got.Diagnostic.Code != test.code {
+				t.Fatalf("error=%#v, want status=%d code=%s", got, test.status, test.code)
 			}
 		})
 	}

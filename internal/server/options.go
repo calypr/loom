@@ -29,8 +29,6 @@ type ServerConfig struct {
 	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
 	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
 	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
-	SnapshotDirectory          string                      `yaml:"snapshot_directory"`
-	SnapshotRetention          time.Duration               `yaml:"snapshot_retention"`
 }
 
 type ClickHouseConfig struct {
@@ -68,7 +66,6 @@ func DefaultConfig() Config {
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
-			SnapshotDirectory: ".loom-snapshots", SnapshotRetention: 7 * 24 * time.Hour,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -181,16 +178,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 			return Config{}, fmt.Errorf("parse LOOM_REQUIRED_DATAFRAME_SELECTORS: %w", err)
 		}
 	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_RETENTION")); value != "" {
-		retention, err := time.ParseDuration(value)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse LOOM_SNAPSHOT_RETENTION: %w", err)
-		}
-		cfg.Server.SnapshotRetention = retention
-	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_DIRECTORY")); value != "" {
-		cfg.Server.SnapshotDirectory = value
-	}
 	return cfg, nil
 }
 
@@ -198,12 +185,6 @@ func (c Config) Validate() error {
 	cfg := c
 	if cfg.Server.ClickHouse.Enabled && strings.TrimSpace(cfg.Server.Dataframer.Recipe) == "" {
 		return fmt.Errorf("server.dataframer.recipe is required when server.clickhouse.enabled is true")
-	}
-	if strings.TrimSpace(cfg.Server.SnapshotDirectory) == "" {
-		return fmt.Errorf("server.snapshot_directory is required")
-	}
-	if cfg.Server.SnapshotRetention <= 0 {
-		return fmt.Errorf("server.snapshot_retention must be positive")
 	}
 	for index, selector := range cfg.Server.RequiredDataframeSelectors {
 		if err := selector.Validate(); err != nil {

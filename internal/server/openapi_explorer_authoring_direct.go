@@ -171,14 +171,14 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 		return encoder.Visit, nil
 	}})
 	if err != nil {
-		return result, err
+		return result, previewRouteError(err)
 	}
 	if finish == nil {
-		return result, errors.New("native preview response sink was not configured")
+		return result, previewRouteError(errors.New("native preview response sink was not configured"))
 	}
 	encoded, err := finish()
 	if err != nil {
-		return result, err
+		return result, previewRouteError(err)
 	}
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		return result, err

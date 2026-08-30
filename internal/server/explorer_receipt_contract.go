@@ -5,16 +5,113 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
+
+func compileExplorerReceipt(ctx context.Context, request ExplorerV2ReceiptCompileRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger) (*explorer.CompilationReceipt, error) {
+	started := time.Now()
+	authorized := request.Authorized.Clone()
+	if strings.TrimSpace(authorized.Snapshot.Token) == "" {
+		var err error
+		authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
+		if err != nil {
+			return nil, err
+		}
+	} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+		return nil, capability.ErrStaleSnapshot
+	}
+	snapshot := authorized.Snapshot
+	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return nil, capability.ErrStaleSnapshot
+	}
+	workspace := request.Workspace.NormalizePresentationOrders()
+	intentDigest, err := workspace.Digest()
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := workspace.CanonicalJSON()
+	if err != nil {
+		return nil, err
+	}
+	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
+	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
+	if err != nil {
+		return nil, err
+	}
+	presentationByEmission := make(map[string]explorercompilation.PresentationColumn)
+	for _, presentation := range translated.Presentations {
+		for _, column := range presentation.Columns {
+			presentationByEmission[column.EmissionID] = column
+		}
+	}
+	emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
+	for _, column := range translated.EmittedColumns {
+		emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: column.ProjectionMode, PublicColumn: column.PublicColumn, Label: presentationByEmission[column.EmissionID].Label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
+	}
+	mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
+	for _, mapping := range translated.IdentityMappings {
+		mappings = append(mappings, explorer.IdentityMapping{OutputID: mapping.OutputID, CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, ProjectionMode: mapping.ProjectionMode, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
+	}
+	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
+	if err != nil {
+		return nil, err
+	}
+	contractDigest, err := explorer.CompilationArtifactDigest(contract)
+	if err != nil {
+		return nil, err
+	}
+	resolvedRecipeDigest, err := resolved.Bundle.Digest()
+	if err != nil {
+		return nil, err
+	}
+	compiledConfig, err := compiledExplorerWorkspaceConfigV2(request.Project, request.ExplorerID, translated)
+	if err != nil {
+		return nil, err
+	}
+	fingerprints, columnProvenance, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("build receipt execution contract: %w", err)
+	}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
+	if err != nil {
+		return nil, err
+	}
+	receipt.ID, err = explorer.ReceiptID(receipt)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, bindings); err != nil {
+		return nil, receiptCompilationConflict(stored.ID, err)
+	}
+	receiptBytes := 0
+	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
+		receiptBytes = len(raw)
+	}
+	if logger != nil {
+		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
+	}
+	return stored, nil
+}
 
 type receiptContractMismatch struct {
 	Component string

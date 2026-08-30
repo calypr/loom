@@ -21,26 +21,6 @@ type GenerationLoadRequest struct {
 	DeferActivation  bool
 }
 
-type ImportRequest struct {
-	Project          string `json:"project"`
-	ResourceType     string `json:"resource_type"`
-	AuthResourcePath string `json:"auth_resource_path,omitempty"`
-	Truncate         bool   `json:"truncate"`
-	UseGeneric       bool   `json:"use_generic"`
-	StagedFilePath   string `json:"-"`
-	OriginalFilename string `json:"original_filename"`
-	SubmittedBy      string `json:"submitted_by,omitempty"`
-}
-
-type ImportResult struct {
-	Project          string              `json:"project"`
-	ResourceType     string              `json:"resource_type"`
-	AuthResourcePath string              `json:"auth_resource_path,omitempty"`
-	OriginalFilename string              `json:"original_filename"`
-	SubmittedBy      string              `json:"submitted_by,omitempty"`
-	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
-}
-
 type GenerationLoadResult struct {
 	Project          string              `json:"project"`
 	Generation       string              `json:"generation"`
@@ -61,25 +41,10 @@ type DataframeReleaseStore interface {
 	GetPointer(context.Context, string) (dataframepublication.BundlePointer, error)
 }
 
-// Loader is the single ingest boundary. Resource and generation loads are two
-// request shapes over the same configured backend.
-type Loader interface {
-	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
+type GenerationLoader func(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error)
 
 type IngestRunner struct {
 	BaseOptions ingest.LoadOptions
-}
-
-func (r IngestRunner) Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	opts := r.BaseOptions
-	opts.Project = req.Project
-	opts.AuthResourcePath = req.AuthResourcePath
-	opts.Truncate = req.Truncate
-	opts.UseGeneric = req.UseGeneric
-	opts.EventSink = sink
-	return ingest.LoadSingleResourceFile(ctx, opts, req.ResourceType, req.StagedFilePath)
 }
 
 func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
@@ -100,7 +65,7 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 }
 
 type ServiceConfig struct {
-	Loader              Loader
+	LoadGeneration      GenerationLoader
 	Logger              *slog.Logger
 	OnSuccess           func(project string)
 	GenerationActivator GenerationActivator
@@ -108,7 +73,7 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	loader              Loader
+	loadGeneration      GenerationLoader
 	logger              *slog.Logger
 	onSuccess           func(project string)
 	generationActivator GenerationActivator
@@ -116,49 +81,18 @@ type Service struct {
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
-	if cfg.Loader == nil {
+	if cfg.LoadGeneration == nil {
 		return nil, errors.New("load runner is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		loader:              cfg.Loader,
+		loadGeneration:      cfg.LoadGeneration,
 		logger:              cfg.Logger,
 		onSuccess:           cfg.OnSuccess,
 		generationActivator: cfg.GenerationActivator,
 		dataframeReleases:   cfg.DataframeReleases,
-	}, nil
-}
-
-func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
-	if req.Project == "" {
-		return nil, errors.New("project is required")
-	}
-	if req.ResourceType == "" {
-		return nil, errors.New("resource_type is required")
-	}
-	if req.StagedFilePath == "" {
-		return nil, errors.New("staged file path is required")
-	}
-
-	summary, err := s.loader.Run(ctx, req, nil)
-	if err != nil {
-		s.logger.Error("resource load failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
-		return nil, err
-	}
-	if s.onSuccess != nil {
-		s.onSuccess(req.Project)
-	}
-	s.logger.Info("resource load succeeded", "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	summaryCopy := summary
-	return &ImportResult{
-		Project:          req.Project,
-		ResourceType:     req.ResourceType,
-		AuthResourcePath: req.AuthResourcePath,
-		OriginalFilename: req.OriginalFilename,
-		SubmittedBy:      req.SubmittedBy,
-		Summary:          &summaryCopy,
 	}, nil
 }
 
@@ -186,7 +120,7 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 			return nil, fmt.Errorf("inspect existing generation: %w", err)
 		}
 	}
-	summary, err := s.loader.RunGeneration(ctx, req, nil)
+	summary, err := s.loadGeneration(ctx, req, nil)
 	if err != nil {
 		s.logger.Error("generation load failed", "project", req.Project, "generation", req.Generation, "error", err.Error())
 		return nil, err

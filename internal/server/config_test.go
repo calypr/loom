@@ -121,15 +121,13 @@ func TestLoadConfigRejectsRemovedPublicationBackends(t *testing.T) {
 	}
 }
 
-func TestRequiredDataframeSelectorsAndSnapshotRetentionFromEnvironment(t *testing.T) {
+func TestRequiredDataframeSelectorsFromEnvironment(t *testing.T) {
 	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `[{"recipe":"core","translationVersion":"v1","output":"Patient"}]`)
-	t.Setenv("LOOM_SNAPSHOT_RETENTION", "48h")
-	t.Setenv("LOOM_SNAPSHOT_DIRECTORY", t.TempDir())
 	cfg, err := LoadConfig("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour {
+	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" {
 		t.Fatalf("environment config = %#v", cfg.Server)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {

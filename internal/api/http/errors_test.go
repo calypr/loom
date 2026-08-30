@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -20,32 +19,6 @@ func TestMapDataframeErrorRedactsUnknownCause(t *testing.T) {
 	}
 	if mapped.Body.Error.RequestID != "req-1" {
 		t.Fatalf("request id = %q", mapped.Body.Error.RequestID)
-	}
-}
-
-func TestMapIngestionFailures(t *testing.T) {
-	preflight := &ingest.PreflightError{Report: ingest.PreflightReport{Issues: []ingest.PreflightIssue{{Code: "invalid_json", File: "Patient.ndjson", ResourceType: "Patient", Row: 2, Message: "raw parser detail"}}}}
-	mapped := MapDataframeError(preflight, "req-preflight")
-	if mapped.Status != http.StatusUnprocessableEntity || mapped.Body.Error.Code != "INGEST_PREFLIGHT_FAILED" || mapped.Body.Error.Retryable {
-		t.Fatalf("preflight mapped = %#v", mapped)
-	}
-	if got := mapped.Body.Error.Details["issues"].([]map[string]any)[0]; got["message"] != nil {
-		t.Fatal("preflight parser message leaked into details")
-	}
-
-	incomplete := &ingest.GenerationLoadIncompleteError{ValidationErrors: 2, GenerationErrors: 1, EdgeErrors: 3}
-	mapped = MapDataframeError(incomplete, "req-incomplete")
-	if mapped.Status != http.StatusUnprocessableEntity || mapped.Body.Error.Code != "GENERATION_LOAD_INCOMPLETE" {
-		t.Fatalf("incomplete mapped = %#v", mapped)
-	}
-	if mapped.Body.Error.Details["edgeErrors"] != 3 {
-		t.Fatalf("incomplete details = %#v", mapped.Body.Error.Details)
-	}
-
-	activation := &ingest.ActivationOutcomeError{Err: errors.New("pointer storage timeout")}
-	mapped = MapDataframeError(activation, "req-activation")
-	if mapped.Status != http.StatusConflict || mapped.Body.Error.Code != "GENERATION_ACTIVATION_UNKNOWN" || mapped.Body.Error.Retryable {
-		t.Fatalf("activation mapped = %#v", mapped)
 	}
 }
 

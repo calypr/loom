@@ -2,10 +2,12 @@ package arango
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -147,10 +149,59 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 }
 
 func (s *Store) WriteRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
-	return catalog.WriteRelationshipCatalog(ctx, s.client, docs, batchSize, overwrite, writeAPI, timings)
+	if len(docs) == 0 {
+		return nil
+	}
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	started := time.Now()
+	raw := make([]json.RawMessage, 0, len(docs))
+	for _, doc := range docs {
+		encoded, err := sonic.ConfigFastest.Marshal(&doc)
+		if err != nil {
+			return err
+		}
+		raw = append(raw, encoded)
+	}
+	if timings != nil {
+		timings["relationship_catalog_marshal"] += time.Since(started).Seconds()
+	}
+	for i := 0; i < len(raw); i += batchSize {
+		end := min(i+batchSize, len(raw))
+		inserted := time.Now()
+		if err := s.client.InsertBatchRaw(ctx, catalog.RelationshipCatalogCollection, raw[i:end], overwrite, writeAPI); err != nil {
+			return err
+		}
+		if timings != nil {
+			timings["relationship_catalog_insert"] += time.Since(inserted).Seconds()
+		}
+	}
+	return nil
 }
 func (s *Store) AccumulateRelationshipCatalog(ctx context.Context, docs []catalog.RelationshipCatalogDocument, timings map[string]float64) error {
-	return catalog.AccumulateRelationshipCatalog(ctx, s.client, docs, timings)
+	if len(docs) == 0 {
+		return nil
+	}
+	rows := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
+		rows = append(rows, map[string]any{"_key": doc.Key, "project": doc.Project, "dataset_generation": generation(doc.DatasetGeneration), "auth_resource_path": doc.AuthResourcePath, "from_type": doc.FromType, "label": doc.Label, "to_type": doc.ToType, "edge_count": doc.EdgeCount})
+	}
+	started := time.Now()
+	const query = `
+FOR d IN @docs
+  UPSERT { _key: d._key }
+  INSERT d
+  UPDATE { edge_count: OLD.edge_count + d.edge_count }
+  IN fhir_relationship_catalog
+`
+	if err := s.client.ExecuteAQL(ctx, query, map[string]any{"docs": rows}); err != nil {
+		return err
+	}
+	if timings != nil {
+		timings["relationship_catalog_accumulate"] += time.Since(started).Seconds()
+	}
+	return nil
 }
 func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.RelationshipRebuildOptions) (catalog.RelationshipRebuildSummary, error) {
 	if opts.CursorBatch <= 0 {

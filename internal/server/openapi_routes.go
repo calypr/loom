@@ -7,12 +7,15 @@ import (
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
 type HTTPRoutes struct {
 	server   *httpapi.HTTPServer
 	load     *loadapi.Handler
-	recipe   httpapi.RecipeExecutionHandler
+	releases publication.BundleCatalog
+	scopes   *authscope.ScopeResolver
 	graphql  graphapi.RouteConfig
 	explorer *explorerHTTPHandlers
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -52,28 +51,6 @@ func MapDataframeError(err error, requestID string) MappedError {
 	}
 	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) {
 		err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	var preflightErr *ingest.PreflightError
-	if errors.As(err, &preflightErr) {
-		return MappedError{Status: http.StatusUnprocessableEntity, Body: ErrorResponse{Error: HTTPErrorBody{
-			Code: "INGEST_PREFLIGHT_FAILED", Message: messageForCode("INGEST_PREFLIGHT_FAILED"), Details: preflightDetails(preflightErr), RequestID: requestID,
-		}}, Cause: err}
-	}
-	var incompleteErr *ingest.GenerationLoadIncompleteError
-	if errors.As(err, &incompleteErr) {
-		return MappedError{Status: http.StatusUnprocessableEntity, Body: ErrorResponse{Error: HTTPErrorBody{
-			Code: "GENERATION_LOAD_INCOMPLETE", Message: messageForCode("GENERATION_LOAD_INCOMPLETE"), Details: map[string]any{
-				"validationErrors": incompleteErr.ValidationErrors,
-				"generationErrors": incompleteErr.GenerationErrors,
-				"edgeErrors":       incompleteErr.EdgeErrors,
-			}, RequestID: requestID,
-		}}, Cause: err}
-	}
-	var activationErr *ingest.ActivationOutcomeError
-	if errors.As(err, &activationErr) {
-		return MappedError{Status: http.StatusConflict, Body: ErrorResponse{Error: HTTPErrorBody{
-			Code: "GENERATION_ACTIVATION_UNKNOWN", Message: messageForCode("GENERATION_ACTIVATION_UNKNOWN"), Retryable: false, RequestID: requestID,
-		}}, Cause: err}
 	}
 	if errors.Is(err, os.ErrInvalid) {
 		return MappedError{Status: http.StatusBadRequest, Body: ErrorResponse{Error: HTTPErrorBody{
@@ -127,27 +104,6 @@ func MapDataframeError(err error, requestID string) MappedError {
 // REST handlers to transports that already have a stable Loom error code.
 func StatusForErrorCode(code string) int {
 	return statusForCode(normalizeHTTPCode(code), 0)
-}
-
-func preflightDetails(err *ingest.PreflightError) map[string]any {
-	if err == nil || len(err.Report.Issues) == 0 {
-		return nil
-	}
-	issues := make([]map[string]any, 0, len(err.Report.Issues))
-	for _, issue := range err.Report.Issues {
-		item := map[string]any{"code": issue.Code}
-		if issue.File != "" {
-			item["file"] = issue.File
-		}
-		if issue.ResourceType != "" {
-			item["resourceType"] = issue.ResourceType
-		}
-		if issue.Row > 0 {
-			item["row"] = issue.Row
-		}
-		issues = append(issues, item)
-	}
-	return map[string]any{"issues": issues}
 }
 
 func normalizeHTTPCode(code string) string {

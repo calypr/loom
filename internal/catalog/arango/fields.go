@@ -2,8 +2,11 @@ package arango
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
+	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -91,7 +94,35 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 }
 
 func (s *Store) WriteFieldCatalog(ctx context.Context, collection string, docs []catalog.FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
-	return catalog.WriteFieldCatalog(ctx, s.client, collection, docs, batchSize, overwrite, writeAPI, timings)
+	if len(docs) == 0 {
+		return nil
+	}
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	started := time.Now()
+	raw := make([]json.RawMessage, 0, len(docs))
+	for _, doc := range docs {
+		encoded, err := sonic.ConfigFastest.Marshal(&doc)
+		if err != nil {
+			return err
+		}
+		raw = append(raw, encoded)
+	}
+	if timings != nil {
+		timings["field_catalog_marshal"] += time.Since(started).Seconds()
+	}
+	for i := 0; i < len(raw); i += batchSize {
+		end := min(i+batchSize, len(raw))
+		inserted := time.Now()
+		if err := s.client.InsertBatchRaw(ctx, collection, raw[i:end], overwrite, writeAPI); err != nil {
+			return err
+		}
+		if timings != nil {
+			timings["field_catalog_insert"] += time.Since(inserted).Seconds()
+		}
+	}
+	return nil
 }
 
 const populatedFieldsAQL = `

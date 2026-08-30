@@ -47,7 +47,7 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	store.mu.Unlock()
 
 	app := fiber.New()
-	registerTestExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -147,7 +147,7 @@ func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
 	}
 
 	app := fiber.New()
-	registerTestExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/empty", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)

@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -35,9 +33,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
-	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/ingest"
-	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -211,7 +207,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	verificationStore := publicationVerificationStore{executions: publishedRegistry}
-	releaseService := &publicationcontract.ReleaseService{Snapshots: lifecycleStore, Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	releaseService := &publicationcontract.ReleaseService{Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
 	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
 		active, err := releaseService.Active(ctx, project)
@@ -284,8 +280,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		ConnectionOptions: connOpts,
 		Schema:            serverConfig.Server.Schema,
 	}}
-	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{
-		Loader:              ingestRunner,
+	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
+		LoadGeneration:      ingestRunner.RunGeneration,
 		GenerationActivator: lifecycleStore,
 		DataframeReleases:   publishedRegistry,
 		Logger:              logger,
@@ -297,110 +293,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create resource load service: %w", err)
+		return fmt.Errorf("create generation load service: %w", err)
 	}
-	snapshotService := &loadapi.SnapshotService{Repository: lifecycleStore, Blobs: loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory}, Runner: ingestRunner}
-	deletedGenerations, retentionErr := (publicationcontract.RetentionService{
-		Repository: lifecycleStore,
-		Blobs:      loadapi.LocalSnapshotBlobs{Root: serverConfig.Server.SnapshotDirectory},
-		Retention:  serverConfig.Server.SnapshotRetention,
-	}).RunOnce(ctx)
-	if retentionErr != nil {
-		logger.Error("snapshot retention cleanup failed", "error", retentionErr)
-	} else if len(deletedGenerations) != 0 {
-		logger.Info("snapshot retention cleanup complete", "deleted_generations", len(deletedGenerations))
-	}
-	// CompileReceipt is the native V2 path.
 	compileReceipt := func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
-		started := time.Now()
-		authorized := request.Authorized.Clone()
-		if strings.TrimSpace(authorized.Snapshot.Token) == "" {
-			var err error
-			authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
-			if err != nil {
-				return nil, err
-			}
-		} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
-			return nil, capability.ErrStaleSnapshot
-		}
-		snapshot := authorized.Snapshot
-		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-			return nil, capability.ErrStaleSnapshot
-		}
-		workspace := request.Workspace.NormalizePresentationOrders()
-		intentDigest, err := workspace.Digest()
-		if err != nil {
-			return nil, err
-		}
-		normalized, err := workspace.CanonicalJSON()
-		if err != nil {
-			return nil, err
-		}
-		translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot)
-		if err != nil {
-			return nil, err
-		}
-		resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode})
-		if err != nil {
-			return nil, err
-		}
-		emitted := make([]explorer.EmittedColumn, 0, len(translated.EmittedColumns))
-		presentationByEmission := map[string]explorercompilation.PresentationColumn{}
-		for _, presentation := range translated.Presentations {
-			for _, column := range presentation.Columns {
-				presentationByEmission[column.EmissionID] = column
-			}
-		}
-		for _, column := range translated.EmittedColumns {
-			emitted = append(emitted, explorer.EmittedColumn{EmissionID: column.EmissionID, OutputID: column.OutputID, NodeID: column.NodeID, SelectionID: column.SelectionID, CandidateID: column.CandidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: column.ProjectionMode, PublicColumn: column.PublicColumn, Label: presentationByEmission[column.EmissionID].Label, LogicalType: column.LogicalType, Filterable: column.Filterable, Chartable: column.Chartable})
-		}
-		mappings := make([]explorer.IdentityMapping, 0, len(translated.IdentityMappings))
-		for _, mapping := range translated.IdentityMappings {
-			mappings = append(mappings, explorer.IdentityMapping{OutputID: mapping.OutputID, CandidateID: mapping.CandidateID, OccurrenceID: mapping.OccurrenceID, ProjectionMode: mapping.ProjectionMode, EmissionIDs: append([]string(nil), mapping.EmissionIDs...)})
-		}
-		contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
-		if err != nil {
-			return nil, err
-		}
-		contractDigest, err := explorer.CompilationArtifactDigest(contract)
-		if err != nil {
-			return nil, err
-		}
-		resolvedRecipeDigest, err := resolved.Bundle.Digest()
-		if err != nil {
-			return nil, err
-		}
-		compiledConfig, err := compiledExplorerWorkspaceConfigV2(request.Project, request.ExplorerID, translated)
-		if err != nil {
-			return nil, err
-		}
-		fingerprints, columnProvenance, err := resolvedOutputArtifacts(resolved)
-		if err != nil {
-			return nil, fmt.Errorf("build receipt execution contract: %w", err)
-		}
-		receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: mappings, EmittedColumns: emitted, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
-		receipt.CompilationKey, err = explorer.CompilationKey(receipt)
-		if err != nil {
-			return nil, err
-		}
-		receipt.ID, err = explorer.ReceiptID(receipt)
-		if err != nil {
-			return nil, err
-		}
-		stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
-		if err != nil {
-			return nil, err
-		}
-		verificationBindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
-		if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, verificationBindings); err != nil {
-			return nil, receiptCompilationConflict(stored.ID, err)
-		}
-		receiptBytes := 0
-		if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
-			receiptBytes = len(raw)
-		}
-		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
-		return stored, nil
+		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger)
 	}
 	lifecycleConfig := ExplorerV2LifecycleConfig{
 		CompileReceipt: compileReceipt,
@@ -455,7 +351,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
-	if err := registerRoutes(server, resourceService, snapshotService, releaseService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	errCh := make(chan error, 1)

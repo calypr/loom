@@ -12,7 +12,6 @@ import (
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/gofiber/fiber/v3"
 )
 
 const (
@@ -27,14 +26,9 @@ type receiptPreviewResolutionError struct{ Err error }
 func (e *receiptPreviewResolutionError) Error() string { return e.Err.Error() }
 func (e *receiptPreviewResolutionError) Unwrap() error { return e.Err }
 
-func previewRouteFailure(c fiber.Ctx, err error) error {
-	return authoringHTTPError(c, previewRouteError(err))
-}
-
 // previewRouteError maps execution failures to the stable authoring error
 // contract without requiring a Fiber context. The generated OpenAPI adapter
-// uses this form directly, while the legacy Fiber route above only adds the
-// transport response encoding.
+// uses this form directly.
 func previewRouteError(err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
 		return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err}

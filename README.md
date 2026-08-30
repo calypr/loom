@@ -61,16 +61,16 @@ recipe, translation-version, and output selector.
 | `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
-| `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
+| `POST /api/v1/datasets/:project/generations/:generation` | Multipart immutable-generation loader used by ETL. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
 
 The canonical contract for every server route is
-[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, ingestion,
-snapshot/release, recipe execution, GraphQL transport, Explorer lifecycle, and
-Explorer authoring operations. The `:project` path parameter is the tenancy
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, generation
+ingestion/activation, recipe execution, GraphQL transport, Explorer lifecycle,
+and Explorer authoring operations. The `:project` path parameter is the tenancy
 identity used for authorization and becomes the published row `project_id`
 (for example, `HTAN_INT-BForePC`).
 

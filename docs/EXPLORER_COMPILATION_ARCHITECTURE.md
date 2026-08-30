@@ -6,7 +6,8 @@ The frontend chooses only capability IDs and presentation intent; it never
 constructs recipe selectors, graph storage details, physical plans, or AQL.
 
 This is the implemented Goal D boundary. The public authoring surface is V2.
-V1 remains only for offline migration of stored legacy documents.
+V1 authoring documents remain only for offline migration, while the
+`ExplorerStateV1` viewer projection is still the live frontend read contract.
 
 ## Production path
 
