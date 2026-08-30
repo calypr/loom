@@ -18,6 +18,10 @@ func (activationGenerationRunner) RunGeneration(context.Context, GenerationLoadR
 	return ingest.LoadSummary{}, nil
 }
 
+func (activationGenerationRunner) Run(context.Context, ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 type activationManifestStore struct {
 	manifest      publication.Manifest
 	readErr       error
@@ -64,7 +68,7 @@ func (s *activationReleaseStore) GetPointer(context.Context, string) (dataframep
 
 func TestRunGenerationPropagatesDeferActivationAndResult(t *testing.T) {
 	runner := &activationCapturingRunner{}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner})
+	svc, err := NewService(ServiceConfig{Loader: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +97,15 @@ func (r *activationCapturingRunner) RunGeneration(_ context.Context, request Gen
 	return ingest.LoadSummary{}, nil
 }
 
+func (r *activationCapturingRunner) Run(context.Context, ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	manifest := activationManifest(t, "project-a", "generation-a")
 	store := &activationManifestStore{manifest: manifest}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{Loader: runner, GenerationActivator: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +126,7 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{Loader: runner, GenerationActivator: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +144,7 @@ func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 func TestRunGenerationRejectsManifestLookupFailure(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: errors.New("database unavailable")}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{Loader: runner, GenerationActivator: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +194,7 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 			test.mutate(&execution, &pointer)
 			activator := &activationManifestStore{manifest: readyManifest}
 			releases := &activationReleaseStore{execution: execution, pointer: pointer}
-			svc, err := NewService(ServiceConfig{GenerationRunner: activationGenerationRunner{}, GenerationActivator: activator, DataframeReleases: releases})
+			svc, err := NewService(ServiceConfig{Loader: activationGenerationRunner{}, GenerationActivator: activator, DataframeReleases: releases})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,7 +221,7 @@ func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	activator := &activationManifestStore{manifest: manifest}
 	calledSuccess := false
 	svc, err := NewService(ServiceConfig{
-		GenerationRunner:    activationGenerationRunner{},
+		Loader:              activationGenerationRunner{},
 		GenerationActivator: activator,
 		DataframeReleases:   &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
 		OnSuccess:           func(string) { calledSuccess = true },

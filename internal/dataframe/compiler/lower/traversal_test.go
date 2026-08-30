@@ -21,9 +21,6 @@ func TestBuildPhysicalTraversalUsesSchemaDerivedInboundRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != ir.PhysicalInbound {
-		t.Fatalf("route direction = %q, want %q", got.Route.Direction, ir.PhysicalInbound)
-	}
 	if got.Traversal.Direction != ir.PhysicalInbound || got.Traversal.EdgeTargetTypeField != "from_type" {
 		t.Fatalf("traversal route contract = %#v", got.Traversal)
 	}
@@ -59,8 +56,8 @@ func TestBuildPhysicalTraversalUsesSchemaDerivedOutboundRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != ir.PhysicalOutbound || got.Traversal.Direction != ir.PhysicalOutbound {
-		t.Fatalf("outbound route contract = route %#v traversal %#v", got.Route, got.Traversal)
+	if got.Traversal.Direction != ir.PhysicalOutbound {
+		t.Fatalf("outbound traversal direction = %q", got.Traversal.Direction)
 	}
 	if got.Traversal.EdgeTargetTypeField != "to_type" {
 		t.Fatalf("target discriminator = %q, want to_type", got.Traversal.EdgeTargetTypeField)
@@ -79,8 +76,8 @@ func TestBuildPhysicalTraversalUsesGeneratedOutboundReferenceForAnyFHIRType(t *t
 	if err != nil {
 		t.Fatalf("BuildPhysicalTraversal() error = %v", err)
 	}
-	if got.Route.Direction != ir.PhysicalOutbound || got.Traversal.Direction != ir.PhysicalOutbound {
-		t.Fatalf("generated outbound route contract = route %#v traversal %#v", got.Route, got.Traversal)
+	if got.Traversal.Direction != ir.PhysicalOutbound {
+		t.Fatalf("generated outbound traversal direction = %q", got.Traversal.Direction)
 	}
 	if got.Traversal.EndpointField != "_from" || got.Traversal.EndpointJoinField != "_to" {
 		t.Fatalf("generated outbound endpoint contract = %#v", got.Traversal)

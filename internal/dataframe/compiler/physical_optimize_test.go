@@ -23,7 +23,7 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	if optimized.SharedTraversalCount != 1 {
 		t.Fatalf("shared traversal count = %d, want 1", optimized.SharedTraversalCount)
 	}
-	if !slices.Contains(optimized.AppliedRules, OptimizerRuleTraversalSharing) {
+	if !slices.Contains(optimized.AppliedRules, optimize.OptimizerRuleTraversalSharing) {
 		t.Fatalf("missing sharing rule: %#v", optimized.AppliedRules)
 	}
 	if len(optimized.Operations) != len(plan.Operations)+1 {
@@ -45,44 +45,6 @@ func TestOptimizePhysicalPlanSharesEquivalentTypedPrefixes(t *testing.T) {
 	}
 	if broad != 1 || subsets != 2 {
 		t.Fatalf("broad=%d subsets=%d, want 1/2", broad, subsets)
-	}
-}
-
-func TestOptimizePhysicalPlanSharesRepeatedLookups(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.BindVars["lookup_a"] = "a"
-	plan.BindVars["lookup_b"] = "b"
-	source := ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "root", Path: []string{"payload", "identifier"}}}
-	key := ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "lookup_item", Path: []string{"value"}}}
-	value := key
-	returnOp := &plan.Operations[len(plan.Operations)-1]
-	for _, item := range []struct{ name, bind string }{{"a", "lookup_a"}, {"b", "lookup_b"}} {
-		expression := ir.PhysicalExpression{Kind: ir.PhysicalLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Lookup: &ir.PhysicalLookup{Source: source, ItemVariable: "lookup_item", ItemKey: key, ItemValue: value, MatchBindKey: item.bind}}
-		returnOp.Return.Projections = append(returnOp.Return.Projections, ir.PhysicalProjection{Name: item.name, Expression: &expression})
-	}
-	optimized, err := optimize.OptimizePhysicalPlanWithPolicy(plan, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var lets, lookups int
-	for _, operation := range optimized.Operations {
-		if operation.Kind == ir.PhysicalExpressionLetOp {
-			lets++
-		}
-		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
-			continue
-		}
-		for _, projection := range operation.Return.Projections {
-			if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectLookupExpression {
-				lookups++
-			}
-		}
-	}
-	if lets != 1 || lookups != 2 {
-		t.Fatalf("shared lookup plan has %d lets and %d object lookups, want 1/2", lets, lookups)
 	}
 }
 
@@ -126,7 +88,7 @@ func TestOptimizePhysicalPlanReportsStructuralCostDecision(t *testing.T) {
 		t.Fatalf("cost-policy decisions = %#v, want one decision", decisions)
 	}
 	decision := decisions[0]
-	if !decision.Enabled || decision.Rule != OptimizerRuleTraversalSharing {
+	if !decision.Enabled || decision.Rule != optimize.OptimizerRuleTraversalSharing {
 		t.Fatalf("cost-policy decision = %#v, want enabled traversal sharing", decision)
 	}
 	if decision.EstimatedBaselineWork <= decision.EstimatedOptimizedWork || decision.EstimatedSavings <= 0 {
@@ -196,14 +158,6 @@ func TestPhysicalOptimizationPolicyResolvesIndependentRules(t *testing.T) {
 	policy := ir.DefaultPhysicalOptimizationPolicy()
 	if !policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) || !policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) || policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
 		t.Fatalf("default active rules = %#v", policy)
-	}
-	for _, rule := range []ir.PhysicalOptimizationRule{
-		ir.PhysicalOptimizationRuleNestedSharing,
-		ir.PhysicalOptimizationRuleRichConsumerFusion,
-	} {
-		if policy.RuleEnabled(rule) {
-			t.Fatalf("unimplemented rule %q was enabled by default", rule)
-		}
 	}
 	policy = policy.WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, false)
 	if policy.RuleEnabled(ir.PhysicalOptimizationRuleTraversalSharing) || policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {

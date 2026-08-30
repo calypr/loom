@@ -23,15 +23,6 @@ var (
 	ErrBundleCommitUncertain = errors.New("bundle publication commit outcome is uncertain")
 )
 
-type IdentityBundleStore interface {
-	BeginBundleFor(context.Context, publication.BundleIdentity) (publication.AtomicBundleTx, error)
-}
-
-type ClaimedIdentityBundleStore interface {
-	IdentityBundleStore
-	BeginClaimedBundleFor(context.Context, string, string, publication.BundleIdentity) (publication.AtomicBundleTx, error)
-}
-
 // ClickHouseBundleStore publishes staged tables by advancing a durable logical
 // pointer in publication.BundleCatalog. ClickHouse itself has no cross-table transaction;
 // the pointer is therefore the visibility boundary.
@@ -49,17 +40,6 @@ type BundleClickHouseStore interface {
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
 	VerifyOutput(context.Context, string, []clickhouse.Column, int64) error
 	DropTable(context.Context, string) error
-}
-
-type bundleColumnDropper interface {
-	DropColumns(context.Context, string, []string) error
-}
-
-// BundleClickHouseColumnStore is the schema-aware extension implemented by
-// production ClickHouse clients. The base store remains compatible with
-// lightweight readers/fakes that never request column pruning.
-type BundleClickHouseColumnStore interface {
-	BundleClickHouseStore
 	DropColumns(context.Context, string, []string) error
 }
 
@@ -70,7 +50,51 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 	return &ClickHouseBundleStore{clickHouse: client, catalog: catalog, prefix: "loom_bundle", leaseTTL: 2 * time.Minute, leaseRenewInterval: 30 * time.Second}, nil
 }
 
-func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
+var _ publication.Target = (*ClickHouseBundleStore)(nil)
+var _ publication.Transaction = (*clickHouseBundleTx)(nil)
+
+// SupportsObjectValues reports the native JSON support of this target.
+func (s *ClickHouseBundleStore) SupportsObjectValues() bool { return true }
+
+func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
+	bundleIdentity := publication.BundleIdentity{
+		Name: identity.Name, TranslationVersion: identity.TranslationVersion, OutputName: identity.OutputName,
+		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest,
+		SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
+		AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...),
+	}
+	tx, err := s.beginBundle(ctx, bundleIdentity)
+	if err != nil {
+		return nil, err
+	}
+	for _, schema := range schemas {
+		columns, err := toColumns(schema.Columns)
+		if err != nil {
+			cause := fmt.Errorf("output %q schema: %w", schema.Name, err)
+			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+			abortErr := tx.Abort(cleanupCtx, cause)
+			cancel()
+			return nil, errors.Join(cause, abortErr)
+		}
+		if err := tx.CreateOutput(ctx, schema.Name, columns); err != nil {
+			cause := fmt.Errorf("output %q create: %w", schema.Name, err)
+			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+			abortErr := tx.Abort(cleanupCtx, cause)
+			cancel()
+			return nil, errors.Join(cause, abortErr)
+		}
+		if err := tx.SetOutputMetadata(schema.Name, schema.Columns); err != nil {
+			cause := fmt.Errorf("output %q metadata: %w", schema.Name, err)
+			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+			abortErr := tx.Abort(cleanupCtx, cause)
+			cancel()
+			return nil, errors.Join(cause, abortErr)
+		}
+	}
+	return tx, nil
+}
+
+func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity publication.BundleIdentity) (*clickHouseBundleTx, error) {
 	// ponytail: one process-wide begin lock; catalog leases handle cross-process races, per-key locks if throughput matters.
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,7 +108,7 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
 		switch existing.State {
 		case publication.BundlePublished, publication.BundleReady:
-			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true}, nil
+			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
 		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
 			return nil, dataframeerrors.Wrap(fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
 		}
@@ -105,7 +129,7 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 	if !acquired {
 		return nil, dataframeerrors.Wrap(fmt.Errorf("%w: lease for %s", ErrBundleInFlight, key), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
 	}
-	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleQueued, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil, Attempt: 1, MaxAttempts: 1}
+	execution := publication.BundleExecution{ID: id, Key: key, BundleIdentity: identity, State: publication.BundleQueued, CreatedAt: now, UpdatedAt: now, OwnerID: id, LeaseExpiresAt: &leaseUntil}
 	if err := s.catalog.SaveExecution(ctx, execution); err != nil {
 		if releaseErr := s.releaseLease(ctx, key, id); releaseErr != nil {
 			return nil, errors.Join(err, releaseErr)
@@ -118,27 +142,6 @@ func (s *ClickHouseBundleStore) BeginBundleFor(ctx context.Context, identity pub
 			return nil, errors.Join(err, releaseErr)
 		}
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
-	tx.startLeaseRenewal(ctx)
-	return tx, nil
-}
-
-func (s *ClickHouseBundleStore) BeginClaimedBundleFor(ctx context.Context, executionID, ownerID string, identity publication.BundleIdentity) (publication.AtomicBundleTx, error) {
-	execution, err := s.catalog.GetExecution(ctx, executionID)
-	if err != nil {
-		return nil, err
-	}
-	execution = execution.CanonicalizeLegacy()
-	if execution.Name != identity.Name || execution.TranslationVersion != identity.TranslationVersion || execution.Project != identity.Project || execution.DatasetGeneration != identity.DatasetGeneration || execution.OwnerID != ownerID || execution.State != publication.BundleRunning {
-		return nil, dataframeerrors.NewError(dataframeerrors.CodePublicationLeaseLost, "", dataframeerrors.WithRetryable(true))
-	}
-	// Resolution-time digests are intentionally filled after enqueue. The
-	// command key remains the pre-validation idempotency key.
-	execution.BundleIdentity = identity
-	expectedPointer, err := s.pointer(ctx, identity.PointerName())
-	if err != nil {
-		return nil, err
 	}
 	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
 	tx.startLeaseRenewal(ctx)
@@ -167,6 +170,7 @@ type clickHouseBundleTx struct {
 	store           *ClickHouseBundleStore
 	execution       publication.BundleExecution
 	expectedPointer string
+	columns         map[string][]clickhouse.Column
 	idempotent      bool
 	closed          bool
 	leaseLost       bool
@@ -186,6 +190,17 @@ func (t *clickHouseBundleTx) ExistingPublishedOutputs() []publication.PublishedO
 		result = append(result, publication.PublishedOutput{Name: output.Name, PhysicalName: output.PhysicalTable, RowCount: output.RowCount, ByteCount: output.ByteCount})
 	}
 	return result
+}
+
+func (t *clickHouseBundleTx) WriteBatch(ctx context.Context, output string, rows []map[string]any) error {
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	columns, ok := t.columns[output]
+	if !ok {
+		return fmt.Errorf("output %q was not declared", output)
+	}
+	return t.InsertRows(ctx, output, columns, rows)
 }
 
 const bundleCleanupTimeout = 10 * time.Second
@@ -297,6 +312,7 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	if len(columns) == 0 {
 		return fmt.Errorf("bundle output %q has no columns", name)
 	}
+	logicalColumns := append([]clickhouse.Column(nil), columns...)
 	columns = withRowIdentityColumn(columns)
 	for _, c := range columns {
 		if c.Name == "__loom_row_id" {
@@ -315,12 +331,17 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 		converted[i] = publication.PhysicalColumn{Name: c.Name, ClickHouse: c.Type}
 	}
 	t.execution.Outputs = append(t.execution.Outputs, publication.BundleOutputRecord{Name: name, PhysicalTable: table, Selector: t.execution.Selector(name), Columns: converted, State: publication.BundleRunning})
+	if t.columns == nil {
+		t.columns = make(map[string][]clickhouse.Column)
+	}
+	// Keep the caller-facing schema separate from the physical row identity
+	// column. InsertRows adds generated identities when it receives this view.
+	t.columns[name] = logicalColumns
 	return t.save(ctx)
 }
 
 // SetOutputMetadata persists semantic schema alongside the physical table
-// definition. The optional transaction method preserves compatibility with
-// existing AtomicBundleTx implementations and test fakes.
+// definition.
 func (t *clickHouseBundleTx) SetOutputMetadata(name string, columns []publication.LogicalColumn) error {
 	if t.idempotent {
 		return nil
@@ -399,11 +420,7 @@ func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publi
 			kept = append(kept, column)
 		}
 		if len(dropped) > 0 {
-			dropper, ok := t.store.clickHouse.(bundleColumnDropper)
-			if !ok {
-				return fmt.Errorf("ClickHouse store cannot drop staging columns for output %q", schema.Name)
-			}
-			if err := dropper.DropColumns(ctx, record.PhysicalTable, dropped); err != nil {
+			if err := t.store.clickHouse.DropColumns(ctx, record.PhysicalTable, dropped); err != nil {
 				return err
 			}
 		}
@@ -502,38 +519,38 @@ func cloneBundleRow(row map[string]any) map[string]any {
 	return copy
 }
 
-func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
+func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.PublishedOutput, error) {
 	if t.idempotent {
 		t.closed = true
-		return nil
+		return t.ExistingPublishedOutputs(), nil
 	}
 	if t.closed {
-		return fmt.Errorf("bundle transaction is closed")
+		return nil, fmt.Errorf("bundle transaction is closed")
 	}
 	if err := t.ensureLease(); err != nil {
-		return err
+		return nil, err
 	}
 	if len(t.execution.Outputs) == 0 {
-		return t.fail(ctx, fmt.Errorf("bundle has no outputs"))
+		return nil, t.fail(ctx, fmt.Errorf("bundle has no outputs"))
 	}
 	t.execution.State = publication.BundleValidating
 	for i := range t.execution.Outputs {
 		t.execution.Outputs[i].State = publication.BundleValidating
 	}
 	if err := t.save(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	for i := range t.execution.Outputs {
 		output := &t.execution.Outputs[i]
 		if output.RowCount < 0 {
-			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, fmt.Errorf("output %q has invalid row count", output.Name))
+			return nil, t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, fmt.Errorf("output %q has invalid row count", output.Name))
 		}
 		columns := make([]clickhouse.Column, len(output.Columns))
 		for columnIndex, column := range output.Columns {
 			columns[columnIndex] = clickhouse.Column{Name: column.Name, Type: column.ClickHouse}
 		}
 		if err := t.store.clickHouse.VerifyOutput(ctx, output.PhysicalTable, columns, output.RowCount); err != nil {
-			return t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, dataframeerrors.Wrap(err, dataframeerrors.CodePublicationFailed, "", dataframeerrors.WithRetryable(true)))
+			return nil, t.failPhase(ctx, "VERIFY_OUTPUT", output.Name, dataframeerrors.Wrap(err, dataframeerrors.CodePublicationFailed, "", dataframeerrors.WithRetryable(true)))
 		}
 		verified := time.Now().UTC()
 		output.VerifiedAt = &verified
@@ -546,23 +563,31 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) error {
 	if err := t.store.catalog.PublishExecution(ctx, t.execution.PointerName(), t.expectedPointer, t.execution); err != nil {
 		if errors.Is(err, publication.ErrBundlePointerConflict) {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodePublicationConflict, "", dataframeerrors.WithRetryable(true))
-			return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
+			return nil, t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 		}
 		committed, conclusive, confirmErr := t.confirmCommit(ctx)
 		if committed {
 			t.closed = true
-			return t.stopLease()
+			return t.publishedOutputs(), t.stopLease()
 		}
 		if !conclusive {
 			t.closed = true // Prevent the runner from deleting possibly published tables.
 			uncertain := dataframeerrors.Wrap(errors.Join(ErrBundleCommitUncertain, err, confirmErr), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-			return publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
+			return nil, publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
 		}
 		err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-		return t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
+		return nil, t.failPhase(ctx, "COMMIT_POINTER", "", fmt.Errorf("publish bundle pointer: %w", err))
 	}
 	t.closed = true
-	return t.stopLease()
+	return t.publishedOutputs(), t.stopLease()
+}
+
+func (t *clickHouseBundleTx) publishedOutputs() []publication.PublishedOutput {
+	result := make([]publication.PublishedOutput, 0, len(t.execution.Outputs))
+	for _, output := range t.execution.Outputs {
+		result = append(result, publication.PublishedOutput{Name: output.Name, PhysicalName: output.PhysicalTable, RowCount: output.RowCount, ByteCount: output.ByteCount})
+	}
+	return result
 }
 
 // confirmCommit distinguishes a lost success response from a transaction that
@@ -586,10 +611,6 @@ func (t *clickHouseBundleTx) confirmCommit(ctx context.Context) (committed, conc
 		return false, true, nil
 	}
 	return false, false, fmt.Errorf("publication metadata is inconsistent: execution state %q, pointer %q", execution.State, pointer.ExecutionID)
-}
-
-func (t *clickHouseBundleTx) Rollback(ctx context.Context) error {
-	return t.Abort(ctx, fmt.Errorf("bundle rolled back"))
 }
 
 func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
@@ -693,7 +714,53 @@ func validateBundleColumn(column publication.PhysicalColumn) error {
 
 func validBundleOutput(value string) bool { return bundleOutputRE.MatchString(value) }
 
-// Reconcile removes abandoned staging tables and requeues bounded-retry work.
+func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error) {
+	result := make([]clickhouse.Column, 0, len(columns))
+	for _, column := range columns {
+		kind := strings.ToLower(strings.TrimSpace(column.Kind))
+		columnType := "String"
+		switch kind {
+		case "boolean":
+			columnType = "Bool"
+		case "integer":
+			columnType = "Int64"
+		case "decimal":
+			columnType = "Float64"
+		case "date":
+			columnType = "Date"
+		case "date-time":
+			columnType = "DateTime64(3)"
+		case "uuid":
+			columnType = "UUID"
+		case "code":
+			columnType = "String"
+		case "object":
+			columnType = "JSON"
+		}
+		if column.Repeated {
+			columnType = "Array(" + columnType + ")"
+		} else if column.Nullable {
+			columnType = "Nullable(" + columnType + ")"
+		}
+		result = append(result, clickhouse.Column{Name: column.Name, Type: columnType})
+	}
+	return result, nil
+}
+
+func allOutputsQueryable(outputs []publication.BundleOutputRecord) bool {
+	if len(outputs) == 0 {
+		return false
+	}
+	for _, output := range outputs {
+		if !output.Queryable() {
+			return false
+		}
+	}
+	return true
+}
+
+// Reconcile removes abandoned staging tables and repairs persisted publication
+// state left behind by an interrupted commit.
 // It is safe to call repeatedly during startup; published pointers and queued
 // commands that have not started are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
@@ -714,6 +781,23 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			}
 			execution.OwnerID = reconcilerID
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+			pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())
+			if pointerErr != nil && !errors.Is(pointerErr, publication.ErrBundleNotFound) {
+				releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+				cancel()
+				return errors.Join(pointerErr, releaseErr)
+			}
+			// A pointer is the visibility boundary. If this execution is already
+			// visible, its tables are live even when a stale lifecycle snapshot
+			// still reports a non-successful state; never clean those tables up.
+			if pointerErr == nil && pointer.ExecutionID == execution.ID {
+				releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+				cancel()
+				if releaseErr != nil {
+					return releaseErr
+				}
+				continue
+			}
 			var first error
 			remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
 			for _, output := range execution.Outputs {
@@ -728,11 +812,6 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 			execution.FailureRetryable = true
 			execution.UpdatedAt = time.Now().UTC()
 			execution.Outputs = remaining
-			if execution.MaxAttempts > 0 && execution.Attempt < execution.MaxAttempts {
-				execution.State = publication.BundleQueued
-				next := execution.UpdatedAt
-				execution.NextAttemptAt = &next
-			}
 			execution.OwnerID = ""
 			execution.LeaseExpiresAt = nil
 			if err := s.catalog.SaveExecution(cleanupCtx, execution); err != nil {

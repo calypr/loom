@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
@@ -120,7 +121,7 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 			return authoringHTTPError(c, malformedRouteError("preview", err))
 		}
 		var finish func() ([]byte, error)
-		value, err := application.Preview(previewCtx, lifecycle.PreviewRequest{Project: explorerProjectParam(c), ExplorerID: strings.TrimSpace(c.Params("explorerId")), ReceiptID: request.ReceiptId, OutputID: request.OutputId, Limit: previewLimit(request.Limit), SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		_, err := application.Preview(previewCtx, lifecycle.PreviewRequest{Project: explorerProjectParam(c), ExplorerID: strings.TrimSpace(c.Params("explorerId")), ReceiptID: request.ReceiptId, OutputID: request.OutputId, Limit: previewLimit(request.Limit), SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 			encoder, encoderErr := newPreviewResponseEncoder(receipt, request.OutputId, columns, maxExplorerPreviewResponseBytes)
 			if encoderErr != nil {
 				return nil, encoderErr
@@ -131,12 +132,10 @@ func newExplorerAuthoringHandlers(authorizer authscope.Authorizer, authorizeRead
 		if err != nil {
 			return authoringHTTPError(c, err)
 		}
-		var encoded []byte
-		if value.Rows != nil {
-			encoded, err = encodeExplorerPreviewResponse(value.Receipt, request.OutputId, value.Columns, value.Rows[request.OutputId], maxExplorerPreviewResponseBytes)
-		} else if finish != nil {
-			encoded, err = finish()
+		if finish == nil {
+			return previewRouteFailure(c, errors.New("native preview response sink was not configured"))
 		}
+		encoded, err := finish()
 		if err != nil {
 			return previewRouteFailure(c, err)
 		}

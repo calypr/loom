@@ -189,10 +189,9 @@ type PhysicalFilter struct {
 // PhysicalDerivedLet names a derived value. Operator is a compiler-owned
 // symbolic operation (for example UNIQUE or LENGTH), never raw AQL.
 type PhysicalDerivedLet struct {
-	Variable   string
-	Operator   string
-	Inputs     []PhysicalValue
-	Expression *PhysicalExpression
+	Variable string
+	Operator string
+	Inputs   []PhysicalValue
 }
 
 // PhysicalExpressionLet binds a deterministic expression once in the

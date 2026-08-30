@@ -26,15 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-type Registry interface {
-	LoadRecipe(context.Context, string) (exec.Entry, error)
-}
-
-type VersionedRegistry interface {
-	Registry
-	LoadRecipeVersion(context.Context, string, string) (exec.Entry, error)
-}
-
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
 const (
@@ -67,7 +58,7 @@ type PreviewSummary struct {
 }
 
 type Config struct {
-	Registry      Registry
+	Registry      exec.Reader
 	Revisions     recipe.RevisionStore
 	ResolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows     QueryRows
@@ -76,7 +67,7 @@ type Config struct {
 }
 
 type Engine struct {
-	registry      Registry
+	registry      exec.Reader
 	revisions     recipe.RevisionStore
 	resolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows     QueryRows
@@ -177,11 +168,7 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 // ResolveVersion loads an exact immutable recipe version. New publication
 // workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
-	registry, ok := e.registry.(VersionedRegistry)
-	if !ok {
-		return Resolved{}, fmt.Errorf("recipe registry does not support exact versions")
-	}
-	entry, err := registry.LoadRecipeVersion(ctx, name, translationVersion)
+	entry, err := e.registry.LoadRecipeVersion(ctx, name, translationVersion)
 	if err != nil {
 		return Resolved{}, err
 	}

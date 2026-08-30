@@ -1,4 +1,4 @@
-package materializationapi
+package dataframe
 
 import (
 	"context"
@@ -11,29 +11,24 @@ import (
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
-// ExportDataframe streams a principal-scoped published dataframe through the
-// same federated reader contract used by interactive rows.
-func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization.ExportRequest, out io.Writer) error {
+// ExportDataframe streams one authorized project's published dataframe.
+func (s *Service) ExportDataframe(ctx context.Context, project string, request dfmaterialization.ExportRequest, out io.Writer) error {
 	if s.reader == nil {
 		return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	if out == nil {
 		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
-	principal, err := s.principal(ctx)
-	if err != nil {
-		return err
-	}
 	selector, err := resolvePublishedSelector(request.Selector)
 	if err != nil {
 		return err
 	}
-	dataset, access, err := s.authorizedFederation(ctx, principal, selector, request.Filters)
+	if strings.TrimSpace(project) == "" {
+		return dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+	}
+	dataset, access, err := s.currentProjectDataset(ctx, project, selector)
 	if err != nil {
 		return err
-	}
-	if len(dataset.Sources) == 0 {
-		return dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 	}
 	format := request.Format.Normalize()
 	if format != dfmaterialization.ExportCSV && format != dfmaterialization.ExportTSV && format != dfmaterialization.ExportJSON && format != dfmaterialization.ExportJSONL {
@@ -54,9 +49,9 @@ func (s *Service) ExportDataframe(ctx context.Context, request dfmaterialization
 	if err := state.begin(); err != nil {
 		return err
 	}
-	_, err = s.reader.StreamFederatedDataset(ctx, dataset, dfmaterialization.FederatedStreamRequest{
+	err = s.reader.Stream(ctx, dataset, dfmaterialization.StreamRequest{
 		Columns: columns, Filters: request.Filters, Sort: request.Sort,
-		AccessByProject: access,
+		AuthResourcePaths: access.authResourcePaths, Unrestricted: access.unrestricted,
 	}, state.visit)
 	if err != nil {
 		return err

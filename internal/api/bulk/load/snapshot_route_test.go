@@ -31,7 +31,7 @@ func TestSnapshotHTTPContractCreateUploadFinalizeStatusAndAbort(t *testing.T) {
 	releases := &dataset.ReleaseService{Snapshots: store, Releases: store, Verifier: routePublicationVerifier{result: dataset.PublicationVerification{
 		Selector: selector, ExecutionID: "execution-a", Generation: "commit-a", State: "PUBLISHED", Queryable: true, VerifiedAt: time.Now().UTC(),
 	}}, Required: []dataset.DataframeSelector{selector}}
-	baseService, err := NewService(ServiceConfig{GenerationRunner: runner})
+	baseService, err := NewService(ServiceConfig{Loader: runner})
 	if err != nil {
 		t.Fatal(err)
 	}

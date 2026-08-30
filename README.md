@@ -239,17 +239,12 @@ query ExplorerRows($input: DataframeRowsInput!) {
 }
 ```
 
-The reader requires the exact selector `(recipe, translationVersion, output)`.
-There is no server-side default recipe or `dataType` alias. Loom derives the
-authorized project set from the principal, selects each project's active
-pointer-backed publication, reconciles compatible outputs, and federates them
-into one logical dataframe. Every row exposes `project_id`,
-derived from the publication project identity (for example,
-`HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
-columns. Rows remain permissive JSON; columns and capabilities are discovered
-at runtime so a new publication does not require a GraphQL regeneration or
-server restart. See [`docs/DATAFRAME_FEDERATION.md`](docs/DATAFRAME_FEDERATION.md)
-for the source-selection, authorization, schema, and operational contract.
+The reader requires an explicit `projectId` and exact selector
+`(recipe, translationVersion, output)`. There is no server-side default recipe,
+`dataType` alias, or cross-project federation. Loom authorizes the requested
+project, resolves its active pointer-backed publication, and reads that one
+physical dataframe. Columns and capabilities remain runtime-discovered, so a
+new publication does not require GraphQL regeneration or a server restart.
 
 ## Authorization and tenancy
 
@@ -310,12 +305,12 @@ without rebuilding the server image.
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
-| [`internal/dataframe/published`](internal/dataframe/published) | Safe published-data reads and federation. |
+| [`internal/dataframe/published`](internal/dataframe/published) | Safe single-project published-data reads and aggregates. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
 | [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
-| [`internal/api/graphql/graph/materialization`](internal/api/graphql/graph/materialization) | Published-dataframe transport mapping. |
+| [`internal/api/graphql/graph/dataframe`](internal/api/graphql/graph/dataframe) | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
 
 ## Build, generation, and tests
 

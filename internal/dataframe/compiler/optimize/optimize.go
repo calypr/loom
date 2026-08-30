@@ -91,9 +91,6 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 		decision.Reason = "estimated prefix work reduction exceeds policy minimum"
 		out.OptimizationPolicy.AddDecision(decision)
 	}
-	if policy.RuleEnabled(ir.PhysicalOptimizationRuleKeyedMapSharing) {
-		sharePhysicalLookupFamilies(&out, policy)
-	}
 	if err := out.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate optimized physical plan: %w", err)
 	}
@@ -300,10 +297,6 @@ func rewritePhysicalOperationVariables(op ir.PhysicalOperation, fromTarget, toTa
 		d := *op.DerivedLet
 		for i := range d.Inputs {
 			d.Inputs[i] = rewritePhysicalValue(d.Inputs[i], fromTarget, toTarget, fromEdge, toEdge)
-		}
-		if d.Expression != nil {
-			expression := rewritePhysicalExpressionVariables(*d.Expression, fromTarget, toTarget, fromEdge, toEdge)
-			d.Expression = &expression
 		}
 		op.DerivedLet = &d
 	}

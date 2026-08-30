@@ -32,8 +32,6 @@ audits do not belong here.
   files, and regeneration commands.
 - [Compiler performance](COMPILER_PERFORMANCE.md) — benchmark and tuning
   guidance.
-- [Dataframe federation](DATAFRAME_FEDERATION.md) — published-data source
-  selection and cross-project reads.
 - [Reliability contract](loom-reliability-contract.md) — immutable generations,
   publication, selectors, and error-state guarantees.
 

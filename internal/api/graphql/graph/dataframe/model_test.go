@@ -1,4 +1,4 @@
-package materializationapi
+package dataframe
 
 import (
 	"errors"
@@ -15,21 +15,16 @@ func TestPersistedFailureRedactsLegacyText(t *testing.T) {
 	}
 }
 
-func TestFederationMetadataMapping(t *testing.T) {
+func TestProjectMetadataMapping(t *testing.T) {
 	value := Model(dfpublished.Materialization{
-		ID: "federated", Name: "DocumentReference", Selector: dfpublished.DataframeSelector{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"},
-		Availability: dfpublished.FederationDegraded, ExpectedProjects: 2,
-		IncludedProjects: 1,
-		ProjectStatuses:  []dfpublished.ProjectStatus{{ProjectID: "allowed", State: dfpublished.ProjectCurrent}, {ProjectID: "missing", State: dfpublished.ProjectMissing}},
+		ID: "execution:DocumentReference", Name: "DocumentReference", Project: "P1", DatasetGeneration: "generation", State: dfpublished.StateReady,
+		Selector: dfpublished.DataframeSelector{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"},
 	})
 	if value.Selector == nil || value.Selector.TranslationVersion != "v2" {
 		t.Fatalf("selector metadata = %#v", value)
 	}
-	if value.Availability == nil || *value.Availability != "DEGRADED" || value.Completeness == nil || *value.Completeness != .5 {
-		t.Fatalf("availability metadata = %#v", value)
-	}
-	if len(value.ProjectStatuses) != 2 {
-		t.Fatalf("statuses = %#v", value.ProjectStatuses)
+	if value.ProjectID != "P1" || value.DatasetGeneration != "generation" {
+		t.Fatalf("project metadata = %#v", value)
 	}
 }
 

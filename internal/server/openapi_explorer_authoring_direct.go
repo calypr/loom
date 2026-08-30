@@ -162,7 +162,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 		}
 	}
 	var finish func() ([]byte, error)
-	value, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	_, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		encoder, encoderErr := newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
 			return nil, encoderErr
@@ -173,12 +173,10 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	if err != nil {
 		return result, err
 	}
-	var encoded []byte
-	if value.Rows != nil {
-		encoded, err = encodeExplorerPreviewResponse(value.Receipt, body.OutputId, value.Columns, value.Rows[body.OutputId], maxExplorerPreviewResponseBytes)
-	} else if finish != nil {
-		encoded, err = finish()
+	if finish == nil {
+		return result, errors.New("native preview response sink was not configured")
 	}
+	encoded, err := finish()
 	if err != nil {
 		return result, err
 	}

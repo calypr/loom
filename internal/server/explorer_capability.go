@@ -68,18 +68,6 @@ type ExplorerAuthorizedCapabilityCompilationReader func(context.Context, string,
 // generation and scope digest.
 type ExplorerAuthorizedCapabilityExecutionReader func(context.Context, string, string) (AuthorizedCapability, error)
 
-// ExplorerCapabilityCompilationResolver documents the compile authorization
-// seam for callers that want a resolver object rather than a function field.
-type ExplorerCapabilityCompilationResolver interface {
-	ResolveForCompilation(context.Context, string, string) (AuthorizedCapability, error)
-}
-
-// ExplorerCapabilityExecutionResolver documents the execution authorization
-// seam for callers that want a resolver object rather than a function field.
-type ExplorerCapabilityExecutionResolver interface {
-	ResolveForExecution(context.Context, string, string) (AuthorizedCapability, error)
-}
-
 func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*explorerCapabilityResolver, error) {
 	if evidence == nil || manifests == nil || snapshots == nil {
 		return nil, fmt.Errorf("Explorer capability evidence, manifest resolver, and snapshot repository are required")
@@ -143,11 +131,13 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 		} else if getErr != nil && !errors.Is(getErr, capability.ErrNotFound) {
 			return nil, getErr
 		}
-		observer := capabilityObserverFromEvidence(evidence)
-		builder := capability.NewBuilder(identity, observer, observer, observer, explorerCapabilityCompiler{scope: compilerprobe.Scope{
+		compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{
 			Project: storageProject, DatasetGeneration: generation,
 			AuthResourcePaths: append([]string(nil), scope.AuthResourcePaths...), AuthScopeMode: scope.Mode,
-		}})
+		}}
+		builder := capability.NewBuilder(identity, capabilityEvidenceFromCatalog(evidence), capability.CompilerCallbacks{
+			Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate,
+		})
 		builder.Policy = capability.Policy{
 			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
 			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
@@ -283,30 +273,14 @@ func capabilityIdentityKey(identity capability.SnapshotIdentity) (string, error)
 	return hex.EncodeToString(sum[:]), nil
 }
 
-type capabilityEvidenceObserver struct {
-	resources     []capability.ResourceObservation
-	relationships []capability.RelationshipObservation
-	fields        []capability.FieldObservation
-}
-
-func (o capabilityEvidenceObserver) ListResources(context.Context) ([]capability.ResourceObservation, error) {
-	return append([]capability.ResourceObservation(nil), o.resources...), nil
-}
-func (o capabilityEvidenceObserver) ListRelationships(context.Context) ([]capability.RelationshipObservation, error) {
-	return append([]capability.RelationshipObservation(nil), o.relationships...), nil
-}
-func (o capabilityEvidenceObserver) ListFields(context.Context) ([]capability.FieldObservation, error) {
-	out := append([]capability.FieldObservation(nil), o.fields...)
-	for i := range out {
-		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
+func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.Evidence {
+	out := capability.Evidence{
+		ResourcesAvailable:     value.ResourceInventory.Available,
+		RelationshipsAvailable: value.Relationships.Available,
+		FieldsAvailable:        value.FieldEnrichment.Available,
 	}
-	return out, nil
-}
-
-func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capabilityEvidenceObserver {
-	out := capabilityEvidenceObserver{}
 	for _, item := range value.ResourceInventory.Values {
-		out.resources = append(out.resources, capability.ResourceObservation{ResourceType: item.ResourceType, Populated: item.DocumentCount > 0, DocumentCount: item.DocumentCount})
+		out.Resources = append(out.Resources, capability.ResourceObservation{ResourceType: item.ResourceType, Populated: item.DocumentCount > 0, DocumentCount: item.DocumentCount})
 	}
 	relationships := map[string]capability.RelationshipObservation{}
 	for _, item := range value.Relationships.Values {
@@ -333,10 +307,10 @@ func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capability
 		}
 	}
 	for _, item := range relationships {
-		out.relationships = append(out.relationships, item)
+		out.Relationships = append(out.Relationships, item)
 	}
-	sort.Slice(out.relationships, func(i, j int) bool {
-		a, b := out.relationships[i], out.relationships[j]
+	sort.Slice(out.Relationships, func(i, j int) bool {
+		a, b := out.Relationships[i], out.Relationships[j]
 		return strings.Join([]string{a.SourceResourceType, a.Label, a.TargetResourceType, a.StorageDirection}, "\x00") < strings.Join([]string{b.SourceResourceType, b.Label, b.TargetResourceType, b.StorageDirection}, "\x00")
 	})
 	type fieldAggregate struct {
@@ -366,10 +340,10 @@ func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capability
 			aggregate.observation.SuggestedValues = append(aggregate.observation.SuggestedValues, suggestion)
 		}
 		sort.Strings(aggregate.observation.SuggestedValues)
-		out.fields = append(out.fields, aggregate.observation)
+		out.Fields = append(out.Fields, aggregate.observation)
 	}
-	sort.Slice(out.fields, func(i, j int) bool {
-		return out.fields[i].ResourceType+"\x00"+out.fields[i].Path < out.fields[j].ResourceType+"\x00"+out.fields[j].Path
+	sort.Slice(out.Fields, func(i, j int) bool {
+		return out.Fields[i].ResourceType+"\x00"+out.Fields[i].Path < out.Fields[j].ResourceType+"\x00"+out.Fields[j].Path
 	})
 	return out
 }

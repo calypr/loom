@@ -11,7 +11,7 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -319,11 +319,11 @@ type recipePreviewView struct {
 func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 	outputs := make([]*model.DataframeRecipeExecutionOutput, 0, len(value.Outputs))
 	for _, output := range value.Outputs {
-		errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
+		errorText, errorCode, errorRetryable := dataframeapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
 		item := &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
 		columns := make([]*model.DataframeColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
-			columns = append(columns, materializationapi.ColumnFromPhysical(column))
+			columns = append(columns, dataframeapi.ColumnFromPhysical(column))
 		}
 		item.Columns = columns
 		if output.Selector.Valid() {
@@ -334,7 +334,7 @@ func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 		}
 		outputs = append(outputs, item)
 	}
-	errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(value.Error, value.ErrorCode, value.ErrorRetryable)
+	errorText, errorCode, errorRetryable := dataframeapi.PersistedFailure(value.Error, value.ErrorCode, value.ErrorRetryable)
 	result := &model.DataframeRecipeExecution{ID: value.ID, Name: value.Name, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, State: model.DataframeRecipeExecutionState(value.State), Outputs: outputs, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
 	if value.TranslationVersion != "" {
 		result.TranslationVersion = &value.TranslationVersion

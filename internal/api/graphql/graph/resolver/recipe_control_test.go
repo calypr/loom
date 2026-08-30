@@ -10,7 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type fakeRecipeControl struct {
@@ -178,45 +177,3 @@ func TestRecipeExecutionReaderMapsCanonicalAsyncStates(t *testing.T) {
 		}
 	}
 }
-
-func TestMaterializeRecipeDoesNotPreResolveInGraphQL(t *testing.T) {
-	validation := testRecipeValidation()
-	plan := semantic.ResolvedRecipePlan{SemanticPlan: validation.Plan, ResolvedSchemaDigest: "schema", SourceGeneration: "g", ScopeDigest: "scope"}
-	resolveCalls := 0
-	materializeCalls := 0
-	resolver := NewResolver(ResolverConfig{
-		RecipeControl: fakeRecipeControl{validation: validation, plan: plan, resolveCalls: &resolveCalls},
-		RecipeMaterialize: func(context.Context, string, recipe.RuntimeBindings) (RecipeExecution, error) {
-			materializeCalls++
-			return RecipeExecution{ID: "execution-1", Name: "default", State: "READY"}, nil
-		},
-	})
-	if _, err := resolver.Mutation().MaterializeDataframeRecipeBundle(context.Background(), model.MaterializeDataframeRecipeInput{
-		Name: "default", Bindings: &model.DataframeRecipeBindingsInput{Project: "p", DatasetGeneration: stringPtr("g")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if resolveCalls != 0 || materializeCalls != 1 {
-		t.Fatalf("GraphQL pre-resolve counts = resolve:%d materialize:%d", resolveCalls, materializeCalls)
-	}
-}
-
-func TestStartDataframeMaterializationPassesExactSelector(t *testing.T) {
-	var got dataset.DataframeSelector
-	resolver := NewResolver(ResolverConfig{ExactMaterializationStarter: func(_ context.Context, selector dataset.DataframeSelector, bindings recipe.RuntimeBindings) (RecipeExecution, error) {
-		got = selector
-		if bindings.Project != "p" || bindings.DatasetGeneration != "git-sha" {
-			t.Fatalf("target = %s/%s", bindings.Project, bindings.DatasetGeneration)
-		}
-		return RecipeExecution{ID: "execution-1", Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, State: "QUEUED", Outputs: []RecipeExecutionOutput{{Name: selector.Output, Selector: selector, State: "QUEUED"}}}, nil
-	}})
-	result, err := resolver.Mutation().StartDataframeMaterialization(context.Background(), model.StartDataframeMaterializationInput{Project: "p", Generation: "git-sha", Selector: &model.DataframeSelectorInput{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Valid() || result.TranslationVersion == nil || *result.TranslationVersion != "v2" || result.Outputs[0].Selector == nil {
-		t.Fatalf("result = %#v, selector = %#v", result, got)
-	}
-}
-
-func stringPtr(value string) *string { return &value }

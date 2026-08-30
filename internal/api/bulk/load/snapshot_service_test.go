@@ -35,6 +35,10 @@ func (f *snapshotRunnerFixture) RunGeneration(_ context.Context, request Generat
 	return ingest.LoadSummary{Files: 1}, f.err
 }
 
+func (f *snapshotRunnerFixture) Run(context.Context, ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 func TestSnapshotServiceSafeRetryFinalizeAndNoImplicitActivation(t *testing.T) {
 	store := newMemoryLifecycleStore()
 	runner := &snapshotRunnerFixture{}

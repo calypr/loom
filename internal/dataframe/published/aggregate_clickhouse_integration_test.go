@@ -34,9 +34,7 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tableA := "loom_aggregate_a_" + uuid.NewString()[:8]
-	tableB := "loom_aggregate_b_" + uuid.NewString()[:8]
 	defer client.DropTable(ctx, tableA)
-	defer client.DropTable(ctx, tableB)
 	physicalColumns := []storeclickhouse.Column{
 		{Name: "__loom_row_id", Type: "UInt64"},
 		{Name: "facet", Type: "Nullable(String)"},
@@ -44,10 +42,8 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 		{Name: "value", Type: "Nullable(Float64)"},
 		{Name: "auth_resource_path", Type: "String"},
 	}
-	for _, table := range []string{tableA, tableB} {
-		if err := client.CreateTable(ctx, table, physicalColumns); err != nil {
-			t.Fatal(err)
-		}
+	if err := client.CreateTable(ctx, tableA, physicalColumns); err != nil {
+		t.Fatal(err)
 	}
 	if err := client.InsertRows(ctx, tableA, physicalColumns, []map[string]any{
 		{"__loom_row_id": uint64(1), "facet": "a", "facet_other": "x", "value": 2.0, "auth_resource_path": "allowed"},
@@ -56,30 +52,14 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.InsertRows(ctx, tableB, physicalColumns, []map[string]any{
-		{"__loom_row_id": uint64(1), "facet": "b", "facet_other": "y", "value": 5.0, "auth_resource_path": "anything"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sourceColumns := []Column{
+	columns := []Column{
 		{Name: "__loom_row_id", ClickHouse: "UInt64"},
 		{Name: "facet", ClickHouse: "Nullable(String)"},
 		{Name: "facet_other", ClickHouse: "Nullable(String)"},
 		{Name: "value", ClickHouse: "Nullable(Float64)"},
 		{Name: authResourcePathColumn, ClickHouse: "String"},
 	}
-	dataset := FederatedDataset{
-		Columns: []Column{
-			{Name: "facet", ClickHouse: "Nullable(String)"},
-			{Name: "facet_other", ClickHouse: "Nullable(String)"},
-			{Name: "value", ClickHouse: "Nullable(Float64)"},
-			{Name: projectIDColumn, ClickHouse: "String"},
-		},
-		Sources: []Materialization{
-			{ID: "a:Patient", Project: "a", PhysicalTable: tableA, Columns: sourceColumns},
-			{ID: "b:Patient", Project: "b", PhysicalTable: tableB, Columns: sourceColumns},
-		},
-	}
+	dataset := Materialization{ID: "a:Patient", Project: "a", PhysicalTable: tableA, Columns: columns, Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
 	result, err := (&Reader{ClickHouse: client}).ExecuteAggregateBatch(ctx, dataset, AggregateBatchRequest{
 		Jobs: []AggregateJob{
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet"}, Operation: "COUNT"},
@@ -88,10 +68,7 @@ func TestAggregateBatchClickHouseIntegration(t *testing.T) {
 			{ID: 4, ResponseMode: AggregateResponseTerms, Column: "facet", Size: 2},
 			{ID: 5, ResponseMode: AggregateResponseTerms, Column: "facet_other", Size: 1},
 		},
-		AccessByProject: map[string]SourceAccess{
-			"a": {ResourcePaths: []string{"allowed"}},
-			"b": {Unrestricted: true},
-		},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -22,9 +22,13 @@ func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLo
 	return r.summary, nil
 }
 
+func (r *fakeGenerationRunner) Run(context.Context, ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 func TestCreateGenerationStagesCompleteBundle(t *testing.T) {
 	runner := &fakeGenerationRunner{summary: ingest.LoadSummary{Files: 2, VerticesInserted: 4}}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner})
+	svc, err := NewService(ServiceConfig{Loader: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +55,7 @@ func TestCreateGenerationStagesCompleteBundle(t *testing.T) {
 
 func TestCreateGenerationPropagatesDeferredActivation(t *testing.T) {
 	runner := &fakeGenerationRunner{}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner})
+	svc, err := NewService(ServiceConfig{Loader: runner})
 	if err != nil {
 		t.Fatal(err)
 	}

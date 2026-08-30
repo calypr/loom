@@ -23,16 +23,12 @@ var (
 	ErrUnexpectedStoreResult      = errors.New("unexpected generation store result")
 )
 
-type QueryRowsClient interface {
-	QueryRows(context.Context, string, int, map[string]interface{}, arangostore.RowVisitor) error
-}
-
-var _ QueryRowsClient = (*arangostore.Client)(nil)
+var _ arangostore.RowQueryer = (*arangostore.Client)(nil)
 var _ publication.ActiveResolver = (*Store)(nil)
 
-type Store struct{ client QueryRowsClient }
+type Store struct{ client arangostore.RowQueryer }
 
-func New(client QueryRowsClient) (*Store, error) {
+func New(client arangostore.RowQueryer) (*Store, error) {
 	if client == nil {
 		return nil, ErrNilQueryClient
 	}

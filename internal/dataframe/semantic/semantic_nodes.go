@@ -56,7 +56,6 @@ type SemanticAggregate struct {
 	Operation       string
 	FieldRef        string
 	Selector        *spec.Selector
-	PredicateField  string
 	Predicate       *spec.Selector
 	PredicateEquals string
 	ValueMode       string
@@ -65,7 +64,6 @@ type SemanticAggregate struct {
 type SemanticSlice struct {
 	Name            string
 	Limit           int
-	PredicateField  string
 	Predicate       *spec.Selector
 	PredicateEquals string
 	Fields          []SemanticField

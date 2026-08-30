@@ -29,7 +29,7 @@ type Store interface {
 	ApplyWorkspaceCommands(context.Context, string, string, authoringv2.CatalogSnapshot, authoringv2.ApplyCommandsRequest, string) (*authoringv2.ApplyCommandsResponse, error)
 	ActiveRevision(context.Context, string, string) (*explorer.Revision, error)
 	CompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-	PublishAuthoring(context.Context, explorer.CompilationReceipt, explorer.Revision) (*explorer.Revision, error)
+	PublishAuthoring(context.Context, explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease, int64) (*explorer.Revision, error)
 	UpsertRepositoryV2(context.Context, explorer.CompilationReceipt, string, string, []explorer.Materialization, explorer.DatasetMetadata, explorer.PublicationMetadata) (*explorer.Explorer, *explorer.Revision, error)
 	FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error)
 	ActivateRepositoryGeneration(context.Context, string, string, string) error
@@ -70,7 +70,6 @@ type CompileReceiptRequest struct {
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
-type Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
 // Execution is the small logical publication result needed by Explorer. It
@@ -92,10 +91,10 @@ type ExecutionOutput struct {
 	Columns  []publication.PhysicalColumn
 }
 
-type Materializer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (Execution, error)
 type ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error)
 type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
+type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
 // Config contains deployment adapters. Lifecycle policy calls these narrow
 // callbacks, but never imports the transport packages that construct them.
@@ -103,14 +102,13 @@ type Config struct {
 	Capability CapabilityResolver
 
 	CompileReceipt     ReceiptCompiler
-	Preview            Previewer
 	PreviewReceipt     ReceiptPreviewer
-	Materialize        Materializer
 	MaterializeReceipt ReceiptMaterializer
 	ReceiptLookup      ReceiptReader
 
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator
+	PrepareRelease            ReleasePreparer
 	Now                       func() time.Time
 }
 
@@ -178,7 +176,6 @@ type PreviewResult struct {
 	Receipt *explorer.CompilationReceipt
 	Columns []explorer.EmittedColumn
 	Summary dataframeexecution.PreviewSummary
-	Rows    map[string][]map[string]any
 }
 
 type PublishRequest struct {

@@ -582,14 +582,6 @@ func validatePhysicalFilter(filter PhysicalFilter, defined map[string]bool, bind
 }
 
 func validatePhysicalDerivedLet(derived PhysicalDerivedLet, defined map[string]bool, bindVars map[string]any) error {
-	legacy := strings.TrimSpace(derived.Operator) != "" || len(derived.Inputs) != 0
-	rich := derived.Expression != nil
-	if legacy == rich {
-		return fmt.Errorf("derived LET requires exactly one legacy operation or expression")
-	}
-	if rich {
-		return validatePhysicalExpression(*derived.Expression, defined, bindVars)
-	}
 	if strings.TrimSpace(derived.Operator) == "" {
 		return fmt.Errorf("derived LET operator is required")
 	}

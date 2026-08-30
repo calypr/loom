@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,8 +31,6 @@ type ServerConfig struct {
 	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
 	SnapshotDirectory          string                      `yaml:"snapshot_directory"`
 	SnapshotRetention          time.Duration               `yaml:"snapshot_retention"`
-	PublicationWorkerLease     time.Duration               `yaml:"publication_worker_lease"`
-	PublicationMaxAttempts     int                         `yaml:"publication_max_attempts"`
 }
 
 type ClickHouseConfig struct {
@@ -72,7 +69,6 @@ func DefaultConfig() Config {
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
 			SnapshotDirectory: ".loom-snapshots", SnapshotRetention: 7 * 24 * time.Hour,
-			PublicationWorkerLease: 2 * time.Minute, PublicationMaxAttempts: 3,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -195,20 +191,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	if value := strings.TrimSpace(os.Getenv("LOOM_SNAPSHOT_DIRECTORY")); value != "" {
 		cfg.Server.SnapshotDirectory = value
 	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_PUBLICATION_WORKER_LEASE")); value != "" {
-		lease, err := time.ParseDuration(value)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse LOOM_PUBLICATION_WORKER_LEASE: %w", err)
-		}
-		cfg.Server.PublicationWorkerLease = lease
-	}
-	if value := strings.TrimSpace(os.Getenv("LOOM_PUBLICATION_MAX_ATTEMPTS")); value != "" {
-		attempts, err := strconv.Atoi(value)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse LOOM_PUBLICATION_MAX_ATTEMPTS: %w", err)
-		}
-		cfg.Server.PublicationMaxAttempts = attempts
-	}
 	return cfg, nil
 }
 
@@ -222,12 +204,6 @@ func (c Config) Validate() error {
 	}
 	if cfg.Server.SnapshotRetention <= 0 {
 		return fmt.Errorf("server.snapshot_retention must be positive")
-	}
-	if cfg.Server.PublicationWorkerLease <= 0 {
-		return fmt.Errorf("server.publication_worker_lease must be positive")
-	}
-	if cfg.Server.PublicationMaxAttempts <= 0 {
-		return fmt.Errorf("server.publication_max_attempts must be positive")
 	}
 	for index, selector := range cfg.Server.RequiredDataframeSelectors {
 		if err := selector.Validate(); err != nil {

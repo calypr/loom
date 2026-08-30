@@ -1,7 +1,7 @@
 # Loom Reliability Contract
 
 This document freezes the compatibility contract for versioned dataframe
-publication, immutable ingest, project releases, federation, and ETL. New code
+publication, immutable ingest, project releases, and ETL. New code
 must use these identities and states. The public APIs have no name-only or
 default-contract compatibility path.
 
@@ -10,7 +10,7 @@ default-contract compatibility path.
 A dataframe is identified by the exact selector
 `(recipeName, translationVersion, outputName)`. Serialized selectors use the
 fields `recipe`, `translationVersion`, and `output`; no component is inferred by
-internal publication or federation code.
+internal publication or read code.
 
 A recipe version is identified by `(name, translationVersion)`. Versions are
 retained. A version may be replaced only before its first durable execution is
@@ -26,9 +26,6 @@ resourceType)`, and its checksum is part of the idempotency contract.
 - Publication: `QUEUED`, `RUNNING`, `VALIDATING`, `PUBLISHED`, `FAILED`.
 - Project release: `ACTIVE`; visibility is determined solely by the atomic
   active-release pointer.
-- Federation availability: `AVAILABLE`, `DEGRADED`, `UNAVAILABLE`.
-- Authorized project state: `CURRENT`, `STALE`, `BUILDING`, `FAILED`,
-  `MISSING`, `EXCLUDED`.
 
 Historical storage rows may be normalized by the storage adapters while they
 are retired, but new workflows use only `PUBLISHED`.
@@ -68,18 +65,10 @@ Dataset discovery, rows, aggregate, aggregations, and export require a
 complete `selector`. No `dataType`, materialization-ID, or default recipe
 resolution is accepted.
 
-Dataset metadata exposes the exact selector, active contract version,
-availability, completeness, included and expected project counts, and an
-authorization-filtered project status list. Project status includes project
-state, generation, execution ID, timestamps, error code, and retryability.
-Unauthorized project identities are never returned.
-
-Operator operations support:
-
-1. starting an asynchronous exact-version materialization;
-2. polling its durable execution;
-3. activating a completed project release; and
-4. activating a project release containing the exact published selectors.
+Dataset metadata exposes the exact selector and active project publication.
+Every read requires an explicit authorized project; cross-project discovery
+and schema reconciliation are not supported. Explorer Preview and Publish are
+the supported materialization workflow.
 
 ## Snapshot HTTP API
 
@@ -101,7 +90,6 @@ Public structured errors use stable codes:
 - `DYNAMIC_SCHEMA_DRIFT`: runtime/project-specific fields cannot be reconciled;
 - `RECIPE_CONTRACT_VIOLATION`: a recipe output violates its declared contract;
 - `PUBLICATION_FAILED`: materialization or output verification failed;
-- `FEDERATION_INCOMPATIBLE`: published sources cannot share a logical schema;
 - `CHECKSUM_CONFLICT`: an immutable resource key was reused with new content;
 - `GENERATION_INCOMPLETE`: finalize was requested before all uploads completed;
 - `RELEASE_REQUIREMENTS_UNMET`: required selectors are not published and

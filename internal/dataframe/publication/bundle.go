@@ -10,27 +10,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type DataframeSelector = dataset.DataframeSelector
-
-type AtomicBundleTx interface {
-	CreateOutput(context.Context, string, []clickhouse.Column) error
-	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
-	Commit(context.Context) error
-	Abort(context.Context, error) error
-	Rollback(context.Context) error
-}
-
-// AtomicBundleSchemaFinalizer is the schema-aware publication extension used
-// by targets that can physically drop unpopulated discovered columns before
-// verification and pointer activation.
-type AtomicBundleSchemaFinalizer interface {
-	AtomicBundleTx
-	FinalizeSchema(context.Context, []OutputSchema) error
-	SetFinalSchemaDigest(string) error
-}
 
 // BundleState is the durable lifecycle of a multi-output publication. The
 // physical ClickHouse tables are never reader-visible until the logical
@@ -157,9 +139,6 @@ type BundleExecution struct {
 	FailureRetryable bool                 `json:"failureRetryable,omitempty"`
 	OwnerID          string               `json:"ownerId,omitempty"`
 	LeaseExpiresAt   *time.Time           `json:"leaseExpiresAt,omitempty"`
-	Attempt          int                  `json:"attempt,omitempty"`
-	MaxAttempts      int                  `json:"maxAttempts,omitempty"`
-	NextAttemptAt    *time.Time           `json:"nextAttemptAt,omitempty"`
 	FailurePhase     string               `json:"failurePhase,omitempty"`
 	FailureOutput    string               `json:"failureOutput,omitempty"`
 	FailureDetails   string               `json:"failureDetails,omitempty"`
@@ -206,13 +185,6 @@ type BundleCatalog interface {
 	AcquireBundleLease(context.Context, string, string, time.Time) (bool, error)
 	RenewBundleLease(context.Context, string, string, time.Time) (bool, error)
 	ReleaseBundleLease(context.Context, string, string) error
-}
-
-// SelectorExecutionCatalog is the optimized read seam used by federation
-// status discovery. Implementations return all lifecycle attempts for one
-// exact selector with a single backing-store query.
-type SelectorExecutionCatalog interface {
-	ListSelectorExecutions(context.Context, DataframeSelector, time.Time) ([]BundleExecution, error)
 }
 
 // ExactExecutionCatalog is consumed by project release verification. It never

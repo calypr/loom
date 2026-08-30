@@ -61,12 +61,11 @@ type DataframeReleaseStore interface {
 	GetPointer(context.Context, string) (dataframepublication.BundlePointer, error)
 }
 
-type GenerationRunner interface {
-	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
-
-type Runner interface {
+// Loader is the single ingest boundary. Resource and generation loads are two
+// request shapes over the same configured backend.
+type Loader interface {
 	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
+	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
 }
 
 type IngestRunner struct {
@@ -101,8 +100,7 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 }
 
 type ServiceConfig struct {
-	Runner              Runner
-	GenerationRunner    GenerationRunner
+	Loader              Loader
 	Logger              *slog.Logger
 	OnSuccess           func(project string)
 	GenerationActivator GenerationActivator
@@ -110,8 +108,7 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	runner              Runner
-	generationRunner    GenerationRunner
+	loader              Loader
 	logger              *slog.Logger
 	onSuccess           func(project string)
 	generationActivator GenerationActivator
@@ -119,15 +116,14 @@ type Service struct {
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
-	if cfg.Runner == nil && cfg.GenerationRunner == nil {
+	if cfg.Loader == nil {
 		return nil, errors.New("load runner is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		runner:              cfg.Runner,
-		generationRunner:    cfg.GenerationRunner,
+		loader:              cfg.Loader,
 		logger:              cfg.Logger,
 		onSuccess:           cfg.OnSuccess,
 		generationActivator: cfg.GenerationActivator,
@@ -136,9 +132,6 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 }
 
 func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
-	if s.runner == nil {
-		return nil, errors.New("resource runner is not configured")
-	}
 	if req.Project == "" {
 		return nil, errors.New("project is required")
 	}
@@ -149,7 +142,7 @@ func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, er
 		return nil, errors.New("staged file path is required")
 	}
 
-	summary, err := s.runner.Run(ctx, req, nil)
+	summary, err := s.loader.Run(ctx, req, nil)
 	if err != nil {
 		s.logger.Error("resource load failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
 		return nil, err
@@ -170,9 +163,6 @@ func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, er
 }
 
 func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
-	if s.generationRunner == nil {
-		return nil, errors.New("generation runner is not configured")
-	}
 	if req.Project == "" || req.Generation == "" || req.StagedDir == "" {
 		return nil, errors.New("project, generation, and staged directory are required")
 	}
@@ -196,7 +186,7 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 			return nil, fmt.Errorf("inspect existing generation: %w", err)
 		}
 	}
-	summary, err := s.generationRunner.RunGeneration(ctx, req, nil)
+	summary, err := s.loader.RunGeneration(ctx, req, nil)
 	if err != nil {
 		s.logger.Error("generation load failed", "project", req.Project, "generation", req.Generation, "error", err.Error())
 		return nil, err

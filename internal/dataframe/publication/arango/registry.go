@@ -1,17 +1,12 @@
 package arango
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-type Client interface {
-	QueryRows(context.Context, string, int, map[string]interface{}, arangostore.RowVisitor) error
-	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
-}
+type Client = arangostore.RowBatchClient
 
 type Registry struct {
 	client    Client

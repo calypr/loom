@@ -57,6 +57,10 @@ func (compilerTestRegistry) LoadRecipe(context.Context, string) (exec.Entry, err
 	return exec.Entry{}, nil
 }
 
+func (r compilerTestRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+	return r.LoadRecipe(ctx, name)
+}
+
 type testHTTPResponse struct {
 	StatusCode int
 	Body       string

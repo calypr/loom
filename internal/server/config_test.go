@@ -125,13 +125,11 @@ func TestRequiredDataframeSelectorsAndSnapshotRetentionFromEnvironment(t *testin
 	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `[{"recipe":"core","translationVersion":"v1","output":"Patient"}]`)
 	t.Setenv("LOOM_SNAPSHOT_RETENTION", "48h")
 	t.Setenv("LOOM_SNAPSHOT_DIRECTORY", t.TempDir())
-	t.Setenv("LOOM_PUBLICATION_WORKER_LEASE", "90s")
-	t.Setenv("LOOM_PUBLICATION_MAX_ATTEMPTS", "5")
 	cfg, err := LoadConfig("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour || cfg.Server.PublicationWorkerLease != 90*time.Second || cfg.Server.PublicationMaxAttempts != 5 {
+	if len(cfg.Server.RequiredDataframeSelectors) != 1 || cfg.Server.RequiredDataframeSelectors[0].Output != "Patient" || cfg.Server.SnapshotRetention != 48*time.Hour {
 		t.Fatalf("environment config = %#v", cfg.Server)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {

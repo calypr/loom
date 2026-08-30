@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -23,7 +22,6 @@ type explorerHTTPHandlers struct {
 	authorizer              authscope.Authorizer
 	authorizeRead           explorerConfigReadAuthorizer
 	explorers               *explorer.Service
-	materialize             graphresolver.ExplorerBundleMaterializer
 	lifecycleConfig         ExplorerV2LifecycleConfig
 	application             *lifecycle.Service
 }
@@ -31,14 +29,11 @@ type explorerHTTPHandlers struct {
 // newExplorerHTTPHandlers wires transport adapters to the single Explorer
 // application service. HTTP response conversion and deployment adapters stay
 // in server; lifecycle policy does not.
-func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, configs ...ExplorerV2LifecycleConfig) *explorerHTTPHandlers {
-	handlers := &explorerHTTPHandlers{authorizer: authorizer, authorizeRead: authorizeRead, explorers: explorers, materialize: materialize}
-	config := ExplorerV2LifecycleConfig{Materialize: materialize}
+func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, configs ...ExplorerV2LifecycleConfig) *explorerHTTPHandlers {
+	handlers := &explorerHTTPHandlers{authorizer: authorizer, authorizeRead: authorizeRead, explorers: explorers}
+	config := ExplorerV2LifecycleConfig{}
 	if len(configs) > 0 {
 		config = configs[0]
-		if config.Materialize == nil {
-			config.Materialize = materialize
-		}
 	}
 	handlers.lifecycleConfig = config
 	handlers.application = newExplorerLifecycleApplication(explorers, config)

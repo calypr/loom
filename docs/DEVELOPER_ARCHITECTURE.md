@@ -43,7 +43,7 @@ persistence; `explorer` owns portable Explorer configs, editable drafts,
 immutable revisions, and publication state; `explorer/arango` owns its durable
 adapter; `dataframe/publication` owns dataframe publishing contracts and the
 runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
-`dataframe/published` owns safe published-data reading and federation.
+`dataframe/published` owns safe single-project published-data reads and aggregates.
 
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
 
@@ -75,9 +75,8 @@ for the complete Builder-to-AQL sequence.
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
 Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
 reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
-compiler endpoint. Published ClickHouse dataframe discovery and reads follow the
-stable-GraphQL, dynamic-data contract described in
-[`DATAFRAME_FEDERATION.md`](DATAFRAME_FEDERATION.md).
+compiler endpoint. Published ClickHouse dataframe discovery and reads require
+an explicit authorized project and exact dataframe selector.
 Only registered READY publication outputs are exposed; adding a dataset or
 column must not require GraphQL regeneration or a Loom restart. Publication
 and published-data reads are ClickHouse-only; Loom has no Elasticsearch
@@ -209,7 +208,7 @@ The ClickHouse read path is parallel but separate:
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated graph executor and internal resolver binding
-  -> internal/api/graphql/graph/materialization.Service
+  -> internal/api/graphql/graph/dataframe.Service
   -> dataframe/published.Reader
   -> ClickHouse
 ```

@@ -48,7 +48,7 @@ func ExcludeSelfFilters(filters []Filter, column string) []Filter {
 	return result
 }
 
-func buildAggregatePlan(dataset FederatedDataset, req AggregateBatchRequest) aggregatePlan {
+func buildAggregatePlan(dataset Materialization, req AggregateBatchRequest) aggregatePlan {
 	plan := aggregatePlan{results: make(map[int]AggregateJobResult, len(req.Jobs))}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
@@ -140,7 +140,7 @@ func validateAggregateJob(input AggregateJob, allowed map[string]struct{}) (Aggr
 	for i := range job.GroupBy {
 		job.GroupBy[i] = strings.TrimSpace(job.GroupBy[i])
 		if _, ok := allowed[job.GroupBy[i]]; !ok || internalAggregateColumn(job.GroupBy[i]) {
-			return job, nil, "", "", aggregateInvalidRequest("group column %q is not in federated dataset schema", job.GroupBy[i])
+			return job, nil, "", "", aggregateInvalidRequest("group column %q is not in the published dataset schema", job.GroupBy[i])
 		}
 	}
 	filters, filterKey, err := canonicalFilters(job.Filters, allowed)
@@ -154,14 +154,14 @@ func validateAggregateJob(input AggregateJob, allowed map[string]struct{}) (Aggr
 			job.Column = ""
 		case "COUNT_DISTINCT", "SUM", "AVG", "MIN", "MAX":
 			if _, ok := allowed[job.Column]; !ok || internalAggregateColumn(job.Column) {
-				return job, nil, "", "", aggregateInvalidRequest("metric column %q is not in federated dataset schema", job.Column)
+				return job, nil, "", "", aggregateInvalidRequest("metric column %q is not in the published dataset schema", job.Column)
 			}
 		default:
 			return job, nil, "", "", aggregateInvalidRequest("unsupported aggregate operation %q", input.Operation)
 		}
 	case AggregateResponseTerms, AggregateResponseHistogram, AggregateResponseDateHistogram, AggregateResponseStats, AggregateResponseMissing:
 		if _, ok := allowed[job.Column]; !ok || internalAggregateColumn(job.Column) {
-			return job, nil, "", "", aggregateInvalidRequest("aggregate column %q is not in federated dataset schema", job.Column)
+			return job, nil, "", "", aggregateInvalidRequest("aggregate column %q is not in the published dataset schema", job.Column)
 		}
 		if job.ResponseMode == AggregateResponseTerms || job.ResponseMode == AggregateResponseHistogram || job.ResponseMode == AggregateResponseDateHistogram {
 			if job.Size <= 0 {
@@ -205,7 +205,7 @@ func canonicalFilters(filters []Filter, allowed map[string]struct{}) ([]Filter, 
 		filter.Column = strings.TrimSpace(filter.Column)
 		filter.Op = strings.ToUpper(strings.TrimSpace(filter.Op))
 		if _, ok := allowed[filter.Column]; !ok || internalAggregateColumn(filter.Column) {
-			return nil, "", dataframeerrors.NewError(dataframeerrors.CodeInvalidFilter, fmt.Sprintf("filter column %q is not in federated dataset schema", filter.Column))
+			return nil, "", dataframeerrors.NewError(dataframeerrors.CodeInvalidFilter, fmt.Sprintf("filter column %q is not in the published dataset schema", filter.Column))
 		}
 		switch filter.Op {
 		case "EQ", "NEQ", "IN", "NOT_IN", "LT", "LTE", "GT", "GTE", "CONTAINS", "STARTS_WITH", "EXISTS", "IS_NULL", "ARRAY_CONTAINS", "ARRAY_OVERLAPS":
@@ -260,7 +260,7 @@ func canonicalCollection(value any) any {
 	return values
 }
 
-func statementFamily(job AggregateJob, dataset FederatedDataset) string {
+func statementFamily(job AggregateJob, dataset Materialization) string {
 	switch job.ResponseMode {
 	case AggregateResponseLegacy:
 		return "legacy:" + job.Operation + ":" + job.Column

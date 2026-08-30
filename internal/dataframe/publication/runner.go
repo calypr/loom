@@ -26,10 +26,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
-	supportsObjects := false
-	if objectTarget, ok := target.(ObjectValueTarget); ok {
-		supportsObjects = objectTarget.SupportsObjectValues()
-	}
+	supportsObjects := target.SupportsObjectValues()
 	schemas, err := validateOutputs(normalizedOutputs, supportsObjects)
 	if err != nil {
 		return Result{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
@@ -39,23 +36,13 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
-	if noop, ok := tx.(interface {
-		Idempotent() bool
-		ExistingPublishedOutputs() []PublishedOutput
-	}); ok && noop.Idempotent() {
-		return Result{Outputs: noop.ExistingPublishedOutputs()}, nil
+	if tx.Idempotent() {
+		return Result{Outputs: tx.ExistingPublishedOutputs()}, nil
 	}
 	fail := func(cause error) (Result, error) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		var abortErr error
-		if aborter, ok := tx.(interface {
-			Abort(context.Context, error) error
-		}); ok {
-			abortErr = aborter.Abort(cleanupCtx, cause)
-		} else {
-			abortErr = tx.Rollback(cleanupCtx)
-		}
+		abortErr := tx.Abort(cleanupCtx, cause)
 		return Result{}, errors.Join(cause, abortErr)
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
@@ -128,23 +115,11 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		retained = append(retained, schema)
 	}
 	finalDigest := FinalSchemaDigest(identity, retained)
-	if finalizer, ok := tx.(interface {
-		FinalizeSchema(context.Context, []OutputSchema) error
-	}); ok {
-		if err := finalizer.FinalizeSchema(ctx, retained); err != nil {
-			return fail(fmt.Errorf("publication schema finalization: %w", err))
-		}
-	} else {
-		for index := range retained {
-			if len(retained[index].Columns) != len(normalizedOutputs[index].Columns) {
-				return fail(fmt.Errorf("publication target cannot finalize pruned schema for output %q", retained[index].Name))
-			}
-		}
+	if err := tx.FinalizeSchema(ctx, retained); err != nil {
+		return fail(fmt.Errorf("publication schema finalization: %w", err))
 	}
-	if setter, ok := tx.(interface{ SetFinalSchemaDigest(string) error }); ok {
-		if err := setter.SetFinalSchemaDigest(finalDigest); err != nil {
-			return fail(fmt.Errorf("publication schema digest: %w", err))
-		}
+	if err := tx.SetFinalSchemaDigest(finalDigest); err != nil {
+		return fail(fmt.Errorf("publication schema digest: %w", err))
 	}
 	published, err := tx.Commit(ctx)
 	if err != nil {

@@ -17,8 +17,6 @@ type CompiledQuery struct {
 	PlanMode          string
 	PlanProfile       string
 	TraversalCount    int
-	FileSummaries     bool
-	StudyLookup       bool
 	OptimizationRules []string
 	RowIdentity       *spec.RowIdentity
 	Query             string

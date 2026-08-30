@@ -52,7 +52,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 			name: "misbound root project filter",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				index := findProjectFilter(t, *plan, "root")
-				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: physicalScopeAllowedBind}
+				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: "scope_allowed"}
 			},
 			want: "project scope filter at operation",
 		},
@@ -86,7 +86,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 			name: "misbound root auth allowed marker",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				index := findTestAuthScopeEquality(t, *plan, "root_scope_allowed")
-				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: physicalScopeProjectBind}
+				plan.Operations[index].Filter.Predicate.Right = &ir.PhysicalValue{BindKey: "project"}
 			},
 			want: "auth scope equality",
 		},
@@ -97,7 +97,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 				inputs := plan.Operations[index].DerivedLet.Inputs
 				filtered := inputs[:0]
 				for _, input := range inputs {
-					if input.Variable == "node_1" && physicalPathEquals(input.Path, []string{physicalScopeAuthPathField}) {
+					if input.Variable == "node_1" && physicalPathEquals(input.Path, []string{"auth_resource_path"}) {
 						continue
 					}
 					filtered = append(filtered, input)

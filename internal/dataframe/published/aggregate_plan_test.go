@@ -43,18 +43,12 @@ func (f *aggregateFakeQueryer) QueryRowsArgsVisit(ctx context.Context, query str
 	return nil
 }
 
-func aggregateTestDataset(columnCount int) FederatedDataset {
+func aggregateTestDataset(columnCount int) Materialization {
 	columns := make([]Column, columnCount)
 	for i := range columns {
 		columns[i] = Column{Name: fmt.Sprintf("facet_%03d", i), ClickHouse: "Nullable(String)"}
 	}
-	return FederatedDataset{
-		Columns: columns,
-		Sources: []Materialization{{
-			ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient",
-			Columns: append([]Column(nil), columns...),
-		}},
-	}
+	return Materialization{ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient", Columns: append([]Column(nil), columns...), Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
 }
 
 func TestAggregatePlanCombines156CountFacets(t *testing.T) {
@@ -69,7 +63,7 @@ func TestAggregatePlanCombines156CountFacets(t *testing.T) {
 	)
 	fake := &aggregateFakeQueryer{}
 	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
-		Jobs: jobs, AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Jobs: jobs, Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +103,7 @@ func TestAggregatePlanRanksMultipleTermsByProjectedSlot(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 10},
 			{ID: 2, ResponseMode: AggregateResponseTerms, Column: "facet_001", Size: 10},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +151,7 @@ func TestAggregatePlanValidationIsJobLocal(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"missing"}, Operation: "COUNT"},
 			{ID: 2, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +174,7 @@ func TestAggregateDedupFansOutIndependentRows(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 			{ID: 2, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)

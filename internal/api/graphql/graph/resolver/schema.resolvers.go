@@ -9,14 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/calypr/loom/generated/graphql/graph/executor"
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
@@ -112,73 +110,6 @@ func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input mod
 	return previewResult(recipePreviewView{plan: preview.Plan, outputs: preview.Outputs}, input.Name)
 }
 
-// MaterializeDataframeRecipeBundle is the resolver for the materializeDataframeRecipeBundle field.
-func (r *mutationResolver) MaterializeDataframeRecipeBundle(ctx context.Context, input model.MaterializeDataframeRecipeInput) (*model.DataframeRecipeExecution, error) {
-	bindings, err := graphqlRecipeBindings(input.Bindings)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	bindings, err = r.authorizeRecipeWrite(ctx, bindings)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	if err := requireRecipeControl(r.recipeControl); err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	if r.recipeMaterialize == nil {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
-	}
-	execution, err := r.recipeMaterialize(ctx, input.Name, bindings)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	return executionModel(execution), nil
-}
-
-// StartDataframeMaterialization is the resolver for the startDataframeMaterialization field.
-func (r *mutationResolver) StartDataframeMaterialization(ctx context.Context, input model.StartDataframeMaterializationInput) (*model.DataframeRecipeExecution, error) {
-	selector := dataset.DataframeSelector{Recipe: input.Selector.Recipe, TranslationVersion: input.Selector.TranslationVersion, Output: input.Selector.Output}
-	if !selector.Valid() || input.Project == "" || input.Generation == "" {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, ""))
-	}
-	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.Project, DatasetGeneration: input.Generation})
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	if r.exactMaterializationStarter == nil {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
-	}
-	execution, err := r.exactMaterializationStarter(ctx, selector, bindings)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	return executionModel(execution), nil
-}
-
-// ActivateProjectRelease is the resolver for the activateProjectRelease field.
-func (r *mutationResolver) ActivateProjectRelease(ctx context.Context, input model.ActivateProjectReleaseInput) (*model.ProjectRelease, error) {
-	project, releaseID := strings.TrimSpace(input.Project), strings.TrimSpace(input.ReleaseID)
-	if project == "" || releaseID == "" {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, ""))
-	}
-	bindings, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: project})
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	if r.projectReleaseActivator == nil {
-		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
-	}
-	expected := ""
-	if input.ExpectedActiveRevision != nil {
-		expected = strings.TrimSpace(*input.ExpectedActiveRevision)
-	}
-	release, err := r.projectReleaseActivator(ctx, bindings.Project, releaseID, expected)
-	if err != nil {
-		return nil, recipeGraphQLError(err)
-	}
-	return &model.ProjectRelease{ID: release.ID, Project: release.Project, Generation: release.Generation, Revision: release.Revision, State: model.ProjectReleaseState(release.State)}, nil
-}
-
 // RegisterDataframeRecipeRevision is the resolver for the registerDataframeRecipeRevision field.
 func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error) {
 	if r.recipeRevisions == nil {
@@ -202,44 +133,31 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	return recipeRevisionModel(value), nil
 }
 
-// DataframeDatasets is the resolver for the dataframeDatasets field.
-func (r *queryResolver) DataframeDatasets(ctx context.Context) ([]*model.DataframeMaterialization, error) {
-	values, err := r.materializations.Datasets(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]*model.DataframeMaterialization, 0, len(values))
-	for _, value := range values {
-		result = append(result, materializationapi.Model(value))
-	}
-	return result, nil
-}
-
 // ProjectDataframeDatasets is the resolver for the projectDataframeDatasets field.
 func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error) {
-	values, err := r.materializations.ProjectDatasets(ctx, projectID)
+	values, err := r.dataframes.ProjectDatasets(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]*model.DataframeMaterialization, 0, len(values))
 	for _, value := range values {
-		result = append(result, materializationapi.Model(value))
+		result = append(result, dataframeapi.Model(value))
 	}
 	return result, nil
 }
 
 // DataframeDataset is the resolver for the dataframeDataset field.
 func (r *queryResolver) DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error) {
-	value, err := r.materializations.Dataset(ctx, input)
+	value, err := r.dataframes.Dataset(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	return materializationapi.Model(*value), nil
+	return dataframeapi.Model(*value), nil
 }
 
 // DataframeRows is the resolver for the dataframeRows field.
 func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
-	page, err := r.materializations.Rows(ctx, input)
+	page, err := r.dataframes.Rows(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +171,7 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 	}
 	totalCount := int(page.TotalCount)
 	return &model.DataframeRowConnection{
-		Materialization: materializationapi.Model(page.Materialization),
+		Materialization: dataframeapi.Model(page.Materialization),
 		Columns:         append([]string(nil), page.Columns...), Rows: rows, TotalCount: &totalCount,
 		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
 	}, nil
@@ -261,28 +179,28 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 
 // DataframeAggregate is the resolver for the dataframeAggregate field.
 func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
-	result, err := r.materializations.AggregateInput(ctx, input)
+	result, err := r.dataframes.AggregateInput(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := materializationapi.AggregateRowsResult(result.Rows)
+	rows, err := dataframeapi.AggregateRowsResult(result.Rows)
 	if err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
 	}
-	return &model.DataframeAggregateResult{Materialization: materializationapi.Model(result.Materialization), Columns: result.Columns, Rows: rows}, nil
+	return &model.DataframeAggregateResult{Materialization: dataframeapi.Model(result.Materialization), Columns: result.Columns, Rows: rows}, nil
 }
 
 // DataframeAggregations is the resolver for the dataframeAggregations field.
 func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
-	result, err := r.materializations.AggregationsInput(ctx, input)
+	result, err := r.dataframes.AggregationsInput(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	aggregations, err := materializationapi.AggregationsJSON(result)
+	aggregations, err := dataframeapi.AggregationsJSON(result)
 	if err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
 	}
-	return &model.DataframeAggregationsResult{Materialization: materializationapi.FederatedMaterialization(result.Dataset), Aggregations: aggregations}, nil
+	return &model.DataframeAggregationsResult{Materialization: dataframeapi.Model(result.Materialization), Aggregations: aggregations}, nil
 }
 
 // DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.

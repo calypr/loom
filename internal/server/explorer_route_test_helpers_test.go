@@ -1,7 +1,6 @@
 package server
 
 import (
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
@@ -27,8 +26,8 @@ func registerTestExplorerAuthoringRoutes(router fiber.Router, authorizer authsco
 	router.Post(base+"/publish", h.publish)
 }
 
-func registerTestExplorerRoutes(router fiber.Router, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, service *explorer.Service, materialize graphresolver.ExplorerBundleMaterializer, config ExplorerV2LifecycleConfig) {
-	h := newExplorerHTTPHandlers(authorizer, authorizeRead, service, materialize, config)
+func registerTestExplorerRoutes(router fiber.Router, authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, service *explorer.Service, config ExplorerV2LifecycleConfig) {
+	h := newExplorerHTTPHandlers(authorizer, authorizeRead, service, config)
 	router.Post("/api/v1/projects/:project/generations/:generation/explorer-config", h.publishRepositoryConfig)
 	registerTestExplorerLifecycleRoutes(router, authorizer, authorizeRead, service, config)
 	registerTestExplorerAuthoringRoutes(router, authorizer, authorizeRead, service, config)

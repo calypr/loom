@@ -24,8 +24,6 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		return r.renderPivot(expression)
 	case ir.PhysicalSliceExpression:
 		return r.renderSlice(expression)
-	case ir.PhysicalLookupExpression:
-		return r.renderLookup(expression)
 	case ir.PhysicalObjectLookupExpression:
 		if expression.ObjectLookup == nil {
 			return "", fmt.Errorf("OBJECT_LOOKUP expression is missing payload")
@@ -111,39 +109,6 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) 
     LET __loom_keyed_values = %s
     RETURN { [__loom_keyed_group_key]: __loom_keyed_values }
 )`, item, sourceLoop, key, valueExpression, values), nil
-}
-
-// renderLookup emits the sole canonical AQL lowering for a bounded dynamic
-// key/value projection. AQL's FOR-over-null behavior supplies the empty
-// source semantics; FIRST preserves the historical scalar-column contract
-// when a key is absent or appears more than once.
-func (r *physicalPlanRenderer) renderLookup(expression ir.PhysicalExpression) (string, error) {
-	lookup := expression.Lookup
-	if lookup == nil {
-		return "", fmt.Errorf("LOOKUP expression is missing payload")
-	}
-	source, err := r.renderExpression(lookup.Source)
-	if err != nil {
-		return "", fmt.Errorf("lookup source: %w", err)
-	}
-	key, err := r.renderExpression(lookup.ItemKey)
-	if err != nil {
-		return "", fmt.Errorf("lookup item key: %w", err)
-	}
-	value, err := r.renderExpression(lookup.ItemValue)
-	if err != nil {
-		return "", fmt.Errorf("lookup item value: %w", err)
-	}
-	if lookup.MatchBindKey == "" {
-		return "", fmt.Errorf("lookup match bind key is required")
-	}
-	if _, ok := r.bindVars[lookup.MatchBindKey]; !ok {
-		return "", fmt.Errorf("lookup match bind key %q is not defined", lookup.MatchBindKey)
-	}
-	// AQL FOR over a null array produces no rows, which is the canonical
-	// missing-key/null projection behavior. Keep the source expression single
-	// evaluated per lookup instead of duplicating it in a null ternary.
-	return fmt.Sprintf("FIRST(FOR %s IN %s FILTER %s == @%s RETURN %s)", lookup.ItemVariable, source, key, lookup.MatchBindKey, value), nil
 }
 
 func (r *physicalPlanRenderer) renderKeySet(expression ir.PhysicalExpression) (string, error) {

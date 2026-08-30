@@ -36,16 +36,11 @@ const (
 	PhysicalValueExpression PhysicalExpressionKind = "VALUE"
 	// PhysicalLiteralExpression is a typed bind-backed constant. Literals are
 	// kept out of generated AQL so recipe authors cannot inject query source.
-	PhysicalLiteralExpression   PhysicalExpressionKind = "LITERAL"
-	PhysicalExtractExpression   PhysicalExpressionKind = "EXTRACT"
-	PhysicalAggregateExpression PhysicalExpressionKind = "AGGREGATE"
-	PhysicalPivotExpression     PhysicalExpressionKind = "PIVOT_MAP"
-	PhysicalSliceExpression     PhysicalExpressionKind = "SLICE"
-	// PhysicalLookupExpression performs one bounded key lookup over a
-	// collection-valued expression. It is backend-neutral and is useful for
-	// any frontend that freezes a finite set of key/value columns before
-	// execution; it is not a recipe-specific dynamic-map operation.
-	PhysicalLookupExpression       PhysicalExpressionKind = "LOOKUP"
+	PhysicalLiteralExpression      PhysicalExpressionKind = "LITERAL"
+	PhysicalExtractExpression      PhysicalExpressionKind = "EXTRACT"
+	PhysicalAggregateExpression    PhysicalExpressionKind = "AGGREGATE"
+	PhysicalPivotExpression        PhysicalExpressionKind = "PIVOT_MAP"
+	PhysicalSliceExpression        PhysicalExpressionKind = "SLICE"
 	PhysicalObjectLookupExpression PhysicalExpressionKind = "OBJECT_LOOKUP"
 	PhysicalKeyedMapExpression     PhysicalExpressionKind = "KEYED_MAP"
 	PhysicalObjectKeysExpression   PhysicalExpressionKind = "OBJECT_KEYS"
@@ -83,7 +78,6 @@ type PhysicalExpression struct {
 	Aggregate    *PhysicalAggregate
 	Pivot        *PhysicalPivotMap
 	Slice        *PhysicalSlice
-	Lookup       *PhysicalLookup
 	ObjectLookup *PhysicalObjectLookup
 	KeyedMap     *PhysicalKeyedMap
 	ObjectKeys   *PhysicalObjectKeys
@@ -183,23 +177,6 @@ type PhysicalPivotMap struct {
 	FlattenSingleColumn bool
 	PreparedKey         *PhysicalPreparedReference
 	PreparedValue       *PhysicalPreparedReference
-}
-
-// PhysicalLookup is a typed, bounded lookup over one array-valued source.
-// ItemVariable is introduced only while evaluating ItemKey and ItemValue;
-// neither expression contains backend query text. MatchBindKey names the
-// scalar bind containing the frozen key for this output projection.
-//
-// Source is intentionally an expression rather than a PhysicalValue because
-// dynamic sources commonly select repeated values from a root payload. The
-// optimizer can fingerprint identical sources and the renderer can keep the
-// lookup shape identical across frontends.
-type PhysicalLookup struct {
-	Source       PhysicalExpression
-	ItemVariable string
-	ItemKey      PhysicalExpression
-	ItemValue    PhysicalExpression
-	MatchBindKey string
 }
 
 type PhysicalObjectLookup struct {

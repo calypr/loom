@@ -1,4 +1,4 @@
-package materializationapi
+package dataframe
 
 import (
 	"context"

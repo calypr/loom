@@ -26,10 +26,28 @@ type Client struct {
 	client *http.Client
 }
 
-// Transaction is the narrow query surface used by stores that need to make
-// several collection updates visible as one Arango transaction.
-type Transaction interface {
+// RowQueryer is the narrow row-query surface shared by Arango adapters. It is
+// also the only capability exposed to transaction callbacks.
+type RowQueryer interface {
 	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
+}
+
+// BatchInserter is the narrow raw-document write surface shared by Arango
+// adapters.
+type BatchInserter interface {
+	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
+}
+
+// AQLExecutor is the narrow surface used for non-row AQL statements.
+type AQLExecutor interface {
+	ExecuteAQL(context.Context, string, map[string]interface{}) error
+}
+
+// RowBatchClient is the narrow composite used by registries that only need
+// query and raw-document batch-write capabilities.
+type RowBatchClient interface {
+	RowQueryer
+	BatchInserter
 }
 
 type TransactionCollections struct {
@@ -37,7 +55,7 @@ type TransactionCollections struct {
 	Write []string
 }
 
-type TransactionFunc func(context.Context, Transaction) error
+type TransactionFunc func(context.Context, RowQueryer) error
 
 var bufferPool = sync.Pool{
 	New: func() any {

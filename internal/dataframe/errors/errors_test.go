@@ -21,7 +21,7 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeGenerationLoadIncomplete, CodeGenerationActivationUnknown, CodeInvalidGenerationFile,
 		CodeDuplicateGenerationFile, CodePublicationInProgress, CodePublicationConflict,
 		CodePublicationLeaseLost, CodePublicationFailed, CodeOutputEncodingFailed,
-		CodeDynamicSchemaDrift, CodeRecipeContractViolation, CodeFederationIncompatible,
+		CodeDynamicSchemaDrift, CodeRecipeContractViolation,
 		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
 		CodePreviewResponseTooLarge,
 	}

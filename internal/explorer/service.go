@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -325,15 +326,15 @@ func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt Compilati
 	return s.store.InsertCompilationReceipt(ctx, receipt)
 }
 
-// PublishAuthoring atomically stores the server receipt and immutable revision
-// and switches the Explorer's active pointer.
-func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision) (*Revision, error) {
+// PublishAuthoring atomically stores the receipt and immutable revision, then
+// switches both the dataset release and Explorer active pointers.
+func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
 	if receipt.ID == "" || revision.ID == "" || revision.CompilationReceiptID != receipt.ID {
 		return nil, fmt.Errorf("authoring publication identity is incomplete")
 	}
 	receipt.Project = projectid.Canonical(receipt.Project)
 	revision.Project = projectid.Legacy(revision.Project)
-	return s.store.PublishAuthoring(ctx, receipt, revision)
+	return s.store.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
 
 // UpsertRepositoryV2 records the repository-owned default and its immutable

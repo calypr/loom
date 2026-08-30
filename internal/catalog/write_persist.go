@@ -6,15 +6,10 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	store "github.com/calypr/loom/internal/store/arango"
 )
 
-type aqlExecutor interface {
-	ExecuteAQL(context.Context, string, map[string]interface{}) error
-}
-
-func WriteFieldCatalog(ctx context.Context, client interface {
-	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
-}, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func WriteFieldCatalog(ctx context.Context, client store.BatchInserter, collection string, docs []FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -45,9 +40,7 @@ func WriteFieldCatalog(ctx context.Context, client interface {
 }
 
 // WriteRelationshipCatalog persists committed edge cardinalities for a load.
-func WriteRelationshipCatalog(ctx context.Context, client interface {
-	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
-}, docs []RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func WriteRelationshipCatalog(ctx context.Context, client store.BatchInserter, docs []RelationshipCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}
@@ -84,7 +77,7 @@ func WriteRelationshipCatalog(ctx context.Context, client interface {
 
 // AccumulateRelationshipCatalog adds edge counts to the existing unversioned
 // resource catalog without replacing counts written by other resource files.
-func AccumulateRelationshipCatalog(ctx context.Context, client aqlExecutor, docs []RelationshipCatalogDocument, timings map[string]float64) error {
+func AccumulateRelationshipCatalog(ctx context.Context, client store.AQLExecutor, docs []RelationshipCatalogDocument, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}

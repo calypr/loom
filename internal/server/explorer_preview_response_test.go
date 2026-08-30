@@ -51,9 +51,6 @@ func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 	if !errors.Is(err, ErrPreviewResponseTooLarge) {
 		t.Fatalf("Visit error = %v, want %v", err, ErrPreviewResponseTooLarge)
 	}
-	if _, err := encodeExplorerPreviewResponse(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, []map[string]any{{"value": strings.Repeat("x", 2048)}}, 1024); !errors.Is(err, ErrPreviewResponseTooLarge) {
-		t.Fatalf("legacy encode error = %v, want %v", err, ErrPreviewResponseTooLarge)
-	}
 }
 
 func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {

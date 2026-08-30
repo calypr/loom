@@ -49,9 +49,12 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		CompileReceipt: func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
+		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+			return materialize(ctx, receipt.Bundle, bindings)
+		},
 		ActivateRelease: activateRelease,
 	}
-	registerTestExplorerRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, materialize, config)
+	registerTestExplorerRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
 	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerWorkspaceV2()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {

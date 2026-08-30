@@ -7,7 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // BuildGenericPhysicalPlanWithPolicy lowers one canonical output with an
@@ -28,13 +27,6 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	if err := semanticpkg.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if !fhirschema.ResourceExists(output.Root.ResourceType) {
-		return ir.PhysicalPlan{}, fmt.Errorf("root resource type %q is not represented by the generated FHIR schema", output.Root.ResourceType)
-	}
-	if err := validateGenericPhysicalNode(output.Root, true); err != nil {
-		return ir.PhysicalPlan{}, err
-	}
-
 	physical := ir.PhysicalPlan{
 		Version: 1,
 		Source: ir.PhysicalSource{
@@ -243,13 +235,4 @@ func appendAuthScope(operations []ir.PhysicalOperation, scopedValues []ir.Physic
 		Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: "auth_resource_path"},
 		Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: resultVariable}, Right: &right}},
 	})
-}
-
-func validateGenericPhysicalNode(node semanticpkg.SemanticNode, root bool) error {
-	for _, child := range node.Children {
-		if err := validateGenericPhysicalNode(child, false); err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -71,7 +71,7 @@ func TestGraphQLAggregateAliasesUseOneGroupingStatement(t *testing.T) {
 		State: dfpublication.BundlePublished, UpdatedAt: now,
 		Outputs: []dfpublication.BundleOutputRecord{{
 			Name: "Patient", PhysicalTable: "physical_patient", Columns: columns,
-			State: dfpublication.BundlePublished,
+			State: dfpublication.BundlePublished, VerifiedAt: &now,
 		}},
 	}}
 	queryer := &aggregateHTTPQueryer{}
@@ -89,14 +89,14 @@ func TestGraphQLAggregateAliasesUseOneGroupingStatement(t *testing.T) {
 		if i == 0 {
 			directive = " @include(if: $include)"
 		}
-		fmt.Fprintf(&fields, " a%03d: dataframeAggregate(input: {selector: $selector, groupBy: [\"facet_%03d\"], operation: \"COUNT\"})%s { columns rows materialization { id } }", i, i, directive)
+		fmt.Fprintf(&fields, " a%03d: dataframeAggregate(input: {projectId: \"P1\", selector: $selector, groupBy: [\"facet_%03d\"], operation: \"COUNT\"})%s { columns rows materialization { id } }", i, i, directive)
 	}
-	fields.WriteString(" totalA: dataframeAggregate(input: {selector: $selector, operation: \"COUNT\"}) { columns rows materialization { id } }")
-	fields.WriteString(" totalB: dataframeAggregate(input: {selector: $selector, operation: \"COUNT\"}) { columns rows materialization { id } }")
+	fields.WriteString(" totalA: dataframeAggregate(input: {projectId: \"P1\", selector: $selector, operation: \"COUNT\"}) { columns rows materialization { id } }")
+	fields.WriteString(" totalB: dataframeAggregate(input: {projectId: \"P1\", selector: $selector, operation: \"COUNT\"}) { columns rows materialization { id } }")
 	query := "query AggregateTable($selector: DataframeSelectorInput!, $include: Boolean!) {" +
-		" page: dataframeRows(input: {selector: $selector, columns: [\"facet_000\"], first: 1}) { columns rows }" +
+		" page: dataframeRows(input: {projectId: \"P1\", selector: $selector, columns: [\"facet_000\"], first: 1}) { columns rows }" +
 		" ...FacetFields" +
-		" skipped: dataframeAggregate(input: {selector: $selector, operation: \"COUNT\"}) @skip(if: true) { columns }" +
+		" skipped: dataframeAggregate(input: {projectId: \"P1\", selector: $selector, operation: \"COUNT\"}) @skip(if: true) { columns }" +
 		"} fragment FacetFields on Query {" + fields.String() + "}"
 	body, err := json.Marshal(map[string]any{
 		"query": query,
@@ -174,7 +174,7 @@ func TestGraphQLTableRenderCombinesRowsAndTermsFacets(t *testing.T) {
 		State: dfpublication.BundlePublished, UpdatedAt: now,
 		Outputs: []dfpublication.BundleOutputRecord{{
 			Name: "Patient", PhysicalTable: "physical_patient", Columns: columns,
-			State: dfpublication.BundlePublished,
+			State: dfpublication.BundlePublished, VerifiedAt: &now,
 		}},
 	}}
 	queryer := &aggregateHTTPQueryer{}
@@ -208,8 +208,8 @@ func TestGraphQLTableRenderCombinesRowsAndTermsFacets(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"query": query,
 		"variables": map[string]any{
-			"rows":   map[string]any{"selector": selector, "columns": []string{"facet_000", "facet_001", "facet_002"}, "filters": []any{}, "first": 10},
-			"facets": map[string]any{"selector": selector, "filters": []any{}, "specs": specs},
+			"rows":   map[string]any{"projectId": "P1", "selector": selector, "columns": []string{"facet_000", "facet_001", "facet_002"}, "filters": []any{}, "first": 10},
+			"facets": map[string]any{"projectId": "P1", "selector": selector, "filters": []any{}, "specs": specs},
 		},
 	})
 	if err != nil {

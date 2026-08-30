@@ -91,27 +91,10 @@ type CandidateRequest struct {
 	Chart            *Chart
 }
 
-// CostEstimate is intentionally descriptive rather than a hidden limit. A
-// caller may install a policy that rejects an expensive finite request while
-// still allowing arbitrary route depth when its own budget permits it.
-type CostEstimate struct {
-	TraversalCount int
-	CandidateCount int
-}
-
-// CostPolicy is an optional request-scoped safety hook. It is called before
-// compilation and receives the context supplied to the probe.
-type CostPolicy interface {
-	Allow(context.Context, CostEstimate) error
-}
-
-// Options controls the explicitly authorized physical rewrite and cost
-// policy. The default is the same conservative policy used by normal recipe
-// compilation.
+// Options controls the explicitly authorized physical rewrite. The default is
+// the same conservative policy used by normal recipe compilation.
 type Options struct {
-	Policy    ir.PhysicalOptimizationPolicy
-	Cost      CostPolicy
-	CostLimit int
+	Policy ir.PhysicalOptimizationPolicy
 }
 
 func (o Options) normalized() Options {
@@ -242,11 +225,6 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	}
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
-	}
-	if optionsValue.Cost != nil {
-		if err := optionsValue.Cost.Allow(ctx, CostEstimate{TraversalCount: len(request.Route), CandidateCount: 1}); err != nil {
-			return Result{}, err
-		}
 	}
 	fieldKind := prepared.fieldKind
 	metadata := CandidateCapability{ResourceType: prepared.resourceType, FieldRef: prepared.fieldRef, Selector: prepared.selector.CanonicalPath(), FieldKind: fieldKind, Primitive: prepared.primitive, Cardinality: prepared.cardinality, Repeated: prepared.repeated}
@@ -427,11 +405,6 @@ func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, optio
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
 	options = options.normalized()
-	if options.Cost != nil {
-		if err := options.Cost.Allow(ctx, CostEstimate{TraversalCount: countSemanticTraversals(output.Root)}); err != nil {
-			return ir.PhysicalPlan{}, Rendered{}, err
-		}
-	}
 	context := semantic.ExecutionContext{
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
@@ -637,14 +610,6 @@ func findTraversal(plan ir.PhysicalPlan) (ir.PhysicalTraversal, bool) {
 		return ir.PhysicalTraversal{}, false
 	}
 	return walk(plan.Operations)
-}
-
-func countSemanticTraversals(node semantic.SemanticNode) int {
-	total := len(node.Children)
-	for _, child := range node.Children {
-		total += countSemanticTraversals(child)
-	}
-	return total
 }
 
 func contextErr(ctx context.Context) error {

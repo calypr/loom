@@ -277,7 +277,7 @@ func fixtureManifest(t *testing.T, project, id string, state publication.State) 
 	return manifest
 }
 
-func mustStore(t *testing.T, client QueryRowsClient) *Store {
+func mustStore(t *testing.T, client arangostore.RowQueryer) *Store {
 	t.Helper()
 	store, err := New(client)
 	if err != nil {

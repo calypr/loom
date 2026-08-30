@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (s *Store) CreateOrResumeSnapshot(ctx context.Context, candidate dataset.SnapshotGeneration) (dataset.SnapshotGeneration, error) {
@@ -164,6 +165,13 @@ func (s *Store) ReadActiveRelease(ctx context.Context, project string) (dataset.
 }
 
 func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
+	return CompareAndSwapActivateRelease(ctx, s.client, release, expectedRevision)
+}
+
+// CompareAndSwapActivateRelease performs the release visibility switch using
+// the supplied transaction-scoped queryer. Explorer publication uses this to
+// commit its active revision and dataset release in one Arango transaction.
+func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
 	releaseDocument, err := lifecycleDocument(release)
 	if err != nil {
 		return dataset.ActiveRelease{}, err
@@ -183,7 +191,7 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	binds["staged_state"] = string(dataset.StateStaged)
 	binds["ready_state"] = string(dataset.StateReady)
 	var active *dataset.ActiveRelease
-	err = s.client.QueryRows(ctx, activateReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
+	err = client.QueryRows(ctx, activateReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
 		decoded, err := decodeValue[dataset.ActiveRelease](row)
 		if err != nil {
 			return err

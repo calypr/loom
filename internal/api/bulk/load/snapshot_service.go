@@ -24,7 +24,7 @@ type SnapshotBlobStore interface {
 type SnapshotService struct {
 	Repository dataset.SnapshotRepository
 	Blobs      SnapshotBlobStore
-	Runner     GenerationRunner
+	Runner     Loader
 	Now        func() time.Time
 	locks      sync.Map
 }
@@ -173,7 +173,7 @@ func (s *SnapshotService) Abort(ctx context.Context, project, generation string)
 	return aborted, nil
 }
 
-func runGeneration(runner GenerationRunner, ctx context.Context, request GenerationLoadRequest) (*GenerationLoadResult, error) {
+func runGeneration(runner Loader, ctx context.Context, request GenerationLoadRequest) (*GenerationLoadResult, error) {
 	summary, err := runner.RunGeneration(ctx, request, nil)
 	if err != nil {
 		return nil, err

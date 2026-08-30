@@ -42,11 +42,6 @@ func newExplorerLifecycleApplication(store *explorer.Service, config ExplorerV2L
 			return config.CompileReceipt(ctx, request)
 		}
 	}
-	if config.Preview != nil {
-		appConfig.Preview = func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
-			return config.Preview(ctx, bundle, bindings)
-		}
-	}
 	if config.PreviewReceipt != nil {
 		appConfig.PreviewReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			return config.PreviewReceipt(ctx, receipt, bindings, visit)
@@ -62,17 +57,16 @@ func newExplorerLifecycleApplication(store *explorer.Service, config ExplorerV2L
 			return config.ActivateRelease(ctx, project, generation, selectors)
 		}
 	}
+	if config.PrepareRelease != nil {
+		appConfig.PrepareRelease = func(ctx context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+			return config.PrepareRelease(ctx, project, generation, selectors)
+		}
+	}
 	if config.AuthorizedCapabilityCompile != nil {
 		appConfig.Capability.ForCompilation = config.AuthorizedCapabilityCompile
 	}
 	if config.AuthorizedCapabilityExecution != nil {
 		appConfig.Capability.ForExecution = config.AuthorizedCapabilityExecution
-	}
-	if config.Materialize != nil {
-		appConfig.Materialize = func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
-			value, err := config.Materialize(ctx, bundle, bindings)
-			return toExecution(value), err
-		}
 	}
 	if config.MaterializeReceipt != nil {
 		appConfig.MaterializeReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {

@@ -1,10 +1,6 @@
 package ir
 
-import (
-	"encoding/json"
-
-	"github.com/calypr/loom/internal/dataframe/spec"
-)
+import "github.com/calypr/loom/internal/dataframe/spec"
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -87,9 +83,6 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 		if operation.Filter != nil && operation.Filter.Expression != nil {
 			canonicalizePhysicalPredicateExpression(operation.Filter.Expression)
 		}
-		if operation.DerivedLet != nil && operation.DerivedLet.Expression != nil {
-			canonicalizePhysicalExpression(operation.DerivedLet.Expression)
-		}
 		if operation.ExpressionLet != nil {
 			canonicalizePhysicalExpression(&operation.ExpressionLet.Expression)
 		}
@@ -142,11 +135,6 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 		for index := range expression.Slice.Projections {
 			canonicalizePhysicalExpression(&expression.Slice.Projections[index].Expression)
 		}
-	}
-	if expression.Lookup != nil {
-		canonicalizePhysicalExpression(&expression.Lookup.Source)
-		canonicalizePhysicalExpression(&expression.Lookup.ItemKey)
-		canonicalizePhysicalExpression(&expression.Lookup.ItemValue)
 	}
 	if expression.KeyedMap != nil {
 		canonicalizePhysicalExpression(&expression.KeyedMap.Source)
@@ -232,10 +220,6 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		derivedCopy.Inputs = make([]PhysicalValue, len(operation.DerivedLet.Inputs))
 		for index, input := range operation.DerivedLet.Inputs {
 			derivedCopy.Inputs[index] = clonePhysicalValue(input)
-		}
-		if operation.DerivedLet.Expression != nil {
-			expression := clonePhysicalExpression(*operation.DerivedLet.Expression)
-			derivedCopy.Expression = &expression
 		}
 		copy.DerivedLet = &derivedCopy
 	}
@@ -379,13 +363,6 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Slice = &slice
 	}
-	if expression.Lookup != nil {
-		lookup := *expression.Lookup
-		lookup.Source = clonePhysicalExpression(expression.Lookup.Source)
-		lookup.ItemKey = clonePhysicalExpression(expression.Lookup.ItemKey)
-		lookup.ItemValue = clonePhysicalExpression(expression.Lookup.ItemValue)
-		copy.Lookup = &lookup
-	}
 	if expression.ObjectLookup != nil {
 		lookup := *expression.ObjectLookup
 		copy.ObjectLookup = &lookup
@@ -422,20 +399,6 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		copy.Object = &object
 	}
 	return copy
-}
-
-// PhysicalExpressionFingerprint returns a deterministic structural identity
-// for optimizer reuse decisions. It intentionally includes typed bind keys
-// and cardinality/null contracts but never bind values.
-func PhysicalExpressionFingerprint(expression PhysicalExpression) (string, error) {
-	if err := validatePhysicalExpressionObjectCycles(expression); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(expression)
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
 }
 
 func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {

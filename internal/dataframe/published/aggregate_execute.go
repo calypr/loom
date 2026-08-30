@@ -15,7 +15,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset FederatedDataset, req AggregateBatchRequest) (AggregateBatchResult, error) {
+func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset Materialization, req AggregateBatchRequest) (AggregateBatchResult, error) {
 	result := AggregateBatchResult{LogicalJobs: len(req.Jobs)}
 	if r == nil || r.ClickHouse == nil {
 		return result, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -42,7 +42,7 @@ func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset FederatedDat
 	if r.Logger != nil {
 		r.Logger.Debug("dataframe aggregate plan built",
 			"selector", dataset.Selector.Key(),
-			"source_count", len(dataset.Sources),
+			"source_count", 1,
 			"logical_jobs", result.LogicalJobs,
 			"valid_jobs", len(plan.jobs),
 			"deduplicated_jobs", result.DeduplicatedJobs,
@@ -54,7 +54,7 @@ func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset FederatedDat
 		if err := ctx.Err(); err != nil {
 			return assembleAggregateBatchResult(req.Jobs, plan, result), err
 		}
-		sql, err := buildAggregateSQL(dataset, req.AccessByProject, statement)
+		sql, err := buildAggregateSQL(dataset, req, statement)
 		if err != nil {
 			setStatementError(plan.results, statement, err)
 			continue
@@ -72,7 +72,7 @@ func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset FederatedDat
 				"statement_kind", string(statement.kind),
 				"job_count", len(statement.jobs),
 				"grouping_sets", sql.groupingSets,
-				"source_count", len(dataset.Sources),
+				"source_count", 1,
 				"source_column_count", len(sql.sourceColumns),
 				"query_id", shortQueryID(sql.query),
 				"query_bytes", len(sql.query),
@@ -82,12 +82,12 @@ func (r *Reader) ExecuteAggregateBatch(ctx context.Context, dataset FederatedDat
 		rows, err := r.ClickHouse.QueryRowsArgs(ctx, sql.query, sql.columns, sql.args...)
 		if err != nil {
 			if r.Logger != nil {
-				r.Logger.Error("clickhouse federated aggregate failed",
+				r.Logger.Error("clickhouse aggregate failed",
 					"selector", dataset.Selector.Key(),
 					"statement_kind", string(statement.kind),
 					"job_count", len(statement.jobs),
 					"grouping_sets", sql.groupingSets,
-					"source_count", len(dataset.Sources),
+					"source_count", 1,
 					"source_column_count", len(sql.sourceColumns),
 					"query_id", shortQueryID(sql.query),
 					"query_bytes", len(sql.query),

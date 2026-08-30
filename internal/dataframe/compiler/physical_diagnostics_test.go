@@ -44,9 +44,4 @@ func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T)
 	if singletonGroups != 1 {
 		t.Fatalf("non-identical aggregate singleton count = %d, diagnostics=%#v", singletonGroups, diagnostics.RichConsumerGroups)
 	}
-	for _, state := range diagnostics.OptimizationPolicy.RuleStates {
-		if state.Rule == ir.PhysicalOptimizationRuleRichConsumerFusion && state.Enabled {
-			t.Fatalf("rich-consumer fusion unexpectedly enabled: %#v", state)
-		}
-	}
 }

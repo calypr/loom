@@ -28,6 +28,10 @@ func (invalidRecipeRegistry) LoadRecipe(context.Context, string) (exec.Entry, er
 	}}, nil
 }
 
+func (r invalidRecipeRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+	return r.LoadRecipe(ctx, name)
+}
+
 func TestMaterializeMarksResolutionFailures(t *testing.T) {
 	engine, err := New(Config{
 		Registry: invalidRecipeRegistry{},

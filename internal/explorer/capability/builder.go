@@ -10,9 +10,6 @@ import (
 	"strings"
 )
 
-// The observation interfaces intentionally speak only in evidence. They do
-// not expose generated schema or database handles, so an observer can never
-// turn an accidental profiler row into an executable capability on its own.
 type ResourceObservation struct {
 	ResourceType  string
 	Populated     bool
@@ -42,22 +39,17 @@ type FieldObservation struct {
 	SuggestionsTruncated  bool
 }
 
-type ResourceInventory interface {
-	ListResources(context.Context) ([]ResourceObservation, error)
-}
-type RelationshipEvidence interface {
-	ListRelationships(context.Context) ([]RelationshipObservation, error)
-}
-type FieldEvidence interface {
-	ListFields(context.Context) ([]FieldObservation, error)
-}
+// Evidence is the complete catalog evidence set used to build a capability
+// snapshot. Availability is explicit because an empty result is valid evidence
+// for some generations, while an unavailable source must fail closed.
+type Evidence struct {
+	Resources     []ResourceObservation
+	Relationships []RelationshipObservation
+	Fields        []FieldObservation
 
-// Observer is a convenience for adapters that naturally collect all three
-// evidence classes together. Builder accepts the individual interfaces too.
-type Observer interface {
-	ResourceInventory
-	RelationshipEvidence
-	FieldEvidence
+	ResourcesAvailable     bool
+	RelationshipsAvailable bool
+	FieldsAvailable        bool
 }
 
 type NodeProof struct {
@@ -84,13 +76,13 @@ type CandidateProof struct {
 	Reason              string
 }
 
-// CompilerProbe is the compiler's proof boundary. A Builder advertises an
-// operation only after the corresponding probe succeeds. In particular, a
+// CompilerCallbacks are the compiler's proof boundary. A Builder advertises an
+// operation only after the corresponding callback succeeds. In particular, a
 // field is not trusted merely because the observation source reported it.
-type CompilerProbe interface {
-	ProbeNode(context.Context, Node) (NodeProof, error)
-	ProbeEdge(context.Context, Edge) (EdgeProof, error)
-	ProbeCandidate(context.Context, Candidate) (CandidateProof, error)
+type CompilerCallbacks struct {
+	Node      func(context.Context, Node) (NodeProof, error)
+	Edge      func(context.Context, Edge) (EdgeProof, error)
+	Candidate func(context.Context, Candidate) (CandidateProof, error)
 }
 
 type Builder struct {
@@ -99,20 +91,18 @@ type Builder struct {
 	Complete  bool
 	Truncated bool
 
-	Resources     ResourceInventory
-	Relationships RelationshipEvidence
-	Fields        FieldEvidence
-	Compiler      CompilerProbe
+	Evidence Evidence
+	Compiler CompilerCallbacks
 }
 
 const DefaultSuggestionLimit = 32
 
-func NewBuilder(identity SnapshotIdentity, resources ResourceInventory, relationships RelationshipEvidence, fields FieldEvidence, compiler CompilerProbe) Builder {
-	return Builder{Identity: identity, Resources: resources, Relationships: relationships, Fields: fields, Compiler: compiler, Complete: true, Policy: Policy{Route: RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: ProjectionPolicy{SuggestionLimit: DefaultSuggestionLimit}}}
+func NewBuilder(identity SnapshotIdentity, evidence Evidence, compiler CompilerCallbacks) Builder {
+	return Builder{Identity: identity, Evidence: evidence, Compiler: compiler, Complete: true, Policy: Policy{Route: RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: ProjectionPolicy{SuggestionLimit: DefaultSuggestionLimit}}}
 }
 
-// Build is pure: all values returned by an adapter are copied before they are
-// sorted or used, and no adapter or compiler state is modified.
+// Build is pure: evidence is copied before it is sorted or used, and no
+// caller-owned evidence or compiler state is modified.
 func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	identity := b.Identity
 	identity.Project = strings.TrimSpace(identity.Project)
@@ -125,23 +115,16 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		// READY graph. The caller may publish it after a later complete build.
 	}
 	diags := []Diagnostic{}
-	if b.Resources == nil || b.Relationships == nil || b.Fields == nil || b.Compiler == nil {
-		return b.failedWith(identity, diags, "MISSING_CAPABILITY_DEPENDENCY", "resource, relationship, field, and compiler interfaces are required"), fmt.Errorf("capability dependencies are incomplete")
+	if !b.Evidence.ResourcesAvailable || !b.Evidence.RelationshipsAvailable || !b.Evidence.FieldsAvailable || b.Compiler.Node == nil || b.Compiler.Edge == nil || b.Compiler.Candidate == nil {
+		return b.failedWith(identity, diags, "MISSING_CAPABILITY_DEPENDENCY", "resource, relationship, field, and compiler callbacks are required"), fmt.Errorf("capability dependencies are incomplete")
 	}
-	resources, err := b.Resources.ListResources(ctx)
-	if err != nil {
-		return b.failedWith(identity, diags, "RESOURCE_INVENTORY_FAILED", err.Error()), err
-	}
-	relationships, err := b.Relationships.ListRelationships(ctx)
-	if err != nil {
-		return b.failedWith(identity, diags, "RELATIONSHIP_EVIDENCE_FAILED", err.Error()), err
-	}
-	// Field enrichment is intentionally mandatory and fetched even when no
-	// relationship evidence exists. An omitted enrichment source must fail
-	// closed rather than silently yielding a field-less usable catalog.
-	fields, err := b.Fields.ListFields(ctx)
-	if err != nil {
-		return b.failedWith(identity, diags, "FIELD_ENRICHMENT_FAILED", err.Error()), err
+	// Copy before sorting or truncating so callers retain ownership of their
+	// evidence and nested suggestion slices.
+	resources := append([]ResourceObservation(nil), b.Evidence.Resources...)
+	relationships := append([]RelationshipObservation(nil), b.Evidence.Relationships...)
+	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
+	for i := range fields {
+		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
 	}
 
 	policy := b.Policy
@@ -204,7 +187,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 			diags = append(diags, diag("NOT_POPULATED", "resource inventory did not observe any rows", t))
 			continue
 		}
-		proof, e := b.Compiler.ProbeNode(ctx, n)
+		proof, e := b.Compiler.Node(ctx, n)
 		if e != nil || !proof.Allowed || !proof.RowRootEligible || len(proof.SupportedOperations) == 0 {
 			reason := proof.Reason
 			if e != nil {
@@ -246,7 +229,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 			diags = append(diags, diag("INVALID_RELATIONSHIP", "relationship endpoint or label is invalid or unproven", base))
 			continue
 		}
-		proof, eProbe := b.Compiler.ProbeEdge(ctx, e)
+		proof, eProbe := b.Compiler.Edge(ctx, e)
 		if eProbe != nil || !proof.Allowed {
 			reason := proof.Reason
 			if eProbe != nil {
@@ -290,7 +273,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 			diags = append(diags, diag("INVALID_FIELD_PATH", "field evidence did not resolve to a usable node/path", base))
 			continue
 		}
-		proof, eProbe := b.Compiler.ProbeCandidate(ctx, c)
+		proof, eProbe := b.Compiler.Candidate(ctx, c)
 		if eProbe != nil || !proof.Allowed || len(proof.ProjectionModes) == 0 || len(proof.SupportedOperations) == 0 {
 			reason := proof.Reason
 			if eProbe != nil {
@@ -316,7 +299,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	if !b.Complete || b.Truncated {
 		status = StatusBuilding
 	}
-	if len(diags) > 0 && (b.Fields == nil) {
+	if len(diags) > 0 && !b.Evidence.FieldsAvailable {
 		status = StatusFailed
 	}
 	s := NewSnapshot(identity, policy, status, b.Complete, b.Truncated, nodes, edges, candidates, diags)

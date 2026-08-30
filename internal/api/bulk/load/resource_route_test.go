@@ -32,9 +32,13 @@ func (r *capturingResourceRunner) Run(_ context.Context, req ImportRequest, _ in
 	return r.summary, nil
 }
 
+func (r *capturingResourceRunner) RunGeneration(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 func TestResourceRouteUsesPathIdentityAndMultipartFile(t *testing.T) {
 	runner := &capturingResourceRunner{summary: ingest.LoadSummary{Files: 1, VerticesInserted: 2}}
-	service, err := NewService(ServiceConfig{Runner: runner})
+	service, err := NewService(ServiceConfig{Loader: runner})
 	if err != nil {
 		t.Fatal(err)
 	}

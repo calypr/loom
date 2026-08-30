@@ -1,7 +1,8 @@
-package materializationapi
+package dataframe
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,7 +15,41 @@ import (
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
-const aggregateFallbackDelay = 2 * time.Millisecond
+func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
+	selector, err := resolveSelector(input.Selector)
+	if err != nil {
+		return dfmaterialization.AggregateResult{}, err
+	}
+	call := &aggregateCall{project: input.ProjectID, selector: selector, filters: convertFilters(input.Filters), legacy: input}
+	result := s.submitAggregateCall(ctx, call)
+	if result.err != nil {
+		s.logReadFailure(ctx, "clickhouse_aggregate", selector.Output, result.err, "project", input.ProjectID)
+	}
+	return result.legacy, result.err
+}
+
+func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
+	selector, err := resolveSelector(input.Selector)
+	if err != nil {
+		return dfmaterialization.AggregationsResult{}, err
+	}
+	call := &aggregateCall{project: input.ProjectID, selector: selector, filters: convertFilters(input.Filters), rich: input, kind: aggregateCallRich}
+	result := s.submitAggregateCall(ctx, call)
+	if result.err != nil {
+		s.logReadFailure(ctx, "clickhouse_aggregations", selector.Output, result.err, "project", input.ProjectID)
+	}
+	return result.rich, result.err
+}
+
+func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMessage, error) {
+	return json.Marshal(dfmaterialization.NormalizeAggregationResults(result.Aggregations))
+}
+
+// GraphQL launches sibling resolvers concurrently, but a large selection set
+// can take several milliseconds to enqueue its final aggregate call. The
+// fallback exists only for directive-skipped fields where expectedCalls cannot
+// be reached; normal operations dispatch immediately at the exact count.
+const aggregateFallbackDelay = 10 * time.Millisecond
 
 type aggregateOperationStateKey struct{}
 
@@ -28,10 +63,16 @@ type aggregateOperationState struct {
 	dispatching   bool
 	dispatchCalls func(context.Context, []*aggregateCall)
 	lastEnqueue   time.Time
+	datasets      map[string]*projectDatasetCacheEntry
 
-	mu          sync.Mutex
-	projects    *projectsCacheEntry
-	federations map[string]*federationCacheEntry
+	mu sync.Mutex
+}
+
+type projectDatasetCacheEntry struct {
+	ready  chan struct{}
+	value  dfmaterialization.Materialization
+	access projectAccess
+	err    error
 }
 
 type aggregateCallKind uint8
@@ -43,6 +84,7 @@ const (
 
 type aggregateCall struct {
 	kind     aggregateCallKind
+	project  string
 	selector dfmaterialization.DataframeSelector
 	filters  []dfmaterialization.Filter
 	legacy   model.DataframeAggregateInput
@@ -58,8 +100,7 @@ type aggregateCallResult struct {
 
 func (s *Service) WithOperationContext(ctx context.Context, expectedCalls int) context.Context {
 	state := &aggregateOperationState{
-		service: s, expectedCalls: expectedCalls,
-		federations: make(map[string]*federationCacheEntry),
+		service: s, expectedCalls: expectedCalls, datasets: make(map[string]*projectDatasetCacheEntry),
 	}
 	result := context.WithValue(ctx, aggregateOperationStateKey{}, state)
 	state.operationCtx = result
@@ -76,6 +117,35 @@ func (s *Service) WithOperationContext(ctx context.Context, expectedCalls int) c
 		)
 	}
 	return result
+}
+
+func (s *aggregateOperationState) projectDataset(
+	ctx context.Context,
+	project string,
+	selector dfmaterialization.DataframeSelector,
+	resolve func() (dfmaterialization.Materialization, projectAccess, error),
+) (dfmaterialization.Materialization, projectAccess, error) {
+	key := strings.TrimSpace(project) + "\x00" + selector.Key()
+	s.mu.Lock()
+	if s.datasets == nil {
+		s.datasets = make(map[string]*projectDatasetCacheEntry)
+	}
+	if cached := s.datasets[key]; cached != nil {
+		s.mu.Unlock()
+		select {
+		case <-cached.ready:
+			return cached.value, cached.access, cached.err
+		case <-ctx.Done():
+			return dfmaterialization.Materialization{}, projectAccess{}, ctx.Err()
+		}
+	}
+	entry := &projectDatasetCacheEntry{ready: make(chan struct{})}
+	s.datasets[key] = entry
+	s.mu.Unlock()
+
+	entry.value, entry.access, entry.err = resolve()
+	close(entry.ready)
+	return entry.value, entry.access, entry.err
 }
 
 func aggregateStateFromContext(ctx context.Context) *aggregateOperationState {
@@ -194,9 +264,9 @@ func (s *aggregateOperationState) cancelPending(err error) {
 }
 
 type aggregateExecutionGroup struct {
-	dataset dfmaterialization.FederatedDataset
-	access  map[string]dfmaterialization.SourceAccess
-	calls   []*aggregateCall
+	materialization dfmaterialization.Materialization
+	access          projectAccess
+	calls           []*aggregateCall
 }
 
 func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregateCall) {
@@ -219,24 +289,33 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 	}
 
 	groups := make(map[string]*aggregateExecutionGroup)
+	resolved := make(map[string]*aggregateExecutionGroup)
+	resolutionErrors := make(map[string]error)
 	groupKeys := make([]string, 0)
 	for _, call := range calls {
-		dataset, access, resolveErr := s.authorizedFederation(ctx, principal, call.selector, call.filters)
-		if resolveErr != nil {
+		requestKey := call.project + "\x00" + call.selector.Key()
+		if group := resolved[requestKey]; group != nil {
+			group.calls = append(group.calls, call)
+			continue
+		}
+		if resolveErr := resolutionErrors[requestKey]; resolveErr != nil {
 			call.result <- aggregateCallResult{err: mapReaderError(resolveErr)}
 			continue
 		}
-		if len(dataset.Sources) == 0 {
-			call.result <- aggregateCallResult{err: dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")}
+		materialization, access, resolveErr := s.currentProjectDatasetForPrincipal(ctx, principal, call.project, call.selector)
+		if resolveErr != nil {
+			resolutionErrors[requestKey] = resolveErr
+			call.result <- aggregateCallResult{err: mapReaderError(resolveErr)}
 			continue
 		}
-		key := aggregateDatasetKey(dataset)
+		key := materialization.ID
 		group := groups[key]
 		if group == nil {
-			group = &aggregateExecutionGroup{dataset: dataset, access: access}
+			group = &aggregateExecutionGroup{materialization: materialization, access: access}
 			groups[key] = group
 			groupKeys = append(groupKeys, key)
 		}
+		resolved[requestKey] = group
 		group.calls = append(group.calls, call)
 	}
 	sort.Strings(groupKeys)
@@ -245,7 +324,7 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 	clickhouseStarted := time.Now()
 	for _, key := range groupKeys {
 		group := groups[key]
-		sourceCount += len(group.dataset.Sources)
+		sourceCount++
 		jobs := make([]dfmaterialization.AggregateJob, 0)
 		callIDs := make(map[*aggregateCall][]int)
 		nextID := 0
@@ -267,8 +346,8 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 			continue
 		}
 		logicalJobs += len(jobs)
-		batch, batchErr := s.reader.ExecuteAggregateBatch(ctx, group.dataset, dfmaterialization.AggregateBatchRequest{
-			Jobs: jobs, AccessByProject: group.access,
+		batch, batchErr := s.reader.ExecuteAggregateBatch(ctx, group.materialization, dfmaterialization.AggregateBatchRequest{
+			Jobs: jobs, AuthResourcePaths: group.access.authResourcePaths, Unrestricted: group.access.unrestricted,
 		})
 		deduplicated += batch.DeduplicatedJobs
 		statements += batch.Statements
@@ -287,7 +366,7 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 			resultRows += len(job.Rows)
 		}
 		for call, ids := range callIDs {
-			s.completeAggregateCall(group.dataset, call, ids, byID)
+			s.completeAggregateCall(group.materialization, call, ids, byID)
 		}
 	}
 	clickhouseElapsed := time.Since(clickhouseStarted)
@@ -305,18 +384,6 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 	} else {
 		s.logger.Info("dataframe aggregate batch executed", attrs...)
 	}
-}
-
-func aggregateDatasetKey(dataset dfmaterialization.FederatedDataset) string {
-	ids := make([]string, 0, len(dataset.Sources)+len(dataset.ProjectStatuses)+2)
-	for _, source := range dataset.Sources {
-		ids = append(ids, "source:"+source.ID)
-	}
-	for _, status := range dataset.ProjectStatuses {
-		ids = append(ids, "project:"+status.ProjectID+":"+string(status.State))
-	}
-	sort.Strings(ids)
-	return dataset.Selector.Key() + "\x00" + dataset.Revision + "\x00" + fmt.Sprint(dataset.ExpectedProjects) + "\x00" + strings.Join(ids, "\x1f")
 }
 
 func aggregateJobsForCall(call *aggregateCall, firstID int) ([]dfmaterialization.AggregateJob, error) {
@@ -368,7 +435,7 @@ func aggregateJobsForCall(call *aggregateCall, firstID int) ([]dfmaterialization
 	return jobs, nil
 }
 
-func (s *Service) completeAggregateCall(dataset dfmaterialization.FederatedDataset, call *aggregateCall, ids []int, byID map[int]dfmaterialization.AggregateJobResult) {
+func (s *Service) completeAggregateCall(materialization dfmaterialization.Materialization, call *aggregateCall, ids []int, byID map[int]dfmaterialization.AggregateJobResult) {
 	if call.kind == aggregateCallLegacy {
 		job := byID[ids[0]]
 		if job.Err != nil {
@@ -376,7 +443,7 @@ func (s *Service) completeAggregateCall(dataset dfmaterialization.FederatedDatas
 			return
 		}
 		call.result <- aggregateCallResult{legacy: dfmaterialization.AggregateResult{
-			Materialization: federatedMaterialization(dataset), Columns: job.Columns, Rows: job.Rows,
+			Materialization: materialization, Columns: job.Columns, Rows: job.Rows,
 		}}
 		return
 	}
@@ -394,6 +461,6 @@ func (s *Service) completeAggregateCall(dataset dfmaterialization.FederatedDatas
 		})
 	}
 	call.result <- aggregateCallResult{rich: dfmaterialization.AggregationsResult{
-		Dataset: dataset, Aggregations: dfmaterialization.NormalizeAggregationResults(results),
+		Materialization: materialization, Aggregations: dfmaterialization.NormalizeAggregationResults(results),
 	}}
 }

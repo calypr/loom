@@ -21,12 +21,18 @@ func (t *fakeTx) Commit(context.Context) ([]PublishedOutput, error) {
 	t.committed = true
 	return []PublishedOutput{{Name: "patients", PhysicalName: "staged_patients"}}, nil
 }
-func (t *fakeTx) Rollback(context.Context) error { t.rolledBack = true; return nil }
+func (t *fakeTx) Abort(context.Context, error) error                   { t.rolledBack = true; return nil }
+func (t *fakeTx) FinalizeSchema(context.Context, []OutputSchema) error { return nil }
+func (t *fakeTx) SetFinalSchemaDigest(string) error                    { return nil }
+func (t *fakeTx) Idempotent() bool                                     { return false }
+func (t *fakeTx) ExistingPublishedOutputs() []PublishedOutput          { return nil }
 
 type fakeTarget struct {
 	tx      *fakeTx
 	schemas []OutputSchema
 }
+
+func (t *fakeTarget) SupportsObjectValues() bool { return false }
 
 type finalizingTx struct {
 	fakeTx
@@ -45,6 +51,8 @@ func (t *finalizingTx) SetFinalSchemaDigest(digest string) error {
 }
 
 type finalizingTarget struct{ tx *finalizingTx }
+
+func (t *finalizingTarget) SupportsObjectValues() bool { return false }
 
 func (t *finalizingTarget) Begin(_ context.Context, _ PublicationIdentity, _ []OutputSchema) (Transaction, error) {
 	t.tx = &finalizingTx{}

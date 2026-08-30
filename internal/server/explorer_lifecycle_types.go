@@ -12,9 +12,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-type ExplorerV2Previewer func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (map[string][]map[string]any, error)
-type ExplorerV2Materializer = graphresolver.ExplorerBundleMaterializer
-
 type ExplorerV2ReceiptCompileRequest = lifecycle.CompileReceiptRequest
 type ExplorerV2ReceiptCompiler = lifecycle.ReceiptCompiler
 type ExplorerV2ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
@@ -22,6 +19,7 @@ type ExplorerV2ReceiptPreviewer func(context.Context, *explorer.CompilationRecei
 type ExplorerV2ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error)
 type ExplorerV2GenerationValidator func(context.Context, string, string) error
 type ExplorerV2ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
+type ExplorerV2ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
 type ExplorerV2LifecycleConfig struct {
 	CompileReceipt                ExplorerV2ReceiptCompiler
@@ -29,12 +27,11 @@ type ExplorerV2LifecycleConfig struct {
 	CapabilityToken               ExplorerCapabilityTokenReader
 	AuthorizedCapabilityCompile   ExplorerAuthorizedCapabilityCompilationReader
 	AuthorizedCapabilityExecution ExplorerAuthorizedCapabilityExecutionReader
-	Preview                       ExplorerV2Previewer
 	PreviewReceipt                ExplorerV2ReceiptPreviewer
-	Materialize                   ExplorerV2Materializer
 	MaterializeReceipt            ExplorerV2ReceiptMaterializer
 	ReceiptLookup                 ExplorerV2ReceiptReader
 	Logger                        *slog.Logger
 	ValidateReleaseGeneration     ExplorerV2GenerationValidator
 	ActivateRelease               ExplorerV2ReleaseActivator
+	PrepareRelease                ExplorerV2ReleasePreparer
 }

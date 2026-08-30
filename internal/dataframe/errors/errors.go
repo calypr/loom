@@ -59,7 +59,6 @@ const (
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 	CodeDynamicSchemaDrift          ErrorCode = "DYNAMIC_SCHEMA_DRIFT"
 	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
-	CodeFederationIncompatible      ErrorCode = "FEDERATION_INCOMPATIBLE"
 	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
 	CodeReceiptStoreUnavailable     ErrorCode = "RECEIPT_STORE_UNAVAILABLE"
 	CodePreviewTimeout              ErrorCode = "PREVIEW_TIMEOUT"
@@ -349,8 +348,6 @@ func defaultMessage(code ErrorCode) string {
 		return "runtime dataframe fields could not be reconciled"
 	case CodeRecipeContractViolation:
 		return "the published output violates its recipe contract"
-	case CodeFederationIncompatible:
-		return "published sources cannot share a logical schema"
 	case CodeInvalidSelector:
 		return "a complete dataframe selector is required"
 	case CodeReceiptStoreUnavailable:

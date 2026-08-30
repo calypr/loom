@@ -253,7 +253,7 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	if s.config.Capability.ForExecution == nil {
 		return PreviewResult{}, unavailable("preview", "PREVIEW_UNAVAILABLE", "authorized receipt execution is not configured", nil)
 	}
-	if s.config.Preview == nil && s.config.PreviewReceipt == nil {
+	if s.config.PreviewReceipt == nil {
 		return PreviewResult{}, unavailable("preview", "PREVIEW_UNAVAILABLE", "Explorer preview is not configured", nil)
 	}
 	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
@@ -267,33 +267,24 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	if err != nil || authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if s.config.PreviewReceipt != nil {
-		if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-			return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
-		}
+	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
+		return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
 	}
-	if !receiptHasOutput(receipt.Bundle, request.OutputID) || (s.config.PreviewReceipt != nil && validateReceiptOutputContract(receipt, request.OutputID) != nil) {
+	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return PreviewResult{}, unprocessable("preview", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), DatasetGeneration: receipt.SourceGeneration, PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}}
 	applyAuthorizedScope(&bindings, authorized, false)
 	columns := emittedColumnsForOutput(receipt, request.OutputID)
 	result := PreviewResult{Receipt: receipt, Columns: columns}
-	if s.config.PreviewReceipt != nil {
-		if request.SinkFactory == nil {
-			return PreviewResult{}, unavailable("preview", "PREVIEW_UNAVAILABLE", "native preview sink is not configured", nil)
-		}
-		sink, err := request.SinkFactory(receipt, columns)
-		if err != nil {
-			return PreviewResult{}, err
-		}
-		result.Summary, err = s.config.PreviewReceipt(ctx, receipt, bindings, sink)
-		if err != nil {
-			return PreviewResult{}, err
-		}
-		return result, nil
+	if request.SinkFactory == nil {
+		return PreviewResult{}, unavailable("preview", "PREVIEW_UNAVAILABLE", "native preview sink is not configured", nil)
 	}
-	result.Rows, err = s.config.Preview(ctx, receipt.Bundle, bindings)
+	sink, err := request.SinkFactory(receipt, columns)
+	if err != nil {
+		return PreviewResult{}, err
+	}
+	result.Summary, err = s.config.PreviewReceipt(ctx, receipt, bindings, sink)
 	if err != nil {
 		return PreviewResult{}, err
 	}
@@ -304,10 +295,10 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if strings.TrimSpace(request.ReceiptID) == "" {
 		return PublishResult{}, malformed("publish", "receiptId is required", nil)
 	}
-	if s.config.Materialize == nil && s.config.MaterializeReceipt == nil {
+	if s.config.MaterializeReceipt == nil {
 		return PublishResult{}, unavailable("publish", "PUBLICATION_UNAVAILABLE", "Explorer publication is not configured", nil)
 	}
-	if s.config.ActivateRelease == nil || s.config.ValidateReleaseGeneration == nil || (s.config.Capability.Token == nil && s.config.Capability.ForExecution == nil) {
+	if s.config.PrepareRelease == nil || s.config.ValidateReleaseGeneration == nil || (s.config.Capability.Token == nil && s.config.Capability.ForExecution == nil) {
 		return PublishResult{}, unavailable("publish", "PUBLICATION_UNAVAILABLE", "Explorer publication is not configured", nil)
 	}
 	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, request.ReceiptID)
@@ -344,23 +335,21 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), DatasetGeneration: receipt.SourceGeneration}
 	applyAuthorizedScope(&bindings, authorized, true)
 	var execution Execution
-	if s.config.MaterializeReceipt != nil {
-		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
-	} else {
-		execution, err = s.config.Materialize(ctx, receipt.Bundle, bindings)
-	}
+	execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
 		return PublishResult{}, unavailable("materialize", "MATERIALIZATION_FAILED", "Explorer materialization failed; the active revision was retained", err)
 	}
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return PublishResult{}, unavailable("materialize", "MATERIALIZATION_FAILED", "materialization did not produce queryable outputs", err)
 	}
-	if err := s.config.ActivateRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle)); err != nil {
-		return PublishResult{}, unavailable("activation", "MATERIALIZATION_ACTIVATION_FAILED", "dataset release activation failed; the prior Explorer revision was retained", err)
+	release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))
+	if err != nil {
+		return PublishResult{}, unavailable("activation", "MATERIALIZATION_ACTIVATION_FAILED", "dataset release preparation failed; the prior Explorer revision was retained", err)
 	}
 	now := s.now()
 	revisionID := "authoring_" + strings.TrimPrefix(receipt.ID, "receipt_")
-	revision, err := s.store.PublishAuthoring(ctx, *receipt, explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, ConfigDigest: receipt.IntentDigest, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now})
+	revisionValue := explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, ConfigDigest: receipt.IntentDigest, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now}
+	revision, err := s.store.PublishAuthoring(ctx, *receipt, revisionValue, release, expectedReleaseRevision)
 	if err != nil {
 		return PublishResult{}, err
 	}
@@ -401,12 +390,10 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: request.Generation}
 	applyAuthorizedScope(&bindings, authorized, true)
 	var execution Execution
-	if s.config.MaterializeReceipt != nil {
-		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
-	} else if s.config.Materialize != nil {
-		execution, err = s.config.Materialize(ctx, receipt.Bundle, bindings)
-	} else {
+	if s.config.MaterializeReceipt == nil {
 		err = errors.New("repository V2 materialization is not configured")
+	} else {
+		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
 	}
 	if err != nil {
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", fmt.Sprintf("materialize repository V2 workspace: %v", err), err)

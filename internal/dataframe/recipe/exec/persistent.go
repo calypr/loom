@@ -9,19 +9,18 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// Store is the persistence boundary for recipe registration. Implementations
-// may use Arango, a file-backed registry, or another durable store; the
-// registry itself owns validation, canonicalization, and idempotency rules.
-type Store interface {
-	SaveRecipe(context.Context, Entry) error
+// Reader is the exact recipe lookup contract used by execution. Name-only
+// lookup intentionally means "current", while exact version lookup is always
+// available without a runtime capability assertion.
+type Reader interface {
 	LoadRecipe(context.Context, string) (Entry, error)
+	LoadRecipeVersion(context.Context, string, string) (Entry, error)
 }
 
-// VersionedStore is the durable contract used by new recipe workflows. The
-// name-only Store methods remain above for the compatibility window only.
-type VersionedStore interface {
-	Store
-	LoadRecipeVersion(context.Context, string, string) (Entry, error)
+// Store is the persistence boundary for immutable versioned registration.
+type Store interface {
+	Reader
+	SaveRecipe(context.Context, Entry) error
 	ReplaceRecipeVersion(context.Context, Entry) error
 	RecipeVersionUsed(context.Context, string, string) (bool, error)
 }
@@ -47,23 +46,19 @@ func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.B
 	if err != nil {
 		return Entry{}, err
 	}
-	store, ok := r.Store.(VersionedStore)
-	if !ok {
-		return Entry{}, fmt.Errorf("persistent recipe store does not support versioned recipes")
-	}
-	existing, err := store.LoadRecipeVersion(ctx, bundle.Name, bundle.TranslationVersion)
+	existing, err := r.Store.LoadRecipeVersion(ctx, bundle.Name, bundle.TranslationVersion)
 	if err == nil {
 		if existing.Digest == entry.Digest {
 			return existing, nil
 		}
-		used, err := store.RecipeVersionUsed(ctx, bundle.Name, bundle.TranslationVersion)
+		used, err := r.Store.RecipeVersionUsed(ctx, bundle.Name, bundle.TranslationVersion)
 		if err != nil {
 			return Entry{}, fmt.Errorf("inspect recipe version usage: %w", err)
 		}
 		if used {
 			return Entry{}, fmt.Errorf("%w: %s@%s", ErrRecipeVersionImmutable, bundle.Name, bundle.TranslationVersion)
 		}
-		if err := store.ReplaceRecipeVersion(ctx, entry); err != nil {
+		if err := r.Store.ReplaceRecipeVersion(ctx, entry); err != nil {
 			return Entry{}, err
 		}
 		return entry, nil
@@ -71,7 +66,7 @@ func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.B
 	if !errors.Is(err, ErrRecipeNotFound) {
 		return Entry{}, fmt.Errorf("load recipe %q: %w", bundle.Name, err)
 	}
-	if err := store.SaveRecipe(ctx, entry); err != nil {
+	if err := r.Store.SaveRecipe(ctx, entry); err != nil {
 		return Entry{}, err
 	}
 	return entry, nil

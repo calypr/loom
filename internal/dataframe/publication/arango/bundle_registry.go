@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -15,12 +16,6 @@ const (
 	BundlePointersCollection   = "loom_dataframe_bundle_pointers"
 	BundleLeasesCollection     = "loom_dataframe_bundle_leases"
 )
-
-// AQLExecutor is implemented by Loom's concrete Arango client. Keeping it
-// optional preserves the small fake Client used by existing registry tests.
-type AQLExecutor interface {
-	ExecuteAQL(context.Context, string, map[string]interface{}) error
-}
 
 func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution) error {
 	data, err := json.Marshal(execution)
@@ -75,42 +70,6 @@ func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleS
 	return out, err
 }
 
-// ListSelectorExecutions avoids the five full lifecycle scans otherwise
-// required to assemble dataframe project status. Exact output matching stays
-// in the caller so queued executions (which intentionally have no outputs yet)
-// remain visible as BUILDING.
-func (r *Registry) ListSelectorExecutions(ctx context.Context, selector publication.DataframeSelector, before time.Time) ([]publication.BundleExecution, error) {
-	out := []publication.BundleExecution{}
-	states := []publication.BundleState{
-		publication.BundleQueued, publication.BundlePending,
-		publication.BundleRunning, publication.BundlePreflight, publication.BundleLoading,
-		publication.BundleValidating,
-		publication.BundlePublished, publication.BundleReady,
-		publication.BundleFailed,
-	}
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection
-FILTER (doc.name == @recipe OR doc.Name == @recipe)
-  AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion)
-  AND doc.state IN @states AND doc.updatedAt < @before
-SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{
-		"@collection": BundleExecutionsCollection,
-		"recipe":      selector.Recipe, "translationVersion": selector.TranslationVersion,
-		"states": states, "before": before,
-	}, func(row map[string]any) error {
-		data, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		var execution publication.BundleExecution
-		if err := json.Unmarshal(data, &execution); err != nil {
-			return err
-		}
-		out = append(out, execution.CanonicalizeLegacy())
-		return nil
-	})
-	return out, err
-}
-
 func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	if err := selector.Validate(); err != nil {
 		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
@@ -134,29 +93,6 @@ SORT doc.publishedAt DESC, doc.readyAt DESC, doc.updatedAt DESC LIMIT 1 RETURN d
 		}
 	}
 	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
-}
-
-// DataframeSelectorForExecution exposes exact selector metadata to federation
-// without making the reader understand the registry's persisted document.
-func (r *Registry) DataframeSelectorForExecution(ctx context.Context, executionID, outputName string) (publication.DataframeSelector, error) {
-	execution, err := r.GetExecution(ctx, executionID)
-	if err != nil {
-		return publication.DataframeSelector{}, err
-	}
-	for _, output := range execution.Outputs {
-		if output.Name != outputName {
-			continue
-		}
-		if output.Selector.Valid() {
-			return output.Selector, nil
-		}
-		selector := execution.Selector(outputName)
-		if selector.Valid() {
-			return selector, nil
-		}
-		break
-	}
-	return publication.DataframeSelector{}, publication.ErrBundleNotFound
 }
 
 func (r *Registry) loadExecution(ctx context.Context, query string, vars map[string]interface{}) (publication.BundleExecution, error) {
@@ -250,15 +186,21 @@ func (r *Registry) PublishExecution(ctx context.Context, name, expected string, 
 	updated := false
 	err = r.client.QueryRows(ctx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
 LET execution = DOCUMENT(@@executions, @executionKey)
-FILTER execution != null AND (pointer == null OR pointer.executionId == @expected)
+LET lease = DOCUMENT(@@leases, @leaseKey)
+FILTER execution != null
+  AND lease != null
+  AND lease.ownerId == @owner
+  AND lease.expiresAt >= @now
+  AND (pointer == null OR pointer.executionId == @expected)
 UPDATE execution WITH @execution IN @@executions
 UPSERT {_key: @pointerKey}
 INSERT {_key: @pointerKey, name: @name, executionId: @executionKey, updatedAt: @updatedAt}
 UPDATE {executionId: @executionKey, updatedAt: @updatedAt}
 IN @@pointers
 RETURN {updated: true}`, r.batchSize, map[string]interface{}{
-		"@pointers": BundlePointersCollection, "@executions": BundleExecutionsCollection,
+		"@pointers": BundlePointersCollection, "@executions": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
 		"pointerKey": pointerDocumentKey(name), "executionKey": execution.ID,
+		"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
 		"name": name, "expected": expected, "updatedAt": execution.UpdatedAt, "execution": executionDoc,
 	}, func(map[string]any) error { updated = true; return nil })
 	if err != nil {
@@ -292,7 +234,7 @@ RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": Bund
 }
 
 func (r *Registry) ReleaseBundleLease(ctx context.Context, key, owner string) error {
-	executor, ok := r.client.(AQLExecutor)
+	executor, ok := r.client.(arangostore.AQLExecutor)
 	if !ok {
 		return nil
 	}

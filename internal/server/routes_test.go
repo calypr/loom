@@ -20,6 +20,10 @@ func (routeRunner) Run(context.Context, loadapi.ImportRequest, ingest.EventSink)
 	return ingest.LoadSummary{}, nil
 }
 
+func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	return ingest.LoadSummary{}, nil
+}
+
 func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	server, err := api.NewHTTPServer(api.HTTPConfig{
 		Authenticator: authscope.StaticAuthenticator{},
@@ -28,7 +32,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{Runner: routeRunner{}})
+	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{Loader: routeRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
