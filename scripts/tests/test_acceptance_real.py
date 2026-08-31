@@ -43,6 +43,10 @@ class AcceptanceRealScriptTest(unittest.TestCase):
         self.assertNotIn("$repo_root/.gocache", source)
 
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("http://127.0.0.1:8529/_api/version", workflow)
+        self.assertNotIn("http://localhost:8529/_api/version", workflow)
+        self.assertIn("\n  pull_request:\n", workflow)
+        self.assertNotIn("\n  push:\n", workflow)
         self.assertIn("CLICKHOUSE_USER: loom_ci", workflow)
         self.assertIn("CLICKHOUSE_PASSWORD: loom_ci_password", workflow)
         self.assertIn("--user=loom_ci --password=loom_ci_password", workflow)
@@ -53,6 +57,8 @@ class AcceptanceRealScriptTest(unittest.TestCase):
         performance = PERFORMANCE.read_text(encoding="utf-8")
         self.assertIn('git archive "$base_ref"', performance)
         self.assertIn('LOOM_ACCEPTANCE_SERVER_SOURCE_ROOT="$source_root"', performance)
+        self.assertIn('if [[ ! -f "$base_source/cmd/loom-acceptance/main.go" ]]', performance)
+        self.assertIn('LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true base_unavailable "base commit predates the acceptance protocol"', performance)
         self.assertIn("--performance-repeat-base-report", performance)
         self.assertIn("--performance-repeat-current-report", performance)
 

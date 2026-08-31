@@ -56,6 +56,12 @@ run_variant() {
   "$repo_root/scripts/acceptance-real.sh"
 }
 
+if [[ ! -f "$base_source/cmd/loom-acceptance/main.go" ]]; then
+  run_variant current "$repo_root"
+  LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true base_unavailable "base commit predates the acceptance protocol"
+  exit 0
+fi
+
 head_key=$(git rev-parse HEAD 2>/dev/null || printf '0')
 last_hex=${head_key: -1}
 if (( 16#$last_hex % 2 == 0 )); then
