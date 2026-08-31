@@ -128,18 +128,6 @@ func validateLiteral(l Literal) error {
 		}
 		return nil
 	}
-	if l.Type.Cardinality == Many {
-		value := reflect.ValueOf(l.Value)
-		if value.Kind() != reflect.Array && value.Kind() != reflect.Slice {
-			return fmt.Errorf("many literal value %T must be an array or slice", l.Value)
-		}
-		for index := 0; index < value.Len(); index++ {
-			if !validScalarLiteral(l.Type.Kind, value.Index(index).Interface()) {
-				return fmt.Errorf("many literal element %d is incompatible with %s", index, l.Type.Kind)
-			}
-		}
-		return nil
-	}
 	if !validScalarLiteral(l.Type.Kind, l.Value) {
 		return fmt.Errorf("literal value %T is incompatible with %s", l.Value, l.Type.Kind)
 	}

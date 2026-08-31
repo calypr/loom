@@ -31,6 +31,10 @@ type ColumnSource struct {
 	FieldPath      string `json:"fieldPath,omitempty"`
 	Match          string `json:"match,omitempty"`
 	ProjectionMode string `json:"projectionMode,omitempty"`
+	Operation      string   `json:"operation,omitempty"`
+	WherePath      string   `json:"wherePath,omitempty"`
+	WhereEquals    string   `json:"whereEquals,omitempty"`
+	RequiredValues []string `json:"requiredValues,omitempty"`
 }
 
 const (
@@ -40,6 +44,7 @@ const (
 	SourceCodingBySystem             = "codingBySystem"
 	SourceObservationComponentByCode = "observationComponentByCode"
 	SourceProjectID                  = "projectId"
+	SourceAggregate                  = "aggregate"
 )
 
 type Column struct {
@@ -133,8 +138,45 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s %s source requires match", path, s.Kind)
 		}
 	case SourceProjectID:
-		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" {
+		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.Operation) != "" || strings.TrimSpace(s.WherePath) != "" || strings.TrimSpace(s.WhereEquals) != "" || len(s.RequiredValues) != 0 || strings.TrimSpace(s.ProjectionMode) != "" {
 			return fmt.Errorf("%s projectId source has no parameters", path)
+		}
+	case SourceAggregate:
+		if strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.ProjectionMode) != "" {
+			return fmt.Errorf("%s aggregate source forbids match and projectionMode", path)
+		}
+		op := strings.ToUpper(strings.TrimSpace(s.Operation))
+		switch op {
+		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL":
+		default:
+			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Operation)
+		}
+		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL"
+		if requiresField && strings.TrimSpace(s.FieldPath) == "" {
+			return fmt.Errorf("%s aggregate operation %s requires fieldPath", path, op)
+		}
+		if !requiresField && strings.TrimSpace(s.FieldPath) != "" {
+			return fmt.Errorf("%s aggregate operation %s forbids fieldPath", path, op)
+		}
+		if strings.TrimSpace(s.WhereEquals) != "" && strings.TrimSpace(s.WherePath) == "" {
+			return fmt.Errorf("%s.whereEquals requires wherePath", path)
+		}
+		if op == "CONTAINS_ALL" {
+			if len(s.RequiredValues) == 0 {
+				return fmt.Errorf("%s.requiredValues is required for CONTAINS_ALL", path)
+			}
+			seen := map[string]bool{}
+			for i, value := range s.RequiredValues {
+				if strings.TrimSpace(value) == "" {
+					return fmt.Errorf("%s.requiredValues[%d] must be non-empty", path, i)
+				}
+				if seen[value] {
+					return fmt.Errorf("%s.requiredValues[%d] is duplicated", path, i)
+				}
+				seen[value] = true
+			}
+		} else if len(s.RequiredValues) != 0 {
+			return fmt.Errorf("%s.requiredValues is only valid for CONTAINS_ALL", path)
 		}
 	default:
 		return fmt.Errorf("%s source kind %q is unsupported", path, s.Kind)

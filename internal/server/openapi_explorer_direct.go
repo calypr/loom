@@ -215,5 +215,8 @@ func legacyErrorMessage(value loomapi.LegacyErrorResponse) string {
 	if message, err := value.Error.AsLegacyErrorResponseError0(); err == nil {
 		return message
 	}
+	if body, err := value.Error.AsLegacyErrorBody(); err == nil && strings.TrimSpace(body.Message) != "" {
+		return body.Message
+	}
 	return "Explorer lifecycle failed"
 }

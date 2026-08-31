@@ -17,7 +17,6 @@ type GenerationLoadRequest struct {
 	AuthResourcePath string
 	StagedDir        string
 	SubmittedBy      string
-	StageOnly        bool
 	DeferActivation  bool
 }
 
@@ -60,7 +59,8 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.DeferActivation = req.DeferActivation
 	opts.Truncate = false
 	opts.EventSink = sink
-	opts.StageOnly = req.StageOnly
+	// StageOnly is a CLI mode. The HTTP API stages through DeferActivation.
+	opts.StageOnly = false
 	return ingest.Load(ctx, opts)
 }
 
@@ -96,7 +96,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}, nil
 }
 
-func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
+func (s *Service) runGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
 	if req.Project == "" || req.Generation == "" || req.StagedDir == "" {
 		return nil, errors.New("project, generation, and staged directory are required")
 	}
@@ -129,13 +129,13 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 		s.onSuccess(req.Project)
 	}
 	s.logger.Info("generation load succeeded", "project", req.Project, "generation", req.Generation, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary, Activated: !req.DeferActivation && !req.StageOnly}, nil
+	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary, Activated: !req.DeferActivation}, nil
 }
 
-// ActivateGeneration performs the release switch only after the exact
+// activateGeneration performs the release switch only after the exact
 // dataframe bundle supplied by the caller is durably successful and remains
 // the active pointer for its recipe/generation namespace.
-func (s *Service) ActivateGeneration(ctx context.Context, project, generation, executionID string) error {
+func (s *Service) activateGeneration(ctx context.Context, project, generation, executionID string) error {
 	fail := func(err error) error {
 		if err != nil {
 			s.logger.Error("generation release activation failed", "project", project, "generation", generation, "dataframe_execution_id", executionID, "error", err)

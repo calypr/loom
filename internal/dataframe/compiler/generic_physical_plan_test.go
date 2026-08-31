@@ -243,6 +243,37 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	}
 }
 
+func TestBuildAndRenderGenericPhysicalPlanContainsAll(t *testing.T) {
+	typeCode := spec.Selector{Steps: []spec.SelectorStep{{Field: "type"}, {Field: "coding", Iterate: true}, {Field: "code"}}}
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
+			Aggregates: []semantic.SemanticAggregate{{Name: "paired", Operation: "CONTAINS_ALL", Selector: &typeCode, RequiredValues: []string{"Tumor", "Normal"}}},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FILTER POSITION(FLATTEN(") || strings.Contains(rendered.Query, "POSITION(FLATTEN(") && strings.Contains(rendered.Query, ") != -1") {
+		t.Fatalf("CONTAINS_ALL does not use boolean POSITION semantics:\n%s", rendered.Query)
+	}
+	found := false
+	for key, value := range rendered.BindVars {
+		values, ok := value.([]string)
+		if strings.Contains(key, "required_values") && ok && len(values) == 2 && values[0] == "Tumor" && values[1] == "Normal" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("required values were not bind-backed: %#v", rendered.BindVars)
+	}
+}
+
 func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
 	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, true)

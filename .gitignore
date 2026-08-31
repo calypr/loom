@@ -1,5 +1,7 @@
 .DS_Store
 .gocache/
+.cache/
+.artifacts/
 bin/
 data/
 META/

@@ -48,6 +48,9 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingAlias {
 		t.Fatalf("traversal column naming = %q", got)
 	}
+	if got := result.Bundle.Outputs[0].RootColumnNaming; got != recipe.RootColumnNamingExact {
+		t.Fatalf("root column naming = %q", got)
+	}
 	if got := string(result.Bundle.Outputs[0].Fields[1].Expr.Literal); got != `"project-a"` {
 		t.Fatalf("project binding = %s", got)
 	}
@@ -125,5 +128,30 @@ func TestSemanticNestedOccurrenceUsesGloballyScopedAlias(t *testing.T) {
 	leaf, err := semanticColumnLeaf("patient__condition__code_coding_code", "patient__condition")
 	if err != nil || leaf != "code_coding_code" {
 		t.Fatalf("nested physical leaf = %q, %v", leaf, err)
+	}
+}
+
+func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
+		}}},
+		Columns: []authoringv2.Column{
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Operation: "COUNT"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := result.Bundle.Outputs[0].Traversals[0].Aggregates[0]
+	if aggregate.OutputName != "encounter_count" || aggregate.Operation != recipe.AggregateCount {
+		t.Fatalf("aggregate = %#v", aggregate)
 	}
 }

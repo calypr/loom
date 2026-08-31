@@ -211,6 +211,9 @@ func validateOutputs(outputs []OutputStream, supportsObjects bool) ([]OutputSche
 			if strings.TrimSpace(column.Name) == "" || strings.TrimSpace(column.Kind) == "" {
 				return nil, fmt.Errorf("output %q has an invalid column", name)
 			}
+			if !supportedLogicalKind(column.Kind) {
+				return nil, fmt.Errorf("column %q has unsupported logical kind %q", column.Name, column.Kind)
+			}
 			if strings.EqualFold(strings.TrimSpace(column.Kind), "object") && !supportsObjects {
 				return nil, fmt.Errorf("output %q object-valued column %q is not supported by the publication target", name, column.Name)
 			}
@@ -280,6 +283,15 @@ func validateValue(column LogicalColumn, value any, supportsObjects bool) error 
 		return nil
 	}
 	return validateScalar(column, value, supportsObjects)
+}
+
+func supportedLogicalKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "string", "code", "uuid", "date", "date-time", "datetime", "integer", "decimal", "boolean", "object":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateScalar(column LogicalColumn, value any, supportsObjects bool) error {

@@ -63,7 +63,24 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered)
 		}
 		for _, aggregate := range node.Aggregates {
-			addLogical(prefix+aggregate.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(expression.KindInteger), string(expression.RequiredOne), true, false)
+			name := aggregate.Name
+			if aggregate.OutputName != "" {
+				name = aggregate.OutputName
+			} else if prefix != "" {
+				name = prefix + aggregate.Name
+			}
+			kind := aggregate.ValueKind
+			if kind == "" {
+				kind = expression.KindInteger
+			}
+			cardinality := expression.RequiredOne
+			if aggregate.Operation == string(recipe.AggregateDistinctValues) {
+				cardinality = expression.Many
+			}
+			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) {
+				cardinality = expression.OptionalOne
+			}
+			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false)
 		}
 		for _, pivot := range node.Pivots {
 			kind := pivot.ValueKind

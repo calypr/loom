@@ -133,6 +133,17 @@ func TestTraversalColumnNamingValidation(t *testing.T) {
 	}
 }
 
+func TestRootColumnNamingValidation(t *testing.T) {
+	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","rootColumnNaming":"EXACT"}]}`
+	if _, err := Parse([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	invalid := strings.Replace(valid, `"EXACT"`, `"RENAMED"`, 1)
+	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "invalid_root_column_naming") {
+		t.Fatalf("expected root naming validation error, got %v", err)
+	}
+}
+
 func TestExplainContainsNoPhysicalDetails(t *testing.T) {
 	b, err := Parse([]byte(validDocument))
 	if err != nil {

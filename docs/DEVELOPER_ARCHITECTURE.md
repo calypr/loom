@@ -241,9 +241,10 @@ When adding code, use this lookup table:
 | AQL text or bind emission | `internal/dataframe/compiler/render/aql` |
 | Catalog, auth, generation, cursor, or profiling | `internal/dataframe/execution` |
 
-For the complete ownership map, see the package guide in this document and the
-[documentation index](README.md). Historical package-reorganization plans may
-exist outside this checkout, but they are not runtime contract references.
+For the complete ownership and dependency map, see the generated
+[package audit lookup table](PACKAGE_AUDIT.md). Historical
+package-reorganization plans may exist outside this checkout, but they are not
+runtime contract references.
 
 ## Compatibility tracks
 

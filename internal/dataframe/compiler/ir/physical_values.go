@@ -150,13 +150,15 @@ const (
 	PhysicalMinAggregate            PhysicalAggregateOperation = "MIN"
 	PhysicalMaxAggregate            PhysicalAggregateOperation = "MAX"
 	PhysicalFirstAggregate          PhysicalAggregateOperation = "FIRST"
+	PhysicalContainsAllAggregate    PhysicalAggregateOperation = "CONTAINS_ALL"
 )
 
 type PhysicalAggregate struct {
-	Source    PhysicalValue
-	Operation PhysicalAggregateOperation
-	Value     *PhysicalExpression
-	Predicate *PhysicalPredicateExpression
+	Source                PhysicalValue
+	Operation             PhysicalAggregateOperation
+	Value                 *PhysicalExpression
+	Predicate             *PhysicalPredicateExpression
+	RequiredValuesBindKey string
 }
 
 type PhysicalPivotMap struct {

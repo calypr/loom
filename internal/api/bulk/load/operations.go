@@ -58,8 +58,8 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 	if principal != nil {
 		req.SubmittedBy = principal.Subject
 	}
-	result, err := h.service.RunGeneration(ctx, req)
-	return result, NormalizeError(err)
+	result, err := h.service.runGeneration(ctx, req)
+	return result, normalizeError(err)
 }
 
 func (h *Handler) ActivateDatasetGeneration(ctx context.Context, project, generation, executionID, authResourcePath string, principal *authscope.Principal) (map[string]any, error) {
@@ -70,8 +70,8 @@ func (h *Handler) ActivateDatasetGeneration(ctx context.Context, project, genera
 	if err := h.authz.AuthorizeWrite(ctx, principal, project, strings.TrimSpace(authResourcePath)); err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
 	}
-	if err := h.service.ActivateGeneration(ctx, project, generation, executionID); err != nil {
-		return nil, NormalizeError(err)
+	if err := h.service.activateGeneration(ctx, project, generation, executionID); err != nil {
+		return nil, normalizeError(err)
 	}
 	return map[string]any{"project": project, "generation": generation, "dataframeExecutionId": executionID, "activated": true}, nil
 }

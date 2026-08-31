@@ -87,3 +87,19 @@ func TestGenerationFileErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestMapDataframeErrorPreservesLimitAndPublicationCodes(t *testing.T) {
+	for _, test := range []struct {
+		code      dataframeerrors.ErrorCode
+		status    int
+		retryable bool
+	}{
+		{dataframeerrors.CodeInvalidLimit, http.StatusBadRequest, false},
+		{dataframeerrors.CodePublicationFailed, http.StatusServiceUnavailable, true},
+	} {
+		mapped := MapDataframeError(dataframeerrors.NewError(test.code, ""), "req-publication")
+		if mapped.Status != test.status || mapped.Body.Error.Code != string(test.code) || mapped.Body.Error.Retryable != test.retryable {
+			t.Errorf("%s mapped = %#v, want %s/%d retryable=%t", test.code, mapped, test.code, test.status, test.retryable)
+		}
+	}
+}

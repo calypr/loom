@@ -156,3 +156,22 @@ func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 		t.Fatalf("decoded legacy draft did not restore required columns array: %s", encoded)
 	}
 }
+
+func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
+	visible := true
+	document := workspaceDocument("patients")
+	document.Route.Children = []RouteNode{{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "subject_Patient"}}
+	document.Columns = append(document.Columns, Column{
+		Column: "condition_count", Label: "Condition count", OccurrenceID: "condition",
+		Source: ColumnSource{Kind: SourceAggregate, Operation: "COUNT", WherePath: "code.coding[].code", WhereEquals: "C50"},
+		Table:  &TablePresentation{Visible: &visible},
+	})
+	if err := document.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	document.Columns[1].Source.Operation = "NOT_AN_AGGREGATE"
+	if err := document.Validate(); err == nil {
+		t.Fatal("unsupported aggregate operation was accepted")
+	}
+}

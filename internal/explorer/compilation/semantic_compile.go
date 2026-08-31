@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type semanticOccurrence struct {
@@ -21,9 +22,10 @@ type semanticOccurrence struct {
 }
 
 type semanticRecipeNode struct {
-	fields   []recipe.Field
-	dynamics []recipe.DynamicColumn
-	pivots   []recipe.Pivot
+	fields     []recipe.Field
+	dynamics   []recipe.DynamicColumn
+	pivots     []recipe.Pivot
+	aggregates []recipe.Aggregate
 }
 
 func compileSemanticDocument(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
@@ -52,13 +54,17 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	for index, column := range document.Columns {
 		occurrence := occurrences[column.OccurrenceID]
 		alias := semanticAlias(column.OccurrenceID)
-		leaf, err := semanticColumnLeaf(column.Column, column.OccurrenceID)
-		if err != nil {
-			return Result{}, fail("lower", "COLUMN_ROUTE_PREFIX_MISMATCH", fmt.Sprintf("$.columns[%d].column", index), err.Error(), map[string]any{"column": column.Column, "occurrenceId": column.OccurrenceID}, err)
+		leaf := column.Column
+		if column.Source.Kind != authoringv2.SourceAggregate {
+			var err error
+			leaf, err = semanticColumnLeaf(column.Column, column.OccurrenceID)
+			if err != nil {
+				return Result{}, fail("lower", "COLUMN_ROUTE_PREFIX_MISMATCH", fmt.Sprintf("$.columns[%d].column", index), err.Error(), map[string]any{"column": column.Column, "occurrenceId": column.OccurrenceID}, err)
+			}
 		}
 		logicalType := firstNonEmpty(column.LogicalType, "string")
 		filterable, chartable := column.Filter != nil, column.Chart != nil
-		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+column.Source.Kind+"\x00"+column.Source.FieldPath+"\x00"+column.Source.Match)
+		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+column.Source.Kind+"\x00"+column.Source.FieldPath+"\x00"+column.Source.Match+"\x00"+column.Source.Operation+"\x00"+column.Source.WherePath+"\x00"+column.Source.WhereEquals+"\x00"+column.Column)
 		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode), "FIRST")
 
 		switch column.Source.Kind {
@@ -82,6 +88,14 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
+		case authoringv2.SourceAggregate:
+			aggregate, aggregateType, aggregateErr := semanticAggregate(column, alias, occurrence.graph.ResourceType)
+			if aggregateErr != nil {
+				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), aggregateErr.Error(), nil, aggregateErr)
+			}
+			nodes[column.OccurrenceID].aggregates = append(nodes[column.OccurrenceID].aggregates, aggregate)
+			logicalType = aggregateType
+			projectionMode = "VALUE"
 		default:
 			dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
 			if dynamicErr != nil {
@@ -127,7 +141,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		contract.Columns = append(contract.Columns, explorer.PublicOutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
 	if err := bundle.Validate(); err != nil {
@@ -215,7 +229,7 @@ func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]sema
 	for _, child := range children {
 		occurrence := occurrences[child.OccurrenceID]
 		node := nodes[child.OccurrenceID]
-		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: recipe.MatchOptional, Fields: node.fields, Pivots: node.pivots, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
+		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: recipe.MatchOptional, Fields: node.fields, Pivots: node.pivots, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
 	}
 	return result
 }
@@ -275,6 +289,70 @@ func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType str
 	}
 	key := recipe.Expression{Select: keyPath}
 	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: column.Source.Match}}, nil
+}
+
+func semanticAggregate(column authoringv2.Column, alias, resourceType string) (recipe.Aggregate, string, error) {
+	op := strings.ToUpper(strings.TrimSpace(column.Source.Operation))
+	operation := recipe.AggregateOperation(op)
+	aggregate := recipe.Aggregate{
+		Name: "aggregate_" + shortHash(column.OccurrenceID+"\x00"+column.Column+"\x00"+op), OutputName: column.Column,
+		Operation: operation, FieldRef: column.Column, ValueMode: recipe.ValueModeAuto,
+		RequiredValues: append([]string(nil), column.Source.RequiredValues...),
+	}
+	if strings.TrimSpace(column.Source.FieldPath) != "" {
+		path := strings.Trim(strings.TrimSpace(column.Source.FieldPath), ".")
+		aggregate.Expr = &recipe.Expression{Select: alias + "." + path}
+	}
+	if wherePath := strings.Trim(strings.TrimSpace(column.Source.WherePath), "."); wherePath != "" {
+		where := &recipe.Filter{Select: alias + "." + wherePath, FieldRef: column.Column}
+		if strings.TrimSpace(column.Source.WhereEquals) == "" {
+			where.Operator = recipe.FilterExists
+		} else {
+			where.Operator = recipe.FilterEquals
+			where.Quantifier = recipe.QuantifierAny
+			value := column.Source.WhereEquals
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, wherePath)
+			if !ok || metadata.Primitive != fhirschema.PrimitiveString {
+				return recipe.Aggregate{}, "", fmt.Errorf("aggregate predicate selector %q must resolve to a string or code", column.Source.WherePath)
+			}
+			if wherePath == "code" || strings.HasSuffix(wherePath, ".code") {
+				where.Values = []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: value}}}
+			} else {
+				where.Values = []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}}
+			}
+		}
+		aggregate.Where = where
+	}
+
+	logicalType := "string"
+	switch operation {
+	case recipe.AggregateCount, recipe.AggregateCountDistinct:
+		logicalType = "integer"
+	case recipe.AggregateExists, recipe.AggregateContainsAll:
+		logicalType = "boolean"
+	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax:
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(column.Source.FieldPath), "."))
+		if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
+			return recipe.Aggregate{}, "", fmt.Errorf("aggregate selector %q is not represented by generated resource type %q", column.Source.FieldPath, resourceType)
+		}
+		switch metadata.Primitive {
+		case fhirschema.PrimitiveInteger:
+			logicalType = "integer"
+		case fhirschema.PrimitiveDecimal:
+			logicalType = "decimal"
+		case fhirschema.PrimitiveBoolean:
+			logicalType = "boolean"
+		case fhirschema.PrimitiveDate:
+			logicalType = "date"
+		case fhirschema.PrimitiveDateTime:
+			logicalType = "date_time"
+		default:
+			logicalType = "string"
+		}
+	default:
+		return recipe.Aggregate{}, "", fmt.Errorf("unsupported aggregate operation %q", column.Source.Operation)
+	}
+	return aggregate, logicalType, nil
 }
 
 func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {

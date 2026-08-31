@@ -7,9 +7,9 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-// NormalizeError translates ingest-owned failures at the ingest HTTP boundary
+// normalizeError translates ingest-owned failures at the ingest HTTP boundary
 // so the shared HTTP package does not depend on the loader implementation.
-func NormalizeError(err error) error {
+func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}

@@ -34,6 +34,7 @@ type CompiledRecipeOutput struct {
 	Name             string
 	RootResourceType string
 	RowGrain         spec.RowGrain
+	RootColumnNaming recipe.RootColumnNaming
 	Columns          []string
 	// OutputSchema is the compiler-owned ordered projection schema. It is
 	// captured from the finalized physical RETURN projections rather than
@@ -160,7 +161,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
-		RowGrain: output.RowGrain, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
+		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Plan: physical,
 	}, nil
 }

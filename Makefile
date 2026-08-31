@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -89,6 +89,14 @@ docker-build:
 
 docker-run:
 	docker run --rm -p 8080:8080 $(IMAGE)
+
+# Full real-data acceptance path. The script owns temporary Kubernetes
+# port-forwards, the current-worktree Loom process, and guarded run databases.
+acceptance-real:
+	./scripts/acceptance-real.sh
+
+acceptance-performance:
+	./scripts/acceptance-performance.sh
 
 clean:
 	rm -rf bin

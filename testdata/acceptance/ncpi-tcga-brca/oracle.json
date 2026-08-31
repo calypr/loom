@@ -1,0 +1,46 @@
+{
+  "row_count": 100,
+  "unique_patient_count": 100,
+  "columns": [
+    "patient_id",
+    "submitter_id",
+    "birth_sex",
+    "race",
+    "ethnicity",
+    "primary_histology",
+    "pathological_stage",
+    "age_at_diagnosis_days",
+    "diagnostic_method",
+    "days_to_death",
+    "condition_count",
+    "specimen_count",
+    "tumor_specimen_count",
+    "normal_specimen_count",
+    "has_paired_tumor_normal",
+    "earliest_collection_day",
+    "latest_collection_day"
+  ],
+  "non_null_counts": {
+    "patient_id": 100,
+    "submitter_id": 100,
+    "birth_sex": 100,
+    "race": 89,
+    "ethnicity": 84,
+    "primary_histology": 100,
+    "pathological_stage": 100,
+    "age_at_diagnosis_days": 98,
+    "diagnostic_method": 88,
+    "days_to_death": 6,
+    "condition_count": 100,
+    "specimen_count": 100,
+    "tumor_specimen_count": 100,
+    "normal_specimen_count": 100,
+    "has_paired_tumor_normal": 100,
+    "earliest_collection_day": 100,
+    "latest_collection_day": 100
+  },
+  "true_counts": {
+    "has_paired_tumor_normal": 100
+  },
+  "row_digest": "sha256:f3aef4e5aa8b44e721c586571d51dac59ef7b809c1b145a6f1217a7f5da98e2a"
+}

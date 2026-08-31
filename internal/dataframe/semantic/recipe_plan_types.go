@@ -33,6 +33,7 @@ type OutputPlan struct {
 	Root                  SemanticNode
 	RootResourceType      string
 	RowGrain              spec.RowGrain
+	RootColumnNaming      recipe.RootColumnNaming
 	TraversalColumnNaming recipe.TraversalColumnNaming
 	Identity              *SemanticExpression
 	// Unnest is the canonical semantic row-producing operation for an output.

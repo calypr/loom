@@ -54,16 +54,15 @@ type PublicationIdentity struct {
 	// OutputName scopes single-output publications. The field is empty for
 	// legacy/full-bundle publications and is used by incremental Explorer
 	// loads so each output can retain its own visibility pointer.
-	OutputName         string
-	Project            string
-	DatasetGeneration  string
-	RecipeDigest       string
-	SchemaDigest       string
-	ScopeDigest        string
-	EngineVersion      string
-	TargetConfigDigest string
-	AuthScopeMode      string
-	AuthResourcePaths  []string
+	OutputName        string
+	Project           string
+	DatasetGeneration string
+	RecipeDigest      string
+	SchemaDigest      string
+	ScopeDigest       string
+	EngineVersion     string
+	AuthScopeMode     string
+	AuthResourcePaths []string
 }
 
 type PublishedOutput struct {

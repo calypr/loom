@@ -1,0 +1,48 @@
+{
+  "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+  "kind": "ExplorerBuilderWorkspace",
+  "explorer": {"title": "TCGA-BRCA patient cohort"},
+  "documents": [
+    {
+      "kind": "ExplorerBuilderDocument",
+      "output": {"id": "tcga_brca_cohort", "title": "TCGA-BRCA patient cohort", "rowLabel": "Patient"},
+      "rootResourceType": "Patient",
+      "route": {
+        "occurrenceId": "base",
+        "resourceType": "Patient",
+        "children": [
+          {"occurrenceId": "condition", "resourceType": "Condition", "relationship": "subject_Patient"},
+          {
+            "occurrenceId": "specimen",
+            "resourceType": "Specimen",
+            "relationship": "subject_Patient",
+            "children": [
+              {"occurrenceId": "collection_observation", "resourceType": "Observation", "relationship": "specimen_Specimen"}
+            ]
+          },
+          {"occurrenceId": "observation", "resourceType": "Observation", "relationship": "subject_Patient"}
+        ]
+      },
+      "columns": [
+        {"column": "patient_id", "label": "Patient ID", "logicalType": "string", "occurrenceId": "base", "source": {"kind": "field", "fieldPath": "id", "projectionMode": "VALUE"}, "table": {"visible": true, "order": 0}},
+        {"column": "submitter_id", "label": "Submitter ID", "logicalType": "string", "occurrenceId": "base", "source": {"kind": "identifierBySystem", "fieldPath": "identifier[]", "match": "https://gdc.cancer.gov/submitter_id", "projectionMode": "FIRST"}, "table": {"visible": true, "order": 1}},
+        {"column": "birth_sex", "label": "Birth sex", "logicalType": "string", "occurrenceId": "base", "source": {"kind": "extensionByUrl", "fieldPath": "extension[]", "match": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex", "projectionMode": "FIRST"}, "table": {"visible": true, "order": 2}},
+        {"column": "race", "label": "Race", "logicalType": "string", "occurrenceId": "base", "source": {"kind": "extensionByUrl", "fieldPath": "extension[]", "match": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race", "projectionMode": "FIRST"}, "table": {"visible": true, "order": 3}},
+        {"column": "ethnicity", "label": "Ethnicity", "logicalType": "string", "occurrenceId": "base", "source": {"kind": "extensionByUrl", "fieldPath": "extension[]", "match": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity", "projectionMode": "FIRST"}, "table": {"visible": true, "order": 4}},
+        {"column": "primary_histology", "label": "Primary histology", "logicalType": "string", "occurrenceId": "condition", "source": {"kind": "aggregate", "operation": "DISTINCT_VALUES", "fieldPath": "code.coding[].display"}, "table": {"visible": true, "order": 5}},
+        {"column": "pathological_stage", "label": "Pathological stage", "logicalType": "string", "occurrenceId": "condition", "source": {"kind": "aggregate", "operation": "MIN", "fieldPath": "stage[].summary.coding[].display"}, "table": {"visible": true, "order": 6}},
+        {"column": "age_at_diagnosis_days", "label": "Age at diagnosis (days)", "logicalType": "decimal", "occurrenceId": "observation", "source": {"kind": "aggregate", "operation": "MIN", "fieldPath": "valueQuantity.value", "wherePath": "code.coding[].code", "whereEquals": "NCIT_C156418"}, "table": {"visible": true, "order": 7}},
+        {"column": "diagnostic_method", "label": "Diagnostic method", "logicalType": "string", "occurrenceId": "observation", "source": {"kind": "aggregate", "operation": "MIN", "fieldPath": "valueString", "wherePath": "code.coding[].code", "whereEquals": "NCIT_C177576"}, "table": {"visible": true, "order": 8}},
+        {"column": "days_to_death", "label": "Days to death", "logicalType": "decimal", "occurrenceId": "observation", "source": {"kind": "aggregate", "operation": "MIN", "fieldPath": "valueQuantity.value", "wherePath": "code.coding[].code", "whereEquals": "NCIT_C156419"}, "table": {"visible": true, "order": 9}},
+        {"column": "condition_count", "label": "Condition count", "logicalType": "integer", "occurrenceId": "condition", "source": {"kind": "aggregate", "operation": "COUNT"}, "table": {"visible": true, "order": 10}},
+        {"column": "specimen_count", "label": "Specimen count", "logicalType": "integer", "occurrenceId": "specimen", "source": {"kind": "aggregate", "operation": "COUNT"}, "table": {"visible": true, "order": 11}},
+        {"column": "tumor_specimen_count", "label": "Tumor specimen count", "logicalType": "integer", "occurrenceId": "specimen", "source": {"kind": "aggregate", "operation": "COUNT", "wherePath": "type.coding[].code", "whereEquals": "Tumor"}, "table": {"visible": true, "order": 12}},
+        {"column": "normal_specimen_count", "label": "Normal specimen count", "logicalType": "integer", "occurrenceId": "specimen", "source": {"kind": "aggregate", "operation": "COUNT", "wherePath": "type.coding[].code", "whereEquals": "Normal"}, "table": {"visible": true, "order": 13}},
+        {"column": "has_paired_tumor_normal", "label": "Has paired tumor and normal", "logicalType": "boolean", "occurrenceId": "specimen", "source": {"kind": "aggregate", "operation": "CONTAINS_ALL", "fieldPath": "type.coding[].code", "requiredValues": ["Tumor", "Normal"]}, "table": {"visible": true, "order": 14}},
+        {"column": "earliest_collection_day", "label": "Earliest collection day", "logicalType": "integer", "occurrenceId": "collection_observation", "source": {"kind": "aggregate", "operation": "MIN", "fieldPath": "component[].valueInteger", "wherePath": "code.coding[].code", "whereEquals": "81247-9"}, "table": {"visible": true, "order": 15}},
+        {"column": "latest_collection_day", "label": "Latest collection day", "logicalType": "integer", "occurrenceId": "collection_observation", "source": {"kind": "aggregate", "operation": "MAX", "fieldPath": "component[].valueInteger", "wherePath": "code.coding[].code", "whereEquals": "81247-9"}, "table": {"visible": true, "order": 16}}
+      ]
+    }
+  ],
+  "tabs": [{"id": "tcga_brca_cohort_tab", "title": "TCGA-BRCA patient cohort", "outputId": "tcga_brca_cohort", "order": 0, "visible": true}]
+}

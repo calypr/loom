@@ -88,7 +88,8 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: projectionPrefix + "__" + aggregate.Name, Expression: &expression})
+		name := aggregateProjectionName(aggregate, projectionPrefix+"__")
+		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	for _, pivot := range child.Pivots {
 		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, projectionPrefix+"__")

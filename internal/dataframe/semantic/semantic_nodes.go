@@ -53,12 +53,16 @@ type SemanticPivot struct {
 
 type SemanticAggregate struct {
 	Name            string
+	OutputName      string
 	Operation       string
 	FieldRef        string
 	Selector        *spec.Selector
 	Predicate       *spec.Selector
 	PredicateEquals string
+	PredicateKind   spec.FilterValueKind
 	ValueMode       string
+	RequiredValues  []string
+	ValueKind       expression.ValueKind
 }
 
 type SemanticSlice struct {
@@ -66,6 +70,7 @@ type SemanticSlice struct {
 	Limit           int
 	Predicate       *spec.Selector
 	PredicateEquals string
+	PredicateKind   spec.FilterValueKind
 	Fields          []SemanticField
 }
 

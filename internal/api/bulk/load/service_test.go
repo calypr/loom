@@ -69,7 +69,7 @@ func TestRunGenerationPropagatesDeferActivationAndResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, deferred := range []bool{false, true} {
-		result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: deferred})
+		result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: deferred})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{
+	result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{
+	result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestRunGenerationRejectsManifestLookupFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.RunGeneration(context.Background(), GenerationLoadRequest{
+	_, err = svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err == nil || runner.calls != 0 {
@@ -191,7 +191,7 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.ActivateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err == nil {
+			if err := svc.activateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err == nil {
 				t.Fatal("ActivateGeneration() unexpectedly succeeded")
 			}
 			if activator.readCalls != 0 || activator.activateCalls != 0 {
@@ -222,7 +222,7 @@ func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ActivateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err != nil {
+	if err := svc.activateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err != nil {
 		t.Fatal(err)
 	}
 	if activator.readCalls != 1 || activator.activateCalls != 1 || !calledSuccess {

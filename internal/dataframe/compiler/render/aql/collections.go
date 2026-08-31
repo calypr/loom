@@ -368,6 +368,20 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 		case ir.PhysicalFirstAggregate:
 			return "FIRST(" + flattened + ")", nil
 		}
+	case ir.PhysicalContainsAllAggregate:
+		if aggregate.Value == nil {
+			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)
+		}
+		if aggregate.RequiredValuesBindKey == "" {
+			return "", fmt.Errorf("aggregate operation %q requires required values", aggregate.Operation)
+		}
+		values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
+		if err != nil {
+			return "", err
+		}
+		required := "@" + aggregate.RequiredValuesBindKey
+		item := r.newInternalVariable("aggregate_required_value")
+		return "LENGTH(" + required + ") == LENGTH(FOR " + item + " IN " + required + " FILTER POSITION(FLATTEN(" + values + "), " + item + ") RETURN 1)", nil
 	}
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 }

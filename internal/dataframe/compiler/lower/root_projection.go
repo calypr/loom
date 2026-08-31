@@ -104,7 +104,7 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: aggregate.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, ""), Expression: &expression})
 	}
 	for _, pivot := range root.Pivots {
 		pivotProjections, err := physicalPivotProjections(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, pivot, "")
@@ -168,11 +168,16 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
 	}
 	aggregatePhysical := ir.PhysicalAggregate{Source: source, Operation: op}
+	if len(aggregate.RequiredValues) > 0 {
+		key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_required_values"
+		physical.BindVars[key] = append([]string(nil), aggregate.RequiredValues...)
+		aggregatePhysical.RequiredValuesBindKey = key
+	}
 	if aggregate.Selector != nil {
 		valueSource := source
 		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
@@ -192,7 +197,10 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
 		if aggregate.PredicateEquals != "" {
 			comparison.Operator = "EQUALS"
-			comparison.ValueKind = spec.FilterString
+			comparison.ValueKind = aggregate.PredicateKind
+			if comparison.ValueKind == "" {
+				comparison.ValueKind = spec.FilterString
+			}
 			key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate_equals"
 			physical.BindVars[key] = aggregate.PredicateEquals
 			comparison.Right = &ir.PhysicalValue{BindKey: key}
@@ -204,7 +212,17 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 	if op == ir.PhysicalDistinctValuesAggregate {
 		cardinality = ir.PhysicalArrayCardinality
 	}
+	if op == ir.PhysicalContainsAllAggregate {
+		nullBehavior = ir.PhysicalPreserveNull
+	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalAggregateExpression, Cardinality: cardinality, NullBehavior: nullBehavior, Aggregate: &aggregatePhysical}, nil
+}
+
+func aggregateProjectionName(aggregate semantic.SemanticAggregate, prefix string) string {
+	if strings.TrimSpace(aggregate.OutputName) != "" {
+		return aggregate.OutputName
+	}
+	return prefix + aggregate.Name
 }
 
 // physicalSliceExpression lowers a representative slice into a typed,
@@ -235,7 +253,10 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 			key := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate_equals"
 			physical.BindVars[key] = slice.PredicateEquals
 			comparison.Operator = "EQUALS"
-			comparison.ValueKind = spec.FilterString
+			comparison.ValueKind = slice.PredicateKind
+			if comparison.ValueKind == "" {
+				comparison.ValueKind = spec.FilterString
+			}
 			comparison.Right = &ir.PhysicalValue{BindKey: key}
 		}
 		physicalSlice.Predicate = &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: comparison}

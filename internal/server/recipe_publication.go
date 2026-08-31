@@ -59,7 +59,11 @@ func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName str
 			if column.Discovered {
 				provenance = publication.ColumnDiscovered
 			}
-			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
+			name := column.Name
+			if output.RootColumnNaming != recipe.RootColumnNamingExact {
+				name = publication.FlatColumnName(output.RootResourceType, name)
+			}
+			columns = append(columns, publication.LogicalColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
 		}
 		return columns
 	}
@@ -73,6 +77,15 @@ func recipeOutputRootResourceType(plan dataframeexecution.Resolved, outputName s
 		}
 	}
 	return ""
+}
+
+func recipeOutputUsesExactRootColumns(plan dataframeexecution.Resolved, outputName string) bool {
+	for _, output := range plan.Compiled.Outputs {
+		if output.Name == outputName {
+			return output.RootColumnNaming == recipe.RootColumnNamingExact
+		}
+	}
+	return false
 }
 
 func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
@@ -94,10 +107,14 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		stream := stream
 		columns := recipeOutputLogicalColumns(full, stream.Name)
 		rootResourceType := recipeOutputRootResourceType(full, stream.Name)
+		exactRootColumns := recipeOutputUsesExactRootColumns(full, stream.Name)
 		streamInputs = append(streamInputs, publication.OutputStream{
 			Name: stream.Name, Columns: columns,
 			Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 				_, err := stream.Stream(streamCtx, func(row map[string]any) error {
+					if exactRootColumns {
+						return visit(row)
+					}
 					qualified, err := publication.QualifyFlatRow(rootResourceType, row)
 					if err != nil {
 						return err

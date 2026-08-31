@@ -1,0 +1,66 @@
+name: real-data acceptance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    services:
+      arangodb:
+        image: arangodb:3.12
+        env:
+          ARANGO_NO_AUTH: "1"
+        ports:
+          - 8529:8529
+        options: >-
+          --health-cmd="wget --quiet --tries=1 --spider http://localhost:8529/_api/version || exit 1"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_DB: loom_acceptance
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd="wget --quiet --tries=1 --spider --user=loom_ci --password=loom_ci_password http://localhost:8123/ping || exit 1"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cache validated NCPI fixture
+        uses: actions/cache@v4
+        with:
+          path: .cache/acceptance/fixture
+          key: acceptance-fixture-${{ hashFiles('testdata/acceptance/ncpi-tcga-brca/fixture.lock.json') }}
+      - name: Run real-data acceptance
+        env:
+          LOOM_ACCEPTANCE_MODE: github
+          LOOM_ACCEPTANCE_ARTIFACTS: .artifacts/acceptance/github-${{ github.run_id }}
+          LOOM_ACCEPTANCE_FIXTURE_CACHE: .cache/acceptance/fixture
+          LOOM_ACCEPTANCE_CLICKHOUSE_USERNAME: loom_ci
+          LOOM_ACCEPTANCE_CLICKHOUSE_PASSWORD: loom_ci_password
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: make acceptance-performance
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ github.run_id }}
+          path: .artifacts/acceptance
+          if-no-files-found: warn

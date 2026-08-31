@@ -48,6 +48,9 @@ func (b Bundle) Validate() error {
 		if !output.TraversalColumnNaming.Valid() {
 			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH or ALIAS")
 		}
+		if !output.RootColumnNaming.Valid() {
+			return validationError("invalid_root_column_naming", path+".rootColumnNaming", "must be PREFIXED or EXACT")
+		}
 		if output.CollisionPolicy != "" && output.CollisionPolicy != "error" && output.CollisionPolicy != "overwrite" && output.CollisionPolicy != "coalesce" {
 			return validationError("invalid_collision_policy", path+".collisionPolicy", "must be error, overwrite, or coalesce")
 		}

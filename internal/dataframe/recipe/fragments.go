@@ -95,68 +95,81 @@ func (l FragmentLibrary) ExpandBundle(bundle Bundle) (Bundle, error) {
 }
 
 func (l FragmentLibrary) expandOutput(output Output) (Output, error) {
-	for i, field := range output.Fields {
-		expr, err := l.ExpandExpression(field.Expr)
-		if err != nil {
-			return Output{}, fmt.Errorf("field %q: %w", field.Name, err)
-		}
-		output.Fields[i].Expr = expr
+	var err error
+	output.Fields, err = l.expandFields(output.Fields)
+	if err != nil {
+		return Output{}, err
 	}
-	for i, traversal := range output.Traversals {
-		resolved, err := l.expandTraversal(traversal)
+	output.Pivots, err = l.expandPivots(output.Pivots)
+	if err != nil {
+		return Output{}, err
+	}
+	output.Aggregates, err = l.expandAggregates(output.Aggregates)
+	if err != nil {
+		return Output{}, err
+	}
+	output.Slices, err = l.expandSlices(output.Slices)
+	if err != nil {
+		return Output{}, err
+	}
+	output.Traversals = append([]Traversal(nil), output.Traversals...)
+	for i := range output.Traversals {
+		resolved, err := l.expandTraversal(output.Traversals[i])
 		if err != nil {
 			return Output{}, err
 		}
 		output.Traversals[i] = resolved
 	}
 	if output.Expand != nil {
-		expr, err := l.ExpandExpression(output.Expand.From)
+		expansion := *output.Expand
+		expr, err := l.ExpandExpression(expansion.From)
 		if err != nil {
 			return Output{}, err
 		}
-		output.Expand.From = expr
+		expansion.From = expr
+		output.Expand = &expansion
 	}
 	if output.Identity != nil {
-		expr, err := l.ExpandExpression(output.Identity.Expr)
+		identity := *output.Identity
+		expr, err := l.ExpandExpression(identity.Expr)
 		if err != nil {
 			return Output{}, err
 		}
-		output.Identity.Expr = expr
+		identity.Expr = expr
+		output.Identity = &identity
 	}
-	for i, dynamic := range output.DynamicColumns {
-		expr, err := l.ExpandExpression(dynamic.Source)
-		if err != nil {
-			return Output{}, err
-		}
-		output.DynamicColumns[i].Source = expr
-		if dynamic.Key != nil {
-			value, err := l.ExpandExpression(*dynamic.Key)
-			if err != nil {
-				return Output{}, err
-			}
-			output.DynamicColumns[i].Key = &value
-		}
-		if dynamic.Value != nil {
-			value, err := l.ExpandExpression(*dynamic.Value)
-			if err != nil {
-				return Output{}, err
-			}
-			output.DynamicColumns[i].Value = &value
-		}
+	output.DynamicColumns, err = l.expandDynamicColumns(output.DynamicColumns)
+	if err != nil {
+		return Output{}, err
+	}
+	output.ExtensionColumns, err = l.expandExtensionColumns(output.ExtensionColumns)
+	if err != nil {
+		return Output{}, err
 	}
 	return output, nil
 }
 
 func (l FragmentLibrary) expandTraversal(traversal Traversal) (Traversal, error) {
-	for i, field := range traversal.Fields {
-		expr, err := l.ExpandExpression(field.Expr)
-		if err != nil {
-			return Traversal{}, err
-		}
-		traversal.Fields[i].Expr = expr
+	var err error
+	traversal.Fields, err = l.expandFields(traversal.Fields)
+	if err != nil {
+		return Traversal{}, err
 	}
-	for i, child := range traversal.Traversals {
-		resolved, err := l.expandTraversal(child)
+	traversal.Pivots, err = l.expandPivots(traversal.Pivots)
+	if err != nil {
+		return Traversal{}, err
+	}
+	traversal.Aggregates, err = l.expandAggregates(traversal.Aggregates)
+	if err != nil {
+		return Traversal{}, err
+	}
+	traversal.Slices, err = l.expandSlices(traversal.Slices)
+	if err != nil {
+		return Traversal{}, err
+	}
+	traversal.Traversals = append([]Traversal(nil), traversal.Traversals...)
+	for i := range traversal.Traversals {
+		resolved, err := l.expandTraversal(traversal.Traversals[i])
 		if err != nil {
 			return Traversal{}, err
 		}
@@ -169,7 +182,126 @@ func (l FragmentLibrary) expandTraversal(traversal Traversal) (Traversal, error)
 		}
 		traversal.From = &expr
 	}
+	traversal.DynamicColumns, err = l.expandDynamicColumns(traversal.DynamicColumns)
+	if err != nil {
+		return Traversal{}, err
+	}
+	traversal.ExtensionColumns, err = l.expandExtensionColumns(traversal.ExtensionColumns)
+	if err != nil {
+		return Traversal{}, err
+	}
 	return traversal, nil
+}
+
+func (l FragmentLibrary) expandFields(fields []Field) ([]Field, error) {
+	fields = append([]Field(nil), fields...)
+	for i := range fields {
+		expr, err := l.ExpandExpression(fields[i].Expr)
+		if err != nil {
+			return nil, fmt.Errorf("field %q: %w", fields[i].Name, err)
+		}
+		fields[i].Expr = expr
+	}
+	return fields, nil
+}
+
+func (l FragmentLibrary) expandPivots(pivots []Pivot) ([]Pivot, error) {
+	pivots = append([]Pivot(nil), pivots...)
+	for i := range pivots {
+		pivot := &pivots[i]
+		pivot.ValueFallbacks = append([]Expression(nil), pivot.ValueFallbacks...)
+		columnExpr, err := l.ExpandExpression(pivot.ColumnExpr)
+		if err != nil {
+			return nil, fmt.Errorf("pivot %q column expression: %w", pivot.Name, err)
+		}
+		pivot.ColumnExpr = columnExpr
+		valueExpr, err := l.ExpandExpression(pivot.ValueExpr)
+		if err != nil {
+			return nil, fmt.Errorf("pivot %q value expression: %w", pivot.Name, err)
+		}
+		pivot.ValueExpr = valueExpr
+		for j := range pivot.ValueFallbacks {
+			fallback, err := l.ExpandExpression(pivot.ValueFallbacks[j])
+			if err != nil {
+				return nil, fmt.Errorf("pivot %q fallback: %w", pivot.Name, err)
+			}
+			pivot.ValueFallbacks[j] = fallback
+		}
+		if !pivot.ItemSource.zero() {
+			itemSource, err := l.ExpandExpression(pivot.ItemSource)
+			if err != nil {
+				return nil, fmt.Errorf("pivot %q item source: %w", pivot.Name, err)
+			}
+			pivot.ItemSource = itemSource
+		}
+	}
+	return pivots, nil
+}
+
+func (l FragmentLibrary) expandAggregates(aggregates []Aggregate) ([]Aggregate, error) {
+	aggregates = append([]Aggregate(nil), aggregates...)
+	for i := range aggregates {
+		if aggregates[i].Expr == nil {
+			continue
+		}
+		expr, err := l.ExpandExpression(*aggregates[i].Expr)
+		if err != nil {
+			return nil, fmt.Errorf("aggregate %q: %w", aggregates[i].Name, err)
+		}
+		aggregates[i].Expr = &expr
+	}
+	return aggregates, nil
+}
+
+func (l FragmentLibrary) expandSlices(slices []RepresentativeSlice) ([]RepresentativeSlice, error) {
+	slices = append([]RepresentativeSlice(nil), slices...)
+	for i := range slices {
+		fields, err := l.expandFields(slices[i].Fields)
+		if err != nil {
+			return nil, fmt.Errorf("slice %q: %w", slices[i].Name, err)
+		}
+		slices[i].Fields = fields
+	}
+	return slices, nil
+}
+
+func (l FragmentLibrary) expandDynamicColumns(columns []DynamicColumn) ([]DynamicColumn, error) {
+	columns = append([]DynamicColumn(nil), columns...)
+	for i := range columns {
+		column := &columns[i]
+		source, err := l.ExpandExpression(column.Source)
+		if err != nil {
+			return nil, fmt.Errorf("dynamic column %q source: %w", column.Name, err)
+		}
+		column.Source = source
+		if column.Key != nil {
+			key, err := l.ExpandExpression(*column.Key)
+			if err != nil {
+				return nil, fmt.Errorf("dynamic column %q key: %w", column.Name, err)
+			}
+			column.Key = &key
+		}
+		if column.Value != nil {
+			value, err := l.ExpandExpression(*column.Value)
+			if err != nil {
+				return nil, fmt.Errorf("dynamic column %q value: %w", column.Name, err)
+			}
+			column.Value = &value
+		}
+	}
+	return columns, nil
+}
+
+func (l FragmentLibrary) expandExtensionColumns(columns []ExtensionColumn) ([]ExtensionColumn, error) {
+	columns = append([]ExtensionColumn(nil), columns...)
+	for i := range columns {
+		source, err := l.ExpandExpression(columns[i].Source)
+		if err != nil {
+			return nil, fmt.Errorf("extension column %q source: %w", columns[i].Name, err)
+		}
+		columns[i].Source = source
+	}
+	return columns, nil
 }
 
 func (l FragmentLibrary) expand(input Expression, stack []string, depth int) (Expression, error) {
@@ -216,6 +348,7 @@ func (l FragmentLibrary) expand(input Expression, stack []string, depth int) (Ex
 }
 
 func substitute(input Expression, bindings map[string]Expression) Expression {
+	input.Args = append([]Expression(nil), input.Args...)
 	if input.Select != "" {
 		key := strings.TrimSpace(input.Select)
 		for name, value := range bindings {
