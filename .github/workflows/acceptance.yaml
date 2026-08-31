@@ -56,6 +56,55 @@ jobs:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         run: make acceptance-performance
+      - name: Summarize acceptance evidence
+        if: always()
+        env:
+          ACCEPTANCE_ROOT: .artifacts/acceptance/github-${{ github.run_id }}
+        shell: bash
+        run: |
+          report="$ACCEPTANCE_ROOT/current/report.json"
+          cleanup="$ACCEPTANCE_ROOT/current/cleanup.json"
+          performance="$ACCEPTANCE_ROOT/performance.json"
+
+          if [[ ! -f "$report" ]]; then
+            echo "::warning::No acceptance report was produced. Inspect the acceptance step and uploaded evidence."
+            exit 0
+          fi
+
+          emit_summary() {
+            jq -r '
+              def stage($name): first(.stages[] | select(.name == $name));
+              (stage("generation_upload")) as $load |
+              (stage("execution_registry")) as $registry |
+              (stage("clickhouse_physical")) as $clickhouse |
+              (stage("graphql")) as $graphql |
+              (stage("idempotent_publish")) as $idempotent |
+              (stage("acceptance")) as $acceptance |
+              (.fixture.Counts | add) as $resources |
+              "Status: \(.status)",
+              "Fixture: \($resources) resources (\([.fixture.Counts | to_entries[] | "\(.key)=\(.value)"] | join(", ")))",
+              "ArangoDB: \($load.details.summary.vertices_inserted) vertices, \($load.details.summary.edges_inserted) edges, \($load.details.summary.generation_errors + $load.details.summary.edge_errors) load errors",
+              "Explorer: \($registry.details.state), idempotent republish reused execution=\($idempotent.details.execution_id)",
+              "ClickHouse: \($clickhouse.details.row_count) rows, \($clickhouse.details.unique_patients) unique patients",
+              "GraphQL: \($graphql.details.dataset.rowCount) rows, digest=\($graphql.details.row_digest)",
+              "Acceptance runtime: \($acceptance.seconds * 1000 | round / 1000)s"
+            ' "$report"
+
+            if [[ -f "$cleanup" ]]; then
+              jq -r '"Cleanup: " + (if .cleanup_status == 0 and .status == "0" then "PASSED" else "FAILED" end)' "$cleanup"
+            fi
+            if [[ -f "$performance" ]]; then
+              jq -r '"Performance: \(.status)" + (if .reason then " (\(.reason))" else "" end)' "$performance"
+            fi
+          }
+
+          {
+            echo "## Real-data acceptance"
+            echo
+            echo '```text'
+            emit_summary
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -52,6 +52,12 @@ class AcceptanceRealScriptTest(unittest.TestCase):
         self.assertIn("--user=loom_ci --password=loom_ci_password", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("run: make acceptance-performance", workflow)
+        self.assertIn("- name: Summarize acceptance evidence", workflow)
+        self.assertIn("GITHUB_STEP_SUMMARY", workflow)
+        self.assertIn("current/report.json", workflow)
+        self.assertIn("vertices_inserted", workflow)
+        self.assertIn("row_digest", workflow)
+        self.assertIn("cleanup_status", workflow)
         self.assertNotIn("LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE", workflow)
 
         performance = PERFORMANCE.read_text(encoding="utf-8")
