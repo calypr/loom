@@ -1,6 +1,6 @@
 {
   "name": "@calypr/loom-ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Portable Loom Explorer Builder and Viewer components.",
   "type": "module",
   "main": "dist/loom-ui.js",
