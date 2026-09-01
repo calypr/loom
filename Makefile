@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke release-ui
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -18,7 +18,28 @@ DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
+# Make treats the positional version as a second goal. Reject every ambiguous
+# form while parsing so no release recipe can start with the wrong version.
+ifneq ($(filter release-ui,$(MAKECMDGOALS)),)
+ifneq ($(firstword $(MAKECMDGOALS)),release-ui)
+$(error Usage: make release-ui X.Y.Z)
+endif
+ifneq ($(words $(MAKECMDGOALS)),2)
+$(error Usage: make release-ui X.Y.Z)
+endif
+ifeq ($(origin VERSION),command line)
+$(error Usage: do not set VERSION=; run make release-ui X.Y.Z)
+endif
+release-ui-version := $(word 2,$(MAKECMDGOALS))
+.PHONY: $(release-ui-version)
+$(release-ui-version):
+	@:
+endif
+
 build: build-cli build-server
+
+release-ui:
+	./scripts/release-loom-ui.sh release "$(release-ui-version)"
 
 generate: generate-fhir generate-graphql generate-openapi
 
