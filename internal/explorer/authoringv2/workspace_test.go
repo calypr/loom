@@ -157,6 +157,43 @@ func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 	}
 }
 
+func TestDecodeWorkspaceAcceptsOnlyFirstProjectionForPersistedProjectID(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{name: "omitted"},
+		{name: "explicit first", mode: "FIRST"},
+		{name: "value", mode: "VALUE", wantErr: true},
+		{name: "all", mode: "ALL", wantErr: true},
+		{name: "distinct", mode: "DISTINCT", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := Workspace{
+				APIVersion: APIVersion,
+				Kind:       WorkspaceKind,
+				Explorer:   ExplorerMetadata{Title: "Persisted"},
+				Documents:  []Document{workspaceDocument("patients")},
+				Tabs:       []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+			}
+			workspace.Documents[0].Columns[0].Column = "project_id"
+			workspace.Documents[0].Columns[0].Source = ColumnSource{Kind: SourceProjectID, ProjectionMode: tt.mode}
+			raw, err := json.Marshal(workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = DecodeWorkspace(raw)
+			if tt.wantErr && err == nil {
+				t.Fatalf("projectionMode %q was accepted", tt.mode)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("projectionMode %q was rejected: %v", tt.mode, err)
+			}
+		})
+	}
+}
+
 func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
 	visible := true
 	document := workspaceDocument("patients")

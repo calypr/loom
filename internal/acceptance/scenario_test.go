@@ -79,6 +79,16 @@ func TestCompareColumnsRejectsMissingOracleColumn(t *testing.T) {
 	}
 }
 
+func TestCompareGenerationSummaryAcceptsReusedReadyGeneration(t *testing.T) {
+	counts := map[string]int{"Patient": 100}
+	if err := compareSummary(map[string]any{"reused": true}, counts); err != nil {
+		t.Fatalf("reused generation = %v", err)
+	}
+	if err := compareSummary(map[string]any{}, counts); err == nil {
+		t.Fatal("fresh generation without a load summary was accepted")
+	}
+}
+
 func TestVerifyRowProfilesExplainsCohortDrift(t *testing.T) {
 	rows := []any{
 		map[string]any{"patient_id": "p1", "stage": "I", "paired": true},

@@ -1,0 +1,123 @@
+name: loom-demo
+
+services:
+  arangodb:
+    image: arangodb:3.12
+    environment:
+      ARANGO_NO_AUTH: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - arangodb_data:/var/lib/arangodb3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_DB: loom_acceptance_d000000000000001
+      CLICKHOUSE_USER: loom_demo
+      CLICKHOUSE_PASSWORD: loom_demo_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider --user=loom_demo --password=loom_demo_password http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  loom-api:
+    image: loom-demo-api:local
+    build:
+      context: .
+    command:
+      - --listen
+      - :8080
+      - --no-auth
+      - --url
+      - http://arangodb:8529
+      - --database
+      - loom_acceptance_d000000000000001
+      - --schema
+      - /app/schemas/graph-fhir.json
+      - --clickhouse-url
+      - clickhouse://clickhouse:9000
+      - --clickhouse-database
+      - loom_acceptance_d000000000000001
+      - --clickhouse-username
+      - loom_demo
+      - --clickhouse-password
+      - loom_demo_password
+      - --dataframer-recipe
+      - /app/testdata/recipe.json
+    depends_on:
+      arangodb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/readyz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./testdata/acceptance/ncpi-tcga-brca/recipe.json:/app/testdata/recipe.json:ro
+
+  demo-seed:
+    image: loom-demo-api:local
+    entrypoint: ["/app/loom-acceptance"]
+    command:
+      - --run-id
+      - d000000000000001
+      - --loom-url
+      - http://loom-api:8080
+      - --arango-url
+      - http://arangodb:8529
+      - --clickhouse-url
+      - clickhouse://clickhouse:9000
+      - --clickhouse-username
+      - loom_demo
+      - --clickhouse-password
+      - loom_demo_password
+      - --fixture-lock
+      - /app/testdata/fixture.lock.json
+      - --fixture-cache
+      - /var/cache/loom
+      - --workspace
+      - /app/testdata/workspace.json
+      - --oracle
+      - /app/testdata/oracle.json
+      - --artifacts
+      - /var/lib/loom/artifacts
+      - --project
+      - NCPI_ACCEPTANCE
+      - --generation
+      - tcga-brca-locked
+    depends_on:
+      loom-api:
+        condition: service_healthy
+    volumes:
+      - ./testdata/acceptance/ncpi-tcga-brca:/app/testdata:ro
+      - fixture_cache:/var/cache/loom
+      - demo_artifacts:/var/lib/loom/artifacts
+    restart: "no"
+
+  loom-ui:
+    build:
+      context: ./ui
+      dockerfile: apps/demo/Dockerfile
+    depends_on:
+      loom-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3080:8080"
+
+volumes:
+  arangodb_data:
+  clickhouse_data:
+  fixture_cache:
+  demo_artifacts:

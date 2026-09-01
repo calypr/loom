@@ -1,0 +1,8 @@
+{
+  "source": "NCPI FHIR Aggregator",
+  "endpoint": "https://google-fhir.fhir-aggregator.org",
+  "study": "ResearchStudy/638f6162-e000-5167-8216-962d86b74a98",
+  "selection": "Patient resources matching part-of-study=ResearchStudy/638f6162-e000-5167-8216-962d86b74a98, sorted by id ascending, first 100",
+  "retrieved_at": "2026-08-30",
+  "redistribution": "Raw FHIR payloads are not checked into this repository; see fixture lock and content-addressed cache."
+}

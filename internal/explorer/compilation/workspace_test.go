@@ -33,3 +33,44 @@ func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) {
+	visible := true
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion,
+		Kind:       authoringv2.WorkspaceKind,
+		Explorer:   authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Kind:             authoringv2.Kind,
+			Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
+			RootResourceType: "Patient",
+			Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
+			Columns: []authoringv2.Column{{
+				Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base",
+				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
+				Table:  &authoringv2.TablePresentation{Visible: &visible},
+			}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patient_output", Visible: true}},
+	}
+	snapshot := fixtureSnapshotForProject("HTAN_INT/BForePC")
+
+	canonical, err := CompileWorkspace(context.Background(), "HTAN_INT/BForePC", "default", workspace, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range []string{"HTAN_INT%2FBForePC", "HTAN_INT-BForePC"} {
+		t.Run(project, func(t *testing.T) {
+			result, compileErr := CompileWorkspace(context.Background(), project, "default", workspace, snapshot)
+			if compileErr != nil {
+				t.Fatalf("CompileWorkspace(%q): %v", project, compileErr)
+			}
+			if result.Bundle.Name != canonical.Bundle.Name || result.RecipeDigest != canonical.RecipeDigest {
+				t.Fatalf("equivalent project changed bundle identity: name=%q digest=%q, want name=%q digest=%q", result.Bundle.Name, result.RecipeDigest, canonical.Bundle.Name, canonical.RecipeDigest)
+			}
+			if got := string(result.Bundle.Outputs[0].Fields[0].Expr.Literal); got != `"HTAN_INT/BForePC"` {
+				t.Fatalf("project binding = %s, want canonical project identity", got)
+			}
+		})
+	}
+}

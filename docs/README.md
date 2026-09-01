@@ -6,6 +6,7 @@ audits do not belong here.
 
 ## Start here
 
+- [Standalone Explorer demo](DEMO_QUICKSTART.md) runs the no-auth Builder and Viewer against the locked FHIR Aggregator cohort with one command.
 - [Quickstart](QUICKSTART.md) — run Loom locally, load sample data, and make a
   first dataframe request.
 - [HTTP API and OpenAPI contract](../openapi/README.md) — canonical paths,

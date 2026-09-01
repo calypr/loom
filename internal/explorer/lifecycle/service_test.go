@@ -232,6 +232,23 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 	}
 }
 
+func TestValidateReceiptRouteAcceptsEquivalentProjectIdentities(t *testing.T) {
+	receipt := nativeReceipt(readySnapshot("HTAN_INT/BForePC", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
+	for _, project := range []string{"HTAN_INT/BForePC", "HTAN_INT%2FBForePC", "HTAN_INT-BForePC"} {
+		t.Run(project, func(t *testing.T) {
+			if err := (&Service{}).validateReceiptRoute(receipt, project, "patients"); err != nil {
+				t.Fatalf("equivalent project identity %q was rejected: %v", project, err)
+			}
+		})
+	}
+
+	err := (&Service{}).validateReceiptRoute(receipt, "HTAN_INT/OtherProject", "patients")
+	var value *Error
+	if !errors.As(err, &value) || value.Code != "COMPILE_RECEIPT_NOT_FOUND" {
+		t.Fatalf("different project error = %v, want COMPILE_RECEIPT_NOT_FOUND", err)
+	}
+}
+
 func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)

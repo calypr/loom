@@ -58,6 +58,72 @@ func (q *aggregateHTTPQueryer) QueryRowsArgsVisit(ctx context.Context, query str
 	return nil
 }
 
+func TestGraphQLDataframeCanonicalProjectResolvesLegacyBundle(t *testing.T) {
+	now := time.Now().UTC()
+	catalog := &aggregateHTTPCatalog{execution: dfpublication.BundleExecution{
+		ID: "execution", BundleIdentity: dfpublication.BundleIdentity{
+			Name: "recipe", TranslationVersion: "v1", Project: "HTAN_INT-BForePC", DatasetGeneration: "generation",
+		},
+		State: dfpublication.BundlePublished, UpdatedAt: now,
+		Outputs: []dfpublication.BundleOutputRecord{{
+			Name: "Patient", PhysicalTable: "physical_patient", Columns: []dfpublication.PhysicalColumn{{Name: "__loom_row_id", ClickHouse: "String"}},
+			State: dfpublication.BundlePublished, VerifiedAt: &now,
+		}},
+	}}
+	root := graphresolver.NewResolver(graphresolver.ResolverConfig{
+		MaterializationReader: &dfpublished.Reader{ClickHouse: &aggregateHTTPQueryer{}, Catalog: catalog},
+	})
+	server, err := newGraphServer(root, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "user", Projects: []string{"HTAN_INT/BForePC"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := `query CanonicalProject($selector: DataframeSelectorInput!) {
+		aggregate: dataframeAggregate(input: {projectId: "HTAN_INT/BForePC", selector: $selector, operation: "COUNT"}) {
+			materialization { id projectId }
+		}
+	}`
+	body, err := json.Marshal(map[string]any{
+		"query": query,
+		"variables": map[string]any{
+			"selector": map[string]any{"recipe": "recipe", "translationVersion": "v1", "output": "Patient"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := server.App().Test(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (payload %#v)", response.StatusCode, payload)
+	}
+	if errorsValue, ok := payload["errors"].([]any); ok && len(errorsValue) != 0 {
+		t.Fatalf("unexpected GraphQL errors: %#v", errorsValue)
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("response has no data: %#v", payload)
+	}
+	aggregate, ok := data["aggregate"].(map[string]any)
+	if !ok {
+		t.Fatalf("response has no aggregate: %#v", payload)
+	}
+	materialization, ok := aggregate["materialization"].(map[string]any)
+	if !ok || materialization["id"] != "execution:Patient" || materialization["projectId"] != "HTAN_INT/BForePC" {
+		t.Fatalf("unexpected materialization: %#v", aggregate)
+	}
+}
+
 func TestGraphQLAggregateAliasesUseOneGroupingStatement(t *testing.T) {
 	columns := []dfpublication.PhysicalColumn{{Name: "__loom_row_id", ClickHouse: "String"}}
 	for i := 0; i < 156; i++ {

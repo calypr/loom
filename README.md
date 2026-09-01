@@ -98,7 +98,18 @@ HTTP endpoint is required. The ClickHouse account needs database creation plus
 
 ## Local development
 
-The local Compose stack starts both ArangoDB and ClickHouse:
+To run the complete no-auth Explorer demo with the locked FHIR Aggregator
+sample, use:
+
+```bash
+make demo-up
+```
+
+Open [the standalone Explorer](http://127.0.0.1:3080). See
+[Run the standalone Explorer demo](docs/DEMO_QUICKSTART.md) for the seeded
+dataset, smoke checks, logs, and reset commands.
+
+For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml up -d

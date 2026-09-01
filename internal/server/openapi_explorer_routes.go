@@ -25,7 +25,7 @@ func (r *HTTPRoutes) ListExplorers(ctx context.Context, request loomapi.ListExpl
 }
 
 func (r *HTTPRoutes) CreateExplorer(ctx context.Context, request loomapi.CreateExplorerRequestObject) (loomapi.CreateExplorerResponseObject, error) {
-	value, err := r.explorer.createExplorer(ctx, string(request.Project), request.Body)
+	value, err := r.explorer.createExplorer(ctx, string(request.Project), authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
 	if err == nil {
 		return loomapi.CreateExplorer201JSONResponse(value), nil
 	}
@@ -174,7 +174,7 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 		}
 		return nil, unexpectedResponseStatus("applyExplorerBuilderCommands", status)
 	}
-	value, err := r.explorer.applyAuthoringCommandsDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	value, err := r.explorer.applyAuthoringCommandsDirect(ctx, string(request.Project), string(request.ExplorerId), authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
 	if err == nil {
 		return loomapi.ApplyExplorerBuilderCommands200JSONResponse(value), nil
 	}
@@ -204,7 +204,7 @@ func (r *HTTPRoutes) ReconcileExplorerBuilder(ctx context.Context, request looma
 		_, failure := authoringErrorForOpenAPI(ctx, "reconcileExplorerBuilder", explorerUnavailable("reconcile", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.ReconcileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}
-	value, err := r.explorer.reconcileAuthoringDirect(ctx, project, explorerID, request.Body)
+	value, err := r.explorer.reconcileAuthoringDirect(ctx, project, explorerID, authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
 	if err == nil {
 		return loomapi.ReconcileExplorerBuilder200JSONResponse(value), nil
 	}
@@ -276,7 +276,7 @@ func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.Publis
 		_, failure := authoringErrorForOpenAPI(ctx, "publishExplorer", explorerUnavailable("publish", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.PublishExplorer503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}
-	value, err := r.explorer.publishAuthoringDirect(ctx, project, explorerID, request.Body)
+	value, err := r.explorer.publishAuthoringDirect(ctx, project, explorerID, authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
 	if err == nil {
 		return loomapi.PublishExplorer200JSONResponse(value), nil
 	}

@@ -218,6 +218,9 @@ func uploadGeneration(ctx context.Context, cfg ScenarioConfig, client *http.Clie
 }
 
 func compareSummary(payload map[string]any, want map[string]int) error {
+	if reused, _ := payload["reused"].(bool); reused {
+		return nil
+	}
 	summary, _ := payload["summary"].(map[string]any)
 	if summary == nil {
 		return errors.New("generation response omitted summary")

@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func selectorsForBundle(bundle recipe.Bundle) []dataset.DataframeSelector {
@@ -95,7 +96,7 @@ func (s *Service) lookupReceipt(ctx context.Context, project, explorerID, receip
 }
 
 func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
-	if receipt == nil || receipt.Project != project || receipt.ExplorerID != explorerID {
+	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
 		return notFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
 	}
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {

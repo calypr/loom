@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 type Service struct {
@@ -58,7 +59,7 @@ type projectAccess struct {
 }
 
 func (s *Service) authorizeProject(_ context.Context, principal *authscope.Principal, project string) (projectAccess, error) {
-	project = strings.TrimSpace(project)
+	project = canonicalProjectID(project)
 	if project == "" {
 		return projectAccess{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
@@ -69,7 +70,8 @@ func (s *Service) authorizeProject(_ context.Context, principal *authscope.Princ
 }
 
 func (s *Service) authorizeMaterialization(ctx context.Context, principal *authscope.Principal, value dfmaterialization.Materialization) (projectAccess, error) {
-	if err := authscope.AuthorizeProject(principal, value.Project, false); err != nil {
+	project := canonicalProjectID(value.Project)
+	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
 		return projectAccess{}, mapReaderError(err)
 	}
 	if s.scopeResolver == nil {
@@ -81,7 +83,7 @@ func (s *Service) authorizeMaterialization(ctx context.Context, principal *auths
 		}
 		return projectAccess{authResourcePaths: append([]string(nil), principal.AuthResourcePaths...)}, nil
 	}
-	scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, value.Project, value.DatasetGeneration, nil)
+	scope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, legacyProjectID(project), value.DatasetGeneration, nil)
 	if err != nil {
 		return projectAccess{}, mapReaderError(err)
 	}
@@ -113,11 +115,11 @@ func (s *Service) currentProjectDatasetForPrincipal(ctx context.Context, princip
 }
 
 func (s *Service) resolveCurrentProjectDatasetForPrincipal(ctx context.Context, principal *authscope.Principal, project string, selector dfmaterialization.DataframeSelector) (dfmaterialization.Materialization, projectAccess, error) {
-	project = strings.TrimSpace(project)
+	project = canonicalProjectID(project)
 	if _, err := s.authorizeProject(ctx, principal, project); err != nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, err
 	}
-	value, err := s.reader.CurrentProjectDataset(ctx, project, selector)
+	value, err := s.reader.CurrentProjectDataset(ctx, legacyProjectID(project), selector)
 	if err != nil {
 		return dfmaterialization.Materialization{}, projectAccess{}, mapReaderError(err)
 	}
@@ -169,4 +171,12 @@ func mapReaderError(err error) error {
 
 func readerUnavailable() error {
 	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+func canonicalProjectID(raw string) string {
+	return projectid.Canonical(strings.TrimSpace(raw))
+}
+
+func legacyProjectID(raw string) string {
+	return projectid.Legacy(canonicalProjectID(raw))
 }

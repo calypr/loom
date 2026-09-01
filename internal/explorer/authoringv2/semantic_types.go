@@ -27,10 +27,10 @@ type RouteNode struct {
 }
 
 type ColumnSource struct {
-	Kind           string `json:"kind"`
-	FieldPath      string `json:"fieldPath,omitempty"`
-	Match          string `json:"match,omitempty"`
-	ProjectionMode string `json:"projectionMode,omitempty"`
+	Kind           string   `json:"kind"`
+	FieldPath      string   `json:"fieldPath,omitempty"`
+	Match          string   `json:"match,omitempty"`
+	ProjectionMode string   `json:"projectionMode,omitempty"`
 	Operation      string   `json:"operation,omitempty"`
 	WherePath      string   `json:"wherePath,omitempty"`
 	WhereEquals    string   `json:"whereEquals,omitempty"`
@@ -138,8 +138,8 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s %s source requires match", path, s.Kind)
 		}
 	case SourceProjectID:
-		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.Operation) != "" || strings.TrimSpace(s.WherePath) != "" || strings.TrimSpace(s.WhereEquals) != "" || len(s.RequiredValues) != 0 || strings.TrimSpace(s.ProjectionMode) != "" {
-			return fmt.Errorf("%s projectId source has no parameters", path)
+		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.Operation) != "" || strings.TrimSpace(s.WherePath) != "" || strings.TrimSpace(s.WhereEquals) != "" || len(s.RequiredValues) != 0 || mode != "FIRST" {
+			return fmt.Errorf("%s projectId source only supports FIRST projectionMode and no other parameters", path)
 		}
 	case SourceAggregate:
 		if strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.ProjectionMode) != "" {

@@ -20,11 +20,11 @@ func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfma
 	if err != nil {
 		return nil, err
 	}
-	projectID = strings.TrimSpace(projectID)
+	projectID = canonicalProjectID(projectID)
 	if _, err := s.authorizeProject(ctx, principal, projectID); err != nil {
 		return nil, err
 	}
-	values, err := s.reader.CurrentProjectDatasets(ctx, projectID)
+	values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))
 	if err != nil {
 		return nil, mapReaderError(err)
 	}

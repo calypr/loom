@@ -8,6 +8,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func Model(value materialization.Materialization) *model.DataframeMaterialization {
@@ -35,7 +36,7 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 	}
 	result := &model.DataframeMaterialization{
 		ID: value.ID, Name: value.Name, Revision: revision,
-		ProjectID: value.Project, DatasetGeneration: value.DatasetGeneration,
+		ProjectID: projectid.Canonical(value.Project), DatasetGeneration: value.DatasetGeneration,
 		State: model.DataframeMaterializationState(value.State), Columns: columns,
 		RowCount:  rowCount,
 		CreatedAt: value.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),

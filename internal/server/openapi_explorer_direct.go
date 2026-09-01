@@ -114,14 +114,14 @@ func (r *explorerHTTPHandlers) listExplorers(ctx context.Context, rawProject str
 	return result, nil
 }
 
-func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject string, body *loomapi.CreateExplorerJSONRequestBody) (loomapi.CreateExplorer201JSONResponse, error) {
+func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject, authResourcePath string, body *loomapi.CreateExplorerJSONRequestBody) (loomapi.CreateExplorer201JSONResponse, error) {
 	var result loomapi.CreateExplorer201JSONResponse
 	if r == nil || r.application == nil || r.authorizer == nil {
 		return result, legacyOperationFailure(http.StatusInternalServerError, "INTERNAL_ERROR", "Explorer lifecycle is not configured", nil)
 	}
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, ""); err != nil {
+	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
 	if body == nil {

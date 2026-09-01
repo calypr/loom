@@ -71,6 +71,8 @@ paths:
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: applyExplorerBuilderCommands
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -97,6 +99,8 @@ paths:
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: reconcileExplorerBuilder
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -155,6 +159,8 @@ paths:
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: publishExplorer
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -375,6 +381,8 @@ paths:
     post:
       operationId: createExplorer
       summary: Create an interactive Explorer.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -454,6 +462,12 @@ components:
       in: path
       required: true
       schema: {type: string, minLength: 1}
+    AuthResourcePath:
+      name: auth_resource_path
+      in: query
+      required: false
+      description: Optional Calypr resource scope used to authorize durable Explorer mutations.
+      schema: {type: string}
     Generation:
       name: generation
       in: path

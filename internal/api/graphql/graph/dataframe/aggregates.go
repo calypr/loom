@@ -20,7 +20,7 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	if err != nil {
 		return dfmaterialization.AggregateResult{}, err
 	}
-	call := &aggregateCall{project: input.ProjectID, selector: selector, filters: convertFilters(input.Filters), legacy: input}
+	call := &aggregateCall{project: canonicalProjectID(input.ProjectID), selector: selector, filters: convertFilters(input.Filters), legacy: input}
 	result := s.submitAggregateCall(ctx, call)
 	if result.err != nil {
 		s.logReadFailure(ctx, "clickhouse_aggregate", selector.Output, result.err, "project", input.ProjectID)
@@ -33,7 +33,7 @@ func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAg
 	if err != nil {
 		return dfmaterialization.AggregationsResult{}, err
 	}
-	call := &aggregateCall{project: input.ProjectID, selector: selector, filters: convertFilters(input.Filters), rich: input, kind: aggregateCallRich}
+	call := &aggregateCall{project: canonicalProjectID(input.ProjectID), selector: selector, filters: convertFilters(input.Filters), rich: input, kind: aggregateCallRich}
 	result := s.submitAggregateCall(ctx, call)
 	if result.err != nil {
 		s.logReadFailure(ctx, "clickhouse_aggregations", selector.Output, result.err, "project", input.ProjectID)
@@ -125,7 +125,7 @@ func (s *aggregateOperationState) projectDataset(
 	selector dfmaterialization.DataframeSelector,
 	resolve func() (dfmaterialization.Materialization, projectAccess, error),
 ) (dfmaterialization.Materialization, projectAccess, error) {
-	key := strings.TrimSpace(project) + "\x00" + selector.Key()
+	key := canonicalProjectID(project) + "\x00" + selector.Key()
 	s.mu.Lock()
 	if s.datasets == nil {
 		s.datasets = make(map[string]*projectDatasetCacheEntry)
@@ -293,7 +293,7 @@ func (s *Service) dispatchAggregateCalls(ctx context.Context, calls []*aggregate
 	resolutionErrors := make(map[string]error)
 	groupKeys := make([]string, 0)
 	for _, call := range calls {
-		requestKey := call.project + "\x00" + call.selector.Key()
+		requestKey := canonicalProjectID(call.project) + "\x00" + call.selector.Key()
 		if group := resolved[requestKey]; group != nil {
 			group.calls = append(group.calls, call)
 			continue

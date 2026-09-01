@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -97,6 +97,18 @@ acceptance-real:
 
 acceptance-performance:
 	./scripts/acceptance-performance.sh
+
+demo-up:
+	./scripts/demo-up.sh
+
+demo-down:
+	./scripts/demo-down.sh
+
+demo-smoke:
+	./scripts/demo-smoke.sh
+
+demo-browser-smoke:
+	./scripts/demo-browser-smoke.sh
 
 clean:
 	rm -rf bin

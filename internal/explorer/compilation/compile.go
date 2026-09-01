@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 const TranslationVersion = "authoring-v2-native-5"
@@ -96,6 +97,7 @@ type WorkspaceResult struct {
 }
 
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (WorkspaceResult, error) {
+	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
@@ -141,7 +143,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
-	project = strings.TrimSpace(project)
+	project = projectid.Canonical(project)
 	explorerID = strings.TrimSpace(explorerID)
 	if project == "" {
 		return Result{}, fail("protocol", "PROJECT_REQUIRED", "$.project", "project is required", nil, nil)
@@ -152,7 +154,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
 		return Result{}, fail("capability", "CAPABILITY_SNAPSHOT_UNUSABLE", "$.snapshot", "capability snapshot is unavailable or stale", map[string]any{"token": snapshot.Token}, err)
 	}
-	if snapshot.Identity.Project != project {
+	if projectid.Canonical(snapshot.Identity.Project) != project {
 		return Result{}, fail("capability", "PROJECT_MISMATCH", "$.project", "capability snapshot belongs to a different project", map[string]any{"snapshotProject": snapshot.Identity.Project, "project": project}, nil)
 	}
 	if err := document.Validate(); err != nil {

@@ -39,12 +39,19 @@ func (h *explorerHTTPHandlers) authoringReadDirect(ctx context.Context, project 
 	return nil
 }
 
-func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project string) error {
+func authResourcePathFromParam(value *loomapi.AuthResourcePath) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
+}
+
+func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project, authResourcePath string) error {
 	if h == nil || h.authorizer == nil {
 		return explorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	if err := h.authorizer.AuthorizeWrite(ctx, principal, project, ""); err != nil {
+	if err := h.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
 		return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: "FORBIDDEN", Message: "forbidden"}, Cause: err}
 	}
 	return nil
@@ -97,9 +104,9 @@ func (h *explorerHTTPHandlers) getAuthoringBuilderDirect(ctx context.Context, pr
 	return directAuthoringJSON[loomapi.BuilderState](value)
 }
 
-func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context, project, explorerID string, body *loomapi.ApplyExplorerBuilderCommandsJSONRequestBody) (loomapi.ApplyCommandsResponse, error) {
+func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.ApplyExplorerBuilderCommandsJSONRequestBody) (loomapi.ApplyCommandsResponse, error) {
 	var result loomapi.ApplyCommandsResponse
-	if err := h.authoringWriteDirect(ctx, project); err != nil {
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
 		return result, err
 	}
 	if body == nil {
@@ -116,9 +123,9 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 	return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
 }
 
-func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {
+func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {
 	var result loomapi.CompileResponse
-	if err := h.authoringWriteDirect(ctx, project); err != nil {
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
 		return result, err
 	}
 	if body == nil {
@@ -171,9 +178,9 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	return result, nil
 }
 
-func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PublishExplorerJSONRequestBody) (loomapi.PublishResponse, error) {
+func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.PublishExplorerJSONRequestBody) (loomapi.PublishResponse, error) {
 	var result loomapi.PublishResponse
-	if err := h.authoringWriteDirect(ctx, project); err != nil {
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
 		return result, err
 	}
 	if body == nil {
