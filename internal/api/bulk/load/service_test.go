@@ -115,6 +115,45 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	}
 }
 
+func TestGenerationStatusReportsReusableManifest(t *testing.T) {
+	manifest := activationManifest(t, "project-a", "generation-a")
+	store := &activationManifestStore{manifest: manifest}
+	svc, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := svc.generationStatus(context.Background(), "project-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Project != "project-a" || status.Generation != "generation-a" || status.State != publication.StateReady || !status.Reusable {
+		t.Fatalf("status = %#v", status)
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads = %d, want 1", store.readCalls)
+	}
+}
+
+func TestGenerationStatusPreservesManifestNotFound(t *testing.T) {
+	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
+	svc, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.generationStatus(context.Background(), "project-a", "generation-a")
+	if !errors.Is(err, publication.ErrManifestNotFound) {
+		t.Fatalf("generationStatus error = %v, want ErrManifestNotFound", err)
+	}
+}
+
 func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}

@@ -153,8 +153,7 @@ const BuilderWorkspaceContent = ({
     useGetExplorerCandidateSuggestionsV2Mutation();
   const [previewBuilder, previewStatus] =
     usePreviewExplorerAuthoringV2Mutation();
-  const [publishBuilder, publishStatus] =
-    usePublishExplorerAuthoringV2Mutation();
+  const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
   const builderDataKey = builder.data
     ? builderDataKeyFor(selectedExplorerId, builder.data)
     : '';
@@ -194,7 +193,12 @@ const BuilderWorkspaceContent = ({
     [builderDataKey, projectId, selectedExplorerId],
   );
   const [message, setMessage] = useState<string>();
+  const [lastPublished, setLastPublished] = useState<{
+    readonly explorerId: string;
+    readonly draftDigest: string;
+  }>();
   const [pendingCommands, setPendingCommands] = useState(0);
+  const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
@@ -394,7 +398,7 @@ const BuilderWorkspaceContent = ({
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||
     previewStatus.isLoading ||
-    publishStatus.isLoading ||
+    publishing ||
     createStatus.isLoading ||
     deleteStatus.isLoading;
   const blockingDiagnostics = state.diagnostics.some(
@@ -410,7 +414,8 @@ const BuilderWorkspaceContent = ({
     !hasVisibleSelectedColumn ||
     blockingDiagnostics;
   const publishDisabled =
-    !state.dirty ||
+    (lastPublished?.explorerId === state.explorerId &&
+      lastPublished.draftDigest === state.draftDigest) ||
     incomplete ||
     blockingDiagnostics ||
     state.tables.some((candidate) => candidate.document.columns.length === 0);
@@ -724,6 +729,10 @@ const BuilderWorkspaceContent = ({
             authResourcePath,
             receiptId: activeReceiptId,
           }).unwrap();
+          setLastPublished({
+            explorerId: latestState.current.explorerId,
+            draftDigest: latestState.current.draftDigest,
+          });
           dispatch({ type: 'published' });
           setMessage(undefined);
           return;
@@ -763,25 +772,30 @@ const BuilderWorkspaceContent = ({
   );
 
   const publish = async () => {
-    if (publishDisabled) return;
-    const receipt =
-      state.receipt && state.reconciliation === 'resolved'
-        ? state.receipt
-        : await reconcileCurrent();
-    if (!receipt) return;
-    const publishable = state.tables.every((candidate) =>
-      receipt.outputs.some(
-        (output) =>
-          output.outputId === candidate.outputId && output.columns.length > 0,
-      ),
-    );
-    if (!publishable) {
-      setMessage(
-        'Every table needs at least one output column before publishing.',
+    if (publishDisabled || publishing) return;
+    setPublishing(true);
+    try {
+      const receipt =
+        state.receipt && state.reconciliation === 'resolved'
+          ? state.receipt
+          : await reconcileCurrent();
+      if (!receipt) return;
+      const publishable = state.tables.every((candidate) =>
+        receipt.outputs.some(
+          (output) =>
+            output.outputId === candidate.outputId && output.columns.length > 0,
+        ),
       );
-      return;
+      if (!publishable) {
+        setMessage(
+          'Every table needs at least one output column before publishing.',
+        );
+        return;
+      }
+      await executePublish(receipt.receiptId);
+    } finally {
+      setPublishing(false);
     }
-    await executePublish(receipt.receiptId);
   };
 
   if (explorers.isLoading || builder.isLoading) {
@@ -858,6 +872,7 @@ const BuilderWorkspaceContent = ({
       onPublish={() => void publish()}
       previewDisabled={previewDisabled}
       publishDisabled={publishDisabled}
+      publishing={publishing}
       busy={busy}
       columnCreationSupported
       tableToolbarHost={tableToolbarHost}
@@ -991,6 +1006,17 @@ const BuilderWorkspaceContent = ({
                       type: 'ADD_ROUTE',
                       outputId: table.outputId,
                       parentOccurrenceId,
+                      edgeId,
+                    },
+                  ]);
+                }}
+                onChangeEdge={(occurrenceId, edgeId) => {
+                  if (!table) return;
+                  void applyCommands([
+                    {
+                      type: 'UPDATE_ROUTE_EDGE',
+                      outputId: table.outputId,
+                      occurrenceId,
                       edgeId,
                     },
                   ]);

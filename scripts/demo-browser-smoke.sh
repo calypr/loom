@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ui_url=${LOOM_DEMO_UI_URL:-http://127.0.0.1:3080}
+ui_host=${LOOM_DEMO_UI_HOST:-127.0.0.1}
+[[ $ui_host == *:* ]] && ui_host="[$ui_host]"
+ui_url=${LOOM_DEMO_UI_URL:-http://$ui_host:${LOOM_DEMO_UI_PORT:-3080}}
+project=${LOOM_DEMO_PROJECT:-NCPI_ACCEPTANCE}
+output_title=${LOOM_DEMO_OUTPUT_TITLE:-TCGA-BRCA patient cohort}
+expected_column=${LOOM_DEMO_EXPECTED_COLUMN_LABEL:-Patient ID}
+expected_cell=${LOOM_DEMO_EXPECTED_CELL:-TCGA-}
+expected_resources=${LOOM_DEMO_EXPECTED_RESOURCES:-Patient Condition Specimen Observation ResearchStudy}
+browser_url=${LOOM_DEMO_BROWSER_URL:-$ui_url/?project=$project&explorer=default}
 
 find_chrome() {
   if [[ -n ${CHROME_BIN:-} ]]; then
@@ -52,7 +60,7 @@ dump_page() {
     --user-data-dir="$profile" \
     --virtual-time-budget=5000 \
     --dump-dom \
-    "$ui_url/?mode=$mode" >"$output" 2>"$work_dir/$mode.stderr" &
+    "$browser_url&mode=$mode" >"$output" 2>"$work_dir/$mode.stderr" &
   browser_pid=$!
 
   for _ in $(seq 1 60); do
@@ -91,18 +99,44 @@ assert_no_ui_error() {
   fi
 }
 
+assert_served_graph_styles() {
+  local index css_href css_url css
+  index=$(curl --fail --silent --show-error --location "$ui_url/")
+  css_href=$(printf '%s' "$index" | grep -oE 'href="[^"]+\.css"' | head -n 1 | sed -E 's/^href="//; s/"$//')
+  if [[ -z $css_href ]]; then
+    echo "Standalone UI did not serve a stylesheet" >&2
+    return 1
+  fi
+  if [[ $css_href == /* ]]; then
+    css_url="${ui_url%/}$css_href"
+  else
+    css_url="${ui_url%/}/$css_href"
+  fi
+  css=$(curl --fail --silent --show-error --location "$css_url")
+  for selector in '.react-flow{' '.react-flow__renderer{' '.react-flow__viewport{' '.react-flow__node{' ; do
+    if ! grep -Fq "$selector" <<<"$css"; then
+      echo "Expected React Flow layout selector $selector in served stylesheet $css_href" >&2
+      return 1
+    fi
+  done
+}
+
 viewer_dom="$work_dir/viewer.html"
 builder_dom="$work_dir/builder.html"
-dump_page viewer "$viewer_dom" "TCGA-"
+assert_served_graph_styles
+dump_page viewer "$viewer_dom" "$expected_cell"
 assert_no_ui_error "$viewer_dom"
-assert_contains "$viewer_dom" "TCGA-BRCA patient cohort"
-assert_contains "$viewer_dom" "Patient ID"
-assert_contains "$viewer_dom" "TCGA-"
+assert_contains "$viewer_dom" "$output_title"
+assert_contains "$viewer_dom" "$expected_column"
+assert_contains "$viewer_dom" "$expected_cell"
 
 dump_page builder "$builder_dom" "Publish"
 assert_no_ui_error "$builder_dom"
 assert_contains "$builder_dom" "FHIR Explorer Studio"
 assert_contains "$builder_dom" "Preview"
 assert_contains "$builder_dom" "Publish"
+for resource in $expected_resources; do
+  assert_contains "$builder_dom" "$resource"
+done
 
 echo "Standalone Viewer and Builder rendered the seeded Explorer in headless Chrome"

@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
@@ -67,6 +68,37 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
 	}
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
+}
+
+func classifyDataframeQueryError(err error) error {
+	if err == nil {
+		return err
+	}
+	switch {
+	case arangostore.IsQueryMemoryLimitExceeded(err):
+		return dataframeerrors.Wrap(
+			err,
+			dataframeerrors.CodeQueryMemoryLimitExceeded,
+			"",
+			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query_memory"}),
+		)
+	case arangostore.IsQueryResourceLimitExceeded(err):
+		return dataframeerrors.Wrap(
+			err,
+			dataframeerrors.CodeQueryResourceLimitExceeded,
+			"",
+			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query"}),
+		)
+	case arangostore.IsQueryOutOfMemory(err):
+		return dataframeerrors.Wrap(
+			err,
+			dataframeerrors.CodeQueryBackendOutOfMemory,
+			"",
+			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "memory"}),
+		)
+	default:
+		return err
+	}
 }
 
 func run(ctx context.Context, serverConfig Config) error {
@@ -136,7 +168,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
-		return lifecycleClient.QueryRows(ctx, query, batch, binds, visit)
+		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
@@ -183,12 +215,13 @@ func run(ctx context.Context, serverConfig Config) error {
 			fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "seconds", time.Since(started).Seconds()}
 			if err != nil {
 				logger.Error("dataframe AQL failed", append(fields, "error", err.Error())...)
-				return err
+				return classifyDataframeQueryError(err)
 			}
 			logger.Info("dataframe AQL complete", fields...)
 			return nil
 		},
-		ScopeDigest: recipeScopeDigest,
+		ScopeDigest:  recipeScopeDigest,
+		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
 	})
 	if err != nil {
 		return fmt.Errorf("create dataframe recipe engine: %w", err)
@@ -302,6 +335,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger)
 	}
+	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
+	if err != nil {
+		return fmt.Errorf("configure local workspace writeback: %w", err)
+	}
 	lifecycleConfig := lifecycle.Config{
 		CompileReceipt: compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
@@ -322,7 +359,8 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
-				return dataframeexecution.PreviewSummary{}, &receiptPreviewResolutionError{Err: err}
+				logger.Error("Explorer receipt preview resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.PreviewSummary{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
 			}
 			output := ""
 			if len(bindings.OutputNames) > 0 {
@@ -334,6 +372,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
 		ActivateRelease:           activateExplorerRelease,
 		PrepareRelease:            prepareExplorerRelease,
+		PersistPublishedWorkspace: persistPublishedWorkspace,
 	}
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {

@@ -50,6 +50,30 @@ type RowBatchClient interface {
 	BatchInserter
 }
 
+// IsQueryMemoryLimitExceeded reports whether ArangoDB rejected a query because
+// it exceeded the configured query memory limit.
+func IsQueryMemoryLimitExceeded(err error) bool {
+	if !IsQueryResourceLimitExceeded(err) {
+		return false
+	}
+	ok, arangoErr := shared.IsArangoError(err)
+	return ok && strings.Contains(strings.ToLower(arangoErr.ErrorMessage), "memory")
+}
+
+// IsQueryResourceLimitExceeded reports whether ArangoDB rejected a query at a
+// configured resource limit. Callers can use IsQueryMemoryLimitExceeded first
+// when they need the narrower diagnosis.
+func IsQueryResourceLimitExceeded(err error) bool {
+	return shared.IsArangoErrorWithErrorNum(err, shared.ErrResourceLimit)
+}
+
+// IsQueryOutOfMemory reports whether ArangoDB ran out of memory while
+// executing a query. This is distinct from rejecting a query at a configured
+// memory limit.
+func IsQueryOutOfMemory(err error) bool {
+	return shared.IsArangoErrorWithErrorNum(err, shared.ErrOutOfMemory)
+}
+
 type TransactionCollections struct {
 	Read  []string
 	Write []string

@@ -17,6 +17,7 @@ const (
 	CommandReorderTables      = "REORDER_TABLES"
 	CommandSetTableRoot       = "SET_TABLE_ROOT"
 	CommandAddRoute           = "ADD_ROUTE"
+	CommandUpdateRouteEdge    = "UPDATE_ROUTE_EDGE"
 	CommandRemoveRoute        = "REMOVE_ROUTE"
 	CommandAddColumn          = "ADD_COLUMN"
 	CommandUpdateColumn       = "UPDATE_COLUMN"
@@ -141,6 +142,10 @@ func (c Command) validate() error {
 	case CommandAddRoute:
 		if !required(c.OutputID, c.ParentOccurrenceID, c.EdgeID) {
 			return fmt.Errorf("ADD_ROUTE requires outputId, parentOccurrenceId, and edgeId")
+		}
+	case CommandUpdateRouteEdge:
+		if !required(c.OutputID, c.OccurrenceID, c.EdgeID) || c.OccurrenceID == RootOccurrenceID {
+			return fmt.Errorf("UPDATE_ROUTE_EDGE requires a non-root occurrenceId and edgeId")
 		}
 	case CommandRemoveRoute:
 		if !required(c.OutputID, c.OccurrenceID) || c.OccurrenceID == RootOccurrenceID {
@@ -290,12 +295,47 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if !fromOK || !toOK || from.ResourceType != parent.ResourceType {
 			return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID)
 		}
+		if routeUsesRelationship(&workspace.Documents[document].Route, from.ResourceType, to.ResourceType, edge.Label, "") {
+			return result, fmt.Errorf("edge %q is already used in this query", edge.ID)
+		}
 		occurrenceID := commandGeneratedID("occ_", commandID, index, command.Type)
 		if findRoute(&workspace.Documents[document].Route, occurrenceID) != nil {
 			return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 		}
 		parent.Children = append(parent.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, Relationship: edge.Label})
 		return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
+	case CommandUpdateRouteEdge:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		parent, occurrence := findRouteWithParent(&workspace.Documents[document].Route, command.OccurrenceID)
+		edge, ok := catalogEdge(catalog, command.EdgeID)
+		if parent == nil || occurrence == nil || !ok {
+			return result, fmt.Errorf("route occurrence, parent, or edge was not found")
+		}
+		from, fromOK := catalogNode(catalog, edge.FromNodeID)
+		to, toOK := catalogNode(catalog, edge.ToNodeID)
+		if !fromOK || !toOK || from.ResourceType != parent.ResourceType || to.ResourceType != occurrence.ResourceType {
+			return result, fmt.Errorf("edge %q cannot replace the relationship for occurrence %q", edge.ID, command.OccurrenceID)
+		}
+		currentEdges := []CatalogEdge{}
+		for _, candidate := range catalog.Edges {
+			candidateFrom, candidateFromOK := catalogNode(catalog, candidate.FromNodeID)
+			candidateTo, candidateToOK := catalogNode(catalog, candidate.ToNodeID)
+			if candidateFromOK && candidateToOK && candidateFrom.ResourceType == parent.ResourceType && candidateTo.ResourceType == occurrence.ResourceType && candidate.Label == occurrence.Relationship {
+				currentEdges = append(currentEdges, candidate)
+			}
+		}
+		if len(currentEdges) != 1 || currentEdges[0].FromNodeID != edge.FromNodeID || currentEdges[0].ToNodeID != edge.ToNodeID {
+			return result, fmt.Errorf("edge %q must preserve the catalog endpoints for occurrence %q", edge.ID, command.OccurrenceID)
+		}
+		if routeUsesRelationship(&workspace.Documents[document].Route, from.ResourceType, to.ResourceType, edge.Label, occurrence.OccurrenceID) {
+			return result, fmt.Errorf("edge %q is already used by another occurrence", edge.ID)
+		}
+		occurrence.Relationship = edge.Label
+		result.OccurrenceID = occurrence.OccurrenceID
+		return result, nil
 	case CommandRemoveRoute:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
@@ -481,6 +521,35 @@ func findRoute(route *RouteNode, occurrenceID string) *RouteNode {
 		}
 	}
 	return nil
+}
+
+func findRouteWithParent(route *RouteNode, occurrenceID string) (*RouteNode, *RouteNode) {
+	for i := range route.Children {
+		if route.Children[i].OccurrenceID == occurrenceID {
+			return route, &route.Children[i]
+		}
+		if parent, found := findRouteWithParent(&route.Children[i], occurrenceID); found != nil {
+			return parent, found
+		}
+	}
+	return nil, nil
+}
+
+func routeUsesRelationship(route *RouteNode, fromResourceType, toResourceType, relationship, exceptOccurrenceID string) bool {
+	if route.ResourceType == fromResourceType {
+		for i := range route.Children {
+			child := &route.Children[i]
+			if child.OccurrenceID != exceptOccurrenceID && child.ResourceType == toResourceType && child.Relationship == relationship {
+				return true
+			}
+		}
+	}
+	for i := range route.Children {
+		if routeUsesRelationship(&route.Children[i], fromResourceType, toResourceType, relationship, exceptOccurrenceID) {
+			return true
+		}
+	}
+	return false
 }
 
 func removeRoute(route *RouteNode, occurrenceID string, removed map[string]bool) bool {

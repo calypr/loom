@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createLoomClient, type LoomClient } from './api';
+import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
 import type {
   ApplyExplorerBuilderCommandsArgs,
   CreateExplorerArgs,
@@ -57,22 +57,24 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
   let controller: AbortController | undefined;
   const listeners = new Set<() => void>();
   let started = false;
+  let epoch = 0;
   const notify = () => listeners.forEach((listener) => listener());
   const refresh = async () => {
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
+    const requestEpoch = ++epoch;
     started = true;
     snapshot = { ...snapshot, loading: true, error: undefined };
     notify();
     try {
       const data = await loader(requestController.signal);
-      if (controller !== requestController) return { data };
+      if (controller !== requestController || epoch !== requestEpoch) return { data };
       snapshot = { data, loading: false };
       notify();
       return { data };
     } catch (error) {
-      if (requestController.signal.aborted || controller !== requestController) {
+      if (requestController.signal.aborted || controller !== requestController || epoch !== requestEpoch) {
         return { error };
       }
       snapshot = { error, loading: false };
@@ -91,6 +93,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
           if (listeners.size > 0) return;
           controller?.abort();
           controller = undefined;
+          epoch += 1;
           started = false;
           snapshot = { loading: true };
         });
@@ -198,6 +201,22 @@ export const useDeleteExplorerAuthoringMutation = () => {
 export const useLoomRuntime = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getExplorer']>>> => {
   const client = useLoomClient();
   return useQuery((signal) => client.getExplorer(args, signal), [client, 'runtime', args.project, args.explorerId]);
+};
+
+export const useLoomOutput = (
+  request: LoomOutputRequest,
+  options: { readonly enabled?: boolean } = {},
+): QueryResult<LoomOutputResult> => {
+  const client = useLoomClient();
+  const enabled = options.enabled ?? true;
+  const identity = JSON.stringify(request);
+  const query = useQuery(
+    (signal) => enabled
+      ? client.queryOutput(request, signal)
+      : Promise.resolve({ columns: [], rows: [], totalCount: 0, pageInfo: { hasNextPage: false }, facets: [] }),
+    [client, enabled, identity],
+  );
+  return enabled ? query : { data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: async () => ({}) };
 };
 
 export const useLoomRows = (

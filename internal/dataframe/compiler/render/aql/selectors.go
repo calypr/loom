@@ -51,7 +51,7 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 			if setSource {
 				break
 			}
-			values, err := r.renderConditionalSelectorArray(source, extract.Selector)
+			values, err := r.renderConditionalSelectorArray(source, extract.Selector, expression.Cardinality != ir.PhysicalArrayCardinality)
 			if err != nil {
 				return "", err
 			}
@@ -66,7 +66,7 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 	}
 	arrays := make([]string, 0, 1+len(extract.Fallbacks))
 	for _, selector := range append([]spec.Selector{extract.Selector}, extract.Fallbacks...) {
-		array, err := r.renderSelectorArrayFromSource(source, selector, setSource)
+		array, err := r.renderSelectorArrayFromSource(source, selector, setSource, false)
 		if err != nil {
 			return "", err
 		}
@@ -88,17 +88,18 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 	return "FIRST(" + values + ")", nil
 }
 
-func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode) (string, error) {
+func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode, demand ir.PhysicalSelectorValueDemand) (string, error) {
 	if mode == ir.PhysicalSelectorDirectScalar && selectorHasNoArrays(selector) && selector.Filter == nil {
-		return "(FOR __loom_value IN [" + compileDirectExpr(source, selector.Steps) + "] FILTER __loom_value != null RETURN __loom_value)", nil
+		value := compileDirectExpr(source, selector.Steps)
+		return "(" + value + " == null ? [] : [" + value + "])", nil
 	}
 	if mode == ir.PhysicalSelectorConditionalArray && selectorHasIteratedArray(selector) && selector.Filter == nil {
-		return r.renderConditionalSelectorArray(source, selector)
+		return r.renderConditionalSelectorArray(source, selector, demand == ir.PhysicalSelectorFirstValue)
 	}
-	return r.renderSelectorArrayFromSource(source, selector, false)
+	return r.renderSelectorArrayFromSource(source, selector, false, demand == ir.PhysicalSelectorFirstValue)
 }
 
-func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector spec.Selector) (string, error) {
+func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, selector spec.Selector, firstOnly bool) (string, error) {
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
@@ -117,11 +118,15 @@ func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, sel
 		}
 		current = next
 	}
-	lines = append(lines, "LET __value = "+extractFinalExpr(current, last), "FILTER __value != null", "RETURN __value")
+	lines = append(lines, "LET __value = "+extractFinalExpr(current, last), "FILTER __value != null")
+	if firstOnly {
+		lines = append(lines, "LIMIT 1")
+	}
+	lines = append(lines, "RETURN __value")
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector spec.Selector, setSource bool) (string, error) {
+func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector spec.Selector, setSource, firstOnly bool) (string, error) {
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
@@ -147,7 +152,11 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 		r.bindVars[key] = selector.Filter.Needle
 		lines = append(lines, fmt.Sprintf("  FILTER CONTAINS(%s.%s ? %s.%s : \"\", @%s)", current, selector.Filter.Field, current, selector.Filter.Field, key))
 	}
-	lines = append(lines, "  LET __value = "+extractFinalExpr(current, last), "  FILTER __value != null", "  RETURN __value")
+	lines = append(lines, "  LET __value = "+extractFinalExpr(current, last), "  FILTER __value != null")
+	if firstOnly {
+		lines = append(lines, "  LIMIT 1")
+	}
+	lines = append(lines, "  RETURN __value")
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 

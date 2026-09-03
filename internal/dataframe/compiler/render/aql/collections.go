@@ -199,7 +199,7 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 		if pivot.ItemSource.CanonicalPath() == "" {
 			return "", fmt.Errorf("pivot item source is required when item resource type is set")
 		}
-		itemValues, sourceErr := r.renderSelectorArrayFromSource(item+".payload", pivot.ItemSource, false)
+		itemValues, sourceErr := r.renderSelectorArrayFromSource(item+".payload", pivot.ItemSource, false, false)
 		if sourceErr != nil {
 			return "", fmt.Errorf("pivot item source: %w", sourceErr)
 		}
@@ -286,7 +286,7 @@ func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, pr
 	if itemScoped {
 		source = item
 	}
-	return r.renderSelectorArrayFromSource(source, selector, false)
+	return r.renderSelectorArrayFromSource(source, selector, false, false)
 }
 
 // renderAggregate emits reductions over either a correlated PhysicalSet or a

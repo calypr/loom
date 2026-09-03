@@ -351,6 +351,13 @@ class ReleaseScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.push_marker.exists())
         self.assertTrue(self.real_publish_marker.exists())
+        calls = self.npm_calls()
+        publish_index = next(
+            index
+            for index, call in enumerate(calls)
+            if call[:1] == ["publish"] and "--dry-run" not in call
+        )
+        self.assertFalse(any(call[:1] == ["view"] for call in calls[publish_index + 1 :]))
 
     def test_release_push_failure_prevents_real_publish(self) -> None:
         self.configure_upstream("#!/bin/sh\nexit 1\n")

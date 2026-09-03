@@ -24,6 +24,20 @@ Open [the standalone Explorer](http://127.0.0.1:3080). The page starts with the 
 
 The Builder is available from the same application. Preview and publish requests use Loom's V2 authoring API through the UI container's same-origin proxy.
 
+Set the same variables on each demo command to select a Compose project,
+different host ports, or another fixture and dataset. For example:
+
+```bash
+LOOM_DEMO_COMPOSE_PROJECT=analyst-demo \
+LOOM_DEMO_API_PORT=18080 \
+LOOM_DEMO_UI_PORT=13080 \
+make demo-up
+```
+
+See [Demo configuration](DEMO_CONFIGURATION.md) for every setting and its
+default. When you bind to `0.0.0.0` or `::`, set the corresponding URL to a
+reachable host such as `http://127.0.0.1:18080`.
+
 ## Check the running demo
 
 Run the smoke check:
@@ -32,7 +46,10 @@ Run the smoke check:
 make demo-smoke
 ```
 
-This checks Loom readiness, the seeded Explorer state, and the UI document.
+This checks Loom readiness, the UI document, and the expected Explorer
+management mode, generation, output ID, output title, and ordered schema. For a
+custom fixture, set `LOOM_DEMO_OUTPUT_ID`, `LOOM_DEMO_OUTPUT_TITLE`, and, when
+needed, `LOOM_DEMO_MANAGEMENT` on the smoke command.
 
 Verify that the seeded Explorer renders through the real Builder and Viewer in
 headless Chrome:
@@ -51,7 +68,7 @@ The seed job has already verified these deeper contracts:
 - The GraphQL rows match the locked row digest.
 - Publishing the same workspace twice reuses the same execution.
 
-To inspect a service, run:
+To inspect a service in the default project, run:
 
 ```bash
 docker compose logs loom-api
@@ -74,6 +91,7 @@ To remove the demo data and force a clean seed on the next run, remove the Compo
 ```
 
 The volume removal deletes only volumes in the `loom-demo` Compose project.
+Set `LOOM_DEMO_COMPOSE_PROJECT` to stop or reset a custom project.
 
 ## Change the example Explorer
 

@@ -64,6 +64,60 @@ func TestApplyCommandsOwnsNestedRouteAndColumnIdentities(t *testing.T) {
 	}
 }
 
+func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := create[0].OutputID
+	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurrenceID := route[0].OccurrenceID
+	workspace, _, err = ApplyCommands(workspace, catalog, "column", []Command{{Type: CommandAddColumn, OutputID: outputID, OccurrenceID: occurrenceID, CandidateID: "encounter-id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Route.Children[0].Children = []RouteNode{{OccurrenceID: "nested", ResourceType: "Encounter", Relationship: "revisits"}}
+
+	updated, _, err := ApplyCommands(workspace, catalog, "update-edge", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, OccurrenceID: occurrenceID, EdgeID: "patient-encounter-secondary"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := updated.Documents[0].Route.Children[0]
+	if child.OccurrenceID != occurrenceID || child.Relationship != "researchEncounters" || len(child.Children) != 1 || child.Children[0].OccurrenceID != "nested" {
+		t.Fatalf("updated route=%#v", child)
+	}
+	if len(updated.Documents[0].Columns) != 1 || updated.Documents[0].Columns[0].OccurrenceID != occurrenceID {
+		t.Fatalf("columns were not preserved: %#v", updated.Documents[0].Columns)
+	}
+}
+
+func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := create[0].OutputID
+	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "repeat", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	if err == nil || !strings.Contains(err.Error(), "already used in this query") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestApplyCommandsAddsFilterAndChartWithoutMakingColumnTableVisible(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.Candidates[0].Filterable = true

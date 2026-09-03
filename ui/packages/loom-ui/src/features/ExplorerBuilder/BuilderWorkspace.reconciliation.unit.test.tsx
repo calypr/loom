@@ -35,25 +35,45 @@ vi.mock('./components/BuilderToolbar', () => ({
     onPublish,
     previewDisabled,
     publishDisabled,
+    publishing,
   }: {
     readonly onPreview: () => void;
     readonly onPublish: () => void;
     readonly previewDisabled: boolean;
     readonly publishDisabled: boolean;
+    readonly publishing: boolean;
   }) => (
     <div>
       <button type="button" disabled={previewDisabled} onClick={onPreview}>
         Preview
       </button>
-      <button type="button" disabled={publishDisabled} onClick={onPublish}>
-        Publish
+      <button
+        type="button"
+        disabled={publishDisabled || publishing}
+        aria-busy={publishing}
+        onClick={onPublish}
+      >
+        {publishing ? 'Publishing…' : 'Publish'}
       </button>
     </div>
   ),
 }));
 
 vi.mock('./components/GuidedGraphWorkspace', () => ({
-  GuidedGraphWorkspace: () => <div>Graph</div>,
+  GuidedGraphWorkspace: ({
+    onChangeEdge,
+  }: {
+    readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onChangeEdge('patient-subject', 'specimen-patient-participant')
+      }
+    >
+      Change relationship
+    </button>
+  ),
 }));
 
 vi.mock('./components/ColumnSelector', () => ({
@@ -187,6 +207,17 @@ const resolvedRequest = <T,>(value: T) => ({
   abort: vi.fn(),
 });
 
+const deferredRequest = <T,>() => {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return {
+    request: { unwrap: vi.fn(() => promise), abort: vi.fn() },
+    resolve,
+  };
+};
+
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
   let reconcile: Mock;
@@ -288,6 +319,54 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 
+  it('publishes a server-persisted draft after the Builder is reloaded', async () => {
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const publishButton = await screen.findByRole('button', {
+      name: 'Publish',
+    });
+    expect(publishButton).toBeEnabled();
+
+    fireEvent.click(publishButton);
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows publication progress until the publish response settles', async () => {
+    const pending = deferredRequest<Record<string, never>>();
+    publish.mockReturnValue(pending.request);
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish' }));
+
+    const publishingButton = await screen.findByRole('button', {
+      name: 'Publishing…',
+    });
+    expect(publishingButton).toBeDisabled();
+    expect(publishingButton).toHaveAttribute('aria-busy', 'true');
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    pending.resolve({});
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Publishing…' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it('saves commands without reconciling, then reconciles once before Publish', async () => {
     render(
       <BuilderWorkspace
@@ -310,6 +389,38 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+  });
+
+  it('saves an edited traversal relationship in place', async () => {
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Change relationship' }),
+    );
+
+    await waitFor(() =>
+      expect(applyCommands).toHaveBeenCalledWith(
+        expect.objectContaining({
+        project: 'HTAN_INT/BForePC',
+        explorerId: 'test',
+        authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+        commands: [
+          {
+            type: 'UPDATE_ROUTE_EDGE',
+            outputId: 'specimens',
+            occurrenceId: 'patient-subject',
+            edgeId: 'specimen-patient-participant',
+          },
+        ],
+        }),
+      ),
+    );
   });
 
   it('previews after one click when reconciliation returns a normalized builder', async () => {
@@ -345,4 +456,3 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 });
-

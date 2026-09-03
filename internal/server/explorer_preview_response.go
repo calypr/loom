@@ -21,10 +21,21 @@ const (
 
 var ErrPreviewResponseTooLarge = errors.New("PREVIEW_RESPONSE_TOO_LARGE")
 
-type receiptPreviewResolutionError struct{ Err error }
+type receiptPreviewResolutionError struct {
+	ReceiptID string
+	Err       error
+}
 
 func (e *receiptPreviewResolutionError) Error() string { return e.Err.Error() }
 func (e *receiptPreviewResolutionError) Unwrap() error { return e.Err }
+
+func classifyReceiptPreviewResolutionError(receiptID string, err error) error {
+	var mismatch *receiptContractMismatch
+	if errors.As(err, &mismatch) || errors.Is(err, explorer.ErrReceiptRecompileRequired) {
+		return &receiptPreviewResolutionError{ReceiptID: receiptID, Err: err}
+	}
+	return err
+}
 
 // previewRouteError maps execution failures to the stable authoring error
 // contract without requiring a Fiber context. The generated OpenAPI adapter
@@ -51,6 +62,8 @@ func previewRouteError(err error) error {
 			return &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeBackendUnavailable), string(dataframeerrors.CodeReceiptStoreUnavailable):
 			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
+		case string(dataframeerrors.CodeQueryMemoryLimitExceeded), string(dataframeerrors.CodeQueryResourceLimitExceeded), string(dataframeerrors.CodeQueryBackendOutOfMemory):
+			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err), Details: userErr.Details()}, Cause: err}
 		case string(dataframeerrors.CodeRecipeContractViolation), string(dataframeerrors.CodeDynamicSchemaDrift):
 			return receiptPreviewConflict(err)
 		default:
@@ -64,6 +77,11 @@ func previewRouteError(err error) error {
 }
 
 func receiptPreviewConflict(cause error) error {
+	receiptID := ""
+	var resolution *receiptPreviewResolutionError
+	if errors.As(cause, &resolution) {
+		receiptID = resolution.ReceiptID
+	}
 	return &explorer.AuthoringError{
 		Status: http.StatusConflict,
 		Diagnostic: explorer.AuthoringDiagnostic{
@@ -71,7 +89,7 @@ func receiptPreviewConflict(cause error) error {
 			Stage:    "preview",
 			Code:     "RECEIPT_RECOMPILE_REQUIRED",
 			Message:  "receipt deterministic lowering no longer matches the stored artifact",
-			Details:  receiptMismatchDetails("", cause),
+			Details:  receiptMismatchDetails(receiptID, cause),
 		},
 		Cause: cause,
 	}

@@ -109,6 +109,76 @@ export interface LoomRowsOptions {
   readonly signal?: AbortSignal;
 }
 
+export type LoomOutputFilterOperator =
+  | 'EQ'
+  | 'NEQ'
+  | 'IN'
+  | 'NOT_IN'
+  | 'LT'
+  | 'LTE'
+  | 'GT'
+  | 'GTE'
+  | 'CONTAINS'
+  | 'STARTS_WITH'
+  | 'EXISTS'
+  | 'IS_NULL'
+  | 'ARRAY_CONTAINS'
+  | 'ARRAY_OVERLAPS';
+
+export interface LoomOutputFilter {
+  readonly column: string;
+  readonly op: LoomOutputFilterOperator;
+  readonly value: unknown;
+}
+
+export interface LoomOutputSort {
+  readonly column: string;
+  readonly desc?: boolean;
+}
+
+export interface LoomFacetSpec {
+  readonly name: string;
+  readonly kind: 'TERMS' | 'HISTOGRAM' | 'DATE_HISTOGRAM' | 'STATS' | 'MISSING';
+  readonly column: string;
+  readonly size?: number;
+  readonly interval?: number;
+  readonly dateInterval?: number;
+  readonly excludeSelfFilter?: boolean;
+}
+
+export interface LoomOutputRequest {
+  readonly project: string;
+  readonly selector: ExplorerRuntimeV1['outputs'][number]['selector'];
+  readonly columns?: ReadonlyArray<string>;
+  readonly filters?: ReadonlyArray<LoomOutputFilter>;
+  readonly sort?: LoomOutputSort;
+  readonly first?: number;
+  readonly after?: string;
+  readonly facets?: ReadonlyArray<LoomFacetSpec>;
+  readonly exportHeaders?: Readonly<Record<string, string>>;
+}
+
+export interface LoomFacetResult {
+  readonly name: string;
+  readonly kind: string;
+  readonly columns: ReadonlyArray<string>;
+  readonly rows: ReadonlyArray<Record<string, unknown>>;
+  readonly missingCount?: number;
+  readonly truncated?: boolean;
+}
+
+export interface LoomOutputResult {
+  readonly columns: ReadonlyArray<string>;
+  readonly rows: ReadonlyArray<Record<string, unknown>>;
+  readonly totalCount: number | null;
+  readonly pageInfo: {
+    readonly hasNextPage: boolean;
+    readonly endCursor?: string;
+  };
+  readonly materialization?: Readonly<Record<string, unknown>>;
+  readonly facets: ReadonlyArray<LoomFacetResult>;
+}
+
 export interface LoomClient {
   readonly listExplorers: (
     args: ExplorerAuthoringProjectArgs,
@@ -164,6 +234,14 @@ export interface LoomClient {
     columns: ReadonlyArray<string>,
     options: LoomRowsOptions,
   ) => Promise<{ readonly columns: ReadonlyArray<string>; readonly rows: ReadonlyArray<Record<string, unknown>>; readonly totalCount?: number | null }>;
+  readonly queryOutput: (
+    request: LoomOutputRequest,
+    signal?: AbortSignal,
+  ) => Promise<LoomOutputResult>;
+  readonly exportOutput: (
+    request: LoomOutputRequest,
+    signal?: AbortSignal,
+  ) => Promise<Blob>;
   readonly invalidate: (scope?: 'explorers' | 'builder' | 'all') => void;
 }
 
@@ -275,6 +353,53 @@ const shapeRows = (rows: unknown, columns: ReadonlyArray<string>): Array<Record<
     });
     return result;
   });
+};
+
+const numberOrNull = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const normalizedFacet = (value: unknown): LoomFacetResult | undefined => {
+  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.kind !== 'string') return undefined;
+  const columns = Array.isArray(value.columns) ? value.columns.filter((column): column is string => typeof column === 'string') : [];
+  const rows = shapeRows(value.rows, columns);
+  const missingCount = numberOrNull(value.missingCount);
+  return {
+    name: value.name,
+    kind: value.kind,
+    columns,
+    rows,
+    ...(missingCount === null ? {} : { missingCount }),
+    ...(typeof value.truncated === 'boolean' ? { truncated: value.truncated } : {}),
+  };
+};
+
+const outputQuery = (request: LoomOutputRequest): {
+  readonly query: string;
+  readonly variables: Readonly<Record<string, unknown>>;
+} => {
+  const hasFacets = (request.facets?.length ?? 0) > 0;
+  const input: Record<string, unknown> = {
+    projectId: canonicalProject(request.project),
+    selector: request.selector,
+    ...(request.columns && request.columns.length > 0 ? { columns: [...request.columns] } : {}),
+    ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
+    ...(request.sort ? { sort: { column: request.sort.column, desc: request.sort.desc ?? false } } : {}),
+    ...(request.first === undefined ? {} : { first: request.first }),
+    ...(request.after ? { after: request.after } : {}),
+  };
+  const query = hasFacets
+    ? `query LoomOutput($input: DataframeRowsInput!, $facetInput: DataframeAggregationsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } dataframeAggregations(input: $facetInput) { aggregations } }`
+    : `query LoomOutput($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } }`;
+  const variables: Record<string, unknown> = { input };
+  if (hasFacets) {
+    variables.facetInput = {
+      projectId: canonicalProject(request.project),
+      selector: request.selector,
+      ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
+      specs: [...(request.facets ?? [])],
+    };
+  }
+  return { query, variables };
 };
 
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
@@ -402,13 +527,60 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     }
     return payload.data as T;
   };
+  const queryOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<LoomOutputResult> => {
+    const prepared = outputQuery(outputRequest);
+    const data = await fetchGraphQL<unknown>(prepared.query, prepared.variables, signal);
+    if (!isRecord(data) || !isRecord(data.dataframeRows)) {
+      throw new LoomRequestError({ status: 502, code: 'INVALID_OUTPUT_RESPONSE', message: 'Loom returned an invalid output response.', retryable: false });
+    }
+    const connection = data.dataframeRows;
+    const columns = Array.isArray(connection.columns) ? connection.columns.filter((column): column is string => typeof column === 'string') : [];
+    const pageInfo = isRecord(connection.pageInfo) ? connection.pageInfo : {};
+    const facets = isRecord(data.dataframeAggregations) && Array.isArray(data.dataframeAggregations.aggregations)
+      ? data.dataframeAggregations.aggregations.map(normalizedFacet).filter((facet): facet is LoomFacetResult => facet !== undefined)
+      : [];
+    const materialization = isRecord(connection.materialization) ? connection.materialization : undefined;
+    const endCursor = typeof pageInfo.endCursor === 'string' ? pageInfo.endCursor : undefined;
+    return {
+      columns,
+      rows: shapeRows(connection.rows, columns),
+      totalCount: numberOrNull(connection.totalCount),
+      pageInfo: { hasNextPage: pageInfo.hasNextPage === true, ...(endCursor ? { endCursor } : {}) },
+      ...(materialization ? { materialization } : {}),
+      facets,
+    };
+  };
+
+  const exportOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<Blob> => {
+    const rows: Array<Record<string, unknown>> = [];
+    let columns: ReadonlyArray<string> = outputRequest.columns ?? [];
+    let after: string | undefined;
+    const first = Math.max(outputRequest.first ?? 100, 1000);
+    while (true) {
+      if (signal?.aborted) throw new DOMException('The export was aborted.', 'AbortError');
+      const page = await queryOutput({ ...outputRequest, first, after, facets: [] }, signal);
+      if (columns.length === 0) columns = page.columns;
+      rows.push(...page.rows);
+      if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor || page.pageInfo.endCursor === after) break;
+      after = page.pageInfo.endCursor;
+    }
+    const csvValue = (value: unknown): string => {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+      try { return JSON.stringify(value); } catch { return String(value); }
+    };
+    const csvCell = (value: unknown): string => {
+      const text = csvValue(value);
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const lines = [columns.map((column) => csvCell(outputRequest.exportHeaders?.[column] ?? column)).join(','), ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(','))];
+    return new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+  };
+
   const rows = async (selector: ExplorerRuntimeV1['outputs'][number]['selector'], columns: ReadonlyArray<string>, rowOptions: LoomRowsOptions) => {
-    const data = await fetchGraphQL<{ dataframeRows: { columns: string[]; rows: unknown; totalCount?: number | null } }>(
-      `query LoomRows($input: DataframeRowsInput!) { dataframeRows(input: $input) { columns rows totalCount pageInfo { hasNextPage endCursor } } }`,
-      { input: { projectId: canonicalProject(rowOptions.project), selector, columns: [...columns], first: rowOptions.first ?? 100 } },
-      rowOptions.signal,
-    );
-    return { ...data.dataframeRows, rows: shapeRows(data.dataframeRows.rows, data.dataframeRows.columns) };
+    const result = await queryOutput({ project: rowOptions.project, selector, columns, first: rowOptions.first ?? 100 }, rowOptions.signal);
+    return { columns: result.columns, rows: result.rows, totalCount: result.totalCount };
   };
   return {
     listExplorers,
@@ -424,6 +596,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     deleteExplorer,
     fetchGraphQL,
     rows,
+    queryOutput,
+    exportOutput,
     invalidate: (scope = 'all') => {
       if (scope === 'all' || scope === 'explorers') [...cache.keys()].filter((key) => key.startsWith('explorers:')).forEach((key) => cache.delete(key));
       if (scope === 'all' || scope === 'builder') [...cache.keys()].filter((key) => key.startsWith('builder:')).forEach((key) => cache.delete(key));

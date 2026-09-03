@@ -23,6 +23,7 @@ export interface DerivedOccurrence {
   readonly index: number;
   readonly nodeId: string;
   readonly incomingEdgeId?: string;
+  readonly relationship?: string;
   readonly parentId?: string;
   readonly depth: number;
   readonly resourceType: string;
@@ -76,6 +77,7 @@ export const derivedOccurrences = (
       index: occurrences.length,
       nodeId: node.nodeId,
       incomingEdgeId: edge?.edgeId,
+      relationship: route.relationship,
       parentId,
       depth,
       resourceType: route.resourceType,

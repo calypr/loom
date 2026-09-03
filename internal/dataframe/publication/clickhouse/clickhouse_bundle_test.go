@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dfpublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/store/clickhouse"
@@ -254,6 +255,26 @@ func TestClickHouseBundleStoreImplementsPublicationTargetDirectly(t *testing.T) 
 		if len(columns) != 2 || columns[0].Name != "__loom_row_id" || columns[1].Name != "id" {
 			t.Fatalf("insert columns = %#v", columns)
 		}
+	}
+}
+
+func TestClickHouseBundleStoreReportsInProgressExecution(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	store, err := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.PublicationIdentity{Name: "Observation", Project: "project-a", DatasetGeneration: "generation-a"}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, EngineVersion: "loom"}
+	catalog.executions["execution-a"] = publication.BundleExecution{ID: "execution-a", Key: bundleIdentity.Key(), BundleIdentity: bundleIdentity, State: publication.BundleRunning}
+
+	_, err = store.Begin(context.Background(), identity, nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodePublicationInProgress) {
+		t.Fatalf("Begin() error = %v, want PUBLICATION_IN_PROGRESS", err)
+	}
+	if got := userErr.Details()["executionId"]; got != "execution-a" {
+		t.Fatalf("executionId = %v, want execution-a", got)
 	}
 }
 

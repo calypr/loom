@@ -4,7 +4,7 @@ import { vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
-import { GuidedGraphWorkspace } from './GuidedGraphWorkspace';
+import { graphEdgeOverviewLabels, GuidedGraphWorkspace } from './GuidedGraphWorkspace';
 
 const mockFitView = vi.fn();
 const mockLayoutDatasetGraph = vi.fn();
@@ -169,11 +169,26 @@ const renderGraph = (currentTable: DraftTable) =>
       onSetBase={vi.fn()}
       onChangeBase={vi.fn()}
       onAppendEdge={vi.fn()}
+      onChangeEdge={vi.fn()}
       onTruncate={vi.fn()}
     />,
   );
 
 describe('GuidedGraphWorkspace', () => {
+  it('summarizes multiple relationships between the same resource pair', () => {
+    const labels = graphEdgeOverviewLabels([
+      { edgeId: 'patient-specimen', fromNodeId: 'patient', toNodeId: 'specimen', label: 'subject_Patient' },
+      { edgeId: 'specimen-patient', fromNodeId: 'specimen', toNodeId: 'patient', label: 'subject_Patient' },
+      { edgeId: 'patient-focus', fromNodeId: 'patient', toNodeId: 'specimen', label: 'focus_Patient' },
+      { edgeId: 'specimen-observation', fromNodeId: 'specimen', toNodeId: 'observation', label: 'focus_Specimen' },
+    ]);
+
+    expect([...labels]).toEqual([
+      ['patient-specimen', '2 relationships'],
+      ['specimen-observation', 'focus_Specimen'],
+    ]);
+  });
+
   beforeEach(() => {
     mockFitView.mockReset();
     mockLayoutDatasetGraph.mockReset();
@@ -260,6 +275,7 @@ describe('GuidedGraphWorkspace', () => {
         onSetBase={onSetBase}
         onChangeBase={vi.fn()}
         onAppendEdge={vi.fn()}
+        onChangeEdge={vi.fn()}
         onTruncate={vi.fn()}
       />,
     );
@@ -288,6 +304,7 @@ describe('GuidedGraphWorkspace', () => {
       onSetBase: vi.fn(),
       onChangeBase: vi.fn(),
       onAppendEdge: vi.fn(),
+      onChangeEdge: vi.fn(),
       onTruncate: vi.fn(),
     };
     const view = render(
@@ -355,6 +372,12 @@ describe('GuidedGraphWorkspace', () => {
           toNodeId: 'node-patient',
           label: 'subject_Patient',
         },
+        {
+          edgeId: 'specimen-patient-participant',
+          fromNodeId: 'node-specimen',
+          toNodeId: 'node-patient',
+          label: 'participant_Patient',
+        },
       ],
     };
     const siblingTable: DraftTable = {
@@ -385,6 +408,7 @@ describe('GuidedGraphWorkspace', () => {
       },
     };
     const onSelectOccurrence = vi.fn();
+    const onChangeEdge = vi.fn();
 
     render(
       <GuidedGraphWorkspace
@@ -396,6 +420,7 @@ describe('GuidedGraphWorkspace', () => {
         onSetBase={vi.fn()}
         onChangeBase={vi.fn()}
         onAppendEdge={vi.fn()}
+        onChangeEdge={onChangeEdge}
         onTruncate={vi.fn()}
       />,
     );
@@ -412,6 +437,103 @@ describe('GuidedGraphWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Patient' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Patient' }));
     expect(onSelectOccurrence).toHaveBeenCalledWith('patient');
+    fireEvent.change(
+      screen.getByRole('combobox', {
+        name: 'Relationship for Patient occurrence',
+      }),
+      { target: { value: 'specimen-patient-participant' } },
+    );
+    expect(onChangeEdge).toHaveBeenCalledWith(
+      'patient',
+      'specimen-patient-participant',
+    );
+  });
+
+  it('inspects an existing resource when another relationship can add a new occurrence', async () => {
+    const multiRelationshipCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        {
+          nodeId: 'node-specimen',
+          resourceType: 'Specimen',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 2,
+        },
+        {
+          nodeId: 'node-patient',
+          resourceType: 'Patient',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 2,
+        },
+      ],
+      edges: [
+        {
+          edgeId: 'specimen-patient-subject',
+          fromNodeId: 'node-specimen',
+          toNodeId: 'node-patient',
+          label: 'subject_Patient',
+        },
+        {
+          edgeId: 'specimen-patient-participant',
+          fromNodeId: 'node-specimen',
+          toNodeId: 'node-patient',
+          label: 'participant_Patient',
+        },
+      ],
+    };
+    const tableWithPatient: DraftTable = {
+      outputId: 'Specimen',
+      tabId: 'Specimen',
+      title: 'Specimen',
+      document: {
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'Specimen', title: 'Specimen' },
+        rootResourceType: 'Specimen',
+        route: {
+          occurrenceId: 'base',
+          resourceType: 'Specimen',
+          children: [
+            {
+              occurrenceId: 'patient-subject',
+              resourceType: 'Patient',
+              relationship: 'subject_Patient',
+            },
+          ],
+        },
+        columns: [],
+      },
+    };
+    const onSelectOccurrence = vi.fn();
+    const onAppendEdge = vi.fn();
+
+    render(
+      <GuidedGraphWorkspace
+        catalog={multiRelationshipCatalog}
+        table={tableWithPatient}
+        selectedOccurrenceId="base"
+        disabled={false}
+        onSelectOccurrence={onSelectOccurrence}
+        onSetBase={vi.fn()}
+        onChangeBase={vi.fn()}
+        onAppendEdge={onAppendEdge}
+        onChangeEdge={vi.fn()}
+        onTruncate={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('graph-node-node-patient')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('graph-node-node-patient'));
+
+    expect(onSelectOccurrence).not.toHaveBeenCalled();
+    expect(onAppendEdge).not.toHaveBeenCalled();
+    expect(screen.getByTestId('graph-node-node-patient')).toHaveAttribute(
+      'data-border',
+      '3px solid #f59e0b',
+    );
   });
 
   it('keeps node interaction inline, expands from the background, and directly adds one legal edge', async () => {
@@ -427,6 +549,7 @@ describe('GuidedGraphWorkspace', () => {
         onSetBase={vi.fn()}
         onChangeBase={vi.fn()}
         onAppendEdge={onAppendEdge}
+        onChangeEdge={vi.fn()}
         onTruncate={vi.fn()}
         onTableToolbarHostChange={onTableToolbarHostChange}
       />,
@@ -476,4 +599,3 @@ describe('GuidedGraphWorkspace', () => {
     expect(currentHost?.isConnected).toBe(true);
   });
 });
-

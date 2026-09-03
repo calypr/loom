@@ -26,6 +26,7 @@ interface BuilderToolbarProps {
   onPublish: () => void;
   previewDisabled: boolean;
   publishDisabled: boolean;
+  publishing: boolean;
   busy?: boolean;
   columnCreationSupported?: boolean;
   tableToolbarHost?: HTMLElement | null;
@@ -198,6 +199,7 @@ export function BuilderToolbar({
   onPublish,
   previewDisabled,
   publishDisabled,
+  publishing,
   busy = false,
   columnCreationSupported = true,
   tableToolbarHost,
@@ -365,10 +367,17 @@ export function BuilderToolbar({
           <button
             type="button"
             onClick={onPublish}
-            disabled={!selectedTable || busy || publishDisabled}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            disabled={!selectedTable || busy || publishDisabled || publishing}
+            aria-busy={publishing}
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
-            Publish
+            {publishing ? (
+              <span
+                aria-hidden="true"
+                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700"
+              />
+            ) : null}
+            {publishing ? 'Publishing…' : 'Publish'}
           </button>
         </div>
       </div>

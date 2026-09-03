@@ -10,12 +10,26 @@ import (
 )
 
 func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
-	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json", "--recipe-query-page-rows", "7"}, flag.ContinueOnError)
 	if err != nil {
 		t.Fatalf("parseServerOptions() error = %v", err)
 	}
-	if options.Server.Listen != ":19091" || !options.Server.AllowUnauthenticated || !options.Auth.AllowUnauthenticated {
+	if options.Server.Listen != ":19091" || !options.Server.AllowUnauthenticated || !options.Auth.AllowUnauthenticated || options.Server.RecipeQueryPageRows != 7 {
 		t.Fatalf("resolved options = %#v", options)
+	}
+}
+
+func TestLocalWorkspaceWritebackRequiresNoAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	if _, err := parseServerOptions([]string{"--dataframer-recipe", "recipe.json", "--local-workspace-writeback", path, "--local-workspace-project", "project-a"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "requires unauthenticated") {
+		t.Fatalf("authenticated writeback error = %v", err)
+	}
+	options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--local-workspace-writeback", path, "--local-workspace-project", "project-a"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Server.LocalWorkspaceWriteback != path {
+		t.Fatalf("writeback path = %q", options.Server.LocalWorkspaceWriteback)
 	}
 }
 
@@ -41,6 +55,23 @@ func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("default config without credentials unexpectedly validated")
+	}
+}
+
+func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.RecipeQueryPageRows != 25 {
+		t.Fatalf("default recipe query page rows = %d, want 25", cfg.Server.RecipeQueryPageRows)
+	}
+	cfg.Server.RecipeQueryPageRows = 0
+	cfg.Auth.AllowUnauthenticated = true
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("disabled recipe query paging: %v", err)
+	}
+	cfg.Server.RecipeQueryPageRows = -1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cannot be negative") {
+		t.Fatalf("negative recipe query page rows error = %v", err)
 	}
 }
 

@@ -87,12 +87,22 @@ func buildAggregatePlan(dataset Materialization, req AggregateBatchRequest) aggr
 		jobs := groups[key]
 		kind := statementKind(jobs[0].job.ResponseMode)
 		if kind == statementLegacy || kind == statementTerms || kind == statementBucket {
-			for start := 0; start < len(jobs); start += maxGroupingSets {
-				end := start + maxGroupingSets
-				if end > len(jobs) {
-					end = len(jobs)
+			batch := make([]*plannedAggregateJob, 0, min(len(jobs), maxGroupingSets))
+			termColumns := make(map[string]struct{})
+			for _, job := range jobs {
+				_, repeatedTermColumn := termColumns[job.job.Column]
+				if len(batch) == maxGroupingSets || (kind == statementTerms && repeatedTermColumn) {
+					plan.statements = append(plan.statements, aggregateStatementPlan{kind: kind, jobs: batch, filters: batch[0].filters})
+					batch = make([]*plannedAggregateJob, 0, min(len(jobs), maxGroupingSets))
+					clear(termColumns)
 				}
-				plan.statements = append(plan.statements, aggregateStatementPlan{kind: kind, jobs: jobs[start:end], filters: jobs[0].filters})
+				batch = append(batch, job)
+				if kind == statementTerms {
+					termColumns[job.job.Column] = struct{}{}
+				}
+			}
+			if len(batch) > 0 {
+				plan.statements = append(plan.statements, aggregateStatementPlan{kind: kind, jobs: batch, filters: batch[0].filters})
 			}
 		} else {
 			plan.statements = append(plan.statements, aggregateStatementPlan{kind: kind, jobs: jobs, filters: jobs[0].filters})

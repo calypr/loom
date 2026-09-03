@@ -241,6 +241,18 @@ func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *tes
 	if public["occ_parent__occ_child__id"] {
 		t.Fatalf("nested column unexpectedly used a path-scoped name: %#v", public)
 	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"LET child_set_1_reduced = {", "LET child_set_2_reduced = {"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("recipe traversal field missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if strings.Contains(rendered.Query, "FOR __loom_prepared_value IN child_set_") {
+		t.Fatalf("recipe traversal fields still rescan their child sets:\n%s", rendered.Query)
+	}
 }
 
 func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {

@@ -203,6 +203,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			projectionCopy.Fields = append([]PhysicalSetProjectionField(nil), operation.Set.Projection.Fields...)
 			setCopy.Projection = &projectionCopy
 		}
+		if operation.Set.Reduction != nil {
+			reductionCopy := *operation.Set.Reduction
+			reductionCopy.Fields = append([]PhysicalSetReductionField(nil), operation.Set.Reduction.Fields...)
+			setCopy.Reduction = &reductionCopy
+		}
 		if operation.Set.Prepared != nil {
 			preparedCopy := *operation.Set.Prepared
 			preparedCopy.Fields = append([]PhysicalPreparedField(nil), operation.Set.Prepared.Fields...)

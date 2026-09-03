@@ -199,6 +199,13 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		lines[len(lines)-1] = "  ))"
 	}
 	r.setVariables[set.Variable] = set.Variable
+	if set.Reduction != nil {
+		reduced, err := r.renderPhysicalSetReduction(*set.Reduction)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, reduced...)
+	}
 	if set.Prepared != nil {
 		prepared, err := r.renderPreparedSet(*set.Prepared)
 		if err != nil {
@@ -238,13 +245,36 @@ func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projecti
 		"resourceType: " + item + ".resourceType",
 	}
 	for _, field := range projection.Fields {
-		values, err := r.renderSelectorByMode(item+".payload", field.Selector, field.ExecutionMode)
+		values, err := r.renderSelectorByMode(item+".payload", field.Selector, field.ExecutionMode, field.Demand)
 		if err != nil {
 			return "", fmt.Errorf("projected field %q: %w", field.Name, err)
 		}
 		fields = append(fields, field.Name+": "+values)
 	}
 	return "{ " + strings.Join(fields, ", ") + " }", nil
+}
+
+func (r *physicalPlanRenderer) renderPhysicalSetReduction(reduction ir.PhysicalSetReduction) ([]string, error) {
+	if r.setVariables[reduction.SourceSetVariable] == "" {
+		return nil, fmt.Errorf("reduction source set %q has not been rendered", reduction.SourceSetVariable)
+	}
+	fields := make([]string, 0, len(reduction.Fields))
+	for _, field := range reduction.Fields {
+		source := fmt.Sprintf("%s[*].%s", reduction.SourceSetVariable, field.SourceField)
+		var value string
+		switch field.Mode {
+		case ir.PhysicalSetReductionFirst:
+			value = "FIRST(FLATTEN(" + source + "))"
+		case ir.PhysicalSetReductionAll:
+			value = "FLATTEN(" + source + ")"
+		case ir.PhysicalSetReductionDistinct:
+			value = "SORTED_UNIQUE(FLATTEN(" + source + "))"
+		default:
+			return nil, fmt.Errorf("unsupported set reduction mode %q", field.Mode)
+		}
+		fields = append(fields, field.Name+": "+value)
+	}
+	return []string{fmt.Sprintf("  LET %s = { %s }", reduction.Variable, strings.Join(fields, ", "))}, nil
 }
 
 func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet) ([]string, error) {
@@ -266,7 +296,7 @@ func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet
 		fmt.Sprintf("__loom_prepared_node: %s", item),
 	}
 	for _, field := range prepared.Fields {
-		values, err := r.renderSelectorArrayFromSource(item+".payload", field.Selector, false)
+		values, err := r.renderSelectorArrayFromSource(item+".payload", field.Selector, false, false)
 		if err != nil {
 			return nil, fmt.Errorf("prepared field %q: %w", field.Name, err)
 		}
@@ -333,6 +363,13 @@ func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string,
 		lines[len(lines)-1] = "    ))"
 	}
 	r.setVariables[set.Variable] = set.Variable
+	if set.Reduction != nil {
+		reduced, err := r.renderPhysicalSetReduction(*set.Reduction)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, reduced...)
+	}
 	if set.Prepared != nil {
 		prepared, err := r.renderPreparedSet(*set.Prepared)
 		if err != nil {
@@ -362,6 +399,12 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 			variables[operation.ExpressionLet.Variable] = struct{}{}
 		case ir.PhysicalSetOp:
 			variables[operation.Set.Variable] = struct{}{}
+			if operation.Set.Reduction != nil {
+				variables[operation.Set.Reduction.Variable] = struct{}{}
+			}
+			if operation.Set.Prepared != nil {
+				variables[operation.Set.Prepared.Variable] = struct{}{}
+			}
 		case ir.PhysicalUnnestOp:
 			variables[operation.Unnest.InputVariable] = struct{}{}
 			variables[operation.Unnest.OutputVariable] = struct{}{}

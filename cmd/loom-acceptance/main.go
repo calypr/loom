@@ -2,15 +2,33 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/acceptance"
+	"github.com/calypr/loom/internal/explorer"
 )
+
+type smokeExpectation struct {
+	Management  string
+	Generation  string
+	OutputID    string
+	OutputTitle string
+	Columns     []string
+}
+
+type smokeOracle struct {
+	Columns []string `json:"columns"`
+}
 
 func main() {
 	var (
@@ -36,8 +54,29 @@ func main() {
 		performanceRepeatBase    = flag.String("performance-repeat-base-report", "", "repeat base acceptance report")
 		performanceRepeatCurrent = flag.String("performance-repeat-current-report", "", "repeat current acceptance report")
 		performanceOutput        = flag.String("performance-output", "", "performance comparison JSON output")
+		smokeOnly                = flag.Bool("smoke-only", false, "verify the running demo Explorer contract, then exit")
+		smokeManagement          = flag.String("smoke-management", "REPOSITORY", "expected Explorer management mode")
+		smokeOutputID            = flag.String("smoke-output-id", "tcga_brca_cohort", "expected Explorer output ID")
+		smokeOutputTitle         = flag.String("smoke-output-title", "TCGA-BRCA patient cohort", "expected Explorer output title")
 	)
 	flag.Parse()
+	if *smokeOnly {
+		want, err := loadSmokeExpectation(*smokeManagement, *generation, *smokeOutputID, *smokeOutputTitle, *oraclePath)
+		if err != nil {
+			fatalf("load smoke expectation: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		state, err := fetchExplorer(ctx, *loomURL, *project)
+		if err != nil {
+			fatalf("fetch Explorer: %v", err)
+		}
+		if err := verifyExplorerContract(state, want); err != nil {
+			fatalf("demo contract mismatch: %v", err)
+		}
+		fmt.Printf("demo Explorer contract verified: management=%s generation=%s output=%q columns=%d\n", want.Management, want.Generation, want.OutputTitle, len(want.Columns))
+		return
+	}
 	if *performanceBase != "" || *performanceCurrent != "" {
 		if *performanceBase == "" || *performanceCurrent == "" || *performanceOutput == "" {
 			fatalf("performance comparison requires base, current, and output paths")
@@ -112,6 +151,73 @@ func sumCounts(counts map[string]int) int {
 	}
 	return total
 }
+
+func loadSmokeExpectation(management, generation, outputID, outputTitle, oraclePath string) (smokeExpectation, error) {
+	data, err := os.ReadFile(oraclePath)
+	if err != nil {
+		return smokeExpectation{}, err
+	}
+	var value smokeOracle
+	if err := json.Unmarshal(data, &value); err != nil {
+		return smokeExpectation{}, err
+	}
+	want := smokeExpectation{Management: management, Generation: generation, OutputID: outputID, OutputTitle: outputTitle, Columns: value.Columns}
+	if strings.TrimSpace(want.Management) == "" || strings.TrimSpace(want.Generation) == "" || strings.TrimSpace(want.OutputID) == "" || strings.TrimSpace(want.OutputTitle) == "" || len(want.Columns) == 0 {
+		return smokeExpectation{}, errors.New("management, generation, output ID, output title, and oracle columns are required")
+	}
+	return want, nil
+}
+
+func fetchExplorer(ctx context.Context, base, project string) (explorer.ExplorerStateV1, error) {
+	path := strings.TrimRight(base, "/") + "/api/v1/projects/" + url.PathEscape(project) + "/explorers/default"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return explorer.ExplorerStateV1{}, err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return explorer.ExplorerStateV1{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return explorer.ExplorerStateV1{}, fmt.Errorf("%s returned %s", request.URL.Path, response.Status)
+	}
+	var state explorer.ExplorerStateV1
+	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
+		return explorer.ExplorerStateV1{}, err
+	}
+	return state, nil
+}
+
+func verifyExplorerContract(state explorer.ExplorerStateV1, want smokeExpectation) error {
+	if string(state.Management) != want.Management {
+		return fmt.Errorf("management=%q want %q", state.Management, want.Management)
+	}
+	if state.Runtime == nil {
+		return errors.New("runtime is null")
+	}
+	if state.Runtime.Generation != want.Generation {
+		return fmt.Errorf("generation=%q want %q", state.Runtime.Generation, want.Generation)
+	}
+	for _, output := range state.Runtime.Outputs {
+		if output.OutputID != want.OutputID {
+			continue
+		}
+		if output.Title != want.OutputTitle {
+			return fmt.Errorf("output %q title=%q want %q", want.OutputID, output.Title, want.OutputTitle)
+		}
+		columns := make([]string, len(output.Columns))
+		for index, column := range output.Columns {
+			columns[index] = column.Column
+		}
+		if !slices.Equal(columns, want.Columns) {
+			return fmt.Errorf("output %q columns=%q want %q", want.OutputID, columns, want.Columns)
+		}
+		return nil
+	}
+	return fmt.Errorf("output %q is missing", want.OutputID)
+}
+
 func fatal(err error) { fatalf("%v", err) }
 func fatalf(format string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)

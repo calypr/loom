@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -106,6 +107,73 @@ func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testi
 	}
 }
 
+func TestBuildAndRenderGenericPhysicalPlanReducesDirectChildFieldsOnce(t *testing.T) {
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+		Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient",
+		Fields: []semantic.SemanticField{
+			{Name: "file_id", FieldRef: "DocumentReference.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst},
+			{Name: "description", FieldRef: "DocumentReference.description", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "description"})}, Projection: spec.ProjectionFirst},
+			{Name: "titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionArray},
+			{Name: "distinct_titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionDistinctArray},
+		},
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "LET child_set_1_reduced = {") {
+		t.Fatalf("direct child fields were not reduced beside their set:\n%s", rendered.Query)
+	}
+	if strings.Contains(rendered.Query, "FOR __loom_prepared_value IN child_set_1") {
+		t.Fatalf("final child fields still rescan the relationship set:\n%s", rendered.Query)
+	}
+	if strings.Count(rendered.Query, "child_set_1_reduced.__loom_reduced_") != 4 {
+		t.Fatalf("final child fields do not read the reduction object exactly four times:\n%s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "SORTED_UNIQUE(FLATTEN(child_set_1[*].__loom_projection_") {
+		t.Fatalf("distinct child array was not reduced with sorted uniqueness:\n%s", rendered.Query)
+	}
+}
+
+func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
+			Fields: []semantic.SemanticField{{
+				Name: "specimen_id", FieldRef: "Specimen.id",
+				Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})},
+				Projection: spec.ProjectionFirst,
+			}},
+			Children: []semantic.SemanticNode{{
+				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
+			}},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compiled, err := CompileRecipeOutputWithPolicy(lower.CompiledRecipeOutput{
+		Name:             "patients",
+		RootResourceType: "Patient",
+		RowGrain:         "patient",
+		Plan:             plan,
+	}, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"}, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parentSet := strings.Index(compiled.Query, "LET child_set_1 =")
+	nestedTraversal := strings.Index(compiled.Query, "FOR __loom_physical_parent_1 IN child_set_1")
+	if parentSet < 0 || nestedTraversal < 0 || parentSet >= nestedTraversal {
+		t.Fatalf("mixed child dependencies rendered out of order:\n%s", compiled.Query)
+	}
+}
+
 func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *testing.T) {
 	id := "file-1"
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
@@ -133,7 +201,7 @@ func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *t
 	}
 	for _, want := range []string{
 		"LET child_set_1 = UNIQUE((",
-		"@child_set_2_filter_1_value", "LENGTH(child_set_2)", "FOR __loom_prepared_value IN child_set_2",
+		"@child_set_2_filter_1_value", "LENGTH(child_set_2)", "LET child_set_2_reduced = {",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("nested physical query missing %q:\n%s", want, rendered.Query)

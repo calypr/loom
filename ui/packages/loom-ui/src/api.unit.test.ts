@@ -229,4 +229,48 @@ describe('Loom project paths', () => {
     await expect(client.getExplorer(scope)).resolves.toMatchObject({ generation: 'new' });
     expect(fetch).toHaveBeenCalledTimes(3);
   });
+
+  it('serializes server-side filters, sort, cursors, and requested facets', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        dataframeRows: {
+          materialization: { id: 'mat-1', state: 'READY' },
+          columns: ['status'], rows: [['active']], totalCount: 1,
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+        dataframeAggregations: { aggregations: [{ name: 'status', kind: 'TERMS', columns: ['key', 'doc_count'], rows: [{ key: 'active', doc_count: 1 }] }] },
+      },
+    }), { status: 200 }));
+    const client = createLoomClient({ fetch });
+    const result = await client.queryOutput({
+      project: 'NCPI_ACCEPTANCE',
+      selector: { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
+      columns: ['status'],
+      filters: [{ column: 'status', op: 'IN', value: ['active', 'pending'] }],
+      sort: { column: 'status', desc: true }, first: 20, after: 'cursor-1',
+      facets: [{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }],
+    });
+    const payload = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { variables: { input: Record<string, unknown>; facetInput: Record<string, unknown> } };
+    expect(payload.variables.input).toMatchObject({ projectId: 'NCPI_ACCEPTANCE', first: 20, after: 'cursor-1', sort: { column: 'status', desc: true } });
+    expect(payload.variables.input.filters).toEqual([{ column: 'status', op: 'IN', value: ['active', 'pending'] }]);
+    expect(payload.variables.facetInput.specs).toEqual([{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }]);
+    expect(result.rows).toEqual([{ status: 'active' }]);
+    expect(result.facets[0]?.rows[0]).toEqual({ key: 'active', doc_count: 1 });
+  });
+
+  it('exports all cursor pages as an escaped CSV Blob', async () => {
+    const page = (rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({ data: { dataframeRows: { columns: ['id', 'label'], rows, totalCount: 2, pageInfo: { hasNextPage, endCursor } } } }), { status: 200 });
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(page([['one', 'a,b']], true, 'next'))
+      .mockResolvedValueOnce(page([['two', 'say "hi"']], false));
+    const client = createLoomClient({ fetch });
+    const blob = await client.exportOutput({ project: 'NCPI_ACCEPTANCE', selector: { recipe: 'r', translationVersion: 'v1', output: 'o' }, columns: ['id', 'label'], first: 1, after: 'current-page', exportHeaders: { id: 'Record ID' } });
+    expect(await blob.text()).toBe('Record ID,label\none,"a,b"\ntwo,"say ""hi"""\n');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as { variables: { input: { after?: string } } };
+    const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { variables: { input: { after?: string; first?: number } } };
+    expect(firstBody.variables.input.after).toBeUndefined();
+    expect(firstBody.variables.input.first).toBe(1000);
+    expect(secondBody.variables.input.after).toBe('next');
+  });
 });

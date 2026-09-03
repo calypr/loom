@@ -17,6 +17,7 @@ export const RouteExtensionPanel = ({
   selectedOccurrenceId,
   inspectedNodeId,
   selectedEdgeId,
+  allowExistingExtension = false,
   disabled,
   onSelectEdge,
   onUseAsRowStart,
@@ -28,6 +29,7 @@ export const RouteExtensionPanel = ({
   readonly selectedOccurrenceId: string;
   readonly inspectedNodeId?: string;
   readonly selectedEdgeId?: string;
+  readonly allowExistingExtension?: boolean;
   readonly disabled: boolean;
   readonly onSelectEdge: (edgeId: string | undefined) => void;
   readonly onUseAsRowStart: (nodeId: string) => void;
@@ -54,7 +56,12 @@ export const RouteExtensionPanel = ({
   );
   const hasRoot = occurrences.some((occurrence) => occurrence.id === 'base');
 
-  if (!table || !inspectedNodeId || alreadyInQuery) return null;
+  if (
+    !table ||
+    !inspectedNodeId ||
+    (alreadyInQuery && !allowExistingExtension)
+  )
+    return null;
 
   if (!hasRoot) {
     return (
@@ -77,11 +84,37 @@ export const RouteExtensionPanel = ({
     );
   }
 
-  // The graph click applies a single unambiguous relationship directly.
-  // Controls are only necessary when Loom reports multiple valid edges.
-  if (inspectedEdges.length === 1) return null;
+  // The graph click applies the first occurrence of a single unambiguous
+  // relationship directly. Adding another occurrence is explicit so clicking
+  // a resource already in the route never changes the query by surprise.
+  if (inspectedEdges.length === 1) {
+    if (!alreadyInQuery) return null;
+    const edge = inspectedEdges[0];
+    return (
+      <div className="absolute left-3 top-3 z-20 flex max-w-lg items-center gap-3 rounded-xl border border-blue-300 bg-white/95 p-3 text-xs shadow-xl backdrop-blur">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-slate-900">
+            Add another {inspectedResource} under {parentResource}
+          </p>
+          <p className="mt-0.5 text-slate-600">
+            Follow <span className="font-mono">{edge.label}</span> to create a
+            separate query occurrence.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="shrink-0 rounded-md bg-blue-700 px-3 py-1.5 font-semibold text-white hover:bg-blue-800 disabled:bg-slate-400"
+          disabled={disabled}
+          onClick={() => onAddEdge(edge.edgeId, edge.toNodeId)}
+        >
+          Add traversal
+        </button>
+      </div>
+    );
+  }
 
   if (inspectedEdges.length === 0) {
+    if (alreadyInQuery) return null;
     if (!inspectedNode?.rowRootEligible) return null;
     return (
       <div className="absolute left-3 top-3 z-20 flex max-w-lg items-center gap-3 rounded-xl border border-amber-300 bg-white/95 p-3 text-xs shadow-xl backdrop-blur">
@@ -106,7 +139,8 @@ export const RouteExtensionPanel = ({
   return (
     <div className="absolute left-3 top-3 z-20 max-w-lg rounded-xl border border-blue-300 bg-white/95 p-3 text-xs shadow-xl backdrop-blur">
       <p className="font-semibold text-slate-900">
-        Add {inspectedResource} under {parentResource}
+        Add {alreadyInQuery ? `another ${inspectedResource}` : inspectedResource}{' '}
+        under {parentResource}
       </p>
       <p className="mt-0.5 text-slate-600">
         Choose which relationship this branch should follow.

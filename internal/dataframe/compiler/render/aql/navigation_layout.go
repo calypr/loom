@@ -36,7 +36,7 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	}
 
 	index := 5
-	for index < last && plan.Operations[index].Kind == ir.PhysicalFilterOp && plan.Operations[index].Filter.Expression != nil {
+	for index < last && plan.Operations[index].Kind == ir.PhysicalFilterOp {
 		layout.rootPredicates = append(layout.rootPredicates, plan.Operations[index])
 		index++
 	}
@@ -70,12 +70,12 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	for index < last {
 		operation := plan.Operations[index]
 		if operation.Kind == ir.PhysicalExpressionLetOp {
-			layout.expressionLets = append(layout.expressionLets, operation)
+			layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: operation})
 			index++
 			continue
 		}
 		if operation.Kind == ir.PhysicalSetOp {
-			layout.sets = append(layout.sets, *operation.Set)
+			layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: operation})
 			index++
 			continue
 		}
@@ -97,7 +97,7 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		if _, err := validateGenericNavigationScopeBlock(scope, traversal.TargetVariable, traversal.EdgeVariable, traversal.TargetVariable); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("traversal at operation %d scope: %w", index, err)
 		}
-		layout.traversals = append(layout.traversals, physicalNavigationTraversal{traversal: traversal, scope: scope})
+		layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: operation, traversalScope: scope})
 		index += 1 + traversalScopeLength
 	}
 	unnestVariables := map[string]struct{}{}
@@ -107,7 +107,13 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 			unnestVariables[unnest.Ordinality] = struct{}{}
 		}
 	}
-	if err := validateNavigationReturnScope(layout.returnOp, layout.root.Variable, rootScopeVariable, unnestVariables); err != nil {
+	reductionVariables := map[string]struct{}{}
+	for _, operation := range plan.Operations {
+		if operation.Set != nil && operation.Set.Reduction != nil {
+			reductionVariables[operation.Set.Reduction.Variable] = struct{}{}
+		}
+	}
+	if err := validateNavigationReturnScope(layout.returnOp, layout.root.Variable, rootScopeVariable, unnestVariables, reductionVariables); err != nil {
 		return physicalNavigationRenderLayout{}, err
 	}
 	return layout, nil
@@ -253,7 +259,7 @@ func sameRenderPhysicalValue(left, right ir.PhysicalValue) bool {
 	return true
 }
 
-func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, rootScopeVariable string, unnestVariables map[string]struct{}) error {
+func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, rootScopeVariable string, unnestVariables, reductionVariables map[string]struct{}) error {
 	for _, projection := range returnOp.Projections {
 		if projection.Expression != nil {
 			continue
@@ -263,6 +269,9 @@ func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, roo
 		}
 		if projection.Value.Variable != rootVariable && projection.Value.Variable != rootScopeVariable {
 			if _, ok := unnestVariables[projection.Value.Variable]; ok {
+				continue
+			}
+			if _, ok := reductionVariables[projection.Value.Variable]; ok {
 				continue
 			}
 			return fmt.Errorf("RETURN projection %q references %q, but traversal variables are local to LET subqueries", projection.Name, projection.Value.Variable)

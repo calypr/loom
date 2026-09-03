@@ -87,24 +87,31 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		}
 		lines = append(lines, line...)
 	}
-	for index, traversal := range layout.traversals {
-		line, err := renderer.renderTraversalSet(traversal, layout.root.Variable, index+1)
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render traversal %d: %w", index+1, err)
-		}
-		lines = append(lines, line...)
-	}
-	for index, set := range layout.sets {
-		line, err := renderer.renderSet(set, index+1)
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render child set %d: %w", index+1, err)
-		}
-		lines = append(lines, line...)
-	}
-	for index, operation := range layout.expressionLets {
-		line, err := renderer.renderExpressionLet(operation, "  ")
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render expression LET %d: %w", index, err)
+	traversalIndex, setIndex, expressionLetIndex := 0, 0, 0
+	for _, item := range layout.postWindow {
+		var line []string
+		switch item.operation.Kind {
+		case ir.PhysicalTraversalOp:
+			traversalIndex++
+			block := physicalNavigationTraversal{traversal: *item.operation.Traversal, scope: item.traversalScope}
+			line, err = renderer.renderTraversalSet(block, layout.root.Variable, traversalIndex)
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render traversal %d: %w", traversalIndex, err)
+			}
+		case ir.PhysicalSetOp:
+			setIndex++
+			line, err = renderer.renderSet(*item.operation.Set, setIndex)
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render child set %d: %w", setIndex, err)
+			}
+		case ir.PhysicalExpressionLetOp:
+			line, err = renderer.renderExpressionLet(item.operation, "  ")
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render expression LET %d: %w", expressionLetIndex, err)
+			}
+			expressionLetIndex++
+		default:
+			return RenderedPhysicalPlan{}, fmt.Errorf("render post-window operation %q: unsupported operation", item.operation.Kind)
 		}
 		lines = append(lines, line...)
 	}
@@ -200,18 +207,22 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation ir.PhysicalOperati
 }
 
 // physicalNavigationRenderLayout is the intentionally narrow executable shape
-// produced by BuildGenericPhysicalPlan. Traversals are retained as sets rather
-// than emitted as top-level loops so the root scan remains the row grain.
+// produced by BuildGenericPhysicalPlan. Post-window operations retain physical
+// plan order because sets, traversals, and expression LETs may depend on values
+// introduced by any preceding operation.
 type physicalNavigationRenderLayout struct {
 	root           ir.PhysicalRootScan
 	rootScope      []ir.PhysicalOperation
 	rootPredicates []ir.PhysicalOperation
 	rootWindow     []ir.PhysicalOperation
-	traversals     []physicalNavigationTraversal
 	unnests        []ir.PhysicalUnnest
-	sets           []ir.PhysicalSet
-	expressionLets []ir.PhysicalOperation
+	postWindow     []physicalNavigationRenderItem
 	returnOp       ir.PhysicalReturn
+}
+
+type physicalNavigationRenderItem struct {
+	operation      ir.PhysicalOperation
+	traversalScope []ir.PhysicalOperation
 }
 
 type physicalNavigationTraversal struct {

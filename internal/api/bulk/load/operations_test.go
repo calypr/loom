@@ -3,10 +3,13 @@ package load
 import (
 	"bytes"
 	"context"
+	"errors"
 	"mime/multipart"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -38,6 +41,56 @@ func TestCreateDatasetGenerationStagesCompleteBundle(t *testing.T) {
 	if result.Project != "P1" || result.Generation != "generation-1" || runner.req.Project != "P1" || runner.req.Generation != "generation-1" || !runner.req.DeferActivation {
 		t.Fatalf("result=%#v request=%#v", result, runner.req)
 	}
+}
+
+func TestGetDatasetGenerationStatusMapsMissingManifest(t *testing.T) {
+	service, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: &activationManifestStore{readErr: publication.ErrManifestNotFound},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(Config{Service: service, Authorizer: authscope.AllowAllAuthorizer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = handler.GetDatasetGenerationStatus(context.Background(), "project-a", "generation-a", "", nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeDatasetNotFound) {
+		t.Fatalf("status error = %v, want DATASET_NOT_FOUND", err)
+	}
+}
+
+func TestGetDatasetGenerationStatusAuthorizesBeforeManifestLookup(t *testing.T) {
+	store := &activationManifestStore{manifest: activationManifest(t, "project-a", "generation-a")}
+	service, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(Config{Service: service, Authorizer: rejectingAuthorizer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = handler.GetDatasetGenerationStatus(context.Background(), "project-a", "generation-a", "", nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeForbidden) {
+		t.Fatalf("status error = %v, want FORBIDDEN", err)
+	}
+	if store.readCalls != 0 {
+		t.Fatalf("manifest reads = %d, want 0", store.readCalls)
+	}
+}
+
+type rejectingAuthorizer struct{}
+
+func (rejectingAuthorizer) AuthorizeWrite(context.Context, *authscope.Principal, string, string) error {
+	return errors.New("denied")
 }
 
 func generationMultipart(t *testing.T, deferActivation bool, files map[string][]byte) ([]byte, string) {

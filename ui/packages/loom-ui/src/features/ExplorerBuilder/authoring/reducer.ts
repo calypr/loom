@@ -307,15 +307,11 @@ export const builderAuthoringReducer = (
       const repeated = occurrences.some(
         (occurrence) => occurrence.incomingEdgeId === edge.edgeId,
       );
-      const allowsRepeated =
-        state.catalog.routePolicy.allowRepeatedEdges ??
-        state.catalog.routePolicy.repeatedEdges ??
-        false;
       const allowsSelfLoop =
         state.catalog.routePolicy.allowSelfLoops ??
         state.catalog.routePolicy.selfLoops ??
         false;
-      if (repeated && !allowsRepeated) return state;
+      if (repeated) return state;
       if (edge.fromNodeId === edge.toNodeId && !allowsSelfLoop) return state;
       const maxSteps = state.catalog.routePolicy.maxSteps;
       if (maxSteps && parent.depth + 1 > maxSteps) return state;

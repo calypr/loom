@@ -96,6 +96,68 @@ describe('configured V2 columns', () => {
     );
   });
 
+  it('keeps a configured column in place when its display name changes', () => {
+    const alpha: ExplorerBuilderCandidate = {
+      candidateId: 'c_alpha',
+      nodeId: 'research-subject',
+      fieldPath: 'alpha',
+      label: 'Alpha',
+      logicalType: 'string',
+      filterable: true,
+      chartable: true,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+    };
+    const beta: ExplorerBuilderCandidate = {
+      ...alpha,
+      candidateId: 'c_beta',
+      fieldPath: 'beta',
+      label: 'Beta',
+    };
+    const initialTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'alpha',
+          label: 'Alpha',
+          occurrenceId: 'base',
+          source: { kind: 'field', fieldPath: 'alpha', projectionMode: 'FIRST' },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+    const Harness = () => {
+      const [currentTable, setCurrentTable] = React.useState(initialTable);
+      return (
+        <ColumnSelector
+          catalog={{ ...catalog, candidates: [alpha, beta] }}
+          table={currentTable}
+          occurrenceId="base"
+          disabled={false}
+          onAdd={vi.fn()}
+          onAddAll={vi.fn()}
+          onChange={(next) => setCurrentTable((current) => ({
+            ...current,
+            document: {
+              ...current.document,
+              columns: current.document.columns.map((column) => column.column === next.column ? next : column),
+            },
+          }))}
+          onRemove={vi.fn()}
+        />
+      );
+    };
+    render(<Harness />);
+
+    const alphaInput = screen.getByRole('textbox', { name: 'Display name for configured Alpha' });
+    expect(screen.getAllByRole('textbox', { name: /Display name for/ }).map((input) => (input as HTMLInputElement).value)).toEqual(['Alpha', 'Beta']);
+    fireEvent.change(alphaInput, { target: { value: 'Zulu' } });
+    fireEvent.blur(alphaInput);
+
+    expect(screen.getAllByRole('textbox', { name: /Display name for/ }).map((input) => (input as HTMLInputElement).value)).toEqual(['Zulu', 'Beta']);
+  });
+
   it('shows primitive leaf fields, hides object containers, and adds from the table checkbox', () => {
     const candidate: ExplorerBuilderCandidate = {
       candidateId: 'c_birth_date',
@@ -302,4 +364,3 @@ describe('configured V2 columns', () => {
     expect(column.source.fieldPath).toBe('identifier[].value');
   });
 });
-

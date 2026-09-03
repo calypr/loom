@@ -52,6 +52,35 @@ func (r *HTTPRoutes) GetReadiness(ctx context.Context, _ loomapi.GetReadinessReq
 	return nil, unexpectedResponseStatus("getReadiness", status)
 }
 
+func (r *HTTPRoutes) GetDatasetGenerationStatus(ctx context.Context, request loomapi.GetDatasetGenerationStatusRequestObject) (loomapi.GetDatasetGenerationStatusResponseObject, error) {
+	principal, _ := authscope.PrincipalFromContext(ctx)
+	result, err := r.load.GetDatasetGenerationStatus(ctx, request.Project, request.Generation, optionalString(request.Params.AuthResourcePath), principal)
+	if err == nil {
+		value, conversionErr := rawJSON(result)
+		if conversionErr != nil {
+			return nil, conversionErr
+		}
+		return loomapi.GetDatasetGenerationStatus200JSONResponse(value), nil
+	}
+	status, body := mapServiceError(err, ctx)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.GetDatasetGenerationStatus400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.GetDatasetGenerationStatus401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
+	case http.StatusForbidden:
+		return loomapi.GetDatasetGenerationStatus403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
+	case http.StatusNotFound:
+		return loomapi.GetDatasetGenerationStatus404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.GetDatasetGenerationStatus500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.GetDatasetGenerationStatus503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
+	default:
+		return nil, unexpectedResponseStatus("getDatasetGenerationStatus", status)
+	}
+}
+
 func (r *HTTPRoutes) CreateDatasetGeneration(ctx context.Context, request loomapi.CreateDatasetGenerationRequestObject) (loomapi.CreateDatasetGenerationResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	result, err := r.load.CreateDatasetGeneration(ctx, request.Project, request.Generation, request.Body, principal)

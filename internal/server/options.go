@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -27,8 +28,11 @@ type ServerConfig struct {
 	Dataframer                 DataframerConfig            `yaml:"dataframer"`
 	RecipeBatchRows            int                         `yaml:"recipe_batch_rows"`
 	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
+	RecipeQueryPageRows        int                         `yaml:"recipe_query_page_rows"`
 	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
 	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	LocalWorkspaceWriteback    string                      `yaml:"local_workspace_writeback"`
+	LocalWorkspaceProject      string                      `yaml:"local_workspace_project"`
 }
 
 type ClickHouseConfig struct {
@@ -65,7 +69,7 @@ func DefaultConfig() Config {
 		Server: ServerConfig{
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
-			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20,
+			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: 25,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -73,19 +77,22 @@ func DefaultConfig() Config {
 
 func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, error) {
 	var (
-		configPath         string
-		listen             string
-		noAuth             bool
-		url                string
-		database           string
-		schema             string
-		clickhouseURL      string
-		clickhouseDatabase string
-		clickhouseUsername string
-		clickhousePassword string
-		dataframerRecipe   string
-		recipeBatchRows    int
-		recipeBatchBytes   int
+		configPath              string
+		listen                  string
+		noAuth                  bool
+		url                     string
+		database                string
+		schema                  string
+		clickhouseURL           string
+		clickhouseDatabase      string
+		clickhouseUsername      string
+		clickhousePassword      string
+		dataframerRecipe        string
+		recipeBatchRows         int
+		recipeBatchBytes        int
+		recipeQueryPageRows     int
+		localWorkspaceWriteback string
+		localWorkspaceProject   string
 	)
 	fs := flag.NewFlagSet("arango-fhir-server", handling)
 	fs.StringVar(&configPath, "config", "", "YAML server configuration file")
@@ -101,6 +108,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.StringVar(&dataframerRecipe, "dataframer-recipe", "", "dataframer recipe JSON file (required when ClickHouse is enabled)")
 	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
+	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", 25, "root documents per bounded dataframe query page; zero disables paging")
+	fs.StringVar(&localWorkspaceWriteback, "local-workspace-writeback", "", "exact local CONFIG workspace file updated after successful publication (no-auth development only)")
+	fs.StringVar(&localWorkspaceProject, "local-workspace-project", "", "only this project may update the local CONFIG workspace")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -117,6 +127,10 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
+		}
+		if strings.TrimSpace(localWorkspaceWriteback) != "" {
+			cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
+			cfg.Server.LocalWorkspaceProject = localWorkspaceProject
 		}
 		if err := cfg.Validate(); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
@@ -139,6 +153,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	cfg.Server.Dataframer.Recipe = dataframerRecipe
 	cfg.Server.RecipeBatchRows = recipeBatchRows
 	cfg.Server.RecipeBatchBytes = recipeBatchBytes
+	cfg.Server.RecipeQueryPageRows = recipeQueryPageRows
+	cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
+	cfg.Server.LocalWorkspaceProject = localWorkspaceProject
 	if noAuth {
 		cfg.Server.AllowUnauthenticated = true
 		cfg.Auth.AllowUnauthenticated = true
@@ -183,6 +200,15 @@ func applyEnvironment(cfg Config) (Config, error) {
 
 func (c Config) Validate() error {
 	cfg := c
+	if cfg.Server.RecipeQueryPageRows < 0 {
+		return errors.New("server.recipe_query_page_rows cannot be negative")
+	}
+	if strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) != "" && !(cfg.Server.AllowUnauthenticated || cfg.Auth.AllowUnauthenticated) {
+		return errors.New("server.local_workspace_writeback requires unauthenticated local-development mode")
+	}
+	if (strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) == "") != (strings.TrimSpace(cfg.Server.LocalWorkspaceProject) == "") {
+		return errors.New("server.local_workspace_writeback and server.local_workspace_project must be configured together")
+	}
 	if cfg.Server.ClickHouse.Enabled && strings.TrimSpace(cfg.Server.Dataframer.Recipe) == "" {
 		return fmt.Errorf("server.dataframer.recipe is required when server.clickhouse.enabled is true")
 	}

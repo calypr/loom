@@ -4,6 +4,7 @@ import {
   isLegalRouteExtension,
   legalEdgesToNode,
   legalOutgoingEdges,
+  replaceableIncomingEdges,
 } from './routeActions';
 
 const catalog: ExplorerBuilderCatalog = {
@@ -78,7 +79,7 @@ describe('Builder V2 route actions', () => {
     ).toBe(true);
   });
 
-  it('honors self-loop and repeated-edge policy without a hidden hop cap', () => {
+  it('honors self-loop policy without a hidden hop cap', () => {
     const atSpecimen: DraftTable = {
       ...table('Patient'),
       document: {
@@ -99,5 +100,106 @@ describe('Builder V2 route actions', () => {
     expect(legalOutgoingEdges(catalog, atSpecimen, 'specimen')).toContainEqual(
       catalog.edges[1],
     );
+  });
+
+  it('offers each relationship only once under the same parent occurrence', () => {
+    const atSpecimen: DraftTable = {
+      ...table('Patient'),
+      document: {
+        ...table('Patient').document,
+        route: {
+          occurrenceId: 'base',
+          resourceType: 'Patient',
+          children: [
+            {
+              occurrenceId: 'specimen',
+              resourceType: 'Specimen',
+              relationship: 'specimens',
+            },
+          ],
+        },
+      },
+    };
+
+    expect(legalOutgoingEdges(catalog, atSpecimen, 'base')).toEqual([]);
+  });
+
+  it('does not offer a relationship already used by another parent occurrence', () => {
+    const cyclicCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      edges: [
+        catalog.edges[0],
+        {
+          edgeId: 'specimen-patient',
+          fromNodeId: 'specimen',
+          toNodeId: 'patient',
+          label: 'patient',
+        },
+      ],
+    };
+    const cyclicTable: DraftTable = {
+      ...table('Patient'),
+      document: {
+        ...table('Patient').document,
+        route: {
+          occurrenceId: 'base',
+          resourceType: 'Patient',
+          children: [
+            {
+              occurrenceId: 'specimen',
+              resourceType: 'Specimen',
+              relationship: 'specimens',
+              children: [
+                {
+                  occurrenceId: 'patient-again',
+                  resourceType: 'Patient',
+                  relationship: 'patient',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    expect(
+      legalOutgoingEdges(cyclicCatalog, cyclicTable, 'patient-again'),
+    ).toEqual([]);
+  });
+
+  it('offers unused sibling relationships when editing an occurrence edge', () => {
+    const editableCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      edges: [
+        catalog.edges[0],
+        {
+          edgeId: 'patient-specimen-secondary',
+          fromNodeId: 'patient',
+          toNodeId: 'specimen',
+          label: 'research specimens',
+        },
+      ],
+    };
+    const atSpecimen: DraftTable = {
+      ...table('Patient'),
+      document: {
+        ...table('Patient').document,
+        route: {
+          occurrenceId: 'base',
+          resourceType: 'Patient',
+          children: [
+            {
+              occurrenceId: 'specimen',
+              resourceType: 'Specimen',
+              relationship: 'specimens',
+            },
+          ],
+        },
+      },
+    };
+
+    expect(
+      replaceableIncomingEdges(editableCatalog, atSpecimen, 'specimen'),
+    ).toEqual(editableCatalog.edges);
   });
 });

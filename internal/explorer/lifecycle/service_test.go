@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -276,12 +277,19 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 		order = append(order, "materialize")
 		return Execution{ID: "execution-a", Outputs: []ExecutionOutput{{Name: "patients", State: "READY"}}}, nil
 	}
+	config.PersistPublishedWorkspace = func(_ context.Context, project, explorerID string, workspace []byte) error {
+		order = append(order, "writeback")
+		if project != "project-a" || explorerID != "patients" || len(workspace) != 0 {
+			t.Fatalf("writeback = %s/%s %s", project, explorerID, workspace)
+		}
+		return nil
+	}
 	service := newTestService(t, store, config)
 	result, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err != nil || result.Revision == nil || !store.published {
 		t.Fatalf("publish = %#v, err=%v", result, err)
 	}
-	if got, want := fmt.Sprint(order), "[validate-generation materialize prepare-release persist]"; got != want {
+	if got, want := fmt.Sprint(order), "[validate-generation materialize prepare-release persist writeback]"; got != want {
 		t.Fatalf("ordering=%s, want %s", got, want)
 	}
 	if store.release.ID != "release-a" || store.revision != 7 {
@@ -296,6 +304,18 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 
 	store.publishErr = nil
 	store.published = false
+	config.PersistPublishedWorkspace = func(context.Context, string, string, []byte) error {
+		return errors.New("disk full")
+	}
+	service = newTestService(t, store, config)
+	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var writebackFailure *Error
+	if !errors.As(err, &writebackFailure) || writebackFailure.Code != "LOCAL_WORKSPACE_WRITEBACK_FAILED" || !store.published {
+		t.Fatalf("writeback failure published=%v, err=%v", store.published, err)
+	}
+
+	store.published = false
+	config.PersistPublishedWorkspace = nil
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, errors.New("release preparation failed")
 	}
@@ -303,6 +323,130 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
+	}
+}
+
+func TestPublishPreservesPublicationInProgress(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	store := &fakeStore{receipt: receipt}
+	config := testConfig(snapshot)
+	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{}, 0, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+		return Execution{}, dataframeerrors.NewError(
+			dataframeerrors.CodePublicationInProgress,
+			"an identical publication is already in progress",
+			dataframeerrors.WithDetails(map[string]any{"executionId": "execution-a"}),
+			dataframeerrors.WithRetryable(true),
+		)
+	}
+	service := newTestService(t, store, config)
+
+	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("Publish() error = %v, want lifecycle error", err)
+	}
+	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "PUBLICATION_IN_PROGRESS" {
+		t.Fatalf("Publish() error = %#v, want conflict PUBLICATION_IN_PROGRESS", lifecycleErr)
+	}
+	if got := lifecycleErr.Details["executionId"]; got != "execution-a" {
+		t.Fatalf("executionId = %v, want execution-a", got)
+	}
+	if got := lifecycleErr.Details["retryable"]; got != true {
+		t.Fatalf("retryable = %v, want true", got)
+	}
+}
+
+func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	config := testConfig(snapshot)
+	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{}, 0, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+		return Execution{}, errors.New("ClickHouse insert failed")
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+
+	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("Publish() error = %v, want lifecycle error", err)
+	}
+	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "MATERIALIZATION_FAILED" {
+		t.Fatalf("Publish() error = %#v, want unavailable MATERIALIZATION_FAILED", lifecycleErr)
+	}
+}
+
+func TestPublishReportsQueryMemoryLimit(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	config := testConfig(snapshot)
+	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{}, 0, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+		return Execution{}, dataframeerrors.NewError(
+			dataframeerrors.CodeQueryMemoryLimitExceeded,
+			"",
+			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb"}),
+		)
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+
+	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("Publish() error = %v, want lifecycle error", err)
+	}
+	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "QUERY_MEMORY_LIMIT_EXCEEDED" {
+		t.Fatalf("Publish() error = %#v, want unavailable QUERY_MEMORY_LIMIT_EXCEEDED", lifecycleErr)
+	}
+	if !strings.Contains(lifecycleErr.Message, "ArangoDB query memory limit") || !strings.Contains(lifecycleErr.Message, "active revision was retained") {
+		t.Fatalf("Publish() message = %q, want cause and retained-revision guidance", lifecycleErr.Message)
+	}
+	if got := lifecycleErr.Details["backend"]; got != "arangodb" {
+		t.Fatalf("backend = %v, want arangodb", got)
+	}
+}
+
+func TestMaterializationResourceErrorDistinguishesDatabaseOutOfMemory(t *testing.T) {
+	cause := dataframeerrors.NewError(
+		dataframeerrors.CodeQueryBackendOutOfMemory,
+		"",
+		dataframeerrors.WithDetails(map[string]any{"backend": "arangodb"}),
+	)
+
+	err := materializationResourceError("repository_publish", cause)
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("materializationMemoryError() = %v, want lifecycle error", err)
+	}
+	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "QUERY_BACKEND_OUT_OF_MEMORY" {
+		t.Fatalf("error = %#v, want unavailable QUERY_BACKEND_OUT_OF_MEMORY", lifecycleErr)
+	}
+	if !strings.Contains(lifecycleErr.Message, "ran out of memory") || strings.Contains(lifecycleErr.Message, "query-memory-limit") {
+		t.Fatalf("message = %q, want database OOM guidance without query-limit advice", lifecycleErr.Message)
+	}
+}
+
+func TestMaterializationResourceErrorReportsOtherResourceLimitWithoutMemoryAdvice(t *testing.T) {
+	cause := dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "")
+
+	err := materializationResourceError("materialize", cause)
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUERY_RESOURCE_LIMIT_EXCEEDED" {
+		t.Fatalf("materializationResourceError() = %#v, want QUERY_RESOURCE_LIMIT_EXCEEDED", lifecycleErr)
+	}
+	if !strings.Contains(lifecycleErr.Message, "configured resource limit") || strings.Contains(lifecycleErr.Message, "query-memory-limit") {
+		t.Fatalf("message = %q, want generic resource-limit guidance", lifecycleErr.Message)
 	}
 }
 

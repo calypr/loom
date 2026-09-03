@@ -41,7 +41,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -trimpath \
       -ldflags="-s -w" \
       -o /out/loom-acceptance ./cmd/loom-acceptance
-
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S arango-fhir && \

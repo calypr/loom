@@ -10,8 +10,27 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/gofiber/fiber/v3"
 )
+
+func (h *Handler) GetDatasetGenerationStatus(ctx context.Context, project, generation, authResourcePath string, principal *authscope.Principal) (*GenerationStatusResult, error) {
+	project, generation, authResourcePath = strings.TrimSpace(project), strings.TrimSpace(generation), strings.TrimSpace(authResourcePath)
+	if project == "" || generation == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	if err := h.authz.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
+	}
+	status, err := h.service.generationStatus(ctx, project, generation)
+	if err != nil {
+		if errors.Is(err, publication.ErrManifestNotFound) {
+			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeDatasetNotFound, "")
+		}
+		return nil, normalizeError(err)
+	}
+	return status, nil
+}
 
 // CreateDatasetGeneration parses and stages a generated multipart request,
 // then runs the generation import operation.

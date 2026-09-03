@@ -49,6 +49,7 @@ describe('BuilderToolbar', () => {
         onPublish={vi.fn()}
         previewDisabled={false}
         publishDisabled={false}
+        publishing={false}
       />,
     );
 
@@ -108,6 +109,7 @@ describe('BuilderToolbar', () => {
         onPublish={vi.fn()}
         previewDisabled={false}
         publishDisabled={false}
+        publishing={false}
         columnCreationSupported={false}
       />,
     );
@@ -132,5 +134,35 @@ describe('BuilderToolbar', () => {
     fireEvent.drop(specimenRow!);
     expect(onReorderTable).toHaveBeenCalledWith('Patient', undefined);
   });
-});
 
+  it('shows publication progress and prevents another publish', () => {
+    render(
+      <BuilderToolbar
+        explorers={[]}
+        selectedExplorerId="default"
+        onExplorerChange={vi.fn()}
+        onCreateExplorer={vi.fn()}
+        deleteSupported={false}
+        onDeleteExplorer={vi.fn()}
+        tables={[draftTable('Patient', 'Patient')]}
+        selectedOutputId="Patient"
+        onSelectTable={vi.fn()}
+        onRenameTable={vi.fn()}
+        onNewTable={vi.fn()}
+        onDuplicateTable={vi.fn()}
+        onDeleteTable={vi.fn()}
+        onReorderTable={vi.fn()}
+        onPreview={vi.fn()}
+        onPublish={vi.fn()}
+        previewDisabled={false}
+        publishDisabled={false}
+        publishing
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: 'Publishing…' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button.querySelector('.animate-spin')).not.toBeNull();
+  });
+});

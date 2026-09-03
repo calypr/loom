@@ -458,8 +458,7 @@ publish() {
   dry_run_publish "$tarball"
   printf 'Publishing %s (this is the explicit irreversible registry step)\n' "$package_name@$version"
   npm publish "$tarball" --access public --tag latest --registry "$registry" --ignore-scripts
-  published_version "$version"
-  printf 'Published and verified %s\n' "$package_name@$version"
+  printf 'npm accepted %s\n' "$package_name@$version"
 }
 
 release() {

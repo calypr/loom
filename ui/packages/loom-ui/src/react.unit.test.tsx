@@ -94,4 +94,20 @@ describe('Loom React queries', () => {
     view.unmount();
     await waitFor(() => expect(requestSignal?.aborted).toBe(true));
   });
+
+  it('evicts a resource after its last subscriber and starts a fresh epoch', async () => {
+    const requests: Array<{ readonly signal: AbortSignal; readonly resolve: (value: string) => void }> = [];
+    const resource = resourceFor((signal) => new Promise<string>((resolve) => requests.push({ signal, resolve })));
+    const firstUnsubscribe = resource.subscribe(() => undefined);
+    expect(requests).toHaveLength(1);
+    firstUnsubscribe();
+    await Promise.resolve();
+    expect(requests[0]?.signal.aborted).toBe(true);
+    const secondUnsubscribe = resource.subscribe(() => undefined);
+    expect(requests).toHaveLength(2);
+    requests[0]?.resolve('stale');
+    requests[1]?.resolve('fresh');
+    await waitFor(() => expect(resource.getSnapshot().data).toBe('fresh'));
+    secondUnsubscribe();
+  });
 });

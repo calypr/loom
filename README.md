@@ -109,6 +109,10 @@ Open [the standalone Explorer](http://127.0.0.1:3080). See
 [Run the standalone Explorer demo](docs/DEMO_QUICKSTART.md) for the seeded
 dataset, smoke checks, logs, and reset commands.
 
+To launch from a separate repository's hydrated `META` data and native Loom
+`CONFIG` workspace, including local CONFIG write-back on Publish, see
+[Launch Loom from a data repository](docs/LOCAL_REPOSITORY_DEMO.md).
+
 For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash

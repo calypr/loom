@@ -30,6 +30,13 @@ type GenerationLoadResult struct {
 	Reused           bool                `json:"reused,omitempty"`
 }
 
+type GenerationStatusResult struct {
+	Project    string            `json:"project"`
+	Generation string            `json:"generation"`
+	State      publication.State `json:"state"`
+	Reusable   bool              `json:"reusable"`
+}
+
 type GenerationActivator interface {
 	ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
 	Activate(context.Context, publication.Manifest) error
@@ -93,6 +100,27 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		onSuccess:           cfg.OnSuccess,
 		generationActivator: cfg.GenerationActivator,
 		dataframeReleases:   cfg.DataframeReleases,
+	}, nil
+}
+
+func (s *Service) generationStatus(ctx context.Context, project, generation string) (*GenerationStatusResult, error) {
+	if project == "" || generation == "" {
+		return nil, errors.New("project and generation are required")
+	}
+	if s.generationActivator == nil {
+		return nil, errors.New("generation manifest reader is not configured")
+	}
+	ref, err := publication.NewRef(project, generation)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := s.generationActivator.ReadManifest(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return &GenerationStatusResult{
+		Project: ref.Project, Generation: ref.Generation,
+		State: manifest.State, Reusable: manifest.IsStaged(),
 	}, nil
 }
 

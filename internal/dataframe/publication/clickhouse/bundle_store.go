@@ -110,7 +110,13 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 		case publication.BundlePublished, publication.BundleReady:
 			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
 		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
-			return nil, dataframeerrors.Wrap(fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID), dataframeerrors.CodePublicationInProgress, "", dataframeerrors.WithRetryable(true))
+			return nil, dataframeerrors.Wrap(
+				fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID),
+				dataframeerrors.CodePublicationInProgress,
+				"",
+				dataframeerrors.WithDetails(map[string]any{"executionId": existing.ID}),
+				dataframeerrors.WithRetryable(true),
+			)
 		}
 	} else if !errors.Is(err, publication.ErrBundleNotFound) {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))

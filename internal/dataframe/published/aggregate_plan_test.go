@@ -130,6 +130,29 @@ func TestAggregatePlanRanksMultipleTermsByProjectedSlot(t *testing.T) {
 	}
 }
 
+func TestAggregatePlanSeparatesRepeatedTermsColumn(t *testing.T) {
+	dataset := aggregateTestDataset(1)
+	plan := buildAggregatePlan(dataset, AggregateBatchRequest{Jobs: []AggregateJob{
+		{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 50},
+		{ID: 2, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 12},
+	}})
+
+	groupingStatements := make([]aggregateStatementPlan, 0, 2)
+	for _, statement := range plan.statements {
+		if statement.kind == statementTerms {
+			groupingStatements = append(groupingStatements, statement)
+		}
+	}
+	if len(groupingStatements) != 2 {
+		t.Fatalf("terms statements = %d, want 2", len(groupingStatements))
+	}
+	for index, statement := range groupingStatements {
+		if len(statement.jobs) != 1 {
+			t.Fatalf("terms statement %d jobs = %d, want 1", index, len(statement.jobs))
+		}
+	}
+}
+
 func TestAggregatePlanCanonicalizesFilterAndMemberOrder(t *testing.T) {
 	dataset := aggregateTestDataset(2)
 	first := []Filter{{Column: "facet_001", Op: "IN", Value: []any{"b", "a"}}, {Column: "facet_000", Op: "EQ", Value: "x"}}

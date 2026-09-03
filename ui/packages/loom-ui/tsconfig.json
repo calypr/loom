@@ -14,8 +14,9 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "types": ["vite/client", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist"]
+  "exclude": ["dist", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

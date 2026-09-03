@@ -153,6 +153,102 @@ describe('RouteExtensionPanel', () => {
     expect(onAddEdge).toHaveBeenCalledWith('specimen-patient', 'patient');
   });
 
+  it('adds another occurrence when the inspected resource is already in the route', () => {
+    const onSelectEdge = vi.fn();
+    const onAddEdge = vi.fn();
+    const multiRelationshipCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      edges: [
+        ...catalog.edges,
+        {
+          edgeId: 'specimen-patient-secondary',
+          fromNodeId: 'specimen',
+          toNodeId: 'patient',
+          label: 'participant_Patient',
+        },
+      ],
+    };
+    const tableWithPatient: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [
+            ...(table.document.route.children ?? []),
+            {
+              occurrenceId: 'patient-subject',
+              resourceType: 'Patient',
+              relationship: 'subject_Patient',
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <RouteExtensionPanel
+        catalog={multiRelationshipCatalog}
+        table={tableWithPatient}
+        selectedOccurrenceId="base"
+        inspectedNodeId="patient"
+        allowExistingExtension
+        disabled={false}
+        onSelectEdge={onSelectEdge}
+        onUseAsRowStart={vi.fn()}
+        onChangeRowStart={vi.fn()}
+        onAddEdge={onAddEdge}
+      />,
+    );
+
+    expect(
+      screen.getByText('Add another Patient under Specimen'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Relationship to add' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add traversal' }));
+
+    expect(onAddEdge).toHaveBeenCalledWith(
+      'specimen-patient-secondary',
+      'patient',
+    );
+  });
+
+  it('does not reopen extension controls after an ordinary route addition', () => {
+    const tableWithPatient: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [
+            ...(table.document.route.children ?? []),
+            {
+              occurrenceId: 'patient-subject',
+              resourceType: 'Patient',
+              relationship: 'subject_Patient',
+            },
+          ],
+        },
+      },
+    };
+    const { container } = render(
+      <RouteExtensionPanel
+        catalog={catalog}
+        table={tableWithPatient}
+        selectedOccurrenceId="base"
+        inspectedNodeId="patient"
+        disabled={false}
+        onSelectEdge={vi.fn()}
+        onUseAsRowStart={vi.fn()}
+        onChangeRowStart={vi.fn()}
+        onAddEdge={vi.fn()}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('offers a clear destructive restart for an eligible disconnected node', () => {
     const disconnectedCatalog: ExplorerBuilderCatalog = {
       ...catalog,
@@ -191,4 +287,3 @@ describe('RouteExtensionPanel', () => {
     expect(onChangeRowStart).toHaveBeenCalledWith('substance');
   });
 });
-

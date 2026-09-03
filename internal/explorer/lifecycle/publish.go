@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -53,6 +54,20 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
+		if resourceErr := materializationResourceError("materialize", err); resourceErr != nil {
+			return PublishResult{}, resourceErr
+		}
+		if userErr, ok := dataframeerrors.AsUserError(err); ok {
+			switch userErr.Code() {
+			case string(dataframeerrors.CodePublicationInProgress):
+				details := userErr.Details()
+				if details == nil {
+					details = make(map[string]any)
+				}
+				details["retryable"] = userErr.Retryable()
+				return PublishResult{}, conflict("materialize", userErr.Code(), "Explorer publication is already in progress; retry after it completes", details, err)
+			}
+		}
 		return PublishResult{}, unavailable("materialize", "MATERIALIZATION_FAILED", "Explorer materialization failed; the active revision was retained", err)
 	}
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
@@ -69,7 +84,31 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err != nil {
 		return PublishResult{}, err
 	}
+	if s.config.PersistPublishedWorkspace != nil {
+		if err := s.config.PersistPublishedWorkspace(ctx, receipt.Project, receipt.ExplorerID, receipt.NormalizedBundle); err != nil {
+			return PublishResult{}, unavailable("local_writeback", "LOCAL_WORKSPACE_WRITEBACK_FAILED", "Explorer published, but the local CONFIG workspace could not be updated", err)
+		}
+	}
 	return PublishResult{Receipt: receipt, Revision: revision, Execution: execution}, nil
+}
+
+func materializationResourceError(stage string, err error) error {
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		return nil
+	}
+	var message string
+	switch userErr.Code() {
+	case string(dataframeerrors.CodeQueryMemoryLimitExceeded):
+		message = "Explorer materialization exceeded the ArangoDB query memory limit. Reduce the Explorer query complexity or ask an operator to increase ArangoDB's query-memory-limit, then publish again. The active revision was retained."
+	case string(dataframeerrors.CodeQueryResourceLimitExceeded):
+		message = "ArangoDB rejected Explorer materialization because the query exceeded a configured resource limit. Check the ArangoDB server log for the exact limit, then adjust the query or server configuration before publishing again. The active revision was retained."
+	case string(dataframeerrors.CodeQueryBackendOutOfMemory):
+		message = "ArangoDB ran out of memory while materializing the Explorer. Reduce the Explorer query complexity or ask an operator to increase the memory available to ArangoDB, then publish again. The active revision was retained."
+	default:
+		return nil
+	}
+	return failureDetails(ClassUnavailable, stage, userErr.Code(), message, userErr.Details(), err)
 }
 
 func (s *Service) resolveExecutionCapability(ctx context.Context, project, token string) (AuthorizedCapability, capability.Snapshot, error) {

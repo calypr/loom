@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 const root = new URL('../src/', import.meta.url);
 const forbidden = /(?:@gen3\/core|@gen3\/frontend|from ['"]next(?:\/|['"])|ProtectedContent|CalyprAuth)/;
-const effectImports = /import\s*\{[^}]*\b(?:useEffect|useLayoutEffect|useDeepCompareEffect)\b[^}]*\}\s*from\s*['"]react['"]/s;
+const effectNames = /\b(?:useEffect|useLayoutEffect|useInsertionEffect|useDeepCompareEffect)\b/;
 const files = [];
 const walk = async (url) => {
   for (const entry of await readdir(url, { withFileTypes: true })) {
@@ -17,7 +17,8 @@ const violations = [];
 for (const file of files) {
   const source = await readFile(file, 'utf8');
   if (forbidden.test(source)) violations.push(`${file.pathname}: forbidden Calypr dependency`);
-  if (/Builder\.tsx$|Viewer\.tsx$/.test(file.pathname) && effectImports.test(source)) violations.push(`${file.pathname}: direct React effect import`);
+  const isViewerFeature = file.pathname.includes('/features/ExplorerViewer/') || /\/Viewer\.tsx$/.test(file.pathname);
+  if (isViewerFeature && effectNames.test(source)) violations.push(`${file.pathname}: Viewer code must not use React effects`);
 }
 if (violations.length) {
   console.error(violations.join('\n'));

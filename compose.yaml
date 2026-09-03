@@ -1,4 +1,4 @@
-name: loom-demo
+name: ${LOOM_COMPOSE_PROJECT_NAME:-loom-demo}
 
 services:
   arangodb:
@@ -29,7 +29,7 @@ services:
       - clickhouse_data:/var/lib/clickhouse
 
   loom-api:
-    image: loom-demo-api:local
+    image: ${LOOM_API_IMAGE:-loom-demo-api:local}
     build:
       context: .
     command:
@@ -52,6 +52,8 @@ services:
       - loom_demo_password
       - --dataframer-recipe
       - /app/testdata/recipe.json
+      - --recipe-query-page-rows
+      - ${LOOM_RECIPE_QUERY_PAGE_ROWS:-25}
     depends_on:
       arangodb:
         condition: service_healthy
@@ -63,12 +65,14 @@ services:
       timeout: 5s
       retries: 30
     ports:
-      - "127.0.0.1:8080:8080"
+      - target: 8080
+        published: ${LOOM_API_PORT:-8080}
+        host_ip: ${LOOM_API_HOST:-127.0.0.1}
     volumes:
-      - ./testdata/acceptance/ncpi-tcga-brca/recipe.json:/app/testdata/recipe.json:ro
+      - ${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro
 
   demo-seed:
-    image: loom-demo-api:local
+    image: ${LOOM_API_IMAGE:-loom-demo-api:local}
     entrypoint: ["/app/loom-acceptance"]
     command:
       - --run-id
@@ -94,14 +98,14 @@ services:
       - --artifacts
       - /var/lib/loom/artifacts
       - --project
-      - NCPI_ACCEPTANCE
+      - ${LOOM_DEMO_PROJECT:-NCPI_ACCEPTANCE}
       - --generation
-      - tcga-brca-locked
+      - ${LOOM_DEMO_GENERATION:-tcga-brca-locked}
     depends_on:
       loom-api:
         condition: service_healthy
     volumes:
-      - ./testdata/acceptance/ncpi-tcga-brca:/app/testdata:ro
+      - ${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro
       - fixture_cache:/var/cache/loom
       - demo_artifacts:/var/lib/loom/artifacts
     restart: "no"
@@ -114,7 +118,9 @@ services:
       loom-api:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3080:8080"
+      - target: 8080
+        published: ${LOOM_UI_PORT:-3080}
+        host_ip: ${LOOM_UI_HOST:-127.0.0.1}
 
 volumes:
   arangodb_data:

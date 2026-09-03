@@ -4,7 +4,10 @@ import { Background, Controls, MarkerType, ReactFlow } from '@xyflow/react';
 import type { Edge, Node } from '@xyflow/react';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
-import { legalOutgoingEdges } from '../authoring/routeActions';
+import {
+  legalOutgoingEdges,
+  replaceableIncomingEdges,
+} from '../authoring/routeActions';
 import { RouteExtensionPanel } from './RouteExtensionPanel';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useGraphLayout } from '../hooks/useGraphLayout';
@@ -26,6 +29,23 @@ const GraphViewportFitter = ({
   return null;
 };
 
+export const graphEdgeOverviewLabels = (
+  edges: ExplorerBuilderCatalog['edges'],
+): ReadonlyMap<string, string> => {
+  const groups = new Map<string, { readonly owner: string; readonly labels: Set<string> }>();
+  for (const edge of edges) {
+    const endpoints = [edge.fromNodeId, edge.toNodeId].sort();
+    const key = `${endpoints[0]}\u0000${endpoints[1]}`;
+    const group = groups.get(key) ?? { owner: edge.edgeId, labels: new Set<string>() };
+    group.labels.add(edge.label.trim());
+    groups.set(key, group);
+  }
+  return new Map([...groups.values()].map((group) => [
+    group.owner,
+    group.labels.size === 1 ? [...group.labels][0] : `${group.labels.size} relationships`,
+  ]));
+};
+
 export const GuidedGraphWorkspace = ({
   catalog,
   table,
@@ -35,6 +55,7 @@ export const GuidedGraphWorkspace = ({
   onSetBase,
   onChangeBase,
   onAppendEdge,
+  onChangeEdge,
   onTruncate,
   onTableToolbarHostChange,
 }: {
@@ -50,6 +71,7 @@ export const GuidedGraphWorkspace = ({
     edgeId: string,
     nodeId: string,
   ) => void;
+  readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
   readonly onTruncate: (occurrenceId: string) => void;
   readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
 }) => {
@@ -95,6 +117,7 @@ export const GuidedGraphWorkspace = ({
     readonly occurrenceId: string;
     readonly nodeId?: string;
     readonly edgeId?: string;
+    readonly allowExistingExtension?: boolean;
   }>({ tableIdentity, occurrenceId: selectedOccurrenceId });
   const activeInspectedNodeId =
     inspection.tableIdentity === tableIdentity ? inspection.nodeId : undefined;
@@ -103,15 +126,28 @@ export const GuidedGraphWorkspace = ({
     inspection.occurrenceId === selectedOccurrenceId
       ? inspection.edgeId
       : undefined;
-  const updateInspection = (nodeId?: string, edgeId?: string) =>
+  const activeAllowExistingExtension =
+    inspection.tableIdentity === tableIdentity &&
+    inspection.occurrenceId === selectedOccurrenceId &&
+    inspection.allowExistingExtension === true;
+  const updateInspection = (
+    nodeId?: string,
+    edgeId?: string,
+    allowExistingExtension = false,
+  ) =>
     setInspection({
       tableIdentity,
       occurrenceId: selectedOccurrenceId,
       nodeId,
       edgeId,
+      allowExistingExtension,
     });
   const selectEdge = (edgeId?: string) =>
-    updateInspection(activeInspectedNodeId, edgeId);
+    updateInspection(
+      activeInspectedNodeId,
+      edgeId,
+      activeAllowExistingExtension,
+    );
   const occurrences = useMemo(
     () =>
       derivedOccurrences(table, catalog).map((occurrence) => ({
@@ -122,6 +158,7 @@ export const GuidedGraphWorkspace = ({
           catalog.nodes.find((node) => node.nodeId === occurrence.nodeId)
             ?.resourceType ?? occurrence.nodeId,
         incomingEdgeId: occurrence.incomingEdgeId,
+        relationship: occurrence.relationship,
         parentId: occurrence.parentId,
         depth: occurrence.depth,
       })),
@@ -143,6 +180,20 @@ export const GuidedGraphWorkspace = ({
     });
     return result;
   }, [occurrences]);
+  const editableEdgesByOccurrence = useMemo(
+    () =>
+      new Map(
+        occurrences.map((occurrence) => [
+          occurrence.occurrenceId,
+          replaceableIncomingEdges(
+            catalog,
+            table,
+            occurrence.occurrenceId,
+          ),
+        ]),
+      ),
+    [catalog, occurrences, table],
+  );
   const legalNextEdges = useMemo(
     () => legalOutgoingEdges(catalog, table, selectedOccurrenceId),
     [catalog, selectedOccurrenceId, table],
@@ -250,6 +301,10 @@ export const GuidedGraphWorkspace = ({
       },
     };
   });
+  const edgeOverviewLabels = useMemo(
+    () => graphEdgeOverviewLabels(catalog.edges),
+    [catalog.edges],
+  );
   const edges: Edge[] = catalog.edges.map((edge) => {
     const isRouteEdge = occurrences.some(
       (occurrence) => occurrence.incomingEdgeId === edge.edgeId,
@@ -269,7 +324,7 @@ export const GuidedGraphWorkspace = ({
       // React Flow; do not synthesize a reverse edge for FHIR relationships.
       source: edge.fromNodeId,
       target: edge.toNodeId,
-      label: edge.label,
+      label: edgeOverviewLabels.get(edge.edgeId),
       type: 'smoothstep',
       markerEnd: {
         type: MarkerType.ArrowClosed,
@@ -321,8 +376,8 @@ export const GuidedGraphWorkspace = ({
   const graphIdentity = `${layout.identity ?? 'layout-pending'}:${nodesForViewport.map((node) => node.id).join(',')}`;
   const inspectNode = (nodeId: string) => {
     if (disabled) return;
-    updateInspection(nodeId);
     if (occurrences.length === 0) {
+      updateInspection(nodeId);
       const node = catalog.nodes.find(
         (candidate) => candidate.nodeId === nodeId,
       );
@@ -332,7 +387,15 @@ export const GuidedGraphWorkspace = ({
     const routeOccurrences = occurrences.filter(
       (occurrence) => occurrence.nodeId === nodeId,
     );
+    const matchingEdges = legalNextEdges.filter(
+      (edge) => edge.toNodeId === nodeId,
+    );
+    if (routeOccurrences.length > 0 && matchingEdges.length > 0) {
+      updateInspection(nodeId, undefined, true);
+      return;
+    }
     if (routeOccurrences.length === 1) {
+      updateInspection();
       onSelectOccurrence(routeOccurrences[0].occurrenceId);
       return;
     } else if (routeOccurrences.length > 1) {
@@ -341,15 +404,16 @@ export const GuidedGraphWorkspace = ({
       );
       const next =
         routeOccurrences[(currentIndex + 1) % routeOccurrences.length];
+      updateInspection();
       onSelectOccurrence(next.occurrenceId);
       return;
     }
-    const matchingEdges = legalNextEdges.filter(
-      (edge) => edge.toNodeId === nodeId,
-    );
     if (matchingEdges.length === 1) {
+      updateInspection(nodeId);
       onAppendEdge(selectedOccurrenceId, matchingEdges[0].edgeId, nodeId);
+      return;
     }
+    updateInspection(nodeId);
   };
   const inspectEdge = (edgeId: string) => {
     if (disabled) return;
@@ -370,7 +434,7 @@ export const GuidedGraphWorkspace = ({
     if (disabled || !legalNextEdges.some((edge) => edge.edgeId === edgeId))
       return;
     onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
-    selectEdge(undefined);
+    updateInspection();
   };
   const content = (
     <>
@@ -462,6 +526,7 @@ export const GuidedGraphWorkspace = ({
             selectedOccurrenceId={selectedOccurrenceId}
             inspectedNodeId={activeInspectedNodeId}
             selectedEdgeId={activeSelectedEdgeId}
+            allowExistingExtension={activeAllowExistingExtension}
             disabled={disabled}
             onSelectEdge={selectEdge}
             onUseAsRowStart={useAsRowStart}
@@ -500,17 +565,55 @@ export const GuidedGraphWorkspace = ({
                     {occurrence.depth > 0 && (
                       <span className="font-bold text-blue-400">↳</span>
                     )}
-                    <button
-                      type="button"
-                      title={occurrence.resourceType}
-                      data-traversal-label
-                      className={`${isTraversalOverflowing ? 'max-w-24 truncate transition-[max-width] group-hover:max-w-40' : ''} rounded-md border px-2 py-1 font-semibold ${occurrence.occurrenceId === selectedOccurrenceId ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-blue-300 bg-white text-blue-900'}`}
-                      onClick={() =>
-                        onSelectOccurrence(occurrence.occurrenceId)
-                      }
+                    <div
+                      className={`rounded-md border ${occurrence.occurrenceId === selectedOccurrenceId ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-blue-300 bg-white text-blue-900'}`}
                     >
-                      {occurrence.resourceType}
-                    </button>
+                      <button
+                        type="button"
+                        title={occurrence.resourceType}
+                        data-traversal-label
+                        className={`${isTraversalOverflowing ? 'max-w-24 truncate transition-[max-width] group-hover:max-w-40' : ''} block w-full px-2 py-1 text-left font-semibold`}
+                        onClick={() =>
+                          onSelectOccurrence(occurrence.occurrenceId)
+                        }
+                      >
+                        {occurrence.resourceType}
+                      </button>
+                      {occurrence.occurrenceId === 'base' ? (
+                        <span className="block border-t border-current/20 px-2 pb-1 pt-0.5 text-[9px] font-medium opacity-75">
+                          Row start
+                        </span>
+                      ) : (
+                        <select
+                          aria-label={`Relationship for ${occurrence.resourceType} occurrence`}
+                          title="Relationship used to reach this query occurrence"
+                          className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
+                          value={occurrence.incomingEdgeId ?? ''}
+                          disabled={
+                            disabled ||
+                            (editableEdgesByOccurrence.get(
+                              occurrence.occurrenceId,
+                            )?.length ?? 0) < 2
+                          }
+                          onChange={(event) =>
+                            onChangeEdge(
+                              occurrence.occurrenceId,
+                              event.currentTarget.value,
+                            )
+                          }
+                        >
+                          {(
+                            editableEdgesByOccurrence.get(
+                              occurrence.occurrenceId,
+                            ) ?? []
+                          ).map((edge) => (
+                            <option key={edge.edgeId} value={edge.edgeId}>
+                              {edge.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                     {occurrence.occurrenceId !== 'base' && (
                       <button
                         type="button"

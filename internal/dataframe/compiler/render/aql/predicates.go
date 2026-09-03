@@ -12,11 +12,8 @@ func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (
 	if predicate.LeftExpression != nil {
 		return r.renderSelectorPredicate(predicate)
 	}
-	if strings.ToUpper(strings.TrimSpace(predicate.Operator)) != "EQUALS" {
-		return "", fmt.Errorf("unsupported physical filter operator %q", predicate.Operator)
-	}
 	if predicate.Right == nil {
-		return "", fmt.Errorf("EQUALS filter requires a right value")
+		return "", fmt.Errorf("physical filter operator %q requires a right value", predicate.Operator)
 	}
 	left, err := r.renderValue(predicate.Left)
 	if err != nil {
@@ -26,7 +23,16 @@ func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (
 	if err != nil {
 		return "", err
 	}
-	return left + " == " + right, nil
+	switch strings.ToUpper(strings.TrimSpace(predicate.Operator)) {
+	case "EQUALS":
+		return left + " == " + right, nil
+	case "IN":
+		return left + " IN " + right, nil
+	case "GT":
+		return left + " > " + right, nil
+	default:
+		return "", fmt.Errorf("unsupported direct physical filter operator %q", predicate.Operator)
+	}
 }
 
 func (r *physicalPlanRenderer) renderSelectorPredicate(predicate ir.PhysicalPredicate) (string, error) {

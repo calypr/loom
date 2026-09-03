@@ -2,7 +2,6 @@ package ir
 
 import (
 	"fmt"
-
 	"strings"
 )
 
@@ -105,6 +104,11 @@ func (p PhysicalPlan) Validate() error {
 			}
 			if err := definePhysicalVariable(defined, set.Variable); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
+			}
+			if set.Reduction != nil {
+				if err := definePhysicalVariable(defined, set.Reduction.Variable); err != nil {
+					return fmt.Errorf("operation %d set reduction: %w", i, err)
+				}
 			}
 			if set.Prepared != nil {
 				if err := definePhysicalVariable(defined, set.Prepared.Variable); err != nil {
@@ -318,6 +322,11 @@ func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[s
 			if err := validatePhysicalSelector(field.ResourceType, field.Selector); err != nil {
 				return fmt.Errorf("set %q projection field %q selector: %w", set.Variable, field.Name, err)
 			}
+			switch field.Demand {
+			case PhysicalSelectorAllValues, PhysicalSelectorFirstValue:
+			default:
+				return fmt.Errorf("set %q projection field %q has unsupported value demand %q", set.Variable, field.Name, field.Demand)
+			}
 		}
 	}
 	if set.Output != nil {
@@ -338,6 +347,39 @@ func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[s
 		}
 		if !seenOutputFields[PhysicalSetGraphIDField] || !seenOutputFields[PhysicalSetKeyField] {
 			return fmt.Errorf("set %q compact output must retain _id and _key", set.Variable)
+		}
+	}
+	if set.Reduction != nil {
+		if !physicalVariablePattern.MatchString(set.Reduction.Variable) || set.Reduction.Variable == set.Variable {
+			return fmt.Errorf("set %q reduction variable %q is unsafe or shadows the set", set.Variable, set.Reduction.Variable)
+		}
+		if !physicalVariablePattern.MatchString(set.Reduction.SourceSetVariable) || set.Reduction.SourceSetVariable != set.Variable {
+			return fmt.Errorf("set %q reduction source %q must equal the owning set", set.Variable, set.Reduction.SourceSetVariable)
+		}
+		if set.Projection == nil {
+			return fmt.Errorf("set %q reduction requires a selector projection", set.Variable)
+		}
+		if len(set.Reduction.Fields) == 0 {
+			return fmt.Errorf("set %q reduction requires at least one field", set.Variable)
+		}
+		projectedFields := make(map[string]bool, len(set.Projection.Fields))
+		for _, field := range set.Projection.Fields {
+			projectedFields[field.Name] = true
+		}
+		seen := make(map[string]bool, len(set.Reduction.Fields))
+		for _, field := range set.Reduction.Fields {
+			if !physicalVariablePattern.MatchString(field.Name) || seen[field.Name] {
+				return fmt.Errorf("set %q reduction field %q is unsafe or duplicated", set.Variable, field.Name)
+			}
+			seen[field.Name] = true
+			if !physicalVariablePattern.MatchString(field.SourceField) || !projectedFields[field.SourceField] {
+				return fmt.Errorf("set %q reduction source field %q is not a projected selector slot", set.Variable, field.SourceField)
+			}
+			switch field.Mode {
+			case PhysicalSetReductionFirst, PhysicalSetReductionAll, PhysicalSetReductionDistinct:
+			default:
+				return fmt.Errorf("set %q reduction field %q has unsupported mode %q", set.Variable, field.Name, field.Mode)
+			}
 		}
 	}
 	if set.Prepared != nil {

@@ -12,26 +12,42 @@
       "import": "./dist/loom-ui.js",
       "default": "./dist/loom-ui.js"
     },
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./viewer": {
+      "types": "./dist/viewer-entry.d.ts",
+      "import": "./dist/viewer.js",
+      "default": "./dist/viewer.js"
+    },
+    "./builder": {
+      "types": "./dist/builder-entry.d.ts",
+      "import": "./dist/builder.js",
+      "default": "./dist/builder.js"
+    }
   },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "vite build && tsc -p tsconfig.json",
-    "test": "npm run check-boundaries && vitest run",
+    "test": "npm run check-boundaries && npm run typecheck:tests && vitest run",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "check-boundaries": "node scripts/check-boundaries.mjs"
   },
   "peerDependencies": {
+    "@mantine/core": "8.3.15",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.1",
+    "@tanstack/react-table": "8.20.5",
+    "echarts": "6.0.0",
+    "echarts-for-react": "3.0.6",
     "elkjs": "^0.9.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@mantine/core": "8.3.15",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

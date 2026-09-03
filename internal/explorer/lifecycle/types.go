@@ -91,6 +91,7 @@ type Config struct {
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator
 	PrepareRelease            ReleasePreparer
+	PersistPublishedWorkspace func(context.Context, string, string, []byte) error
 	Now                       func() time.Time
 }
 

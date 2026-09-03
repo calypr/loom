@@ -23,7 +23,7 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodePublicationLeaseLost, CodePublicationFailed, CodeOutputEncodingFailed,
 		CodeDynamicSchemaDrift, CodeRecipeContractViolation,
 		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
-		CodePreviewResponseTooLarge,
+		CodePreviewResponseTooLarge, CodeQueryMemoryLimitExceeded, CodeQueryResourceLimitExceeded, CodeQueryBackendOutOfMemory,
 	}
 	seen := make(map[ErrorCode]struct{}, len(codes))
 	for _, code := range codes {

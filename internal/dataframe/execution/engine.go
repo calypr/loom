@@ -64,6 +64,9 @@ type Config struct {
 	QueryRows     QueryRows
 	ScopeDigest   func(recipe.RuntimeBindings) string
 	BatchSize     int
+	// RootPageRows bounds the number of root documents evaluated by one wide
+	// output query. Zero keeps the legacy single-query execution path.
+	RootPageRows int
 }
 
 type Engine struct {
@@ -73,6 +76,7 @@ type Engine struct {
 	queryRows     QueryRows
 	scopeDigest   func(recipe.RuntimeBindings) string
 	batchSize     int
+	rootPageRows  int
 }
 
 // Resolved contains the immutable recipe after schema discovery, semantic
@@ -116,6 +120,8 @@ type OutputStream struct {
 	bindVars      map[string]any
 	stream        QueryRows
 	batchSize     int
+	rootPageRows  int
+	page          *compiler.CompiledOutputPage
 }
 
 type DynamicColumnCheck struct {
@@ -141,7 +147,10 @@ func New(cfg Config) (*Engine, error) {
 	if batch <= 0 {
 		batch = 1000
 	}
-	return &Engine{registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch}, nil
+	if cfg.RootPageRows < 0 {
+		return nil, fmt.Errorf("recipe root page rows cannot be negative")
+	}
+	return &Engine{registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows}, nil
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -427,11 +436,20 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 		if err != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
-		return OutputStream{
+		stream := OutputStream{
 			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(),
 			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-			stream: e.queryRows, batchSize: e.batchSize,
-		}, query, nil
+			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
+		}
+		if e.rootPageRows > 0 {
+			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+			if pageErr != nil {
+				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
+			}
+			stream.page = &page
+			query.PlanDiagnostics = page.RowsDiagnostics
+		}
+		return stream, query, nil
 	}
 	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
 }
@@ -528,7 +546,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
-	queryErr := stream.stream(ctx, stream.query, stream.batchSize, stream.bindVars, func(row map[string]any) error {
+	queryErr := stream.streamRaw(ctx, func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
 		}
@@ -545,6 +563,9 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return err
 		}
 		count++
+		if count >= limit {
+			return errPreviewLimit
+		}
 		return nil
 	})
 	summary.RowCount = count
@@ -633,7 +654,7 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
 	count := 0
-	err := s.stream(ctx, s.query, s.batchSize, s.bindVars, func(row map[string]any) error {
+	err := s.streamRaw(ctx, func(row map[string]any) error {
 		resolved, err := materializePostQueryRowWithChecks(row, s.DynamicChecks)
 		if err != nil {
 			return err
@@ -646,6 +667,51 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 		return visit(resolved)
 	})
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
+}
+
+func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+	if s.page == nil || s.rootPageRows == 0 {
+		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
+	}
+	after := ""
+	for {
+		keys := make([]string, 0, s.rootPageRows)
+		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
+		keyBinds[compiler.RootPageAfterKeyBind] = after
+		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+			key, ok := row["_key"].(string)
+			if !ok || key == "" {
+				return fmt.Errorf("root-key page returned an invalid _key")
+			}
+			if len(keys) != 0 && key <= keys[len(keys)-1] {
+				return fmt.Errorf("root-key page is not strictly ordered")
+			}
+			keys = append(keys, key)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(keys) == 0 {
+			return nil
+		}
+		rowBinds := cloneBindVars(s.page.RowsBindVars)
+		rowBinds[compiler.RootPageKeysBind] = keys
+		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, visit); err != nil {
+			return err
+		}
+		after = keys[len(keys)-1]
+		if len(keys) < s.rootPageRows {
+			return nil
+		}
+	}
+}
+
+func cloneBindVars(input map[string]any) map[string]any {
+	clone := make(map[string]any, len(input))
+	for key, value := range input {
+		clone[key] = value
+	}
+	return clone
 }
 
 // publicStreamRow removes compiler-only projections after they have served

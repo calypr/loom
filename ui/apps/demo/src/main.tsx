@@ -1,6 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { LoomExplorerBuilder, LoomExplorerViewer, createLoomClient } from '@calypr/loom-ui';
+import { createLoomClient, LoomExplorerBuilder } from '@calypr/loom-ui/builder';
+import { LoomExplorerViewer } from '@calypr/loom-ui/viewer';
+import '@mantine/core/styles.css';
 import '@calypr/loom-ui/styles.css';
 import './styles.css';
 

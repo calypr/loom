@@ -335,6 +335,7 @@ export const explorerBuilderCommandSchema = z
       'REORDER_TABLES',
       'SET_TABLE_ROOT',
       'ADD_ROUTE',
+      'UPDATE_ROUTE_EDGE',
       'REMOVE_ROUTE',
       'ADD_COLUMN',
       'UPDATE_COLUMN',

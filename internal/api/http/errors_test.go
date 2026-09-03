@@ -43,6 +43,9 @@ func TestMapDataframeErrorPreviewClassifications(t *testing.T) {
 		{dataframeerrors.CodeReceiptStoreUnavailable, http.StatusServiceUnavailable, true},
 		{dataframeerrors.CodePreviewTimeout, http.StatusGatewayTimeout, true},
 		{dataframeerrors.CodePreviewResponseTooLarge, http.StatusRequestEntityTooLarge, false},
+		{dataframeerrors.CodeQueryMemoryLimitExceeded, http.StatusServiceUnavailable, false},
+		{dataframeerrors.CodeQueryResourceLimitExceeded, http.StatusServiceUnavailable, false},
+		{dataframeerrors.CodeQueryBackendOutOfMemory, http.StatusServiceUnavailable, false},
 		{dataframeerrors.CodeDynamicSchemaDrift, http.StatusConflict, false},
 		{dataframeerrors.CodeRecipeContractViolation, http.StatusConflict, false},
 	} {

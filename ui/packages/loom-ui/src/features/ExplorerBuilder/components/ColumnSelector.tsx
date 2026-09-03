@@ -389,15 +389,15 @@ export const ColumnSelector = ({
         .sort((left, right) => {
           const leftLabel =
             left.kind === 'configured'
-              ? left.column.label
+              ? configuredCapabilities.get(left.column.column)?.label ?? left.column.source.fieldPath ?? left.column.column
               : left.candidate.label;
           const rightLabel =
             right.kind === 'configured'
-              ? right.column.label
+              ? configuredCapabilities.get(right.column.column)?.label ?? right.column.source.fieldPath ?? right.column.column
               : right.candidate.label;
           return leftLabel.localeCompare(rightLabel);
         }),
-    [available, configured, normalizedQuery],
+    [available, configured, configuredCapabilities, normalizedQuery],
   );
   const addCandidate = (
     candidate: ExplorerBuilderCandidate,
@@ -494,7 +494,7 @@ export const ColumnSelector = ({
               rows.map((row, order) =>
                 row.kind === 'configured' ? (
                   <ConfiguredColumnRow
-                    key={`configured:${row.column.column}:${row.column.label}`}
+                    key={`configured:${row.column.column}`}
                     column={row.column}
                     order={row.column.table?.order ?? order}
                     disabled={disabled}
@@ -511,7 +511,7 @@ export const ColumnSelector = ({
                   />
                 ) : (
                   <AvailableColumnRow
-                    key={`available:${row.candidate.candidateId}:${row.candidate.label}`}
+                    key={`available:${row.candidate.candidateId}`}
                     candidate={row.candidate}
                     disabled={disabled}
                     onAdd={(displayName, initialPresentation) =>

@@ -23,7 +23,7 @@ const (
 	CompilationReceiptFormatVersion = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v9"
+	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v10"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.

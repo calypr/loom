@@ -226,6 +226,24 @@ paths:
     parameters:
       - $ref: '#/components/parameters/Project'
       - $ref: '#/components/parameters/Generation'
+    get:
+      operationId: getDatasetGenerationStatus
+      summary: Read a dataset generation's persisted load state.
+      description: This preflight uses write authorization because it determines whether a subsequent generation upload may proceed.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      responses:
+        '200':
+          description: The persisted generation state and whether it can be reused.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
     post:
       operationId: createDatasetGeneration
       summary: Upload a multipart dataset generation.
@@ -908,7 +926,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, REMOVE_ROUTE, ADD_COLUMN, UPDATE_COLUMN, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, UPDATE_COLUMN, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
