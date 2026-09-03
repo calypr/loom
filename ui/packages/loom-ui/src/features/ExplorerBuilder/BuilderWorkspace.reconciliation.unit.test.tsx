@@ -36,15 +36,21 @@ vi.mock('./components/BuilderToolbar', () => ({
     previewDisabled,
     publishDisabled,
     publishing,
+    busy,
   }: {
     readonly onPreview: () => void;
     readonly onPublish: () => void;
     readonly previewDisabled: boolean;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
+    readonly busy: boolean;
   }) => (
     <div>
-      <button type="button" disabled={previewDisabled} onClick={onPreview}>
+      <button
+        type="button"
+        disabled={previewDisabled || busy}
+        onClick={onPreview}
+      >
         Preview
       </button>
       <button
@@ -207,6 +213,11 @@ const resolvedRequest = <T,>(value: T) => ({
   abort: vi.fn(),
 });
 
+const rejectedRequest = (error: unknown) => ({
+  unwrap: vi.fn().mockRejectedValue(error),
+  abort: vi.fn(),
+});
+
 const deferredRequest = <T,>() => {
   let resolve: (value: T) => void = () => undefined;
   const promise = new Promise<T>((resolvePromise) => {
@@ -216,6 +227,15 @@ const deferredRequest = <T,>() => {
     request: { unwrap: vi.fn(() => promise), abort: vi.fn() },
     resolve,
   };
+};
+
+const abortableRequest = <T,>() => {
+  let reject: (reason: Error) => void = () => undefined;
+  const promise = new Promise<T>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  const abort = vi.fn(() => reject(new Error('CLIENT_CANCELLED')));
+  return { unwrap: vi.fn(() => promise), abort };
 };
 
 describe('BuilderWorkspace on-demand reconciliation', () => {
@@ -317,6 +337,168 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+  });
+
+  it('cancels a stale preview when a patient column changes', async () => {
+    const pendingPreview = abortableRequest<never>();
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockImplementation(() => {
+      const [isLoading, setLoading] = React.useState(false);
+      const trigger = React.useCallback(() => {
+        setLoading(true);
+        void pendingPreview
+          .unwrap()
+          .then(
+            () => setLoading(false),
+            () => setLoading(false),
+          );
+        return pendingPreview;
+      }, []);
+      return [trigger, { isLoading }];
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const previewButton = await screen.findByRole('button', {
+      name: 'Preview',
+    });
+    fireEvent.click(previewButton);
+    await waitFor(() => expect(previewButton).toBeDisabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pendingPreview.abort).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(previewButton).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not resume stale preview recovery after a patient column changes', async () => {
+    let resolveRefresh: (
+      value: { readonly data: typeof builderState },
+    ) => void = () => undefined;
+    const refresh = new Promise<{ readonly data: typeof builderState }>(
+      (resolve) => {
+        resolveRefresh = resolve;
+      },
+    );
+    const refetch = vi.fn(() => refresh);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: builderState,
+      isLoading: false,
+      refetch,
+    });
+    preview.mockReturnValueOnce(
+      rejectedRequest({
+        code: 'STALE_CATALOG_SNAPSHOT',
+        message: 'The catalog is stale.',
+        retryable: false,
+      }),
+    );
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const previewButton = await screen.findByRole('button', {
+      name: 'Preview',
+    });
+    fireEvent.click(previewButton);
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    resolveRefresh({ data: builderState });
+
+    await waitFor(() => expect(previewButton).toBeEnabled());
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(previewButton);
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps Preview disabled without a visible patient column', async () => {
+    const hiddenWorkspace = {
+      ...workspace,
+      documents: [
+        {
+          ...workspace.documents[0],
+          columns: [
+            {
+              ...column,
+              table: { visible: false, order: 0 },
+            },
+          ],
+        },
+      ],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: hiddenWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Preview' }),
+    ).toBeDisabled();
+  });
+
+  it('keeps receipt recovery within the current preview generation', async () => {
+    preview
+      .mockReturnValueOnce(
+        rejectedRequest({
+          code: 'RECEIPT_RECOMPILE_REQUIRED',
+          message: 'The receipt is stale.',
+          retryable: false,
+        }),
+      )
+      .mockReturnValueOnce(
+        resolvedRequest({
+          apiVersion,
+          kind: 'ExplorerBuilderPreview',
+          receiptId: 'receipt-1',
+          outputId: 'specimens',
+          columns: receipt.outputs[0].columns,
+          rows: [],
+          rowCount: 0,
+          diagnostics: [],
+        }),
+      );
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('publishes a server-persisted draft after the Builder is reloaded', async () => {

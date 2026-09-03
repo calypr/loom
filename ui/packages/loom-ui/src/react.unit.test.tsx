@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 import React, { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { createLoomClient } from './api';
 import {
   LoomProvider,
   resourceFor,
   useGetExplorerAuthoringExplorersQuery,
+  usePreviewExplorerAuthoringV2Mutation,
 } from './react';
 
 const ExplorerStatus = () => {
@@ -109,5 +110,53 @@ describe('Loom React queries', () => {
     requests[1]?.resolve('fresh');
     await waitFor(() => expect(resource.getSnapshot().data).toBe('fresh'));
     secondUnsubscribe();
+  });
+});
+
+describe('Loom React mutations', () => {
+  it('stays loading when an older invocation settles before a newer one', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      }),
+    );
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const { result } = renderHook(
+      () => usePreviewExplorerAuthoringV2Mutation(),
+      { wrapper },
+    );
+    const request = {
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      receiptId: 'receipt-1',
+      outputId: 'patients',
+      limit: 25 as const,
+    };
+
+    let first: ReturnType<typeof result.current[0]>;
+    let second: ReturnType<typeof result.current[0]>;
+    act(() => {
+      first = result.current[0](request);
+      second = result.current[0]({ ...request, limit: 50 });
+    });
+    expect(result.current[1].isLoading).toBe(true);
+
+    await act(async () => {
+      first.abort();
+      await expect(first.unwrap()).rejects.toBeInstanceOf(DOMException);
+    });
+
+    expect(result.current[1].isLoading).toBe(true);
+
+    await act(async () => {
+      second.abort();
+      await expect(second.unwrap()).rejects.toBeInstanceOf(DOMException);
+    });
+    expect(result.current[1].isLoading).toBe(false);
   });
 });

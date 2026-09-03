@@ -135,17 +135,18 @@ type Trigger<TArgs, TResult> = (args: TArgs) => {
 const useMutation = <TArgs, TResult>(
   operation: (args: TArgs, signal: AbortSignal) => Promise<TResult>,
 ): [Trigger<TArgs, TResult>, MutationState] => {
-  const [isLoading, setLoading] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState(0);
   const operationRef = useRef(operation);
   operationRef.current = operation;
   const trigger = useCallback<Trigger<TArgs, TResult>>((args) => {
     const controller = new AbortController();
     const promise = operationRef.current(args, controller.signal);
-    setLoading(true);
-    void promise.then(() => setLoading(false), () => setLoading(false));
+    setPendingRequests((count) => count + 1);
+    const settle = () => setPendingRequests((count) => count - 1);
+    void promise.then(settle, settle);
     return { unwrap: () => promise, abort: () => controller.abort() };
   }, []);
-  return [trigger, { isLoading }];
+  return [trigger, { isLoading: pendingRequests > 0 }];
 };
 
 export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringProjectArgs): QueryResult<Awaited<ReturnType<LoomClient['listExplorers']>>> => {
