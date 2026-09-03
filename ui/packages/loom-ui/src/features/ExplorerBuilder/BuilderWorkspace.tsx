@@ -206,7 +206,9 @@ const BuilderWorkspaceContent = ({
     null,
   );
   const compileGeneration = useRef(0);
+  const previewGeneration = useRef(0);
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
+  const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
@@ -224,7 +226,9 @@ const BuilderWorkspaceContent = ({
 
   const selectExplorer = (nextExplorerId: string) => {
     compileGeneration.current += 1;
+    previewGeneration.current += 1;
     activeCompile.current?.abort();
+    activePreview.current?.abort();
     if (onExplorerChange) {
       onExplorerChange(nextExplorerId);
     } else {
@@ -266,7 +270,9 @@ const BuilderWorkspaceContent = ({
   const applyCommands = useCallback(
     (commands: ReadonlyArray<ExplorerBuilderCommand>) => {
       compileGeneration.current += 1;
+      previewGeneration.current += 1;
       activeCompile.current?.abort();
+      activePreview.current?.abort();
       setPendingCommands((value) => value + 1);
       const run = commandQueue.current.then(async () => {
         const current = latestState.current;
@@ -612,27 +618,40 @@ const BuilderWorkspaceContent = ({
   ]);
   const executePreview = useCallback(
     async (request: PreviewRequest, receiptId: string) => {
+      const generation = ++previewGeneration.current;
+      activePreview.current?.abort();
       let activeRequest = request;
       let activeReceiptId = receiptId;
       const limit = request.limit;
       let transientRetries = 0;
       for (;;) {
+        if (generation !== previewGeneration.current) return;
+        const previewRequest = previewBuilder({
+          project: projectId,
+          explorerId: latestState.current.explorerId,
+          authResourcePath,
+          receiptId: activeReceiptId,
+          outputId: activeRequest.outputId,
+          limit,
+        });
+        activePreview.current = previewRequest;
         try {
-          const value = await previewBuilder({
-            project: projectId,
-            explorerId: latestState.current.explorerId,
-            authResourcePath,
-            receiptId: activeReceiptId,
-            outputId: activeRequest.outputId,
-            limit,
-          }).unwrap();
-          if (value.receiptId !== activeReceiptId) return;
+          const value = await previewRequest.unwrap();
+          if (
+            generation !== previewGeneration.current ||
+            value.receiptId !== activeReceiptId
+          )
+            return;
           dispatch({ type: 'preview', value });
           setMessage(undefined);
           return;
         } catch (error) {
           const apiError = error as ExplorerAuthoringApiError;
-          if (apiError.code === 'CLIENT_CANCELLED') return;
+          if (
+            generation !== previewGeneration.current ||
+            apiError.code === 'CLIENT_CANCELLED'
+          )
+            return;
           const recovery = previewRecoveryAction(apiError, {
             receiptRefreshes: activeRequest.receiptRefreshes,
             transientRetries,
@@ -649,6 +668,7 @@ const BuilderWorkspaceContent = ({
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
             const receipt = await reconcileCurrent();
+            if (generation !== previewGeneration.current) return;
             if (!receipt) return;
             activeReceiptId = receipt.receiptId;
             setMessage(undefined);
@@ -661,6 +681,7 @@ const BuilderWorkspaceContent = ({
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
             const refreshed = await refetchBuilder();
+            if (generation !== previewGeneration.current) return;
             if (!refreshed.data) return;
             latestState.current = builderAuthoringReducer(latestState.current, {
               type: 'catalogRefreshed',
@@ -668,6 +689,7 @@ const BuilderWorkspaceContent = ({
             });
             syncBuilderData(refreshed.data, 'catalog');
             const receipt = await reconcileCurrent();
+            if (generation !== previewGeneration.current) return;
             if (!receipt) return;
             activeReceiptId = receipt.receiptId;
             setMessage(undefined);
@@ -690,6 +712,9 @@ const BuilderWorkspaceContent = ({
             setMessage(`Preview failed: ${apiError.message}${suffix}`);
           }
           return;
+        } finally {
+          if (activePreview.current === previewRequest)
+            activePreview.current = undefined;
         }
       }
     },
