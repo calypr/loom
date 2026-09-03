@@ -11,11 +11,11 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	materializationapi "github.com/calypr/loom/internal/api/graphql/graph/materialization"
+	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -33,7 +33,7 @@ func recipeGraphQLError(err error) error {
 	}
 	if _, ok := dataframeerrors.AsUserError(err); !ok {
 		var validation *recipe.ValidationError
-		var resolution *engine.ResolutionError
+		var resolution *dataframeexecution.ResolutionError
 		switch {
 		case errors.As(err, &resolution):
 			return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeResolutionFailed, resolution.Error())
@@ -68,11 +68,9 @@ func graphqlRecipeBindings(bindings *model.DataframeRecipeBindingsInput) (recipe
 }
 
 func outputValidation(output semantic.OutputPlan) *model.DataframeRecipeOutputValidation {
-	fields := append([]string(nil), output.DeclaredOrder...)
-	if len(fields) == 0 {
-		for _, field := range output.Fields {
-			fields = append(fields, field.Name)
-		}
+	fields := make([]string, 0, len(output.Root.Fields))
+	for _, field := range output.Root.Fields {
+		fields = append(fields, field.Name)
 	}
 	dynamic := make([]string, 0, len(output.DynamicMaps))
 	for _, value := range output.DynamicMaps {
@@ -115,7 +113,7 @@ func planExplanation(plan semantic.RecipePlanExplanation, name string) *model.Da
 	return &model.DataframeRecipeExplanation{Name: name, RecipeDigest: plan.RecipeDigest, TranslationVersion: plan.TranslationVersion, Outputs: outputs}
 }
 
-func physicalExplanation(value engine.PhysicalExplanation) *model.DataframeRecipePhysicalExplanation {
+func physicalExplanation(value dataframeexecution.PhysicalExplanation) *model.DataframeRecipePhysicalExplanation {
 	outputs := make([]*model.DataframeRecipePhysicalOutputExplanation, 0, len(value.Outputs))
 	for _, output := range value.Outputs {
 		diagnostics := output.Diagnostics
@@ -149,7 +147,7 @@ func physicalExplanation(value engine.PhysicalExplanation) *model.DataframeRecip
 	return &model.DataframeRecipePhysicalExplanation{Outputs: outputs}
 }
 
-func arangoAssessment(value engine.ExplainAssessment) *model.DataframeRecipeArangoAssessment {
+func arangoAssessment(value dataframeexecution.ExplainAssessment) *model.DataframeRecipeArangoAssessment {
 	result := &model.DataframeRecipeArangoAssessment{
 		Plans:                 make([]*model.DataframeRecipeExplainPlanEstimate, 0, len(value.Plans)),
 		FullCollectionScans:   make([]*model.DataframeRecipeExplainCollectionScan, 0, len(value.FullCollectionScans)),
@@ -179,7 +177,7 @@ func arangoAssessment(value engine.ExplainAssessment) *model.DataframeRecipeAran
 func preflightResult(plan semantic.ResolvedRecipePlan, name string) *model.DataframeRecipePreflight {
 	columns := make([]*model.DataframeRecipeColumn, 0)
 	for _, output := range plan.SemanticPlan.Outputs {
-		for _, field := range output.Fields {
+		for _, field := range output.Root.Fields {
 			columns = append(columns, &model.DataframeRecipeColumn{
 				Output: output.Name, Name: field.Name, LogicalType: string(field.Expr.Type.Kind),
 				Repeated: field.Expr.Type.Cardinality == "many",
@@ -315,17 +313,17 @@ func logicalPreviewRows(columns []string, rows []map[string]any) []map[string]an
 
 type recipePreviewView struct {
 	plan    semantic.ResolvedRecipePlan
-	outputs []engine.OutputRows
+	outputs []dataframeexecution.OutputRows
 }
 
 func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 	outputs := make([]*model.DataframeRecipeExecutionOutput, 0, len(value.Outputs))
 	for _, output := range value.Outputs {
-		errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
+		errorText, errorCode, errorRetryable := dataframeapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
 		item := &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
 		columns := make([]*model.DataframeColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
-			columns = append(columns, materializationapi.ColumnFromPhysical(column))
+			columns = append(columns, dataframeapi.ColumnFromPhysical(column))
 		}
 		item.Columns = columns
 		if output.Selector.Valid() {
@@ -336,7 +334,7 @@ func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 		}
 		outputs = append(outputs, item)
 	}
-	errorText, errorCode, errorRetryable := materializationapi.PersistedFailure(value.Error, value.ErrorCode, value.ErrorRetryable)
+	errorText, errorCode, errorRetryable := dataframeapi.PersistedFailure(value.Error, value.ErrorCode, value.ErrorRetryable)
 	result := &model.DataframeRecipeExecution{ID: value.ID, Name: value.Name, RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration, State: model.DataframeRecipeExecutionState(value.State), Outputs: outputs, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
 	if value.TranslationVersion != "" {
 		result.TranslationVersion = &value.TranslationVersion

@@ -43,7 +43,7 @@ persistence; `explorer` owns portable Explorer configs, editable drafts,
 immutable revisions, and publication state; `explorer/arango` owns its durable
 adapter; `dataframe/publication` owns dataframe publishing contracts and the
 runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
-`dataframe/published` owns safe published-data reading and federation.
+`dataframe/published` owns safe single-project published-data reads and aggregates.
 
 `cmd/arango-fhir-proto` is the operator CLI. Its supported commands are:
 
@@ -61,9 +61,10 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
   catalog diagnostics.
 
 `cmd/arango-fhir-server` owns the HTTP process. Generated OpenAPI registration
-mounts health, ingestion, snapshot/release, recipe execution, GraphQL, and
+mounts health, generation ingestion/activation, recipe execution, GraphQL, and
 Explorer operations; handwritten strict-interface implementations remain under
-`internal/server`.
+`internal/server`. Snapshot and standalone release-management HTTP APIs are not
+part of the server surface; Explorer publication owns its release transaction.
 
 The GraphQL dataframe mutation is the live compiler transport. Explorer V2
 authoring adds an intent-to-native-recipe lowering phase, then calls the same
@@ -75,9 +76,8 @@ for the complete Builder-to-AQL sequence.
 The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
 Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
 reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
-compiler endpoint. Published ClickHouse dataframe discovery and reads follow the
-stable-GraphQL, dynamic-data contract described in
-[`DATAFRAME_FEDERATION.md`](DATAFRAME_FEDERATION.md).
+compiler endpoint. Published ClickHouse dataframe discovery and reads require
+an explicit authorized project and exact dataframe selector.
 Only registered READY publication outputs are exposed; adding a dataset or
 column must not require GraphQL regeneration or a Loom restart. Publication
 and published-data reads are ClickHouse-only; Loom has no Elasticsearch
@@ -185,7 +185,7 @@ GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated gqlgen executor and internal resolver binding
   -> internal/api/graphql/graph/query.Service
-  -> dataframe/runtime.Service
+  -> dataframe/execution.Service
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
   -> dataframe/compiler/ir typed physical plan
@@ -195,7 +195,7 @@ GraphQL request
   -> Arango query execution/streaming
 ```
 
-Runtime preparation and execution live in `internal/dataframe/runtime`;
+Runtime preparation and execution live in `internal/dataframe/execution`;
 compiler orchestration lives in `internal/dataframe/compiler`; structured transport
 errors live in `internal/dataframe/errors`. `internal/catalog` owns scoped observed-field
 and relationship facts. `internal/fhir/schema` owns structural metadata and
@@ -209,7 +209,7 @@ The ClickHouse read path is parallel but separate:
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated graph executor and internal resolver binding
-  -> internal/api/graphql/graph/materialization.Service
+  -> internal/api/graphql/graph/dataframe.Service
   -> dataframe/published.Reader
   -> ClickHouse
 ```
@@ -239,11 +239,12 @@ When adding code, use this lookup table:
 | FHIR edge route or endpoint lowering | `internal/dataframe/compiler/lower` |
 | Cost-gated physical rewrite | `internal/dataframe/compiler/optimize` |
 | AQL text or bind emission | `internal/dataframe/compiler/render/aql` |
-| Catalog, auth, generation, cursor, or profiling | `internal/dataframe/runtime` |
+| Catalog, auth, generation, cursor, or profiling | `internal/dataframe/execution` |
 
-For the complete ownership map, see the package guide in this document and the
-[documentation index](README.md). Historical package-reorganization plans may
-exist outside this checkout, but they are not runtime contract references.
+For the complete ownership and dependency map, see the generated
+[package audit lookup table](PACKAGE_AUDIT.md). Historical
+package-reorganization plans may exist outside this checkout, but they are not
+runtime contract references.
 
 ## Compatibility tracks
 

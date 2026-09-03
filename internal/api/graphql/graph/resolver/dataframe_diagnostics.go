@@ -5,10 +5,10 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
-func dataframeDiagnostics(in runtime.QueryDiagnostics) *model.DataframeQueryDiagnostics {
+func dataframeDiagnostics(in dataframeexecution.QueryDiagnostics) *model.DataframeQueryDiagnostics {
 	return &model.DataframeQueryDiagnostics{
 		InputResolutionMs:    milliseconds(in.InputResolution),
 		RequestPreparationMs: milliseconds(in.RequestPreparation),

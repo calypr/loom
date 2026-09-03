@@ -13,7 +13,6 @@ import (
 
 var (
 	ErrNoActiveRelease           = errors.New("no active project release")
-	ErrReleaseNotFound           = errors.New("project release was not found")
 	ErrReleaseRequirementsUnmet  = errors.New("project release requirements are unmet")
 	ErrReleaseActivationConflict = errors.New("project release activation compare-and-swap conflict")
 )
@@ -91,17 +90,11 @@ type ManifestReader interface {
 
 type ReleaseRepository interface {
 	SaveRelease(context.Context, ProjectRelease) (ProjectRelease, error)
-	ReadRelease(context.Context, string, string) (ProjectRelease, error)
 	ReadActiveRelease(context.Context, string) (ActiveRelease, error)
 	CompareAndSwapActivateRelease(context.Context, ProjectRelease, int64) (ActiveRelease, error)
-	ListReleaseProjects(context.Context) ([]string, error)
 }
 
 type ReleaseService struct {
-	Snapshots SnapshotRepository
-	// Manifests provides compatibility for valid generations created before
-	// upload-tracking snapshot records were introduced. Release activation is
-	// already guarded by this same immutable staged manifest.
 	Manifests ManifestReader
 	Releases  ReleaseRepository
 	Verifier  PublicationVerifier
@@ -114,8 +107,8 @@ type ReleaseService struct {
 // release can use this as a preflight and avoid producing orphaned dataframe
 // publications for a generation that cannot be activated.
 func (s ReleaseService) ValidateGeneration(ctx context.Context, project, generation string) error {
-	if s.Snapshots == nil {
-		return fmt.Errorf("snapshot repository is required")
+	if s.Manifests == nil {
+		return fmt.Errorf("manifest reader is required")
 	}
 	ref, err := NewRef(strings.TrimSpace(project), strings.TrimSpace(generation))
 	if err != nil {
@@ -125,22 +118,8 @@ func (s ReleaseService) ValidateGeneration(ctx context.Context, project, generat
 }
 
 func (s ReleaseService) validateGeneration(ctx context.Context, ref Ref) error {
-	snapshot, err := s.Snapshots.ReadSnapshot(ctx, ref)
-	if err == nil {
-		if snapshot.State != StateStaged {
-			return fmt.Errorf("%w: generation %s is %s", ErrReleaseRequirementsUnmet, ref.Generation, snapshot.State)
-		}
-		return nil
-	}
-	if !errors.Is(err, ErrSnapshotNotFound) || s.Manifests == nil {
-		return err
-	}
-	// Legacy loads can have the durable manifest and active graph pointer but no
-	// snapshot_generation upload-audit document. The manifest is the exact
-	// generation record checked again by the atomic activation transaction, so a
-	// staged legacy manifest is sufficient and does not need fabricated uploads.
-	manifest, manifestErr := s.Manifests.ReadManifest(ctx, ref)
-	if manifestErr != nil {
+	manifest, err := s.Manifests.ReadManifest(ctx, ref)
+	if err != nil {
 		return err
 	}
 	if !manifest.IsStaged() {
@@ -150,7 +129,7 @@ func (s ReleaseService) validateGeneration(ctx context.Context, ref Ref) error {
 }
 
 func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (ProjectRelease, error) {
-	if s.Snapshots == nil || s.Releases == nil || s.Verifier == nil {
+	if s.Manifests == nil || s.Releases == nil || s.Verifier == nil {
 		return ProjectRelease{}, fmt.Errorf("release service dependencies are required")
 	}
 	ref, err := NewRef(strings.TrimSpace(request.Project), strings.TrimSpace(request.Generation))
@@ -246,17 +225,6 @@ func (s ReleaseService) Activate(ctx context.Context, request ActivationRequest)
 		return ActiveRelease{}, err
 	}
 	return s.Releases.CompareAndSwapActivateRelease(ctx, release, request.ExpectedRevision)
-}
-
-func (s ReleaseService) ActivateExisting(ctx context.Context, project, releaseID string, expectedRevision int64) (ActiveRelease, error) {
-	if s.Releases == nil {
-		return ActiveRelease{}, fmt.Errorf("release repository is required")
-	}
-	release, err := s.Releases.ReadRelease(ctx, project, releaseID)
-	if err != nil {
-		return ActiveRelease{}, err
-	}
-	return s.Releases.CompareAndSwapActivateRelease(ctx, release, expectedRevision)
 }
 
 func (s ReleaseService) Active(ctx context.Context, project string) (ActiveRelease, error) {

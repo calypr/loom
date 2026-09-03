@@ -12,7 +12,6 @@ import (
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/gofiber/fiber/v3"
 )
 
 const (
@@ -22,46 +21,67 @@ const (
 
 var ErrPreviewResponseTooLarge = errors.New("PREVIEW_RESPONSE_TOO_LARGE")
 
-type receiptPreviewResolutionError struct{ Err error }
+type receiptPreviewResolutionError struct {
+	ReceiptID string
+	Err       error
+}
 
 func (e *receiptPreviewResolutionError) Error() string { return e.Err.Error() }
 func (e *receiptPreviewResolutionError) Unwrap() error { return e.Err }
 
-func previewRouteFailure(c fiber.Ctx, err error) error {
+func classifyReceiptPreviewResolutionError(receiptID string, err error) error {
+	var mismatch *receiptContractMismatch
+	if errors.As(err, &mismatch) || errors.Is(err, explorer.ErrReceiptRecompileRequired) {
+		return &receiptPreviewResolutionError{ReceiptID: receiptID, Err: err}
+	}
+	return err
+}
+
+// previewRouteError maps execution failures to the stable authoring error
+// contract without requiring a Fiber context. The generated OpenAPI adapter
+// uses this form directly.
+func previewRouteError(err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
-		return authoringHTTPError(c, &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err})
+		return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return authoringHTTPError(c, &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err})
+		return &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err}
 	}
 	if errors.Is(err, context.Canceled) {
-		return authoringHTTPError(c, &explorer.AuthoringError{Status: 499, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "CLIENT_CANCELED", Message: "preview request was canceled"}, Cause: err})
+		return &explorer.AuthoringError{Status: 499, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "CLIENT_CANCELED", Message: "preview request was canceled"}, Cause: err}
 	}
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {
 		switch userErr.Code() {
 		case string(dataframeerrors.CodeClientCanceled):
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 499, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "CLIENT_CANCELED", Message: "preview request was canceled"}, Cause: err})
+			return &explorer.AuthoringError{Status: 499, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "CLIENT_CANCELED", Message: "preview request was canceled"}, Cause: err}
 		case string(dataframeerrors.CodePreviewTimeout):
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err})
+			return &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err}
 		case string(dataframeerrors.CodePreviewResponseTooLarge):
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: dataframeerrors.PublicMessage(err)}, Cause: err})
+			return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodePlanTooExpensive):
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err})
+			return &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeBackendUnavailable), string(dataframeerrors.CodeReceiptStoreUnavailable):
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err})
+			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
+		case string(dataframeerrors.CodeQueryMemoryLimitExceeded), string(dataframeerrors.CodeQueryResourceLimitExceeded), string(dataframeerrors.CodeQueryBackendOutOfMemory):
+			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err), Details: userErr.Details()}, Cause: err}
 		case string(dataframeerrors.CodeRecipeContractViolation), string(dataframeerrors.CodeDynamicSchemaDrift):
-			return authoringHTTPError(c, receiptPreviewConflict(err))
+			return receiptPreviewConflict(err)
 		default:
-			return authoringHTTPError(c, &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err})
+			return &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err}
 		}
 	}
 	if errors.As(err, new(*receiptPreviewResolutionError)) {
-		return authoringHTTPError(c, receiptPreviewConflict(err))
+		return receiptPreviewConflict(err)
 	}
-	return authoringHTTPError(c, &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err})
+	return &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err}
 }
 
 func receiptPreviewConflict(cause error) error {
+	receiptID := ""
+	var resolution *receiptPreviewResolutionError
+	if errors.As(cause, &resolution) {
+		receiptID = resolution.ReceiptID
+	}
 	return &explorer.AuthoringError{
 		Status: http.StatusConflict,
 		Diagnostic: explorer.AuthoringDiagnostic{
@@ -69,6 +89,7 @@ func receiptPreviewConflict(cause error) error {
 			Stage:    "preview",
 			Code:     "RECEIPT_RECOMPILE_REQUIRED",
 			Message:  "receipt deterministic lowering no longer matches the stored artifact",
+			Details:  receiptMismatchDetails(receiptID, cause),
 		},
 		Cause: cause,
 	}
@@ -103,83 +124,6 @@ func (e *previewResponseTooLargeError) Error() string {
 }
 
 func (e *previewResponseTooLargeError) Unwrap() error { return ErrPreviewResponseTooLarge }
-
-// encodeExplorerPreviewResponse constructs the complete response before it is
-// handed to Fiber. A capped writer makes overflow recoverable without ever
-// sending a truncated JSON document to the client.
-func encodeExplorerPreviewResponse(receipt *explorer.CompilationReceipt, outputID string, columns []explorer.EmittedColumn, rows []map[string]any, limit int) ([]byte, error) {
-	if limit <= 0 {
-		limit = maxExplorerPreviewResponseBytes
-	}
-	var out cappedPreviewBuffer
-	out.limit = limit
-	write := func(raw []byte) error {
-		if _, err := out.Write(raw); err != nil {
-			return err
-		}
-		return nil
-	}
-	writeString := func(value string) error {
-		raw, err := json.Marshal(value)
-		if err != nil {
-			return err
-		}
-		return write(raw)
-	}
-	if err := write([]byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderPreview","receiptId":`)); err != nil {
-		return nil, err
-	}
-	if err := writeString(receipt.ID); err != nil {
-		return nil, err
-	}
-	if err := write([]byte(`,"outputId":`)); err != nil {
-		return nil, err
-	}
-	if err := writeString(outputID); err != nil {
-		return nil, err
-	}
-	encodedColumns, err := json.Marshal(v2EmissionColumns(columns))
-	if err != nil {
-		return nil, err
-	}
-	if err := write([]byte(`,"columns":`)); err != nil {
-		return nil, err
-	}
-	if err := write(encodedColumns); err != nil {
-		return nil, err
-	}
-	if err := write([]byte(`,"rows":[`)); err != nil {
-		return nil, err
-	}
-	for index, row := range rows {
-		if index > 0 {
-			if err := write([]byte(",")); err != nil {
-				return nil, err
-			}
-		}
-		encodedRow, err := json.Marshal(row)
-		if err != nil {
-			return nil, err
-		}
-		if err := write(encodedRow); err != nil {
-			return nil, err
-		}
-	}
-	if err := write([]byte(`],"rowCount":`)); err != nil {
-		return nil, err
-	}
-	count, err := json.Marshal(len(rows))
-	if err != nil {
-		return nil, err
-	}
-	if err := write(count); err != nil {
-		return nil, err
-	}
-	if err := write([]byte(`,"diagnostics":[]}`)); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
 
 type previewResponseEncoder struct {
 	out      cappedPreviewBuffer

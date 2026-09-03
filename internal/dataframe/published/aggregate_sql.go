@@ -30,22 +30,22 @@ type aggregateSQL struct {
 	groupingSets  int
 }
 
-func buildAggregateSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (aggregateSQL, error) {
+func buildAggregateSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
 	switch statement.kind {
 	case statementLegacy:
-		return buildGroupingSetSQL(dataset, access, statement, false)
+		return buildGroupingSetSQL(dataset, req, statement, false)
 	case statementTerms:
-		return buildGroupingSetSQL(dataset, access, statement, true)
+		return buildGroupingSetSQL(dataset, req, statement, true)
 	case statementBucket:
-		return buildBucketSQL(dataset, access, statement)
+		return buildBucketSQL(dataset, req, statement)
 	case statementScalar:
-		return buildScalarSQL(dataset, access, statement)
+		return buildScalarSQL(dataset, req, statement)
 	default:
 		return aggregateSQL{}, fmt.Errorf("unknown aggregate statement kind %q", statement.kind)
 	}
 }
 
-func aggregateUnion(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (string, []any, []string, error) {
+func aggregateSource(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (string, []any, []string, error) {
 	set := make(map[string]struct{})
 	for _, job := range statement.jobs {
 		for _, column := range job.job.GroupBy {
@@ -63,15 +63,36 @@ func aggregateUnion(dataset FederatedDataset, access map[string]SourceAccess, st
 		columns = append(columns, column)
 	}
 	sort.Strings(columns)
-	union, args, err := federatedNormalizedUnion(dataset, columns, access)
-	return union, args, columns, err
+	present := make(map[string]Column, len(dataset.Columns))
+	for _, column := range dataset.Columns {
+		present[column.Name] = column
+	}
+	selects := make([]string, 0, len(columns))
+	for _, column := range columns {
+		if _, ok := present[column]; !ok {
+			return "", nil, nil, invalidRequest()
+		}
+		selects = append(selects, fmt.Sprintf("`%s`", column))
+	}
+	if len(selects) == 0 {
+		selects = []string{"*"}
+	}
+	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selects, ", "), dataset.PhysicalTable)
+	args := make([]any, 0)
+	if !req.Unrestricted && hasColumn(dataset.Columns, authResourcePathColumn) {
+		query += " WHERE `auth_resource_path` IN ?"
+		args = append(args, req.AuthResourcePaths)
+	} else if !req.Unrestricted {
+		query += " WHERE 0"
+	}
+	return query, args, columns, nil
 }
 
-func buildGroupingSetSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan, terms bool) (aggregateSQL, error) {
+func buildGroupingSetSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan, terms bool) (aggregateSQL, error) {
 	if !terms {
-		return buildLegacyGroupingSetSQL(dataset, access, statement)
+		return buildLegacyGroupingSetSQL(dataset, req, statement)
 	}
-	return buildTermsGroupingSetSQL(dataset, access, statement)
+	return buildTermsGroupingSetSQL(dataset, req, statement)
 }
 
 // buildLegacyGroupingSetSQL keeps the aggregate state narrow even when an
@@ -82,8 +103,8 @@ func buildGroupingSetSQL(dataset FederatedDataset, access map[string]SourceAcces
 // one physical GROUPING SETS aggregation over the narrow pair. The source
 // union is still built once per statement, and every logical job remains
 // represented by its slot in the grouped key.
-func buildLegacyGroupingSetSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (aggregateSQL, error) {
-	union, args, sourceColumns, err := aggregateUnion(dataset, access, statement)
+func buildLegacyGroupingSetSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
+	union, args, sourceColumns, err := aggregateSource(dataset, req, statement)
 	if err != nil {
 		return aggregateSQL{}, err
 	}
@@ -141,8 +162,8 @@ func buildLegacyGroupingSetSQL(dataset FederatedDataset, access map[string]Sourc
 	}, nil
 }
 
-func buildTermsGroupingSetSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (aggregateSQL, error) {
-	union, args, sourceColumns, err := aggregateUnion(dataset, access, statement)
+func buildTermsGroupingSetSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
+	union, args, sourceColumns, err := aggregateSource(dataset, req, statement)
 	if err != nil {
 		return aggregateSQL{}, err
 	}
@@ -308,8 +329,8 @@ func legacyMetricOnColumn(job AggregateJob, column string) string {
 	}
 }
 
-func buildBucketSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (aggregateSQL, error) {
-	union, unionArgs, sourceColumns, err := aggregateUnion(dataset, access, statement)
+func buildBucketSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
+	union, unionArgs, sourceColumns, err := aggregateSource(dataset, req, statement)
 	if err != nil {
 		return aggregateSQL{}, err
 	}
@@ -394,8 +415,8 @@ func buildBucketSQL(dataset FederatedDataset, access map[string]SourceAccess, st
 	}, nil
 }
 
-func buildScalarSQL(dataset FederatedDataset, access map[string]SourceAccess, statement aggregateStatementPlan) (aggregateSQL, error) {
-	union, args, sourceColumns, err := aggregateUnion(dataset, access, statement)
+func buildScalarSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
+	union, args, sourceColumns, err := aggregateSource(dataset, req, statement)
 	if err != nil {
 		return aggregateSQL{}, err
 	}
@@ -432,7 +453,7 @@ func buildScalarSQL(dataset FederatedDataset, access map[string]SourceAccess, st
 	return aggregateSQL{query: query, columns: columns, args: args, sourceColumns: sourceColumns}, nil
 }
 
-func aggregateAllowedColumns(dataset FederatedDataset) map[string]struct{} {
+func aggregateAllowedColumns(dataset Materialization) map[string]struct{} {
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
 		if !internalAggregateColumn(column.Name) {

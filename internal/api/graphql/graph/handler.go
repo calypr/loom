@@ -14,7 +14,6 @@ import (
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/calypr/loom/generated/graphql/graph/executor"
-	graphqlerrors "github.com/calypr/loom/internal/api/graphql"
 	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -33,7 +32,7 @@ func NewHandler(root *resolver.Resolver, loggers ...*slog.Logger) http.Handler {
 	}))
 	server.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
 		requestID := httpapi.RequestIDFromContext(ctx)
-		presented := graphqlerrors.PresentGraphQLError(err, requestID)
+		presented := presentGraphQLError(err, requestID)
 		if presented != nil {
 			code, _ := presented.Extensions["code"].(string)
 			cause := presented.Err

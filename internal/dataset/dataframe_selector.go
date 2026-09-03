@@ -6,7 +6,7 @@ import (
 )
 
 // DataframeSelector is the exact, versioned identity of one recipe output.
-// It is shared by publication, release activation, federation, GraphQL and ETL.
+// It is shared by publication, release activation, GraphQL, and ETL.
 type DataframeSelector struct {
 	Recipe             string `json:"recipe"`
 	TranslationVersion string `json:"translationVersion"`

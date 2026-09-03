@@ -1,7 +1,7 @@
 # Loom OpenAPI contract
 
 [`openapi.yaml`](openapi.yaml) is the canonical contract for every Loom HTTP
-route. It currently defines all 39 REST, health, GraphQL transport, and browser
+route. It currently defines all 22 REST, health, GraphQL transport, and browser
 UI operations registered by the server.
 
 The files in this directory are source files:

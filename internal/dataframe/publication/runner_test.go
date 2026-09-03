@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 type fakeTx struct {
@@ -21,12 +24,18 @@ func (t *fakeTx) Commit(context.Context) ([]PublishedOutput, error) {
 	t.committed = true
 	return []PublishedOutput{{Name: "patients", PhysicalName: "staged_patients"}}, nil
 }
-func (t *fakeTx) Rollback(context.Context) error { t.rolledBack = true; return nil }
+func (t *fakeTx) Abort(context.Context, error) error                   { t.rolledBack = true; return nil }
+func (t *fakeTx) FinalizeSchema(context.Context, []OutputSchema) error { return nil }
+func (t *fakeTx) SetFinalSchemaDigest(string) error                    { return nil }
+func (t *fakeTx) Idempotent() bool                                     { return false }
+func (t *fakeTx) ExistingPublishedOutputs() []PublishedOutput          { return nil }
 
 type fakeTarget struct {
 	tx      *fakeTx
 	schemas []OutputSchema
 }
+
+func (t *fakeTarget) SupportsObjectValues() bool { return false }
 
 type finalizingTx struct {
 	fakeTx
@@ -45,6 +54,8 @@ func (t *finalizingTx) SetFinalSchemaDigest(digest string) error {
 }
 
 type finalizingTarget struct{ tx *finalizingTx }
+
+func (t *finalizingTarget) SupportsObjectValues() bool { return false }
 
 func (t *finalizingTarget) Begin(_ context.Context, _ PublicationIdentity, _ []OutputSchema) (Transaction, error) {
 	t.tx = &finalizingTx{}
@@ -156,6 +167,24 @@ func TestPublishAllowsObjectsOnlyForObjectCapableTargets(t *testing.T) {
 	}}, Limits{})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPublishRejectsUnknownLogicalKindBeforeEmptyStreamBegins(t *testing.T) {
+	target := &fakeTarget{}
+	_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r"}, []OutputStream{{
+		Name:    "empty",
+		Columns: []LogicalColumn{{Name: "value", Kind: "mystery"}},
+		Stream: func(_ context.Context, _ func(map[string]any) error) error {
+			return nil
+		},
+	}}, Limits{})
+	var typedErr *dataframeerrors.Error
+	if err == nil || !errors.As(err, &typedErr) || typedErr.Code() != string(dataframeerrors.CodeInvalidData) || typedErr.Unwrap() == nil || !strings.Contains(typedErr.Unwrap().Error(), `column "value" has unsupported logical kind "mystery"`) {
+		t.Fatalf("expected unknown logical kind error, got %v", err)
+	}
+	if target.tx != nil {
+		t.Fatal("target began a transaction for an invalid empty stream")
 	}
 }
 

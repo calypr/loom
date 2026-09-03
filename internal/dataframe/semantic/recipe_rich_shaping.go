@@ -269,15 +269,18 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			return nil, fmt.Errorf("%s.valueMode %q is unsupported", path, input.ValueMode)
 		}
 		semanticAggregate := SemanticAggregate{
-			Name:      input.Name,
-			Operation: operation,
-			FieldRef:  input.FieldRef,
-			ValueMode: string(input.ValueMode),
+			Name:           input.Name,
+			OutputName:     input.OutputName,
+			Operation:      operation,
+			FieldRef:       input.FieldRef,
+			ValueMode:      string(input.ValueMode),
+			RequiredValues: append([]string(nil), input.RequiredValues...),
 		}
 		requiresSelector := operation == string(recipe.AggregateCountDistinct) ||
 			operation == string(recipe.AggregateDistinctValues) ||
 			operation == string(recipe.AggregateMin) ||
-			operation == string(recipe.AggregateMax)
+			operation == string(recipe.AggregateMax) ||
+			operation == string(recipe.AggregateContainsAll)
 		if input.Expr != nil {
 			if !requiresSelector {
 				return nil, fmt.Errorf("%s.expr is not accepted for operation %s", path, operation)
@@ -287,16 +290,34 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 				return nil, err
 			}
 			semanticAggregate.Selector = &selector
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
+			if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
+				return nil, fmt.Errorf("%s.expr does not resolve to a supported scalar selector", path)
+			}
+			semanticAggregate.ValueKind = primitiveKind(metadata.Primitive)
 		} else if requiresSelector {
 			return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
 		}
+		switch operation {
+		case string(recipe.AggregateCount), string(recipe.AggregateCountDistinct):
+			semanticAggregate.ValueKind = expression.KindInteger
+		case string(recipe.AggregateMin), string(recipe.AggregateMax):
+			if semanticAggregate.ValueKind == "" {
+				semanticAggregate.ValueKind = expression.KindString
+			}
+		case string(recipe.AggregateExists):
+			semanticAggregate.ValueKind = expression.KindBoolean
+		case string(recipe.AggregateContainsAll):
+			semanticAggregate.ValueKind = expression.KindBoolean
+		}
 		if input.Where != nil {
-			predicate, equals, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
+			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
 			if err != nil {
 				return nil, err
 			}
 			semanticAggregate.Predicate = predicate
 			semanticAggregate.PredicateEquals = equals
+			semanticAggregate.PredicateKind = kind
 		}
 		out = append(out, semanticAggregate)
 	}
@@ -341,21 +362,22 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 				return nil, fmt.Errorf("%s.name %q is duplicated", fieldPath, field.Name)
 			}
 			seenFields[field.Name] = struct{}{}
-			if semanticField.Expr == nil || semanticField.Expr.Selector == nil {
+			if semanticField.Expr.Expression.Selector == nil {
 				return nil, fmt.Errorf("%s.expr must be a selector for canonical slice lowering", fieldPath)
 			}
-			if err := ensureSelectorOwnedByNode(semanticField.Expr.Selector.Context, alias, fieldPath+".expr"); err != nil {
+			if err := ensureSelectorOwnedByNode(semanticField.Expr.Expression.Selector.Context, alias, fieldPath+".expr"); err != nil {
 				return nil, err
 			}
 			semanticSlice.Fields = append(semanticSlice.Fields, semanticField)
 		}
 		if input.Where != nil {
-			predicate, equals, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
+			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
 			if err != nil {
 				return nil, err
 			}
 			semanticSlice.Predicate = predicate
 			semanticSlice.PredicateEquals = equals
+			semanticSlice.PredicateKind = kind
 		}
 		out = append(out, semanticSlice)
 	}
@@ -404,38 +426,51 @@ func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input reci
 }
 
 // lowerRecipePredicate maps the only predicate shape currently representable
-// by SemanticAggregate and SemanticSlice: selector existence or a string
+// by SemanticAggregate and SemanticSlice: selector existence or string/code
 // equality. Richer boolean predicates remain ordinary node filters until the
 // canonical physical predicate IR grows an equivalent typed representation.
-func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.Selector, string, error) {
+func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.Selector, string, spec.FilterValueKind, error) {
 	if input == nil {
-		return nil, "", nil
+		return nil, "", "", nil
 	}
 	filters, err := LowerRecipeFiltersForAlias(resourceType, alias, []recipe.Filter{*input})
 	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", path, err)
+		return nil, "", "", fmt.Errorf("%s: %w", path, err)
 	}
 	if len(filters) != 1 {
-		return nil, "", fmt.Errorf("%s must contain exactly one predicate", path)
+		return nil, "", "", fmt.Errorf("%s must contain exactly one predicate", path)
 	}
 	filter := filters[0]
 	selector, err := spec.ParseSelector(filter.Selector)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s selector: %w", path, err)
+		return nil, "", "", fmt.Errorf("%s selector: %w", path, err)
 	}
 	if err := validateSemanticSelector(resourceType, selector); err != nil {
-		return nil, "", fmt.Errorf("%s selector: %w", path, err)
+		return nil, "", "", fmt.Errorf("%s selector: %w", path, err)
 	}
 	switch filter.Operator {
 	case spec.FilterExists:
-		return &selector, "", nil
+		return &selector, "", filter.FieldKind, nil
 	case spec.FilterEquals:
-		if len(filter.Values) != 1 || filter.Values[0].String == nil || filter.Values[0].Kind != spec.FilterString {
-			return nil, "", fmt.Errorf("%s equality predicate must use one STRING value", path)
+		if len(filter.Values) != 1 {
+			return nil, "", "", fmt.Errorf("%s equality predicate must use one value", path)
 		}
-		return &selector, *filter.Values[0].String, nil
+		switch value := filter.Values[0]; value.Kind {
+		case spec.FilterString:
+			if value.String == nil {
+				return nil, "", "", fmt.Errorf("%s equality predicate has no STRING value", path)
+			}
+			return &selector, *value.String, value.Kind, nil
+		case spec.FilterCode:
+			if value.Code == nil || strings.TrimSpace(value.Code.Code) == "" {
+				return nil, "", "", fmt.Errorf("%s equality predicate has no CODE value", path)
+			}
+			return &selector, value.Code.Code, value.Kind, nil
+		default:
+			return nil, "", "", fmt.Errorf("%s equality predicate kind %s is not representable", path, value.Kind)
+		}
 	default:
-		return nil, "", fmt.Errorf("%s operator %s is not representable by canonical aggregate/slice predicates", path, filter.Operator)
+		return nil, "", "", fmt.Errorf("%s operator %s is not representable by canonical aggregate/slice predicates", path, filter.Operator)
 	}
 }
 

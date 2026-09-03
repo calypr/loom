@@ -5,30 +5,29 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type fakeRecipeControl struct {
-	validation   engine.Validation
+	validation   dataframeexecution.Validation
 	plan         semantic.ResolvedRecipePlan
 	resolveCalls *int
 }
 
-func (f fakeRecipeControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (engine.PhysicalExplanation, error) {
-	return engine.PhysicalExplanation{}, nil
+func (f fakeRecipeControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (dataframeexecution.PhysicalExplanation, error) {
+	return dataframeexecution.PhysicalExplanation{}, nil
 }
 
-func (f fakeRecipeControl) Run(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
+func (f fakeRecipeControl) Run(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}, {"id": "p2"}}
-	return engine.Preview{Plan: f.plan, Outputs: []engine.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return dataframeexecution.Preview{Plan: f.plan, Outputs: []dataframeexecution.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
-func (f fakeRecipeControl) Validate(context.Context, string, recipe.RuntimeBindings) (engine.Validation, error) {
+func (f fakeRecipeControl) Validate(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Validation, error) {
 	return f.validation, nil
 }
 func (f fakeRecipeControl) Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
@@ -40,17 +39,17 @@ func (f fakeRecipeControl) Resolve(context.Context, string, recipe.RuntimeBindin
 	}
 	return f.plan, nil
 }
-func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings) (engine.Preview, error) {
+func (f fakeRecipeControl) Preview(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
 	rows := []map[string]any{{"id": "p1"}}
-	return engine.Preview{Plan: f.plan, Outputs: []engine.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
+	return dataframeexecution.Preview{Plan: f.plan, Outputs: []dataframeexecution.OutputRows{{Name: "rows", Columns: []string{"id"}, Rows: rows}}}, nil
 }
 
-func testRecipeValidation() engine.Validation {
+func testRecipeValidation() dataframeexecution.Validation {
 	plan := semantic.RecipePlan{Version: 1, RecipeDigest: "recipe", TranslationVersion: "legacy", Outputs: []semantic.OutputPlan{{
 		Name: "rows", RootResourceType: "Patient", RowGrain: spec.RowGrainResource,
-		DeclaredOrder: []string{"id"}, Fields: []semantic.SemanticProjection{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}},
+		Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []semantic.SemanticField{{Name: "id", Expr: semantic.SemanticExpression{SourcePath: "$.outputs[0].fields[0]", Type: semanticTypeString().Type}}}},
 	}}}
-	return engine.Validation{Plan: plan}
+	return dataframeexecution.Validation{Plan: plan}
 }
 
 func semanticTypeString() (value semantic.SemanticExpression) {
@@ -178,45 +177,3 @@ func TestRecipeExecutionReaderMapsCanonicalAsyncStates(t *testing.T) {
 		}
 	}
 }
-
-func TestMaterializeRecipeDoesNotPreResolveInGraphQL(t *testing.T) {
-	validation := testRecipeValidation()
-	plan := semantic.ResolvedRecipePlan{SemanticPlan: validation.Plan, ResolvedSchemaDigest: "schema", SourceGeneration: "g", ScopeDigest: "scope"}
-	resolveCalls := 0
-	materializeCalls := 0
-	resolver := NewResolver(ResolverConfig{
-		RecipeControl: fakeRecipeControl{validation: validation, plan: plan, resolveCalls: &resolveCalls},
-		RecipeMaterialize: func(context.Context, string, recipe.RuntimeBindings) (RecipeExecution, error) {
-			materializeCalls++
-			return RecipeExecution{ID: "execution-1", Name: "default", State: "READY"}, nil
-		},
-	})
-	if _, err := resolver.Mutation().MaterializeDataframeRecipeBundle(context.Background(), model.MaterializeDataframeRecipeInput{
-		Name: "default", Bindings: &model.DataframeRecipeBindingsInput{Project: "p", DatasetGeneration: stringPtr("g")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if resolveCalls != 0 || materializeCalls != 1 {
-		t.Fatalf("GraphQL pre-resolve counts = resolve:%d materialize:%d", resolveCalls, materializeCalls)
-	}
-}
-
-func TestStartDataframeMaterializationPassesExactSelector(t *testing.T) {
-	var got dataset.DataframeSelector
-	resolver := NewResolver(ResolverConfig{ExactMaterializationStarter: func(_ context.Context, selector dataset.DataframeSelector, bindings recipe.RuntimeBindings) (RecipeExecution, error) {
-		got = selector
-		if bindings.Project != "p" || bindings.DatasetGeneration != "git-sha" {
-			t.Fatalf("target = %s/%s", bindings.Project, bindings.DatasetGeneration)
-		}
-		return RecipeExecution{ID: "execution-1", Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, State: "QUEUED", Outputs: []RecipeExecutionOutput{{Name: selector.Output, Selector: selector, State: "QUEUED"}}}, nil
-	}})
-	result, err := resolver.Mutation().StartDataframeMaterialization(context.Background(), model.StartDataframeMaterializationInput{Project: "p", Generation: "git-sha", Selector: &model.DataframeSelectorInput{Recipe: "documents", TranslationVersion: "v2", Output: "DocumentReference"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Valid() || result.TranslationVersion == nil || *result.TranslationVersion != "v2" || result.Outputs[0].Selector == nil {
-		t.Fatalf("result = %#v, selector = %#v", result, got)
-	}
-}
-
-func stringPtr(value string) *string { return &value }

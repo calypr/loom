@@ -14,7 +14,7 @@ import (
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataset"
 	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 )
@@ -110,7 +110,7 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 }
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
-	dfService := runtime.NewService(runtime.ServiceConfig{
+	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
 		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
@@ -199,7 +199,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 }
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
-	dfService := runtime.NewService(runtime.ServiceConfig{
+	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
 		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)

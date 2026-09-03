@@ -35,9 +35,6 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Slice != nil {
 		payloads++
 	}
-	if expression.Lookup != nil {
-		payloads++
-	}
 	if expression.ObjectLookup != nil {
 		payloads++
 	}
@@ -93,11 +90,6 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalSlice(*expression.Slice, defined, bindVars)
-	case PhysicalLookupExpression:
-		if expression.Lookup == nil {
-			return fmt.Errorf("expression payload does not match kind")
-		}
-		return validatePhysicalLookup(*expression.Lookup, defined, bindVars)
 	case PhysicalObjectLookupExpression:
 		if expression.ObjectLookup == nil {
 			return fmt.Errorf("expression payload does not match kind")
@@ -137,39 +129,6 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
-}
-
-func validatePhysicalLookup(lookup PhysicalLookup, defined map[string]bool, bindVars map[string]any) error {
-	if !physicalVariablePattern.MatchString(lookup.ItemVariable) {
-		return fmt.Errorf("lookup item variable %q is unsafe", lookup.ItemVariable)
-	}
-	if lookup.Source.Cardinality != PhysicalArrayCardinality {
-		return fmt.Errorf("lookup source expression must be array-valued, got %q", lookup.Source.Cardinality)
-	}
-	if err := validatePhysicalExpression(lookup.Source, defined, bindVars); err != nil {
-		return fmt.Errorf("lookup source: %w", err)
-	}
-	if lookup.ItemKey.Cardinality == PhysicalArrayCardinality {
-		return fmt.Errorf("lookup item key expression must be scalar")
-	}
-	itemDefined := make(map[string]bool, len(defined)+1)
-	for name, value := range defined {
-		itemDefined[name] = value
-	}
-	itemDefined[lookup.ItemVariable] = true
-	if err := validatePhysicalExpression(lookup.ItemKey, itemDefined, bindVars); err != nil {
-		return fmt.Errorf("lookup item key: %w", err)
-	}
-	if err := validatePhysicalExpression(lookup.ItemValue, itemDefined, bindVars); err != nil {
-		return fmt.Errorf("lookup item value: %w", err)
-	}
-	if strings.TrimSpace(lookup.MatchBindKey) == "" {
-		return fmt.Errorf("lookup match bind key is required")
-	}
-	if err := requireBind(bindVars, lookup.MatchBindKey); err != nil {
-		return fmt.Errorf("lookup match bind: %w", err)
-	}
-	return nil
 }
 
 func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, bindVars map[string]any) error {
@@ -319,17 +278,6 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				}
 			}
 		}
-		if current.Lookup != nil {
-			if err := visitExpression(current.Lookup.Source); err != nil {
-				return err
-			}
-			if err := visitExpression(current.Lookup.ItemKey); err != nil {
-				return err
-			}
-			if err := visitExpression(current.Lookup.ItemValue); err != nil {
-				return err
-			}
-		}
 		if current.KeyedMap != nil {
 			if err := visitExpression(current.KeyedMap.Source); err != nil {
 				return err
@@ -373,12 +321,6 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 			case PhysicalFilterOp:
 				if operation.Filter != nil && operation.Filter.Expression != nil {
 					if err := visitPredicate(operation.Filter.Expression); err != nil {
-						return err
-					}
-				}
-			case PhysicalDerivedLetOp:
-				if operation.DerivedLet != nil && operation.DerivedLet.Expression != nil {
-					if err := visitExpression(*operation.DerivedLet.Expression); err != nil {
 						return err
 					}
 				}

@@ -14,89 +14,26 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
-func patchRecipeExpressions(plan *ir.PhysicalPlan, output semantic.OutputPlan) error {
-	if plan == nil {
-		return fmt.Errorf("physical plan is nil")
-	}
-	fields := map[string]semantic.SemanticExpression{}
-	for _, field := range output.Fields {
-		fields[field.Name] = field.Expr
-	}
-	for _, operation := range plan.Operations {
-		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
-			continue
+// recipeFieldProjectionLowerer lowers rich recipe expressions at the generic
+// plan boundary, where the traversal walk has established the physical value
+// for every lexical alias. Selector-bearing fields deliberately delegate to
+// the existing selector lowerer so projection modes, fallbacks, and prepared
+// selector behavior remain unchanged.
+func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProjectionLowerer {
+	contexts := recipeExpressionContexts(output)
+	return func(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
+		if field.Expr.Expression.Selector != nil {
+			return lowerSemanticFieldProjection(physical, node, index, field, source, bindings, nil)
 		}
-		for index := range operation.Return.Projections {
-			projection := &operation.Return.Projections[index]
-			field, ok := fields[projection.Name]
-			if !ok {
-				continue
-			}
-			// Selector expressions are already lowered by the generic semantic
-			// node, including AUTO/FIRST/ALL/DISTINCT, fallbacks, and prepared
-			// selector metadata. Replacing that physical extract with the raw
-			// recipe expression would drop the legacy AUTO cardinality contract
-			// (for example, repeated selectors become FIRST). Only richer
-			// expression ASTs need a post-lowering patch.
-			if field.Expression.Selector != nil {
-				continue
-			}
-			physical, err := lowerRecipeExpressionScoped(field.Expression, plan.BindVars, output.RootResourceType, recipeExpressionContexts(output))
-			if err != nil {
-				return fmt.Errorf("field expression: %w", err)
-			}
-			projection.Expression = &physical
-			projection.Value = ir.PhysicalValue{}
+		lowered, err := lowerRecipeExpressionScoped(field.Expr.Expression, physical.BindVars, output.RootResourceType, contexts)
+		if err != nil {
+			return ir.PhysicalProjection{}, fmt.Errorf("field %q expression: %w", field.Name, err)
 		}
-	}
-	setVariables := recipeSetVariables(*plan)
-
-	// Child fields are returned as flattened projections named alias__field by
-	// the generic lowerer.  Match those names deterministically and retain the
-	// child resource type for selector provenance.
-	var walk func(semantic.SemanticNode) error
-	walk = func(node semantic.SemanticNode) error {
-		for _, child := range node.Children {
-			for _, field := range child.Fields {
-				name := child.Alias + "__" + field.Name
-				for index := range plan.Operations {
-					op := &plan.Operations[index]
-					if op.Kind != ir.PhysicalReturnOp || op.Return == nil {
-						continue
-					}
-					for projectionIndex := range op.Return.Projections {
-						projection := &op.Return.Projections[projectionIndex]
-						if projection.Name != name {
-							continue
-						}
-						if field.Expr != nil && field.Expr.Selector != nil {
-							continue
-						}
-						physical, err := lowerRecipeExpressionScoped(*field.Expr, plan.BindVars, output.RootResourceType, recipeExpressionContexts(output))
-						if err != nil {
-							return fmt.Errorf("child field %q: %w", name, err)
-						}
-						setVariable, ok := setVariables[child.Alias]
-						if !ok {
-							return fmt.Errorf("child field %q has no canonical set variable for alias %q", name, child.Alias)
-						}
-						rewriteRecipeExpressionVariable(&physical, child.Alias, setVariable)
-						projection.Expression = &physical
-						projection.Value = ir.PhysicalValue{}
-					}
-				}
-			}
-			if err := walk(child); err != nil {
-				return err
-			}
+		for alias, binding := range bindings {
+			rewriteRecipeExpressionBinding(&lowered, alias, binding.Source)
 		}
-		return nil
+		return ir.PhysicalProjection{Name: field.Name, Expression: &lowered}, nil
 	}
-	return walk(output.Root)
 }
 
 func recipeSetVariables(plan ir.PhysicalPlan) map[string]string {
@@ -145,12 +82,49 @@ func rewriteRecipeExpressionVariable(value *ir.PhysicalExpression, from, to stri
 	if value == nil {
 		return
 	}
+	if value.Value != nil && value.Value.Variable == from {
+		value.Value.Variable = to
+	}
 	if value.Extract != nil && value.Extract.Source.Variable == from {
 		value.Extract.Source.Variable = to
 	}
 	if value.Call != nil {
 		for index := range value.Call.Args {
 			rewriteRecipeExpressionVariable(&value.Call.Args[index], from, to)
+		}
+	}
+	if value.Object != nil {
+		for index := range value.Object.Fields {
+			rewriteRecipeExpressionVariable(&value.Object.Fields[index].Expression, from, to)
+		}
+	}
+}
+
+// rewriteRecipeExpressionBinding applies a physical lexical binding to all
+// value-bearing nodes. Extracts also inherit a payload path when the binding
+// is a traversed document variable (as opposed to a materialized child set,
+// whose renderer intentionally handles set items through item.payload).
+func rewriteRecipeExpressionBinding(value *ir.PhysicalExpression, from string, source ir.PhysicalValue) {
+	if value == nil {
+		return
+	}
+	if value.Value != nil && value.Value.Variable == from {
+		value.Value.Variable = source.Variable
+	}
+	if value.Extract != nil && value.Extract.Source.Variable == from {
+		value.Extract.Source.Variable = source.Variable
+		if len(source.Path) != 0 {
+			value.Extract.Source.Path = append([]string(nil), source.Path...)
+		}
+	}
+	if value.Call != nil {
+		for index := range value.Call.Args {
+			rewriteRecipeExpressionBinding(&value.Call.Args[index], from, source)
+		}
+	}
+	if value.Object != nil {
+		for index := range value.Object.Fields {
+			rewriteRecipeExpressionBinding(&value.Object.Fields[index].Expression, from, source)
 		}
 	}
 }

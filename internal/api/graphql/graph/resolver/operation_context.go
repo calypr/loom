@@ -11,8 +11,8 @@ import (
 // scheduling state at gqlgen's operation boundary.
 func (r *Resolver) WithOperationContext(ctx context.Context) context.Context {
 	ctx = withFHIRReferenceLoader(ctx, r)
-	if r.materializations != nil {
-		ctx = r.materializations.WithOperationContext(ctx, aggregateRootFieldCount(ctx))
+	if r.dataframes != nil {
+		ctx = r.dataframes.WithOperationContext(ctx, aggregateRootFieldCount(ctx))
 	}
 	return ctx
 }

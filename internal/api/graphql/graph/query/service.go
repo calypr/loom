@@ -10,8 +10,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/runtime"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	publication "github.com/calypr/loom/internal/dataset"
 )
@@ -19,22 +19,22 @@ import (
 type Service struct {
 	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	dataframes             *runtime.Service
+	dataframes             *dataframeexecution.Service
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
-	explain                func(context.Context, runtime.CompiledQuery) error
+	explain                func(context.Context, dataframeexecution.CompiledQuery) error
 }
 
 type Config struct {
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	Dataframes         *runtime.Service
+	Dataframes         *dataframeexecution.Service
 	ScopeResolver      *authscope.ScopeResolver
 	// ActiveManifestResolver is optional. When present, builder catalog
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
 	ActiveManifestResolver publication.ActiveResolver
-	Explain                func(context.Context, runtime.CompiledQuery) error
+	Explain                func(context.Context, dataframeexecution.CompiledQuery) error
 }
 
 func NewService(cfg Config) *Service {
@@ -52,7 +52,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Dataframes != nil {
 		service.dataframes = cfg.Dataframes
 	} else {
-		service.dataframes = runtime.NewService(runtime.ServiceConfig{})
+		service.dataframes = dataframeexecution.NewService(dataframeexecution.ServiceConfig{})
 	}
 	return service
 }
@@ -87,18 +87,18 @@ func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindi
 	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
 }
 
-func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (runtime.CompiledQuery, error) {
+func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return runtime.CompiledQuery{}, err
+		return dataframeexecution.CompiledQuery{}, err
 	}
 	if len(queries) != 1 {
-		return runtime.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		return dataframeexecution.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	return queries[0], nil
 }
 
-func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*runtime.Result, error) {
+func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
 	started := time.Now()
 	normalizedInput, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {

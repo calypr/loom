@@ -8,52 +8,11 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
-
-func TestValidateAuthorizedReceiptExecutionAcceptsExactRetainedGeneration(t *testing.T) {
-	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"path-a"}}
-	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-old", scope)
-	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id"})
-	if err := validateAuthorizedReceiptExecution(receipt, AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestValidateAuthorizedReceiptExecutionRejectsChangedTokenGenerationSchemaOrScope(t *testing.T) {
-	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", scope)
-	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id"})
-	cases := map[string]func(*explorer.CompilationReceipt, *capability.Snapshot, *authscope.ReadScope){
-		"token": func(r *explorer.CompilationReceipt, _ *capability.Snapshot, _ *authscope.ReadScope) {
-			r.SnapshotToken = "different-token"
-		},
-		"generation": func(_ *explorer.CompilationReceipt, s *capability.Snapshot, _ *authscope.ReadScope) {
-			s.Identity.Generation = "generation-b"
-		},
-		"schema": func(_ *explorer.CompilationReceipt, s *capability.Snapshot, _ *authscope.ReadScope) {
-			s.Identity.SchemaDigest = "different-schema"
-		},
-		"scope": func(_ *explorer.CompilationReceipt, _ *capability.Snapshot, s *authscope.ReadScope) {
-			s.Mode = authscope.ReadScopeRestricted
-		},
-	}
-	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			candidateReceipt := *receipt
-			candidateSnapshot := snapshot.Clone()
-			candidateScope := scope.Clone()
-			mutate(&candidateReceipt, &candidateSnapshot, &candidateScope)
-			err := validateAuthorizedReceiptExecution(&candidateReceipt, AuthorizedCapability{Snapshot: candidateSnapshot, Scope: candidateScope})
-			if !errors.Is(err, ErrReceiptExecutionContract) {
-				t.Fatalf("error=%v, want ErrReceiptExecutionContract", err)
-			}
-		})
-	}
-}
 
 func TestValidateAuthorizedReadScopePreservesRestrictedEmpty(t *testing.T) {
 	expected := explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeRestricted})
@@ -68,39 +27,10 @@ func TestValidateAuthorizedReadScopePreservesRestrictedEmpty(t *testing.T) {
 	}
 }
 
-func TestValidateReceiptOutputContract(t *testing.T) {
-	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id"})
-	if err := validateReceiptOutputContract(receipt, "patients"); err != nil {
-		t.Fatal(err)
-	}
-	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contracts.Outputs = append(contracts.Outputs, explorer.PublicOutputContract{OutputID: "specimens", Columns: []explorer.PublicOutputColumn{}})
-	receipt.PublicOutputContract, err = json.Marshal(contracts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt.Bundle.Outputs = append(receipt.Bundle.Outputs, recipe.Output{Name: "specimens", RootResourceType: "Specimen", RowGrain: "resource"})
-	if err := validateReceiptOutputContract(receipt, "specimens"); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateReceiptOutputContract(receipt, "observations"); !errors.Is(err, ErrReceiptExecutionContract) {
-		t.Fatalf("unknown output error=%v, want contract mismatch", err)
-	}
-	malformed := *receipt
-	malformed.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"observations","columns":[]}]}`)
-	if err := validateReceiptOutputContract(&malformed, "patients"); !errors.Is(err, ErrReceiptExecutionContract) {
-		t.Fatalf("forged output contract error=%v, want contract mismatch", err)
-	}
-}
-
 func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T) {
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id", "name"})
-	resolved := engine.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "name"}}}}}}
+	resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "name"}}}}}}
 	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatal(err)
 	}

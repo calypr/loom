@@ -2,62 +2,16 @@ package capability
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 )
-
-type ProbeFuncs struct {
-	Node      func(context.Context, Node) (NodeProof, error)
-	Edge      func(context.Context, Edge) (EdgeProof, error)
-	Candidate func(context.Context, Candidate) (CandidateProof, error)
-}
-
-func (p ProbeFuncs) ProbeNode(ctx context.Context, node Node) (NodeProof, error) {
-	if p.Node == nil {
-		return NodeProof{}, fmt.Errorf("node probe is not configured")
-	}
-	return p.Node(ctx, node)
-}
-
-func (p ProbeFuncs) ProbeEdge(ctx context.Context, edge Edge) (EdgeProof, error) {
-	if p.Edge == nil {
-		return EdgeProof{}, fmt.Errorf("edge probe is not configured")
-	}
-	return p.Edge(ctx, edge)
-}
-
-func (p ProbeFuncs) ProbeCandidate(ctx context.Context, candidate Candidate) (CandidateProof, error) {
-	if p.Candidate == nil {
-		return CandidateProof{}, fmt.Errorf("candidate probe is not configured")
-	}
-	return p.Candidate(ctx, candidate)
-}
-
-type SliceObserver struct {
-	Resources     []ResourceObservation
-	Relationships []RelationshipObservation
-	Fields        []FieldObservation
-}
-
-func (s SliceObserver) ListResources(context.Context) ([]ResourceObservation, error) {
-	return append([]ResourceObservation(nil), s.Resources...), nil
-}
-
-func (s SliceObserver) ListRelationships(context.Context) ([]RelationshipObservation, error) {
-	return append([]RelationshipObservation(nil), s.Relationships...), nil
-}
-
-func (s SliceObserver) ListFields(context.Context) ([]FieldObservation, error) {
-	return append([]FieldObservation(nil), s.Fields...), nil
-}
 
 func testIdentity() SnapshotIdentity {
 	return SnapshotIdentity{Project: "p", Generation: "g", AuthorizationScopeDigest: "scope", SchemaDigest: "schema", ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields", ProtocolVersion: "protocol-1", CompilerVersion: "compiler-1", TraversalPolicyVersion: "route-1", ProjectionPolicyVersion: "projection-1"}
 }
 
-func testProbe() ProbeFuncs {
-	return ProbeFuncs{
+func testProbe() CompilerCallbacks {
+	return CompilerCallbacks{
 		Node: func(_ context.Context, n Node) (NodeProof, error) {
 			return NodeProof{Allowed: true, RowRootEligible: true, RowGrain: "RESOURCE", SupportedOperations: []Operation{OperationSelect, OperationFilter}}, nil
 		},
@@ -68,8 +22,11 @@ func testProbe() ProbeFuncs {
 	}
 }
 
-func testBuilder(obs SliceObserver) Builder {
-	return NewBuilder(testIdentity(), obs, obs, obs, testProbe())
+func testBuilder(obs Evidence) Builder {
+	obs.ResourcesAvailable = true
+	obs.RelationshipsAvailable = true
+	obs.FieldsAvailable = true
+	return NewBuilder(testIdentity(), obs, testProbe())
 }
 
 func TestSnapshotHashIsOrderIndependentAndIdentityComplete(t *testing.T) {
@@ -98,7 +55,7 @@ func TestSnapshotHashIsOrderIndependentAndIdentityComplete(t *testing.T) {
 }
 
 func TestBuilderUsesProofAndCopiesObservation(t *testing.T) {
-	obs := SliceObserver{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true, DocumentCount: 4}, {ResourceType: "Observation", Populated: true}}, Relationships: []RelationshipObservation{{SourceResourceType: "Patient", TargetResourceType: "Patient", Label: "partOf", StorageDirection: "OUTBOUND"}, {SourceResourceType: "Patient", TargetResourceType: "Patient", Label: "partOf", StorageDirection: "OUTBOUND"}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name", Label: "Name", LogicalType: "string", SuggestedValues: []string{"B", "A"}, Observed: true, Populated: true}}}
+	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true, DocumentCount: 4}, {ResourceType: "Observation", Populated: true}}, Relationships: []RelationshipObservation{{SourceResourceType: "Patient", TargetResourceType: "Patient", Label: "partOf", StorageDirection: "OUTBOUND"}, {SourceResourceType: "Patient", TargetResourceType: "Patient", Label: "partOf", StorageDirection: "OUTBOUND"}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name", Label: "Name", LogicalType: "string", SuggestedValues: []string{"B", "A"}, Observed: true, Populated: true}}}
 	s := testBuilder(obs).Build
 	snapshot, err := s(context.Background())
 	if err != nil || !snapshot.Usable() {
@@ -118,7 +75,7 @@ func TestBuilderUsesProofAndCopiesObservation(t *testing.T) {
 }
 
 func TestUnpopulatedInventoryResourcesStayOutOfUsableNodes(t *testing.T) {
-	obs := SliceObserver{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true, DocumentCount: 1}, {ResourceType: "Observation", DocumentCount: 0}}, Fields: []FieldObservation{}}
+	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true, DocumentCount: 1}, {ResourceType: "Observation", DocumentCount: 0}}, Fields: []FieldObservation{}}
 	s, err := testBuilder(obs).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -132,14 +89,17 @@ func TestUnpopulatedInventoryResourcesStayOutOfUsableNodes(t *testing.T) {
 }
 
 func TestIDsAreBoundToSnapshotIdentity(t *testing.T) {
-	obs := SliceObserver{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name"}}}
+	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name"}}}
 	a, err := testBuilder(obs).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := testIdentity()
 	id.Generation = "other-generation"
-	b := NewBuilder(id, obs, obs, obs, testProbe())
+	obs.ResourcesAvailable = true
+	obs.RelationshipsAvailable = true
+	obs.FieldsAvailable = true
+	b := NewBuilder(id, obs, testProbe())
 	other, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +113,7 @@ func TestIDsAreBoundToSnapshotIdentity(t *testing.T) {
 }
 
 func TestBuilderRejectsMalformedEvidenceAndCompilerFailures(t *testing.T) {
-	obs := SliceObserver{Resources: []ResourceObservation{{ResourceType: "Patient"}}, Relationships: []RelationshipObservation{{SourceResourceType: "Patient", TargetResourceType: "Bad/Type", Label: "x"}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name..given"}}}
+	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient"}}, Relationships: []RelationshipObservation{{SourceResourceType: "Patient", TargetResourceType: "Bad/Type", Label: "x"}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name..given"}}}
 	// Build with a rejecting node leaves no usable root and retains audit data.
 	b := testBuilder(obs)
 	got, buildErr := b.Build(context.Background())
@@ -166,8 +126,10 @@ func TestBuilderRejectsMalformedEvidenceAndCompilerFailures(t *testing.T) {
 }
 
 func TestBuilderFieldEnrichmentIsFailClosed(t *testing.T) {
-	obs := SliceObserver{Resources: []ResourceObservation{{ResourceType: "Patient"}}, Relationships: nil, Fields: nil}
-	b := NewBuilder(testIdentity(), obs, obs, nil, testProbe())
+	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient"}}, Relationships: nil, Fields: nil}
+	obs.ResourcesAvailable = true
+	obs.RelationshipsAvailable = true
+	b := NewBuilder(testIdentity(), obs, testProbe())
 	s, err := b.Build(context.Background())
 	if err == nil || s.Status != StatusFailed || s.Usable() {
 		t.Fatalf("missing enrichment was not failed closed: %#v, %v", s, err)
@@ -175,7 +137,7 @@ func TestBuilderFieldEnrichmentIsFailClosed(t *testing.T) {
 }
 
 func TestIncompleteAndTruncatedSnapshotsAreNotUsable(t *testing.T) {
-	obs := SliceObserver{}
+	obs := Evidence{}
 	b := testBuilder(obs)
 	b.Complete = false
 	s, err := b.Build(context.Background())

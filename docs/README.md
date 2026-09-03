@@ -6,6 +6,7 @@ audits do not belong here.
 
 ## Start here
 
+- [Standalone Explorer demo](DEMO_QUICKSTART.md) runs the no-auth Builder and Viewer against the locked FHIR Aggregator cohort with one command.
 - [Quickstart](QUICKSTART.md) — run Loom locally, load sample data, and make a
   first dataframe request.
 - [HTTP API and OpenAPI contract](../openapi/README.md) — canonical paths,
@@ -24,6 +25,8 @@ audits do not belong here.
 
 - [Developer architecture](DEVELOPER_ARCHITECTURE.md) — package boundaries,
   compiler ownership, storage model, and runtime call paths.
+- [Package audit lookup table](PACKAGE_AUDIT.md) — complete package locations,
+  responsibilities, contents, dependencies, importers, and consolidation evidence.
 - [Dataframer recipes](DATAFRAMER_RECIPES.md) — native recipe authoring for
   repository, ETL, and developer workflows.
 - [Dataframer recipe reference](DATAFRAMER_RECIPE_REFERENCE.md) — complete
@@ -32,8 +35,6 @@ audits do not belong here.
   files, and regeneration commands.
 - [Compiler performance](COMPILER_PERFORMANCE.md) — benchmark and tuning
   guidance.
-- [Dataframe federation](DATAFRAME_FEDERATION.md) — published-data source
-  selection and cross-project reads.
 - [Reliability contract](loom-reliability-contract.md) — immutable generations,
   publication, selectors, and error-state guarantees.
 

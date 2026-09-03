@@ -2,20 +2,19 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -26,11 +25,11 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		t.Fatal(err)
 	}
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	materialize := func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
+	materialize := func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if bundle.Name != "native-test" {
 			t.Fatalf("materialized identity = %s/%s", bundle.Name, bundle.TranslationVersion)
 		}
-		return graphresolver.RecipeExecution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []graphresolver.RecipeExecutionOutput{{Name: "patients", State: "PUBLISHED", Columns: []publication.PhysicalColumn{{Name: "c_patient", LogicalType: "string", ClickHouse: "String"}}}}}, nil
+		return lifecycle.Execution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []lifecycle.ExecutionOutput{{Name: "patients", State: "PUBLISHED", Columns: []publication.PhysicalColumn{{Name: "c_patient", LogicalType: "string", ClickHouse: "String"}}}}}, nil
 	}
 	activationCount := 0
 	activateRelease := func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) error {
@@ -41,18 +40,24 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		return nil
 	}
 	app := fiber.New()
-	config := ExplorerV2LifecycleConfig{
-		Capability:      func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		CapabilityToken: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		AuthorizedCapabilityCompile: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			},
+			Catalog: authoringV2Catalog,
 		},
-		CompileReceipt: func(ctx context.Context, request ExplorerV2ReceiptCompileRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
+		},
+		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
+			return materialize(ctx, receipt.Bundle, bindings)
 		},
 		ActivateRelease: activateRelease,
 	}
-	registerTestExplorerRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, materialize, config)
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
 	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerWorkspaceV2()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {
@@ -65,23 +70,19 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	if activationCount != 2 {
 		t.Fatalf("release activation count = %d, want 2", activationCount)
 	}
-	state, err := service.Get(context.Background(), "project-a", "default")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(state.Dataset.Outputs) != 1 || state.Dataset.Outputs[0].Selector == nil {
-		t.Fatalf("dataset selector missing: %#v", state.Dataset.Outputs)
-	}
-	selector := state.Dataset.Outputs[0].Selector
-	if selector.Recipe != "native-test" || selector.Output != "patients" {
-		t.Fatalf("dataset selector = %#v", selector)
-	}
-	if len(state.Materializations) != 1 || state.Materializations[0].Selector == nil || *state.Materializations[0].Selector != *selector {
-		t.Fatalf("materialization selector = %#v", state.Materializations)
-	}
 	active, err := service.ActiveRevision(context.Background(), "project-a", "default")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(active.Dataset.Outputs) != 1 || active.Dataset.Outputs[0].Selector == nil {
+		t.Fatalf("dataset selector missing: %#v", active.Dataset.Outputs)
+	}
+	selector := active.Dataset.Outputs[0].Selector
+	if selector.Recipe != "native-test" || selector.Output != "patients" {
+		t.Fatalf("dataset selector = %#v", selector)
+	}
+	if len(active.Materializations) != 1 || active.Materializations[0].Selector == nil || *active.Materializations[0].Selector != *selector {
+		t.Fatalf("materialization selector = %#v", active.Materializations)
 	}
 	if len(active.AuthoringBundle) == 0 || active.CompilationReceiptID == "" || len(active.PublicOutputContract) == 0 {
 		t.Fatalf("active repository revision lost V2 artifacts: %#v", active)
@@ -89,19 +90,6 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	builder := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
 	if builder.StatusCode != http.StatusOK || !strings.Contains(builder.Body, `"workspace"`) {
 		t.Fatalf("builder reload status=%d body=%s", builder.StatusCode, builder.Body)
-	}
-	draftBody := `{"workspace":` + string(baselineExplorerWorkspaceV2()) + `,"snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":` + fmt.Sprint(state.DraftVersion) + `,"expectedDraftDigest":"` + state.DraftDigest + `"}`
-	draft := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/authoring/v2/draft", draftBody)
-	if draft.StatusCode != http.StatusOK || !strings.Contains(draft.Body, `"draftDigest":"sha256:`) {
-		t.Fatalf("save draft status=%d body=%s", draft.StatusCode, draft.Body)
-	}
-	stale := requestJSON(t, app, http.MethodPut, "/api/v1/projects/project-a/explorers/default/authoring/v2/draft", draftBody)
-	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, `"code":"DRAFT_CONFLICT"`) {
-		t.Fatalf("stale draft status=%d body=%s", stale.StatusCode, stale.Body)
-	}
-	exported := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/export", "")
-	if exported.StatusCode != http.StatusOK || exported.Body != string(baselineExplorerWorkspaceV2()) {
-		t.Fatalf("export status=%d body=%s", exported.StatusCode, exported.Body)
 	}
 	viewer := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
 	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) {

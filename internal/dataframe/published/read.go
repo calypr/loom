@@ -20,14 +20,11 @@ type ClickHouseQueryer interface {
 }
 
 type Reader struct {
-	ClickHouse                 ClickHouseQueryer
-	Catalog                    bundlepublication.BundleCatalog
-	Logger                     *slog.Logger
-	MaxPage                    int
-	ActiveManifestResolver     publication.ActiveResolver
-	ProjectStatusResolver      ProjectStatusResolver
-	ReleaseExecutionResolver   ReleaseExecutionResolver
-	FederationSnapshotResolver FederationSnapshotResolver
+	ClickHouse             ClickHouseQueryer
+	Catalog                bundlepublication.BundleCatalog
+	Logger                 *slog.Logger
+	MaxPage                int
+	ActiveManifestResolver publication.ActiveResolver
 }
 
 type Filter struct {
@@ -174,4 +171,24 @@ func contains(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func validateReaderColumns(columns []string, allowed map[string]struct{}) error {
+	for _, column := range columns {
+		if column == "__loom_row_id" || column == "__loom_total" {
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+		if _, ok := allowed[column]; !ok {
+			return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		}
+	}
+	return nil
+}
+
+func quotedColumns(columns []string) string {
+	quoted := make([]string, len(columns))
+	for index, column := range columns {
+		quoted[index] = fmt.Sprintf("`%s`", column)
+	}
+	return strings.Join(quoted, ", ")
 }

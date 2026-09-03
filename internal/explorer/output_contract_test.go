@@ -111,6 +111,7 @@ func TestCompilationReceiptValidateAcceptsCurrentMultiOutputContract(t *testing.
 	}
 	r := testReceipt()
 	r.Bundle = bundle
+	r.OutputColumnProvenance = map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}, "specimens": {"specimen_id": "EXPLICIT"}}
 	r.EmittedColumns = emitted
 	r.PublicOutputContract = raw
 	r.ResolvedRecipeDigest, err = bundle.Digest()

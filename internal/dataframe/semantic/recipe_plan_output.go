@@ -61,10 +61,10 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		if err := unnest.Validate(); err != nil {
 			return OutputPlan{}, fmt.Errorf("expand: %w", err)
 		}
-		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy, Unnest: unnest}
+		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy, Unnest: unnest}
 		return finishRecipeOutput(plan, output, scope)
 	}
-	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, Collision: output.CollisionPolicy}
+	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
 	return finishRecipeOutput(plan, output, scope)
 }
 
@@ -85,12 +85,10 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 	if plan.Collision == "" {
 		plan.Collision = "error"
 	}
-	plan.Fields = make([]SemanticProjection, 0, len(output.Fields))
 	plan.CatalogProjections = make([]string, 0, len(output.CatalogProjections))
 	for _, projection := range output.CatalogProjections {
 		plan.CatalogProjections = append(plan.CatalogProjections, projection.Name)
 	}
-	plan.DeclaredOrder = make([]string, 0, len(output.Fields))
 	plan.Root = SemanticNode{Alias: "root", ResourceType: output.RootResourceType, Fields: make([]SemanticField, 0, len(output.Fields))}
 	rootFilters, err := LowerRecipeFilters(output.RootResourceType, output.Filters)
 	if err != nil {
@@ -106,9 +104,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 		if err != nil {
 			return OutputPlan{}, fmt.Errorf("field %q: %w", field.Name, err)
 		}
-		plan.Fields = append(plan.Fields, normalized.projection)
-		plan.DeclaredOrder = append(plan.DeclaredOrder, field.Name)
-		plan.Root.Fields = append(plan.Root.Fields, normalized.field)
+		plan.Root.Fields = append(plan.Root.Fields, normalized)
 	}
 	for index, traversal := range output.Traversals {
 		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index))
@@ -190,7 +186,7 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 		if err != nil {
 			return SemanticNode{}, err
 		}
-		node.Fields = append(node.Fields, normalized.field)
+		node.Fields = append(node.Fields, normalized)
 	}
 	for index, child := range input.Traversals {
 		nested, err := buildRecipeTraversal(child, scope, fmt.Sprintf("%s.traversals[%d]", path, index))

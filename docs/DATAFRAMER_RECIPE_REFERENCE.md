@@ -157,6 +157,7 @@ An output controls rows rooted at one FHIR resource type.
 | `name` | Yes | Public dataframe/output name, unique in the recipe. |
 | `rootResourceType` | Yes | FHIR resource type selected as `root` (for example `DocumentReference`). |
 | `rowGrain` | Yes | Human-readable grain label (`resource`, `file`, `study_enrollment`, etc.).  It documents the contract; it is not a FHIR selector. |
+| `traversalColumnNaming` | No | `PATH` (default) prefixes nested fields with every traversal alias; `ALIAS` uses only the globally unique owning alias. |
 | `fields` | No | Explicit named scalar or object projections. |
 | `filters` | No | Predicates applied at this node. |
 | `pivots` | No | Bounded code/key-to-column projections. |

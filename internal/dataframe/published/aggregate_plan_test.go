@@ -43,18 +43,12 @@ func (f *aggregateFakeQueryer) QueryRowsArgsVisit(ctx context.Context, query str
 	return nil
 }
 
-func aggregateTestDataset(columnCount int) FederatedDataset {
+func aggregateTestDataset(columnCount int) Materialization {
 	columns := make([]Column, columnCount)
 	for i := range columns {
 		columns[i] = Column{Name: fmt.Sprintf("facet_%03d", i), ClickHouse: "Nullable(String)"}
 	}
-	return FederatedDataset{
-		Columns: columns,
-		Sources: []Materialization{{
-			ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient",
-			Columns: append([]Column(nil), columns...),
-		}},
-	}
+	return Materialization{ID: "source:Patient", Project: "project", PhysicalTable: "physical_patient", Columns: append([]Column(nil), columns...), Selector: DataframeSelector{Recipe: "recipe", Output: "Patient"}}
 }
 
 func TestAggregatePlanCombines156CountFacets(t *testing.T) {
@@ -69,7 +63,7 @@ func TestAggregatePlanCombines156CountFacets(t *testing.T) {
 	)
 	fake := &aggregateFakeQueryer{}
 	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
-		Jobs: jobs, AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Jobs: jobs, Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +103,7 @@ func TestAggregatePlanRanksMultipleTermsByProjectedSlot(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 10},
 			{ID: 2, ResponseMode: AggregateResponseTerms, Column: "facet_001", Size: 10},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +130,29 @@ func TestAggregatePlanRanksMultipleTermsByProjectedSlot(t *testing.T) {
 	}
 }
 
+func TestAggregatePlanSeparatesRepeatedTermsColumn(t *testing.T) {
+	dataset := aggregateTestDataset(1)
+	plan := buildAggregatePlan(dataset, AggregateBatchRequest{Jobs: []AggregateJob{
+		{ID: 1, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 50},
+		{ID: 2, ResponseMode: AggregateResponseTerms, Column: "facet_000", Size: 12},
+	}})
+
+	groupingStatements := make([]aggregateStatementPlan, 0, 2)
+	for _, statement := range plan.statements {
+		if statement.kind == statementTerms {
+			groupingStatements = append(groupingStatements, statement)
+		}
+	}
+	if len(groupingStatements) != 2 {
+		t.Fatalf("terms statements = %d, want 2", len(groupingStatements))
+	}
+	for index, statement := range groupingStatements {
+		if len(statement.jobs) != 1 {
+			t.Fatalf("terms statement %d jobs = %d, want 1", index, len(statement.jobs))
+		}
+	}
+}
+
 func TestAggregatePlanCanonicalizesFilterAndMemberOrder(t *testing.T) {
 	dataset := aggregateTestDataset(2)
 	first := []Filter{{Column: "facet_001", Op: "IN", Value: []any{"b", "a"}}, {Column: "facet_000", Op: "EQ", Value: "x"}}
@@ -157,7 +174,7 @@ func TestAggregatePlanValidationIsJobLocal(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"missing"}, Operation: "COUNT"},
 			{ID: 2, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +197,7 @@ func TestAggregateDedupFansOutIndependentRows(t *testing.T) {
 			{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 			{ID: 2, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000"}, Operation: "COUNT"},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)

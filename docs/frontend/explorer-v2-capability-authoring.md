@@ -26,10 +26,10 @@ Requests use the existing authenticated session and project authorization.
 | --- | --- | --- |
 | Capability metadata | `GET .../capability` | supported operations, preview limits, and feature flags |
 | Candidate search | `POST .../suggestions` | `{snapshotToken, nodeId, query?}` → matching candidate definitions |
-| Candidate suggestions | `GET .../capabilities/{snapshotToken}/candidates/{candidateId}/suggestions` | `ExplorerCandidateSuggestions` |
 | Builder read | `GET .../builder` | `ExplorerBuilderState` |
-| Builder reconcile | `POST .../builder` | `{workspace, snapshotToken}` → `ExplorerBuilderReceipt` |
-| Compile alias | `POST .../compile` | exact alias of POST Builder |
+| Builder commands | `POST .../commands` | atomic server-owned draft changes |
+| Builder reconcile | `POST .../reconcile` | compile the exact persisted draft into an `ExplorerBuilderReceipt` |
+| Direct compile | `POST .../builder` | `{workspace, snapshotToken}` → `ExplorerBuilderReceipt` |
 | Preview | `POST .../preview` | `{receiptId, outputId, limit?}` → `ExplorerBuilderPreview` |
 | Publish | `POST .../publish` | `{receiptId}` → `ExplorerBuilderPublication` |
 
@@ -127,7 +127,7 @@ compile it, persist an immutable receipt, and return:
   "snapshotToken": "sha256:...",
   "generation": "generation-...",
   "intentDigest": "sha256:...",
-  "compilerVersion": "loom.explorer.compiler/v7+authoring-v2-native-4",
+  "compilerVersion": "loom.explorer.compiler/v10+authoring-v2-native-5",
   "outputs": [],
   "diagnostics": []
 }

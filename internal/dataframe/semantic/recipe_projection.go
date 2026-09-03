@@ -16,66 +16,67 @@ import (
 )
 
 // buildRecipeProjection checks one recipe field in the supplied lexical scope
-// and converts it to the semantic projection consumed by generic lowering.
+// and converts it to the canonical semantic field consumed by generic
+// lowering.
 // The function is intentionally kept separate from BuildRecipePlan so the
 // root and traversal builders can use exactly the same fallback/value-mode
 // rules, including slice fields.
 //
-// Schema-version-one fallbacks are selector-only.  Selector-only fields retain
-// SemanticField.Selector/Fallbacks, which lets the physical lowerer preserve
-// typed selector specialization and prepared fallback reuse.  A non-selector
-// field is still checked through the generic expression AST; its explicit
-// value mode is represented by an AST call rather than renderer branching.
-
-type normalizedRecipeProjection struct {
-	projection SemanticProjection
-	field      SemanticField
-}
-
-func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string) (normalizedRecipeProjection, error) {
+// Schema-version-one fallbacks are selector-only. Their checked expression
+// forms remain attached to the field; selector metadata is derived only by
+// the physical lowerer when it needs schema-specialized extraction.
+func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string) (SemanticField, error) {
 	if strings.TrimSpace(field.Name) == "" {
-		return normalizedRecipeProjection{}, fmt.Errorf("%s.name is required", path)
+		return SemanticField{}, fmt.Errorf("%s.name is required", path)
 	}
 	primary, err := scope.expression(field.Expr, path+".expr")
 	if err != nil {
-		return normalizedRecipeProjection{}, err
+		return SemanticField{}, err
 	}
 
 	fallbacks := make([]SemanticExpression, 0, len(field.Fallbacks))
 	for index, input := range field.Fallbacks {
 		fallback, err := scope.expression(input, fmt.Sprintf("%s.fallbacks[%d]", path, index))
 		if err != nil {
-			return normalizedRecipeProjection{}, err
+			return SemanticField{}, err
 		}
 		if fallback.Expression.Selector == nil {
-			return normalizedRecipeProjection{}, fmt.Errorf("%s.fallbacks[%d] must be a selector expression", path, index)
+			return SemanticField{}, fmt.Errorf("%s.fallbacks[%d] must be a selector expression", path, index)
 		}
 		fallbacks = append(fallbacks, fallback)
 	}
 
 	// A selector primary plus selector fallbacks is the optimized physical
-	// representation.  Keep the checked expression as the projection source,
-	// while copying selectors into SemanticField below for generic lowering.
+	// representation. Keep only the checked expressions here; selectors are
+	// derived from them by ResolveSemanticField at the physical boundary.
 	if primary.Expression.Selector != nil {
-		selector, err := recipeSelector(primary.Expression)
-		if err != nil {
-			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
+		cardinality := spec.CardinalityOptionalOne
+		if primary.Type.Cardinality == expression.Many {
+			cardinality = spec.CardinalityMany
 		}
-		fallbackSelectors := make([]spec.Selector, 0, len(fallbacks))
-		for index, fallback := range fallbacks {
-			parsed, err := recipeSelector(fallback.Expression)
-			if err != nil {
-				return normalizedRecipeProjection{}, fmt.Errorf("%s.fallbacks[%d]: %w", path, index, err)
+		for _, fallback := range fallbacks {
+			fallbackSelector, selectorErr := recipeSelector(fallback.Expression)
+			if selectorErr != nil {
+				return SemanticField{}, fmt.Errorf("%s fallback: %w", path, selectorErr)
 			}
-			fallbackSelectors = append(fallbackSelectors, parsed)
+			repeated, _, cardinalityErr := spec.SelectorCardinality(resourceTypeForScope(scope, fallback.Expression), fallbackSelector)
+			if cardinalityErr != nil {
+				return SemanticField{}, fmt.Errorf("%s fallback: %w", path, cardinalityErr)
+			}
+			if repeated {
+				cardinality = spec.CardinalityMany
+			}
+		}
+		projection, _, err := projectionForValueMode(string(field.ValueMode), cardinality)
+		if err != nil {
+			return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 		}
 		fieldSemantic := SemanticField{
-			Name: field.Name, FieldRef: field.FieldRef, Selector: selector,
-			Fallbacks: fallbackSelectors, ValueMode: string(field.ValueMode),
-			Expr: &primary.Expression, ExprType: primary.Type, SourcePath: primary.SourcePath, Discovered: field.Discovered,
+			Name: field.Name, FieldRef: field.FieldRef, Expr: primary,
+			Fallbacks: fallbacks, Projection: projection, Discovered: field.Discovered,
 		}
 		if err := validateRecipeProjectionTypes(primary.Type, fallbacks); err != nil {
-			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
+			return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 		}
 		selection, err := ResolveSemanticField(resourceTypeForScope(scope, primary.Expression), selectorContext(primary.Expression), 0, fieldSemantic)
 		if err != nil {
@@ -83,7 +84,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 			// malformed/unknown context is already rejected by scope.expression;
 			// retain its useful diagnostic here rather than silently weakening the
 			// cardinality contract.
-			return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
+			return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 		}
 		projected := primary
 		switch selection.Projection {
@@ -97,24 +98,32 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 			projected.Type.Cardinality = expression.Many
 		case spec.ProjectionScalar:
 		default:
-			return normalizedRecipeProjection{}, fmt.Errorf("%s: unsupported selector projection %q", path, selection.Projection)
+			return SemanticField{}, fmt.Errorf("%s: unsupported selector projection %q", path, selection.Projection)
 		}
-		fieldSemantic.ExprType = projected.Type
-		return normalizedRecipeProjection{projection: SemanticProjection{
-			Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected, Discovered: field.Discovered,
-		}, field: fieldSemantic}, nil
+		fieldSemantic.Expr = projected
+		fieldSemantic.Projection = selection.Projection
+		return fieldSemantic, nil
 	}
 
 	if len(fallbacks) != 0 {
-		return normalizedRecipeProjection{}, fmt.Errorf("%s.fallbacks require a selector primary expression", path)
+		return SemanticField{}, fmt.Errorf("%s.fallbacks require a selector primary expression", path)
+	}
+	projection, _, err := projectionForValueMode(string(field.ValueMode), semanticCardinality(primary.Type))
+	if err != nil {
+		return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 	}
 	projected, err := applyRecipeValueMode(scope, primary, field.ValueMode)
 	if err != nil {
-		return normalizedRecipeProjection{}, fmt.Errorf("%s: %w", path, err)
+		return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return normalizedRecipeProjection{projection: SemanticProjection{Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: projected}, field: SemanticField{
-		Name: field.Name, FieldRef: field.FieldRef, ValueMode: string(field.ValueMode), Expr: &projected.Expression, ExprType: projected.Type, SourcePath: projected.SourcePath, Discovered: field.Discovered,
-	}}, nil
+	return SemanticField{Name: field.Name, FieldRef: field.FieldRef, Expr: projected, Projection: projection, Discovered: field.Discovered}, nil
+}
+
+func semanticCardinality(input expression.Type) spec.Cardinality {
+	if input.Cardinality == expression.Many {
+		return spec.CardinalityMany
+	}
+	return spec.CardinalityOptionalOne
 }
 
 // recipeProjectionField returns the canonical selector-bearing SemanticField
@@ -122,11 +131,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 // Expr is the checked expression; physical expression lowering owns that
 // case, while selector lowering remains schema-backed.
 func recipeProjectionField(field recipe.Field, scope scopeFrame, path string) (SemanticField, error) {
-	result, err := normalizeRecipeProjection(field, scope, path)
-	if err != nil {
-		return SemanticField{}, err
-	}
-	return result.field, nil
+	return normalizeRecipeProjection(field, scope, path)
 }
 
 // recipeSelector converts a checked expression selector to the schema selector

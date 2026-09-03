@@ -150,26 +150,6 @@ func TestNewAndMissingActive(t *testing.T) {
 	}
 }
 
-func TestSnapshotPersistenceIsIdempotentAndChecksumQualified(t *testing.T) {
-	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	snapshot, err := publication.NewSnapshotGeneration("project-a", "commit-a", "", []string{"Observation", "Patient"}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, snapshot)}}}
-	store := mustStore(t, fake)
-	created, err := store.CreateOrResumeSnapshot(context.Background(), snapshot)
-	if err != nil || !reflect.DeepEqual(created, snapshot) {
-		t.Fatalf("CreateOrResumeSnapshot = %#v, %v", created, err)
-	}
-	call := fake.onlyCall(t)
-	for _, required := range []string{"existing.expectedResourceTypes == @candidate.expectedResourceTypes", "existing.authResourcePath == @candidate.authResourcePath", "existing.gitCommit == @candidate.gitCommit"} {
-		if !strings.Contains(call.query, required) {
-			t.Fatalf("create/resume query missing %q:\n%s", required, call.query)
-		}
-	}
-}
-
 func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testing.T) {
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}
@@ -226,15 +206,6 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	}
 }
 
-func TestListRetentionGenerationsPassesOnlyDeclaredBindVariables(t *testing.T) {
-	fake := &fakeQueryClient{}
-	store := mustStore(t, fake)
-	if _, err := store.ListRetentionGenerations(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	assertOnlyDeclaredBindVariables(t, fake.onlyCall(t))
-}
-
 func TestReadActiveReleasePassesOnlyDeclaredBindVariables(t *testing.T) {
 	fake := &fakeQueryClient{}
 	store := mustStore(t, fake)
@@ -277,7 +248,7 @@ func fixtureManifest(t *testing.T, project, id string, state publication.State) 
 	return manifest
 }
 
-func mustStore(t *testing.T, client QueryRowsClient) *Store {
+func mustStore(t *testing.T, client arangostore.RowQueryer) *Store {
 	t.Helper()
 	store, err := New(client)
 	if err != nil {

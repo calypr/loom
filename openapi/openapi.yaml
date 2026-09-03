@@ -21,34 +21,6 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-      - name: snapshotToken
-        in: path
-        required: true
-        schema: {type: string, minLength: 1}
-      - name: candidateId
-        in: path
-        required: true
-        schema: {type: string, minLength: 1}
-    get:
-      operationId: getExplorerCandidateSuggestions
-      responses:
-        '200':
-          description: Bounded values for one candidate in an immutable snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CandidateSuggestions'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -93,60 +65,14 @@ paths:
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-    post:
-      operationId: compileExplorerBuilder
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompileRequest'
-      responses:
-        '200':
-          description: Immutable compilation receipt.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompileResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: compileExplorer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompileRequest'
-      responses:
-        '200':
-          description: Immutable compilation receipt.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompileResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands:
     parameters:
       - $ref: '#/components/parameters/Project'
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: applyExplorerBuilderCommands
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -173,6 +99,8 @@ paths:
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: reconcileExplorerBuilder
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -194,51 +122,6 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    put:
-      operationId: saveExplorerDraft
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SaveDraftRequest'
-      responses:
-        '200':
-          description: Canonical server-owned V2 workspace draft.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SaveDraftResponse'
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    get:
-      operationId: exportExplorerWorkspace
-      responses:
-        '200':
-          description: Canonical portable V2 workspace.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workspace'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -276,6 +159,8 @@ paths:
       - $ref: '#/components/parameters/ExplorerId'
     post:
       operationId: publishExplorer
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -337,40 +222,28 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-  /api/v1/projects/{project}/resources/{resourceType}:
+  /api/v1/datasets/{project}/generations/{generation}:
     parameters:
       - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ResourceType'
-    put:
-      operationId: uploadProjectResource
-      summary: Upload one multipart NDJSON resource file.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file]
-              properties:
-                file: {type: string, format: binary}
-                auth_resource_path: {type: string}
+      - $ref: '#/components/parameters/Generation'
+    get:
+      operationId: getDatasetGenerationStatus
+      summary: Read a dataset generation's persisted load state.
+      description: This preflight uses write authorization because it determines whether a subsequent generation upload may proceed.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       responses:
         '200':
-          description: Successful response.
+          description: The persisted generation state and whether it can be reused.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '400': {$ref: '#/components/responses/ServiceBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/datasets/{project}/generations/{generation}:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Generation'
     post:
       operationId: createDatasetGeneration
       summary: Upload a multipart dataset generation.
@@ -427,255 +300,6 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/ServiceForbidden'}
         '409': {$ref: '#/components/responses/ServiceConflict'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/raw:
-    put:
-      operationId: uploadRawNDJSON
-      summary: Stream raw NDJSON into a generation.
-      parameters:
-        - name: project
-          in: query
-          schema: {type: string}
-        - name: generation
-          in: query
-          schema: {type: string}
-        - name: auth_resource_path
-          in: query
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/x-ndjson:
-            schema: {type: string, format: binary}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/generations/{generation}:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Generation'
-    post:
-      operationId: createSnapshot
-      summary: Create or resume an immutable generation snapshot.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-    get:
-      operationId: getSnapshot
-      summary: Read generation snapshot status.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-    delete:
-      operationId: abortSnapshot
-      summary: Abort a generation snapshot.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/generations/{generation}/resources/{resourceType}:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Generation'
-      - $ref: '#/components/parameters/ResourceType'
-    put:
-      operationId: uploadSnapshotResource
-      summary: Stream one resource type into an immutable snapshot.
-      parameters:
-        - name: X-Content-SHA256
-          in: header
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: {type: string, format: binary}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/generations/{generation}/finalize:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Generation'
-    post:
-      operationId: finalizeSnapshot
-      summary: Validate and finalize an immutable generation snapshot.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/releases:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-    post:
-      operationId: createRelease
-      summary: Create a durable project release candidate.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/releases/active:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-    get:
-      operationId: getActiveRelease
-      summary: Read the active project release.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/releases/{release}:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Release'
-    get:
-      operationId: getRelease
-      summary: Read a project release by ID.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/releases/{release}/activate:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/Release'
-    post:
-      operationId: activateRelease
-      summary: Activate an existing durable release.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
-        '500': {$ref: '#/components/responses/ServiceInternalError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /api/v1/projects/{project}/releases/activate:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-    post:
-      operationId: activateReleaseCompatibility
-      summary: Create and activate a release in one legacy operation.
-      deprecated: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/ServiceBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/ServiceForbidden'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-        '409': {$ref: '#/components/responses/ServiceConflict'}
-        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/dataframe/recipe-executions/{id}:
@@ -775,6 +399,8 @@ paths:
     post:
       operationId: createExplorer
       summary: Create an interactive Explorer.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       requestBody:
         required: true
         content:
@@ -842,22 +468,6 @@ paths:
         '422': {$ref: '#/components/responses/LegacyUnprocessable'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
         '503': {$ref: '#/components/responses/LegacyUnavailable'}
-  /api/v1/projects/{project}/explorer-config:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-    get:
-      operationId: getRepositoryExplorerConfig
-      summary: Read the active repository-owned Explorer config.
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
 components:
   parameters:
     Project:
@@ -870,18 +480,14 @@ components:
       in: path
       required: true
       schema: {type: string, minLength: 1}
+    AuthResourcePath:
+      name: auth_resource_path
+      in: query
+      required: false
+      description: Optional Calypr resource scope used to authorize durable Explorer mutations.
+      schema: {type: string}
     Generation:
       name: generation
-      in: path
-      required: true
-      schema: {type: string, minLength: 1}
-    ResourceType:
-      name: resourceType
-      in: path
-      required: true
-      schema: {type: string, minLength: 1}
-    Release:
-      name: release
       in: path
       required: true
       schema: {type: string, minLength: 1}
@@ -1105,7 +711,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, compile, suggestions, preview, publish, draft, export, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, preview, publish, commands, reconcile]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -1300,13 +906,6 @@ components:
         type: {type: string, minLength: 1}
         title: {type: string}
         order: {type: integer, minimum: 0}
-    CompileRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace, snapshotToken]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
-        snapshotToken: {type: string, minLength: 1}
     ApplyCommandsRequest:
       type: object
       additionalProperties: false
@@ -1327,7 +926,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, REMOVE_ROUTE, ADD_COLUMN, UPDATE_COLUMN, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, UPDATE_COLUMN, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1374,23 +973,6 @@ components:
       required: [snapshotToken, draftVersion, draftDigest]
       properties:
         snapshotToken: {type: string, minLength: 1}
-        draftVersion: {type: integer, format: int64, minimum: 1}
-        draftDigest: {type: string, minLength: 1}
-    SaveDraftRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace, snapshotToken, expectedDraftVersion]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, format: int64, minimum: 0}
-        expectedDraftDigest: {type: string}
-    SaveDraftResponse:
-      type: object
-      additionalProperties: false
-      required: [workspace, draftVersion, draftDigest]
-      properties:
-        workspace: {$ref: '#/components/schemas/Workspace'}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
     BuilderState:
@@ -1474,20 +1056,6 @@ components:
         maxSteps: {type: integer, minimum: 0}
         allowRepeatedEdges: {type: boolean}
         allowSelfLoops: {type: boolean}
-    CandidateSuggestions:
-      type: object
-      additionalProperties: false
-      required: [apiVersion, kind, snapshotToken, candidateId, values, complete, truncated]
-      properties:
-        apiVersion: {$ref: '#/components/schemas/APIVersion'}
-        kind: {type: string, enum: [ExplorerCandidateSuggestions]}
-        snapshotToken: {type: string, minLength: 1}
-        candidateId: {type: string, minLength: 1}
-        values:
-          type: array
-          items: {type: string}
-        complete: {type: boolean}
-        truncated: {type: boolean}
     CandidateSearchRequest:
       type: object
       additionalProperties: false

@@ -20,10 +20,10 @@ import (
 const (
 	// CompilationReceiptFormatVersion changes when the persisted receipt shape
 	// or its execution invariants change incompatibly.
-	CompilationReceiptFormatVersion = 2
+	CompilationReceiptFormatVersion = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v7"
+	CompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v10"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -56,31 +56,35 @@ func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 // compatibility; Bundle is the resolved recipe used by execution. Neither
 // field contains a physical IR or rendered query.
 type CompilationReceipt struct {
-	ID                       string               `json:"id"`
-	ReceiptFormatVersion     int                  `json:"receiptFormatVersion"`
-	CompilerContractVersion  string               `json:"compilerContractVersion"`
-	Project                  string               `json:"project"`
-	ExplorerID               string               `json:"explorerId"`
-	IntentDigest             string               `json:"intentDigest"`
-	SnapshotToken            string               `json:"snapshotToken"`
-	AuthorizationScopeDigest string               `json:"authorizationScopeDigest,omitempty"`
-	CapabilitySchemaDigest   string               `json:"capabilitySchemaDigest,omitempty"`
-	SourceGeneration         string               `json:"sourceGeneration"`
-	CompilationKey           string               `json:"compilationKey,omitempty"`
-	RecipeDigest             string               `json:"recipeDigest"`
-	ResolvedRecipeDigest     string               `json:"resolvedRecipeDigest,omitempty"`
-	ResolvedSchemaDigest     string               `json:"resolvedSchemaDigest,omitempty"`
-	OutputContractDigest     string               `json:"outputContractDigest,omitempty"`
-	NormalizedBundle         json.RawMessage      `json:"normalizedBundle"`
-	Bundle                   recipe.Bundle        `json:"compiledRecipe"`
-	CompiledConfig           json.RawMessage      `json:"compiledConfig,omitempty"`
-	PublicOutputContract     json.RawMessage      `json:"publicOutputContract,omitempty"`
-	IdentityMappings         []IdentityMapping    `json:"identityMappings"`
-	EmittedColumns           []EmittedColumn      `json:"emittedColumns"`
-	OutputFingerprints       map[string]string    `json:"outputFingerprints,omitempty"`
-	Warnings                 []CompilationWarning `json:"warnings,omitempty"`
-	RequestID                string               `json:"requestId,omitempty"`
-	CreatedAt                time.Time            `json:"createdAt"`
+	ID                       string            `json:"id"`
+	ReceiptFormatVersion     int               `json:"receiptFormatVersion"`
+	CompilerContractVersion  string            `json:"compilerContractVersion"`
+	Project                  string            `json:"project"`
+	ExplorerID               string            `json:"explorerId"`
+	IntentDigest             string            `json:"intentDigest"`
+	SnapshotToken            string            `json:"snapshotToken"`
+	AuthorizationScopeDigest string            `json:"authorizationScopeDigest,omitempty"`
+	CapabilitySchemaDigest   string            `json:"capabilitySchemaDigest,omitempty"`
+	SourceGeneration         string            `json:"sourceGeneration"`
+	CompilationKey           string            `json:"compilationKey,omitempty"`
+	RecipeDigest             string            `json:"recipeDigest"`
+	ResolvedRecipeDigest     string            `json:"resolvedRecipeDigest,omitempty"`
+	ResolvedSchemaDigest     string            `json:"resolvedSchemaDigest,omitempty"`
+	OutputContractDigest     string            `json:"outputContractDigest,omitempty"`
+	NormalizedBundle         json.RawMessage   `json:"normalizedBundle"`
+	Bundle                   recipe.Bundle     `json:"compiledRecipe"`
+	CompiledConfig           json.RawMessage   `json:"compiledConfig,omitempty"`
+	PublicOutputContract     json.RawMessage   `json:"publicOutputContract,omitempty"`
+	IdentityMappings         []IdentityMapping `json:"identityMappings"`
+	EmittedColumns           []EmittedColumn   `json:"emittedColumns"`
+	OutputFingerprints       map[string]string `json:"outputFingerprints,omitempty"`
+	// OutputColumnProvenance is the durable publication behavior for every
+	// compiler output column. Recipe Discovered flags are compiler-local and
+	// intentionally do not cross the authoring recipe JSON boundary.
+	OutputColumnProvenance map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
+	Warnings               []CompilationWarning         `json:"warnings,omitempty"`
+	RequestID              string                       `json:"requestId,omitempty"`
+	CreatedAt              time.Time                    `json:"createdAt"`
 }
 
 type IdentityMapping struct {
@@ -158,23 +162,24 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		return "", fmt.Errorf("canonical public output contract: %w", err)
 	}
 	identity := struct {
-		CompilationKey       string               `json:"compilationKey"`
-		RecipeDigest         string               `json:"recipeDigest"`
-		ResolvedRecipeDigest string               `json:"resolvedRecipeDigest,omitempty"`
-		ResolvedSchemaDigest string               `json:"resolvedSchemaDigest,omitempty"`
-		OutputContractDigest string               `json:"outputContractDigest,omitempty"`
-		Bundle               recipe.Bundle        `json:"compiledRecipe"`
-		CompiledConfig       []byte               `json:"compiledConfig,omitempty"`
-		PublicOutputContract []byte               `json:"publicOutputContract,omitempty"`
-		Mappings             []IdentityMapping    `json:"identityMappings"`
-		Emissions            []EmittedColumn      `json:"emittedColumns"`
-		Fingerprints         map[string]string    `json:"outputFingerprints,omitempty"`
-		Warnings             []CompilationWarning `json:"warnings,omitempty"`
+		CompilationKey       string                       `json:"compilationKey"`
+		RecipeDigest         string                       `json:"recipeDigest"`
+		ResolvedRecipeDigest string                       `json:"resolvedRecipeDigest,omitempty"`
+		ResolvedSchemaDigest string                       `json:"resolvedSchemaDigest,omitempty"`
+		OutputContractDigest string                       `json:"outputContractDigest,omitempty"`
+		Bundle               recipe.Bundle                `json:"compiledRecipe"`
+		CompiledConfig       []byte                       `json:"compiledConfig,omitempty"`
+		PublicOutputContract []byte                       `json:"publicOutputContract,omitempty"`
+		Mappings             []IdentityMapping            `json:"identityMappings"`
+		Emissions            []EmittedColumn              `json:"emittedColumns"`
+		Fingerprints         map[string]string            `json:"outputFingerprints,omitempty"`
+		ColumnProvenance     map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
+		Warnings             []CompilationWarning         `json:"warnings,omitempty"`
 	}{
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
-		r.OutputFingerprints, r.Warnings,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.Warnings,
 	}
 	return digestIdentity("receipt_", identity)
 }
@@ -266,6 +271,17 @@ func (r CompilationReceipt) Validate() error {
 		if r.OutputContractDigest != contractDigest {
 			return fmt.Errorf("%w: receipt output contract digest mismatch: got %q want %q", ErrReceiptRecompileRequired, r.OutputContractDigest, contractDigest)
 		}
+		if err := validateOutputColumnProvenance(r.OutputColumnProvenance); err != nil {
+			return err
+		}
+		if len(r.OutputColumnProvenance) != len(r.Bundle.Outputs) {
+			return fmt.Errorf("receipt output column provenance output set changed")
+		}
+		for _, output := range r.Bundle.Outputs {
+			if _, ok := r.OutputColumnProvenance[output.Name]; !ok {
+				return fmt.Errorf("receipt output column provenance is missing output %q", output.Name)
+			}
+		}
 	}
 	if r.ID != "" {
 		if err := r.ValidateID(); err != nil {
@@ -285,6 +301,23 @@ func (r CompilationReceipt) Validate() error {
 	if len(r.PublicOutputContract) > 0 {
 		if _, err := canonicalJSONBytes(r.PublicOutputContract); err != nil {
 			return fmt.Errorf("invalid public output contract: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateOutputColumnProvenance(values map[string]map[string]string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("receipt output column provenance is required")
+	}
+	for output, columns := range values {
+		if strings.TrimSpace(output) == "" || len(columns) == 0 {
+			return fmt.Errorf("receipt output column provenance contains an empty output")
+		}
+		for column, provenance := range columns {
+			if strings.TrimSpace(column) == "" || (provenance != "EXPLICIT" && provenance != "DISCOVERED") {
+				return fmt.Errorf("receipt output column provenance is invalid for %q/%q", output, column)
+			}
 		}
 	}
 	return nil

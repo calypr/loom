@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
 type dataframeBuilderRestrictedEmptyResourceAccess struct{}
@@ -35,10 +35,10 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	resolver := dataframeBuilderRestrictedEmptyScopeResolver()
 	preparedCatalogCalls := 0
 
-	dataframes := runtime.NewService(runtime.ServiceConfig{
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
 		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
 		// is already catalog- and scope-resolved before reaching execution, so
-		// the runtime must not perform a second recipe preparation pass.
+		// execution must not perform a second recipe preparation pass.
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 				t.Fatalf("dataframe AQL unrestricted bind = %#v, want false", bindVars["auth_resource_paths_unrestricted"])

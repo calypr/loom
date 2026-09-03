@@ -64,12 +64,12 @@ func (s *activationReleaseStore) GetPointer(context.Context, string) (dataframep
 
 func TestRunGenerationPropagatesDeferActivationAndResult(t *testing.T) {
 	runner := &activationCapturingRunner{}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, deferred := range []bool{false, true} {
-		result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: deferred})
+		result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: deferred})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,11 +97,11 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	manifest := activationManifest(t, "project-a", "generation-a")
 	store := &activationManifestStore{manifest: manifest}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{
+	result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err != nil {
@@ -115,14 +115,53 @@ func TestRunGenerationReusesReadyManifest(t *testing.T) {
 	}
 }
 
-func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
-	runner := &activationCapturingRunner{}
-	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+func TestGenerationStatusReportsReusableManifest(t *testing.T) {
+	manifest := activationManifest(t, "project-a", "generation-a")
+	store := &activationManifestStore{manifest: manifest}
+	svc, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: store,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.RunGeneration(context.Background(), GenerationLoadRequest{
+
+	status, err := svc.generationStatus(context.Background(), "project-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Project != "project-a" || status.Generation != "generation-a" || status.State != publication.StateReady || !status.Reusable {
+		t.Fatalf("status = %#v", status)
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads = %d, want 1", store.readCalls)
+	}
+}
+
+func TestGenerationStatusPreservesManifestNotFound(t *testing.T) {
+	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
+	svc, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.generationStatus(context.Background(), "project-a", "generation-a")
+	if !errors.Is(err, publication.ErrManifestNotFound) {
+		t.Fatalf("generationStatus error = %v, want ErrManifestNotFound", err)
+	}
+}
+
+func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
+	runner := &activationCapturingRunner{}
+	store := &activationManifestStore{readErr: fmt.Errorf("lookup: %w", publication.ErrManifestNotFound)}
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err != nil {
@@ -136,11 +175,11 @@ func TestRunGenerationLoadsWhenManifestDoesNotExist(t *testing.T) {
 func TestRunGenerationRejectsManifestLookupFailure(t *testing.T) {
 	runner := &activationCapturingRunner{}
 	store := &activationManifestStore{readErr: errors.New("database unavailable")}
-	svc, err := NewService(ServiceConfig{GenerationRunner: runner, GenerationActivator: store})
+	svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.RunGeneration(context.Background(), GenerationLoadRequest{
+	_, err = svc.runGeneration(context.Background(), GenerationLoadRequest{
 		Project: "project-a", Generation: "generation-a", StagedDir: t.TempDir(), DeferActivation: true,
 	})
 	if err == nil || runner.calls != 0 {
@@ -186,11 +225,12 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 			test.mutate(&execution, &pointer)
 			activator := &activationManifestStore{manifest: readyManifest}
 			releases := &activationReleaseStore{execution: execution, pointer: pointer}
-			svc, err := NewService(ServiceConfig{GenerationRunner: activationGenerationRunner{}, GenerationActivator: activator, DataframeReleases: releases})
+			runner := activationGenerationRunner{}
+			svc, err := NewService(ServiceConfig{LoadGeneration: runner.RunGeneration, GenerationActivator: activator, DataframeReleases: releases})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.ActivateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err == nil {
+			if err := svc.activateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err == nil {
 				t.Fatal("ActivateGeneration() unexpectedly succeeded")
 			}
 			if activator.readCalls != 0 || activator.activateCalls != 0 {
@@ -213,7 +253,7 @@ func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	activator := &activationManifestStore{manifest: manifest}
 	calledSuccess := false
 	svc, err := NewService(ServiceConfig{
-		GenerationRunner:    activationGenerationRunner{},
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
 		GenerationActivator: activator,
 		DataframeReleases:   &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
 		OnSuccess:           func(string) { calledSuccess = true },
@@ -221,7 +261,7 @@ func TestActivateGenerationActivatesPublishedAllOutputBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ActivateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err != nil {
+	if err := svc.activateGeneration(context.Background(), "project-a", "generation-a", execution.ID); err != nil {
 		t.Fatal(err)
 	}
 	if activator.readCalls != 1 || activator.activateCalls != 1 || !calledSuccess {

@@ -16,7 +16,7 @@ fail_if_matches() {
 }
 
 fail_if_matches "spec imports runtime/compiler implementation" \
-  'internal/dataframe/(runtime|compiler|semantic|materialization|template|errors)' \
+  'internal/dataframe/(execution|compiler|semantic|materialization|template|errors)' \
   "$root/internal/dataframe/spec"
 
 fail_if_matches "semantic imports physical compiler implementation" \
@@ -24,23 +24,23 @@ fail_if_matches "semantic imports physical compiler implementation" \
   "$root/internal/dataframe/semantic"
 
 fail_if_matches "ir imports lowering, optimization, rendering, or runtime" \
-  'internal/dataframe/compiler/(lower|optimize|render)|internal/dataframe/runtime|internal/store/arango' \
+  'internal/dataframe/compiler/(lower|optimize|render)|internal/dataframe/execution|internal/store/arango' \
   "$root/internal/dataframe/compiler/ir"
 
 fail_if_matches "optimizer imports renderer, lowerer, runtime, or schema routes" \
-  'internal/dataframe/compiler/(lower|render)|internal/dataframe/runtime|ResolveStorageRoute|fhirschema' \
+  'internal/dataframe/compiler/(lower|render)|internal/dataframe/execution|ResolveStorageRoute|fhirschema' \
   "$root/internal/dataframe/compiler/optimize"
 
 fail_if_matches "renderer imports lowerer, optimizer, runtime, or Arango" \
-  'internal/dataframe/compiler/(lower|optimize)|internal/dataframe/runtime|internal/store/arango|ResolveStorageRoute' \
+  'internal/dataframe/compiler/(lower|optimize)|internal/dataframe/execution|internal/store/arango|ResolveStorageRoute' \
   "$root/internal/dataframe/compiler/render/aql"
 
 fail_if_matches "stored recipe domain imports execution or storage layers" \
-  'internal/dataframe/(compiler|runtime|materialization|publication|store)' \
+  'internal/dataframe/(compiler|execution|materialization|publication|store)' \
   "$root"/internal/dataframe/recipe/*.go
 
-fail_if_matches "publication targets import dataframe runtime orchestration" \
-  'internal/dataframe/runtime|internal/dataframe/published|internal/dataframe/materialization' \
+fail_if_matches "publication targets import dataframe execution orchestration" \
+  'internal/dataframe/execution|internal/dataframe/published|internal/dataframe/materialization' \
   "$root"/internal/dataframe/publication
 
 echo "dataframe package boundaries: ok"

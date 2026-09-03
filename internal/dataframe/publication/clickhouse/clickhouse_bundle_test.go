@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dfpublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/store/clickhouse"
@@ -154,6 +155,7 @@ func (c *bundleCatalogFixture) ReleaseBundleLease(context.Context, string, strin
 
 type bundleClickHouseFixture struct {
 	tables      map[string][]map[string]any
+	lastColumns map[string][]clickhouse.Column
 	failInsert  bool
 	insertCalls int
 	maxRows     int
@@ -162,14 +164,15 @@ type bundleClickHouseFixture struct {
 }
 
 func newBundleClickHouseFixture() *bundleClickHouseFixture {
-	return &bundleClickHouseFixture{tables: map[string][]map[string]any{}}
+	return &bundleClickHouseFixture{tables: map[string][]map[string]any{}, lastColumns: map[string][]clickhouse.Column{}}
 }
 func (c *bundleClickHouseFixture) CreateTable(_ context.Context, name string, _ []clickhouse.Column) error {
 	c.tables[name] = nil
 	return nil
 }
-func (c *bundleClickHouseFixture) InsertRows(_ context.Context, name string, _ []clickhouse.Column, rows []map[string]any) error {
+func (c *bundleClickHouseFixture) InsertRows(_ context.Context, name string, columns []clickhouse.Column, rows []map[string]any) error {
 	c.insertCalls++
+	c.lastColumns[name] = append([]clickhouse.Column(nil), columns...)
 	if len(rows) > c.maxRows {
 		c.maxRows = len(rows)
 	}
@@ -185,6 +188,18 @@ func (c *bundleClickHouseFixture) DropTable(_ context.Context, name string) erro
 		return c.dropErr
 	}
 	delete(c.tables, name)
+	return nil
+}
+func (c *bundleClickHouseFixture) DropColumns(_ context.Context, name string, columns []string) error {
+	rows, ok := c.tables[name]
+	if !ok {
+		return errors.New("table not found")
+	}
+	for _, row := range rows {
+		for _, column := range columns {
+			delete(row, column)
+		}
+	}
 	return nil
 }
 func (c *bundleClickHouseFixture) VerifyOutput(_ context.Context, name string, columns []clickhouse.Column, expectedRows int64) error {
@@ -209,11 +224,65 @@ func (c *bundleClickHouseFixture) QueryRows(_ context.Context, query string, _ [
 	return nil, errors.New("table not found")
 }
 
+func TestClickHouseBundleStoreImplementsPublicationTargetDirectly(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.Begin(context.Background(), publication.PublicationIdentity{Name: "Observation"}, []publication.OutputSchema{{
+		Name:    "Observation",
+		Columns: []publication.LogicalColumn{{Name: "id", Kind: "string"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.WriteBatch(context.Background(), "Observation", []map[string]any{{"id": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	outputs, err := tx.Commit(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != 1 || outputs[0].Name != "Observation" {
+		t.Fatalf("published outputs = %#v", outputs)
+	}
+	if len(client.lastColumns) != 1 {
+		t.Fatalf("insert columns = %#v", client.lastColumns)
+	}
+	for _, columns := range client.lastColumns {
+		if len(columns) != 2 || columns[0].Name != "__loom_row_id" || columns[1].Name != "id" {
+			t.Fatalf("insert columns = %#v", columns)
+		}
+	}
+}
+
+func TestClickHouseBundleStoreReportsInProgressExecution(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	store, err := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.PublicationIdentity{Name: "Observation", Project: "project-a", DatasetGeneration: "generation-a"}
+	bundleIdentity := publication.BundleIdentity{Name: identity.Name, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, EngineVersion: "loom"}
+	catalog.executions["execution-a"] = publication.BundleExecution{ID: "execution-a", Key: bundleIdentity.Key(), BundleIdentity: bundleIdentity, State: publication.BundleRunning}
+
+	_, err = store.Begin(context.Background(), identity, nil)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodePublicationInProgress) {
+		t.Fatalf("Begin() error = %v, want PUBLICATION_IN_PROGRESS", err)
+	}
+	if got := userErr.Details()["executionId"]; got != "execution-a" {
+		t.Fatalf("executionId = %v, want execution-a", got)
+	}
+}
+
 func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
-	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "stale"})
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "stale"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +303,28 @@ func TestClickHouseBundleStoreReconcilesStaleExecution(t *testing.T) {
 	}
 	if len(client.tables) != 0 {
 		t.Fatalf("staging tables survived reconciliation: %#v", client.tables)
+	}
+}
+
+func TestClickHouseBundleStoreReconcileNeverDropsVisibleExecution(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, _ := NewBundleStore(client, catalog)
+	identity := publication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-1", Name: "Observation"}
+	execution := publication.BundleExecution{
+		ID: "published-but-stale", Key: identity.Key(), BundleIdentity: identity,
+		State: publication.BundleRunning, UpdatedAt: time.Now().Add(-time.Hour),
+		Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_visible_observation", State: publication.BundleRunning}},
+	}
+	catalog.executions[execution.ID] = execution
+	catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
+	client.tables[execution.Outputs[0].PhysicalTable] = []map[string]any{{"id": "1"}}
+
+	if err := store.Reconcile(context.Background(), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := client.tables[execution.Outputs[0].PhysicalTable]; !ok {
+		t.Fatal("reconciliation dropped a table referenced by the visible pointer")
 	}
 }
 
@@ -263,29 +354,26 @@ func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
 		{Name: "observation", TranslationVersion: "legacy", Project: "project-a", DatasetGeneration: "generation-1"},
 		{Name: "observation", TranslationVersion: "legacy", Project: "project-b", DatasetGeneration: "generation-1"},
 	}
+	verified := time.Now().UTC()
 	for index, identity := range identities {
 		execution := publication.BundleExecution{
 			ID: "execution-" + string(rune('a'+index)), BundleIdentity: identity,
 			State: publication.BundleReady, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
-			Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []publication.PhysicalColumn{{Name: "id", ClickHouse: "String"}}, State: publication.BundleReady}},
+			Outputs: []publication.BundleOutputRecord{{Name: "Observation", PhysicalTable: "loom_table_" + identity.Project, Columns: []publication.PhysicalColumn{{Name: "id", ClickHouse: "String"}}, State: publication.BundleReady, VerifiedAt: &verified}},
 		}
 		catalog.executions[execution.ID] = execution
 		catalog.pointers[identity.PointerName()] = publication.BundlePointer{Name: identity.PointerName(), ExecutionID: execution.ID}
 	}
 	reader := &dfpublished.Reader{Catalog: catalog}
 	selector := dfpublished.DataframeSelector{Recipe: "observation", TranslationVersion: "legacy", Output: "Observation"}
-	firstSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-a"}, selector)
+	first, err := reader.CurrentProjectDataset(context.Background(), "project-a", selector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondSources, err := reader.CurrentFederatedSources(context.Background(), []string{"project-b"}, selector)
+	second, err := reader.CurrentProjectDataset(context.Background(), "project-b", selector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(firstSources) != 1 || len(secondSources) != 1 {
-		t.Fatalf("source counts = %d and %d, want 1 each", len(firstSources), len(secondSources))
-	}
-	first, second := firstSources[0], secondSources[0]
 	if first.PhysicalTable == second.PhysicalTable || first.Project == second.Project {
 		t.Fatalf("project-scoped outputs collided: first=%#v second=%#v", first, second)
 	}
@@ -296,10 +384,10 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
 	identity := publication.BundleIdentity{Name: "in-flight"}
-	if _, err := store.BeginBundleFor(context.Background(), identity); err != nil {
+	if _, err := store.beginBundle(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.BeginBundleFor(context.Background(), identity); !errors.Is(err, ErrBundleInFlight) {
+	if _, err := store.beginBundle(context.Background(), identity); !errors.Is(err, ErrBundleInFlight) {
 		t.Fatalf("duplicate execution error = %v", err)
 	}
 }
@@ -307,9 +395,9 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, pointerErr: errors.New("pointer lookup failed")}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
-	_, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "pointer-failure"})
+	_, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "pointer-failure"})
 	if err == nil || !errors.Is(err, catalog.pointerErr) {
-		t.Fatalf("BeginBundleFor() error = %v", err)
+		t.Fatalf("beginBundle() error = %v", err)
 	}
 	if catalog.acquireCalls != 0 || catalog.releaseCalls != 0 {
 		t.Fatalf("lease calls = acquire %d release %d, want no lease on pointer failure", catalog.acquireCalls, catalog.releaseCalls)
@@ -319,9 +407,9 @@ func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, saveErr: errors.New("save failed")}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
-	_, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "save-failure"})
+	_, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "save-failure"})
 	if err == nil || !errors.Is(err, catalog.saveErr) {
-		t.Fatalf("BeginBundleFor() error = %v", err)
+		t.Fatalf("beginBundle() error = %v", err)
 	}
 	if catalog.releaseCalls != 1 {
 		t.Fatalf("lease release calls = %d, want 1", catalog.releaseCalls)
@@ -333,7 +421,7 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 	client := newBundleClickHouseFixture()
 	store, _ := NewBundleStore(client, catalog)
 	store.leaseRenewInterval = time.Millisecond
-	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-loss"})
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "lease-loss"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,14 +432,14 @@ func TestClickHouseBundleTransactionFailsAfterLeaseLoss(t *testing.T) {
 	if err := tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{{"id": "1"}}); !errors.Is(err, ErrBundleLeaseLost) {
 		t.Fatalf("InsertRows() error = %v, want lease loss", err)
 	}
-	_ = tx.Rollback(context.Background())
+	_ = tx.Abort(context.Background(), errors.New("lease lost"))
 }
 
 func TestClickHouseBundleTransactionContinuesAfterLeaseRenewal(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewResult: true, renewStarted: make(chan struct{})}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	store.leaseRenewInterval = time.Millisecond
-	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-renewal"})
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "lease-renewal"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,14 +464,14 @@ func TestClickHouseBundleTransactionContinuesAfterLeaseRenewal(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("transaction deadlocked after successful lease renewal")
 	}
-	_ = tx.Rollback(context.Background())
+	_ = tx.Abort(context.Background(), errors.New("lease renewal failed"))
 }
 
 func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, renewBlock: true, renewStarted: make(chan struct{})}
 	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
 	store.leaseRenewInterval = time.Millisecond
-	tx, err := store.BeginBundleFor(context.Background(), publication.BundleIdentity{Name: "lease-cancel"})
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "lease-cancel"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +481,7 @@ func TestClickHouseBundleLeaseRenewalStopsWithTransactionCleanup(t *testing.T) {
 		t.Fatal("lease renewal did not start")
 	}
 	done := make(chan error, 1)
-	go func() { done <- tx.Rollback(context.Background()) }()
+	go func() { done <- tx.Abort(context.Background(), errors.New("lease cancelled")) }()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -409,7 +497,7 @@ func TestClickHouseBundleCandidateIsInvisibleUntilReadyPointerCAS(t *testing.T) 
 		t.Fatal(err)
 	}
 	identity := publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g1", Name: "Observation"}
-	tx, err := store.BeginBundleFor(context.Background(), identity)
+	tx, err := store.beginBundle(context.Background(), identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +513,7 @@ func TestClickHouseBundleCandidateIsInvisibleUntilReadyPointerCAS(t *testing.T) 
 	if _, err := catalog.GetPointer(context.Background(), identity.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
 		t.Fatalf("candidate became visible before CAS: %v", err)
 	}
-	if err := tx.Commit(context.Background()); err != nil {
+	if _, err := tx.Commit(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	pointer, err := catalog.GetPointer(context.Background(), identity.PointerName())
@@ -460,7 +548,7 @@ func TestClickHouseBundleFailedCandidatePreservesOldPointer(t *testing.T) {
 	client.failInsert = true
 	candidateIdentity := old.BundleIdentity
 	candidateIdentity.RecipeDigest = "new-recipe"
-	tx, err := store.BeginBundleFor(context.Background(), candidateIdentity)
+	tx, err := store.beginBundle(context.Background(), candidateIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}

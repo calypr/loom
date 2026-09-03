@@ -23,11 +23,10 @@ All routes are under:
 | --- | --- | --- |
 | Read capability | `GET /capability` | exact active compiler-proven snapshot |
 | Read Builder | `GET /builder` | capability plus saved/active V2 workspace when present |
-| Save draft | `PUT /draft` | `{workspace, snapshotToken, expectedDraftVersion, expectedDraftDigest?}` |
-| Export workspace | `GET /export` | canonical portable V2 workspace |
-| Compile | `POST /compile` | `{workspace, snapshotToken}` |
-| Compile alias | `POST /builder` | same operation for the current frontend |
-| Suggestions | `GET /capabilities/:snapshotToken/candidates/:candidateId/suggestions` | bounded values for one exact snapshot |
+| Apply commands | `POST /commands` | atomically update the server-owned draft |
+| Reconcile | `POST /reconcile` | compile the exact persisted draft into a receipt |
+| Compile workspace | `POST /builder` | compile a supplied workspace for the current frontend |
+| Suggestions | `POST /suggestions` | search candidate definitions for a node |
 | Preview | `POST /preview` | `{receiptId, outputId, limit?}` |
 | Publish | `POST /publish` | `{receiptId}` |
 
@@ -64,8 +63,8 @@ Artifactless receipts created by older servers return
 
 ## Draft and publication behavior
 
-Loom stores canonical V2 workspace drafts with draft-version and optional
-digest compare-and-swap. Repository/ETL publication advances that same version,
+Loom stores canonical V2 workspace drafts through atomic Builder commands with
+draft-version and digest compare-and-swap. Repository/ETL publication advances that same version,
 so an external replacement produces `DRAFT_CONFLICT` instead of silently
 overwriting browser work. Compile-before-preview is the safe fallback when the
 latest editor state has no receipt. Receipts remain immutable and

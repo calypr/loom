@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -51,14 +52,18 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 	if err != nil {
 		return recipe.RecipeRevision{}, err
 	}
-	if parent != "" {
-		current, currentErr := r.currentDigest(ctx, project, bundle.Name)
-		if currentErr != nil && currentErr != exec.ErrRecipeNotFound {
-			return recipe.RecipeRevision{}, currentErr
-		}
-		if current != "" && current != parent {
+	current, currentErr := r.currentDigest(ctx, project, bundle.Name)
+	switch {
+	case currentErr == nil:
+		if parent == "" || current != parent {
 			return recipe.RecipeRevision{}, fmt.Errorf("recipe revision parent %q is not current (current %q)", parent, current)
 		}
+	case errors.Is(currentErr, exec.ErrRecipeNotFound):
+		if parent != "" {
+			return recipe.RecipeRevision{}, fmt.Errorf("recipe revision parent %q provided for first revision", parent)
+		}
+	default:
+		return recipe.RecipeRevision{}, currentErr
 	}
 	value := recipe.RecipeRevision{Project: project, Name: bundle.Name, Digest: digest, Parent: parent, Bundle: bundle, CreatedAt: time.Now().UTC()}
 	data, err := json.Marshal(value)

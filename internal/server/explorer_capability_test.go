@@ -248,8 +248,8 @@ func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *tes
 	}
 }
 
-func TestCapabilityObserverPublishesBothStoredRelationshipDirections(t *testing.T) {
-	observer := capabilityObserverFromEvidence(catalog.CapabilityEvidence{
+func TestCapabilityEvidencePublishesBothStoredRelationshipDirections(t *testing.T) {
+	evidence := capabilityEvidenceFromCatalog(catalog.CapabilityEvidence{
 		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{{
 			Label: "subject_Patient", EdgeCount: 7,
 			StorageFromType: "Specimen", StorageToType: "Patient", StorageDirection: "OUTBOUND",
@@ -257,7 +257,7 @@ func TestCapabilityObserverPublishesBothStoredRelationshipDirections(t *testing.
 		}}},
 	})
 	got := map[string]capability.RelationshipObservation{}
-	for _, relationship := range observer.relationships {
+	for _, relationship := range evidence.Relationships {
 		got[relationship.SourceResourceType+"->"+relationship.TargetResourceType] = relationship
 	}
 	if outbound := got["Specimen->Patient"]; outbound.StorageDirection != "OUTBOUND" || outbound.ObservedEdgeCount != 7 {

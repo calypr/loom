@@ -224,13 +224,18 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if err := validateRecipeName(a.Name, path+".name"); err != nil {
 		return err
 	}
+	if a.OutputName != "" {
+		if err := validateRecipeName(a.OutputName, path+".outputName"); err != nil {
+			return err
+		}
+	}
 	if !a.Operation.Valid() {
 		return validationError("invalid_aggregate_operation", path+".operation", fmt.Sprintf("unsupported operation %q", a.Operation))
 	}
 	if !a.ValueMode.Valid() {
 		return validationError("invalid_value_mode", path+".valueMode", fmt.Sprintf("unsupported value mode %q", a.ValueMode))
 	}
-	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax
+	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
 	}
@@ -246,6 +251,23 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 		if err := a.Where.validateAt(path + ".where"); err != nil {
 			return err
 		}
+	}
+	if a.Operation == AggregateContainsAll {
+		if len(a.RequiredValues) == 0 {
+			return validationError("required", path+".requiredValues", "CONTAINS_ALL requires at least one required value")
+		}
+		seen := map[string]bool{}
+		for index, value := range a.RequiredValues {
+			if strings.TrimSpace(value) == "" {
+				return validationError("required", fmt.Sprintf("%s.requiredValues[%d]", path, index), "required value must not be empty")
+			}
+			if seen[value] {
+				return validationError("duplicate_name", fmt.Sprintf("%s.requiredValues[%d]", path, index), "duplicate required value")
+			}
+			seen[value] = true
+		}
+	} else if len(a.RequiredValues) != 0 {
+		return validationError("invalid_required_values", path+".requiredValues", "requiredValues is only valid for CONTAINS_ALL")
 	}
 	return nil
 }
@@ -351,6 +373,16 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, aggrega
 		}
 		if err := aggregate.validateAt(p, budget); err != nil {
 			return err
+		}
+		finalName := aggregate.Name
+		if aggregate.OutputName != "" {
+			finalName = aggregate.OutputName
+		}
+		if finalName != aggregate.Name {
+			if names[finalName] {
+				return validationError("duplicate_name", p+".outputName", "name conflicts with another node output")
+			}
+			names[finalName] = true
 		}
 	}
 	for i, slice := range slices {

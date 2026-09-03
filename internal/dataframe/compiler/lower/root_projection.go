@@ -5,51 +5,106 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNode) ([]ir.PhysicalProjection, error) {
-	projections := []ir.PhysicalProjection{{Name: "_key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}}
-	for index, field := range root.Fields {
-		// Whole-document projections are lowered from the canonical expression
-		// after the generic semantic graph has established root scope. They do
-		// not have a FHIR selector to resolve here.
-		if field.Expr != nil && field.Expr.Kind == expression.DocumentRefNode {
-			placeholder := lowerDocumentRef(*field.Expr.Document, ir.PhysicalPreserveNull)
-			projections = append(projections, ir.PhysicalProjection{Name: field.Name, Expression: &placeholder})
-			continue
-		}
-		selection, err := semantic.ResolveSemanticField(root.ResourceType, root.Alias, index, field)
+// physicalSemanticBinding records the physical value and schema resource
+// associated with one semantic lexical binding. Recipe expressions use this
+// while lowering so a selector is rooted at the binding that is actually in
+// scope (root document, traversal item, set item, or unnest item).
+type physicalSemanticBinding struct {
+	ResourceType string
+	Source       ir.PhysicalValue
+}
+
+func clonePhysicalSemanticBindings(bindings map[string]physicalSemanticBinding) map[string]physicalSemanticBinding {
+	if len(bindings) == 0 {
+		return map[string]physicalSemanticBinding{}
+	}
+	copy := make(map[string]physicalSemanticBinding, len(bindings)+1)
+	for alias, binding := range bindings {
+		copy[alias] = binding
+	}
+	return copy
+}
+
+// semanticFieldProjectionLowerer is shared by root and child projection
+// construction. The generic dataframe compiler supplies nil and uses the
+// selector-only lowering below; recipe compilation supplies a direct checked
+// expression lowerer. Keeping this at the projection boundary means rich
+// expressions are lowered once, while the traversal/set walk still owns
+// lexical physical variables.
+type semanticFieldProjectionLowerer func(
+	physical *ir.PhysicalPlan,
+	node semantic.SemanticNode,
+	index int,
+	field semantic.SemanticField,
+	source ir.PhysicalValue,
+	bindings map[string]physicalSemanticBinding,
+) (ir.PhysicalProjection, error)
+
+func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalProjection, error) {
+	if lowerer != nil {
+		return lowerer(physical, node, index, field, source, bindings)
+	}
+	selection, err := semantic.ResolveSemanticField(node.ResourceType, node.Alias, index, field)
+	if err != nil {
+		return ir.PhysicalProjection{}, err
+	}
+	cardinality, distinct := ir.PhysicalScalarCardinality, false
+	switch selection.Projection {
+	case spec.ProjectionArray:
+		cardinality = ir.PhysicalArrayCardinality
+	case spec.ProjectionDistinctArray:
+		cardinality, distinct = ir.PhysicalArrayCardinality, true
+	case spec.ProjectionScalar, spec.ProjectionFirst:
+	default:
+		return ir.PhysicalProjection{}, fmt.Errorf("field %q has unsupported projection %q", field.Name, selection.Projection)
+	}
+	fallbacks, err := field.FallbackSelectors()
+	if err != nil {
+		return ir.PhysicalProjection{}, err
+	}
+	expression := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: fallbacks, Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
+	}
+	if cardinality == ir.PhysicalArrayCardinality {
+		expression.NullBehavior = ir.PhysicalEmptyOnNull
+	}
+	return ir.PhysicalProjection{Name: field.Name, Expression: &expression}, nil
+}
+
+func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
+	projections := make([]ir.PhysicalProjection, 0, len(node.Fields))
+	for index, field := range node.Fields {
+		projection, err := lowerSemanticFieldProjection(physical, node, index, field, source, bindings, lowerer)
 		if err != nil {
 			return nil, err
 		}
-		cardinality, distinct := ir.PhysicalScalarCardinality, false
-		switch selection.Projection {
-		case spec.ProjectionArray:
-			cardinality = ir.PhysicalArrayCardinality
-		case spec.ProjectionDistinctArray:
-			cardinality, distinct = ir.PhysicalArrayCardinality, true
-		case spec.ProjectionScalar, spec.ProjectionFirst:
-		default:
-			return nil, fmt.Errorf("root field %q has unsupported projection %q", field.Name, selection.Projection)
+		projections = append(projections, projection)
+	}
+	return projections, nil
+}
+
+func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNode, fields []ir.PhysicalProjection, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
+	projections := []ir.PhysicalProjection{{Name: "_key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}}
+	if fields != nil {
+		projections = append(projections, fields...)
+	} else {
+		fields, err := lowerSemanticFieldProjections(physical, root, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, bindings, lowerer)
+		if err != nil {
+			return nil, err
 		}
-		expression := ir.PhysicalExpression{
-			Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: root.ResourceType, Selector: field.Selector, Fallbacks: append([]spec.Selector(nil), field.Fallbacks...), Distinct: distinct, ExecutionMode: selectorExecutionMode(root.ResourceType, field.Selector, field.Fallbacks...)},
-		}
-		if cardinality == ir.PhysicalArrayCardinality {
-			expression.NullBehavior = ir.PhysicalEmptyOnNull
-		}
-		projections = append(projections, ir.PhysicalProjection{Name: field.Name, Expression: &expression})
+		projections = append(projections, fields...)
 	}
 	for _, aggregate := range root.Aggregates {
 		expression, err := physicalAggregateExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, aggregate, false)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: aggregate.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, ""), Expression: &expression})
 	}
 	for _, pivot := range root.Pivots {
 		pivotProjections, err := physicalPivotProjections(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, pivot, "")
@@ -113,11 +168,16 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
 	}
 	aggregatePhysical := ir.PhysicalAggregate{Source: source, Operation: op}
+	if len(aggregate.RequiredValues) > 0 {
+		key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_required_values"
+		physical.BindVars[key] = append([]string(nil), aggregate.RequiredValues...)
+		aggregatePhysical.RequiredValuesBindKey = key
+	}
 	if aggregate.Selector != nil {
 		valueSource := source
 		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
@@ -137,7 +197,10 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
 		if aggregate.PredicateEquals != "" {
 			comparison.Operator = "EQUALS"
-			comparison.ValueKind = spec.FilterString
+			comparison.ValueKind = aggregate.PredicateKind
+			if comparison.ValueKind == "" {
+				comparison.ValueKind = spec.FilterString
+			}
 			key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate_equals"
 			physical.BindVars[key] = aggregate.PredicateEquals
 			comparison.Right = &ir.PhysicalValue{BindKey: key}
@@ -149,7 +212,17 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 	if op == ir.PhysicalDistinctValuesAggregate {
 		cardinality = ir.PhysicalArrayCardinality
 	}
+	if op == ir.PhysicalContainsAllAggregate {
+		nullBehavior = ir.PhysicalPreserveNull
+	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalAggregateExpression, Cardinality: cardinality, NullBehavior: nullBehavior, Aggregate: &aggregatePhysical}, nil
+}
+
+func aggregateProjectionName(aggregate semantic.SemanticAggregate, prefix string) string {
+	if strings.TrimSpace(aggregate.OutputName) != "" {
+		return aggregate.OutputName
+	}
+	return prefix + aggregate.Name
 }
 
 // physicalSliceExpression lowers a representative slice into a typed,
@@ -180,7 +253,10 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 			key := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate_equals"
 			physical.BindVars[key] = slice.PredicateEquals
 			comparison.Operator = "EQUALS"
-			comparison.ValueKind = spec.FilterString
+			comparison.ValueKind = slice.PredicateKind
+			if comparison.ValueKind == "" {
+				comparison.ValueKind = spec.FilterString
+			}
 			comparison.Right = &ir.PhysicalValue{BindKey: key}
 		}
 		physicalSlice.Predicate = &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: comparison}
@@ -190,10 +266,18 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		if selection.Name == "" {
 			return ir.PhysicalExpression{}, fmt.Errorf("slice %q field %d requires name", slice.Name, index)
 		}
+		selector, err := selection.PrimarySelector()
+		if err != nil {
+			return ir.PhysicalExpression{}, err
+		}
+		fallbacks, err := selection.FallbackSelectors()
+		if err != nil {
+			return ir.PhysicalExpression{}, err
+		}
 		physicalSlice.Projections = append(physicalSlice.Projections, ir.PhysicalExpressionProjection{
 			Name: selection.Name,
 			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selection.Selector, Fallbacks: append([]spec.Selector(nil), selection.Fallbacks...), ExecutionMode: selectorExecutionMode(resourceType, selection.Selector, selection.Fallbacks...)}},
+				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: fallbacks, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
 		})
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil

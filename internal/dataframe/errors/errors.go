@@ -59,11 +59,13 @@ const (
 	CodeOutputEncodingFailed        ErrorCode = "OUTPUT_ENCODING_FAILED"
 	CodeDynamicSchemaDrift          ErrorCode = "DYNAMIC_SCHEMA_DRIFT"
 	CodeRecipeContractViolation     ErrorCode = "RECIPE_CONTRACT_VIOLATION"
-	CodeFederationIncompatible      ErrorCode = "FEDERATION_INCOMPATIBLE"
 	CodeInvalidSelector             ErrorCode = "INVALID_SELECTOR"
 	CodeReceiptStoreUnavailable     ErrorCode = "RECEIPT_STORE_UNAVAILABLE"
 	CodePreviewTimeout              ErrorCode = "PREVIEW_TIMEOUT"
 	CodePreviewResponseTooLarge     ErrorCode = "PREVIEW_RESPONSE_TOO_LARGE"
+	CodeQueryMemoryLimitExceeded    ErrorCode = "QUERY_MEMORY_LIMIT_EXCEEDED"
+	CodeQueryResourceLimitExceeded  ErrorCode = "QUERY_RESOURCE_LIMIT_EXCEEDED"
+	CodeQueryBackendOutOfMemory     ErrorCode = "QUERY_BACKEND_OUT_OF_MEMORY"
 )
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
@@ -349,8 +351,6 @@ func defaultMessage(code ErrorCode) string {
 		return "runtime dataframe fields could not be reconciled"
 	case CodeRecipeContractViolation:
 		return "the published output violates its recipe contract"
-	case CodeFederationIncompatible:
-		return "published sources cannot share a logical schema"
 	case CodeInvalidSelector:
 		return "a complete dataframe selector is required"
 	case CodeReceiptStoreUnavailable:
@@ -359,6 +359,12 @@ func defaultMessage(code ErrorCode) string {
 		return "the preview took too long to complete"
 	case CodePreviewResponseTooLarge:
 		return "the preview response is too large"
+	case CodeQueryMemoryLimitExceeded:
+		return "the dataframe query exceeded the database's configured memory limit"
+	case CodeQueryResourceLimitExceeded:
+		return "the dataframe query exceeded a configured database resource limit"
+	case CodeQueryBackendOutOfMemory:
+		return "the dataframe database ran out of memory while executing the query"
 	default:
 		return "internal server error"
 	}

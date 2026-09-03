@@ -10,40 +10,14 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
 // per output.  It deliberately contains no recipe-specific traversal,
 // projection, or renderer structures.  Output order is the persisted recipe
 // order and therefore part of the stable materialization contract.
-func cloneRecipeNodeForPhysical(node semantic.SemanticNode) semantic.SemanticNode {
-	copy := node
-	copy.Fields = append([]semantic.SemanticField(nil), node.Fields...)
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
-	for index := range node.Children {
-		copy.Children[index] = cloneRecipeNodeForPhysical(node.Children[index])
-	}
-	// BuildGenericPhysicalPlan currently consumes selector metadata for its
-	// structural projections.  Recipe expressions are patched after the
-	// generic plan is built, so provide a schema-valid selector seed for call
-	// expressions that contain no selector (for example a literal-only call).
-	for index := range copy.Fields {
-		// The generic lowerer uses SemanticField.Selector only to construct a
-		// valid traversal/set skeleton. Recipe expressions may refer to an
-		// expanded item (for example member.entity.reference), which is not a
-		// selector relative to the root resource. The checked recipe expression
-		// replaces this seed immediately after the skeleton is built.
-		if copy.Fields[index].Expr == nil || copy.Fields[index].Expr.Selector == nil {
-			if selector, err := spec.ParseSelector("id"); err == nil {
-				copy.Fields[index].Selector = selector
-			}
-		}
-	}
-	return copy
-}
-
 // recipeOutputSchema is the single schema capture point for recipe outputs.
 // Names and order come from the physical RETURN operation after all recipe
 // identity and bounded dynamic projections have been appended. Semantic
@@ -82,21 +56,31 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered)
 	}
-	for _, field := range output.Fields {
-		addType(field.Name, recipeSemanticPath(output.RootResourceType, output.RootResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered)
-	}
 	var addNode func(semantic.SemanticNode, string)
 	addNode = func(node semantic.SemanticNode, prefix string) {
 		for _, field := range node.Fields {
 			name := prefix + field.Name
-			if field.Expr != nil {
-				addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, *field.Expr), field.ExprType, field.Discovered)
-			} else {
-				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, expression.Expression{}), string(expression.KindString), string(expression.RequiredOne), true, field.Discovered)
-			}
+			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered)
 		}
 		for _, aggregate := range node.Aggregates {
-			addLogical(prefix+aggregate.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(expression.KindInteger), string(expression.RequiredOne), true, false)
+			name := aggregate.Name
+			if aggregate.OutputName != "" {
+				name = aggregate.OutputName
+			} else if prefix != "" {
+				name = prefix + aggregate.Name
+			}
+			kind := aggregate.ValueKind
+			if kind == "" {
+				kind = expression.KindInteger
+			}
+			cardinality := expression.RequiredOne
+			if aggregate.Operation == string(recipe.AggregateDistinctValues) {
+				cardinality = expression.Many
+			}
+			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) {
+				cardinality = expression.OptionalOne
+			}
+			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false)
 		}
 		for _, pivot := range node.Pivots {
 			kind := pivot.ValueKind
@@ -112,7 +96,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 		for _, child := range node.Children {
 			childPrefix := child.Alias
-			if prefix != "" {
+			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
 				childPrefix = strings.TrimSuffix(prefix, "__") + "__" + child.Alias
 			}
 			addNode(child, childPrefix+"__")

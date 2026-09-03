@@ -90,8 +90,11 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	for _, call := range client.calls {
 		allQueries += call.query
 	}
-	if got := strings.Count(allQueries, "UPDATE d WITH"); got != 3 {
-		t.Fatalf("composite activation updates=%d, want 3:\n%s", got, allQueries)
+	if got := strings.Count(allQueries, "UPDATE d WITH"); got != 2 {
+		t.Fatalf("composite activation revision/dataset updates=%d, want 2:\n%s", got, allQueries)
+	}
+	if !strings.Contains(allQueries, "REPLACE d WITH MERGE(UNSET(d") {
+		t.Fatalf("owner activation does not remove legacy generated fields:\n%s", allQueries)
 	}
 	if got := client.calls[0].binds["generation"]; got != "generation-a" {
 		t.Fatalf("generation bind=%v", got)

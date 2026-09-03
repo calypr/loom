@@ -10,7 +10,6 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/gofiber/fiber/v3"
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
@@ -47,16 +46,12 @@ func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = encoder.Visit(map[string]any{"value": strings.Repeat("x", 2048)})
-	if !errors.Is(err, ErrPreviewResponseTooLarge) {
+	if err := encoder.Visit(map[string]any{"value": strings.Repeat("x", 2048)}); !errors.Is(err, ErrPreviewResponseTooLarge) {
 		t.Fatalf("Visit error = %v, want %v", err, ErrPreviewResponseTooLarge)
-	}
-	if _, err := encodeExplorerPreviewResponse(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, []map[string]any{{"value": strings.Repeat("x", 2048)}}, 1024); !errors.Is(err, ErrPreviewResponseTooLarge) {
-		t.Fatalf("legacy encode error = %v, want %v", err, ErrPreviewResponseTooLarge)
 	}
 }
 
-func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
+func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 	tests := []struct {
 		name   string
 		err    error
@@ -68,20 +63,44 @@ func TestPreviewRouteFailurePreservesStableClassifications(t *testing.T) {
 		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "private", dataframeerrors.WithRetryable(true)), http.StatusServiceUnavailable, "BACKEND_UNAVAILABLE"},
-		{"receipt", &receiptPreviewResolutionError{Err: errors.New("private")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
+		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
+		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},
+		{"out-of-memory", dataframeerrors.NewError(dataframeerrors.CodeQueryBackendOutOfMemory, "private"), http.StatusServiceUnavailable, "QUERY_BACKEND_OUT_OF_MEMORY"},
+		{"receipt", &receiptPreviewResolutionError{ReceiptID: "receipt-1", Err: contractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
 		{"unknown", errors.New("private"), http.StatusInternalServerError, "PREVIEW_FAILED"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			app := fiber.New()
-			app.Get("/", func(c fiber.Ctx) error { return previewRouteFailure(c, test.err) })
-			response := requestJSON(t, app, http.MethodGet, "/", "")
-			if response.StatusCode != test.status || !strings.Contains(response.Body, `"code":"`+test.code+`"`) {
-				t.Fatalf("status=%d body=%s, want status=%d code=%s", response.StatusCode, response.Body, test.status, test.code)
-			}
-			if strings.Contains(response.Body, "private") {
-				t.Fatalf("private cause leaked: %s", response.Body)
+			var got *explorer.AuthoringError
+			if !errors.As(previewRouteError(test.err), &got) || got.Status != test.status || got.Diagnostic.Code != test.code {
+				t.Fatalf("error=%#v, want status=%d code=%s", got, test.status, test.code)
 			}
 		})
+	}
+}
+
+func TestClassifyReceiptPreviewResolutionErrorOnlyMarksContractFailuresForRecompile(t *testing.T) {
+	mismatch := classifyReceiptPreviewResolutionError("receipt-1", contractMismatch("output_execution", "patients", "expected", "actual"))
+	var resolution *receiptPreviewResolutionError
+	if !errors.As(mismatch, &resolution) || resolution.ReceiptID != "receipt-1" {
+		t.Fatalf("mismatch classification = %#v", mismatch)
+	}
+	var authoring *explorer.AuthoringError
+	if !errors.As(previewRouteError(mismatch), &authoring) || authoring.Status != http.StatusConflict {
+		t.Fatalf("mismatch route error = %#v", authoring)
+	}
+	if got := authoring.Diagnostic.Details["receiptId"]; got != "receipt-1" {
+		t.Fatalf("receiptId detail = %#v", got)
+	}
+	if got := authoring.Diagnostic.Details["outputId"]; got != "patients" {
+		t.Fatalf("outputId detail = %#v", got)
+	}
+
+	compileFailure := classifyReceiptPreviewResolutionError("receipt-1", errors.New("compiler failed"))
+	if errors.As(compileFailure, &resolution) {
+		t.Fatalf("ordinary compiler failure was classified as a receipt mismatch: %v", compileFailure)
+	}
+	if !errors.As(previewRouteError(compileFailure), &authoring) || authoring.Status != http.StatusInternalServerError || authoring.Diagnostic.Code != "PREVIEW_FAILED" {
+		t.Fatalf("compiler route error = %#v", authoring)
 	}
 }

@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +13,56 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
+
+func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *testing.T) {
+	literal := func(value string) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.Quote(value))}
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1,
+		Name:                "direct-expression",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "label", Expr: recipe.Expression{Call: "concat", Args: []recipe.Expression{literal("a"), literal("b")}}}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var label *ir.PhysicalExpression
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "label" {
+				label = projection.Expression
+			}
+		}
+	}
+	if label == nil || label.Kind != ir.PhysicalCallExpression || label.Call == nil || label.Call.Name != "concat" {
+		t.Fatalf("label projection = %#v, want direct concat call", label)
+	}
+	if len(label.Call.Args) != 2 || label.Call.Args[0].Kind != ir.PhysicalLiteralExpression || label.Call.Args[1].Kind != ir.PhysicalLiteralExpression {
+		t.Fatalf("label call args = %#v, want two physical literals", label.Call.Args)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[0].Literal.BindKey]; !ok {
+		t.Fatalf("first literal bind %q is missing: %#v", label.Call.Args[0].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+	if _, ok := compiled.Outputs[0].Plan.BindVars[label.Call.Args[1].Literal.BindKey]; !ok {
+		t.Fatalf("second literal bind %q is missing: %#v", label.Call.Args[1].Literal.BindKey, compiled.Outputs[0].Plan.BindVars)
+	}
+}
 
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
@@ -146,6 +197,98 @@ func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.
 			}
 		}
 	}
+}
+
+func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "alias-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			TraversalColumnNaming: recipe.TraversalColumnNamingAlias,
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_parent.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "occ_child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]bool{}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if !column.Internal {
+			public[column.Name] = true
+		}
+	}
+	if !public["occ_parent__id"] || !public["occ_child__id"] {
+		t.Fatalf("alias-scoped public columns = %#v", public)
+	}
+	if public["occ_parent__occ_child__id"] {
+		t.Fatalf("nested column unexpectedly used a path-scoped name: %#v", public)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"LET child_set_1_reduced = {", "LET child_set_2_reduced = {"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("recipe traversal field missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if strings.Contains(rendered.Query, "FOR __loom_prepared_value IN child_set_") {
+		t.Fatalf("recipe traversal fields still rescan their child sets:\n%s", rendered.Query)
+	}
+}
+
+func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "path-scoped-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "parent__child__id" {
+			return
+		}
+	}
+	t.Fatalf("path-scoped output schema = %#v", compiled.Outputs[0].OutputSchema)
 }
 
 func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {

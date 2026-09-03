@@ -16,13 +16,8 @@ type FHIRResource interface {
 	GetResourceType() string
 }
 
-type ActivateProjectReleaseInput struct {
-	Project                string  `json:"project"`
-	ReleaseID              string  `json:"releaseId"`
-	ExpectedActiveRevision *string `json:"expectedActiveRevision,omitempty"`
-}
-
 type DataframeAggregateInput struct {
+	ProjectID string                  `json:"projectId"`
 	Selector  *DataframeSelectorInput `json:"selector"`
 	GroupBy   []string                `json:"groupBy,omitempty"`
 	Filters   []*DataframeFilterInput `json:"filters,omitempty"`
@@ -47,9 +42,10 @@ type DataframeAggregationSpecInput struct {
 }
 
 type DataframeAggregationsInput struct {
-	Selector *DataframeSelectorInput          `json:"selector"`
-	Filters  []*DataframeFilterInput          `json:"filters,omitempty"`
-	Specs    []*DataframeAggregationSpecInput `json:"specs"`
+	ProjectID string                           `json:"projectId"`
+	Selector  *DataframeSelectorInput          `json:"selector"`
+	Filters   []*DataframeFilterInput          `json:"filters,omitempty"`
+	Specs     []*DataframeAggregationSpecInput `json:"specs"`
 }
 
 type DataframeAggregationsResult struct {
@@ -82,7 +78,8 @@ type DataframeCompilerPlanDiagnostics struct {
 }
 
 type DataframeDatasetInput struct {
-	Selector *DataframeSelectorInput `json:"selector"`
+	ProjectID string                  `json:"projectId"`
+	Selector  *DataframeSelectorInput `json:"selector"`
 }
 
 type DataframeFilterInput struct {
@@ -92,25 +89,20 @@ type DataframeFilterInput struct {
 }
 
 type DataframeMaterialization struct {
-	ID                   string                        `json:"id"`
-	Name                 string                        `json:"name"`
-	Revision             string                        `json:"revision"`
-	ProjectID            string                        `json:"projectId"`
-	DatasetGeneration    string                        `json:"datasetGeneration"`
-	State                DataframeMaterializationState `json:"state"`
-	Columns              []*DataframeColumn            `json:"columns"`
-	RowCount             *int                          `json:"rowCount,omitempty"`
-	CreatedAt            string                        `json:"createdAt"`
-	ReadyAt              *string                       `json:"readyAt,omitempty"`
-	Error                *string                       `json:"error,omitempty"`
-	ErrorCode            *string                       `json:"errorCode,omitempty"`
-	ErrorRetryable       *bool                         `json:"errorRetryable,omitempty"`
-	Selector             *DataframeSelector            `json:"selector,omitempty"`
-	Availability         *DataframeAvailability        `json:"availability,omitempty"`
-	Completeness         *float64                      `json:"completeness,omitempty"`
-	IncludedProjectCount *int                          `json:"includedProjectCount,omitempty"`
-	ExpectedProjectCount *int                          `json:"expectedProjectCount,omitempty"`
-	ProjectStatuses      []*DataframeProjectStatus     `json:"projectStatuses"`
+	ID                string                        `json:"id"`
+	Name              string                        `json:"name"`
+	Revision          string                        `json:"revision"`
+	ProjectID         string                        `json:"projectId"`
+	DatasetGeneration string                        `json:"datasetGeneration"`
+	State             DataframeMaterializationState `json:"state"`
+	Columns           []*DataframeColumn            `json:"columns"`
+	RowCount          *int                          `json:"rowCount,omitempty"`
+	CreatedAt         string                        `json:"createdAt"`
+	ReadyAt           *string                       `json:"readyAt,omitempty"`
+	Error             *string                       `json:"error,omitempty"`
+	ErrorCode         *string                       `json:"errorCode,omitempty"`
+	ErrorRetryable    *bool                         `json:"errorRetryable,omitempty"`
+	Selector          *DataframeSelector            `json:"selector,omitempty"`
 }
 
 type DataframeOptimizationDecision struct {
@@ -133,17 +125,6 @@ type DataframeOptimizationPolicy struct {
 type DataframePageInfo struct {
 	HasNextPage bool    `json:"hasNextPage"`
 	EndCursor   *string `json:"endCursor,omitempty"`
-}
-
-type DataframeProjectStatus struct {
-	Project     string                `json:"project"`
-	State       DataframeProjectState `json:"state"`
-	Generation  *string               `json:"generation,omitempty"`
-	ExecutionID *string               `json:"executionId,omitempty"`
-	CreatedAt   *string               `json:"createdAt,omitempty"`
-	UpdatedAt   *string               `json:"updatedAt,omitempty"`
-	ErrorCode   *string               `json:"errorCode,omitempty"`
-	Retryable   bool                  `json:"retryable"`
 }
 
 type DataframeQueryDiagnostics struct {
@@ -397,12 +378,13 @@ type DataframeRowConnection struct {
 }
 
 type DataframeRowsInput struct {
-	Selector *DataframeSelectorInput `json:"selector"`
-	Columns  []string                `json:"columns,omitempty"`
-	Filters  []*DataframeFilterInput `json:"filters,omitempty"`
-	Sort     *DataframeSortInput     `json:"sort,omitempty"`
-	First    *int                    `json:"first,omitempty"`
-	After    *string                 `json:"after,omitempty"`
+	ProjectID string                  `json:"projectId"`
+	Selector  *DataframeSelectorInput `json:"selector"`
+	Columns   []string                `json:"columns,omitempty"`
+	Filters   []*DataframeFilterInput `json:"filters,omitempty"`
+	Sort      *DataframeSortInput     `json:"sort,omitempty"`
+	First     *int                    `json:"first,omitempty"`
+	After     *string                 `json:"after,omitempty"`
 }
 
 type DataframeSelector struct {
@@ -618,11 +600,6 @@ type FhirTraversalStepInput struct {
 	Traverse           []*FhirTraversalStepInput       `json:"traverse,omitempty"`
 }
 
-type MaterializeDataframeRecipeInput struct {
-	Name     string                        `json:"name"`
-	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
-}
-
 type Mutation struct {
 }
 
@@ -636,14 +613,6 @@ type PreviewDataframeRecipeInput struct {
 	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 	Limit    *int                          `json:"limit,omitempty"`
 	Outputs  []string                      `json:"outputs,omitempty"`
-}
-
-type ProjectRelease struct {
-	ID         string              `json:"id"`
-	Project    string              `json:"project"`
-	Generation string              `json:"generation"`
-	Revision   string              `json:"revision"`
-	State      ProjectReleaseState `json:"state"`
 }
 
 type Query struct {
@@ -662,72 +631,9 @@ type RunDataframeRecipeInput struct {
 	Outputs  []string                      `json:"outputs,omitempty"`
 }
 
-type StartDataframeMaterializationInput struct {
-	Project    string                  `json:"project"`
-	Generation string                  `json:"generation"`
-	Selector   *DataframeSelectorInput `json:"selector"`
-}
-
 type ValidateDataframeRecipeInput struct {
 	Name     string                        `json:"name"`
 	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
-}
-
-type DataframeAvailability string
-
-const (
-	DataframeAvailabilityAvailable   DataframeAvailability = "AVAILABLE"
-	DataframeAvailabilityDegraded    DataframeAvailability = "DEGRADED"
-	DataframeAvailabilityUnavailable DataframeAvailability = "UNAVAILABLE"
-)
-
-var AllDataframeAvailability = []DataframeAvailability{
-	DataframeAvailabilityAvailable,
-	DataframeAvailabilityDegraded,
-	DataframeAvailabilityUnavailable,
-}
-
-func (e DataframeAvailability) IsValid() bool {
-	switch e {
-	case DataframeAvailabilityAvailable, DataframeAvailabilityDegraded, DataframeAvailabilityUnavailable:
-		return true
-	}
-	return false
-}
-
-func (e DataframeAvailability) String() string {
-	return string(e)
-}
-
-func (e *DataframeAvailability) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = DataframeAvailability(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid DataframeAvailability", str)
-	}
-	return nil
-}
-
-func (e DataframeAvailability) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *DataframeAvailability) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e DataframeAvailability) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
 }
 
 type DataframeMaterializationState string
@@ -784,69 +690,6 @@ func (e *DataframeMaterializationState) UnmarshalJSON(b []byte) error {
 }
 
 func (e DataframeMaterializationState) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-type DataframeProjectState string
-
-const (
-	DataframeProjectStateCurrent  DataframeProjectState = "CURRENT"
-	DataframeProjectStateStale    DataframeProjectState = "STALE"
-	DataframeProjectStateBuilding DataframeProjectState = "BUILDING"
-	DataframeProjectStateFailed   DataframeProjectState = "FAILED"
-	DataframeProjectStateMissing  DataframeProjectState = "MISSING"
-	DataframeProjectStateExcluded DataframeProjectState = "EXCLUDED"
-)
-
-var AllDataframeProjectState = []DataframeProjectState{
-	DataframeProjectStateCurrent,
-	DataframeProjectStateStale,
-	DataframeProjectStateBuilding,
-	DataframeProjectStateFailed,
-	DataframeProjectStateMissing,
-	DataframeProjectStateExcluded,
-}
-
-func (e DataframeProjectState) IsValid() bool {
-	switch e {
-	case DataframeProjectStateCurrent, DataframeProjectStateStale, DataframeProjectStateBuilding, DataframeProjectStateFailed, DataframeProjectStateMissing, DataframeProjectStateExcluded:
-		return true
-	}
-	return false
-}
-
-func (e DataframeProjectState) String() string {
-	return string(e)
-}
-
-func (e *DataframeProjectState) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = DataframeProjectState(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid DataframeProjectState", str)
-	}
-	return nil
-}
-
-func (e DataframeProjectState) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *DataframeProjectState) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e DataframeProjectState) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
@@ -1483,59 +1326,6 @@ func (e *FhirValueMode) UnmarshalJSON(b []byte) error {
 }
 
 func (e FhirValueMode) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-type ProjectReleaseState string
-
-const (
-	ProjectReleaseStateActive ProjectReleaseState = "ACTIVE"
-)
-
-var AllProjectReleaseState = []ProjectReleaseState{
-	ProjectReleaseStateActive,
-}
-
-func (e ProjectReleaseState) IsValid() bool {
-	switch e {
-	case ProjectReleaseStateActive:
-		return true
-	}
-	return false
-}
-
-func (e ProjectReleaseState) String() string {
-	return string(e)
-}
-
-func (e *ProjectReleaseState) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = ProjectReleaseState(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid ProjectReleaseState", str)
-	}
-	return nil
-}
-
-func (e ProjectReleaseState) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *ProjectReleaseState) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e ProjectReleaseState) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

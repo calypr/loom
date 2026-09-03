@@ -54,16 +54,15 @@ type PublicationIdentity struct {
 	// OutputName scopes single-output publications. The field is empty for
 	// legacy/full-bundle publications and is used by incremental Explorer
 	// loads so each output can retain its own visibility pointer.
-	OutputName         string
-	Project            string
-	DatasetGeneration  string
-	RecipeDigest       string
-	SchemaDigest       string
-	ScopeDigest        string
-	EngineVersion      string
-	TargetConfigDigest string
-	AuthScopeMode      string
-	AuthResourcePaths  []string
+	OutputName        string
+	Project           string
+	DatasetGeneration string
+	RecipeDigest      string
+	SchemaDigest      string
+	ScopeDigest       string
+	EngineVersion     string
+	AuthScopeMode     string
+	AuthResourcePaths []string
 }
 
 type PublishedOutput struct {
@@ -75,30 +74,17 @@ type PublishedOutput struct {
 
 type Target interface {
 	Begin(context.Context, PublicationIdentity, []OutputSchema) (Transaction, error)
-}
-
-// ObjectValueTarget is implemented by publication targets that can persist
-// logical object columns without flattening or stringifying them. Targets
-// that do not implement this capability continue to receive the generic flat
-// publication contract, where object values are rejected before any rows are
-// written.
-type ObjectValueTarget interface {
 	SupportsObjectValues() bool
 }
 
 type Transaction interface {
 	WriteBatch(context.Context, string, []map[string]any) error
-	Commit(context.Context) ([]PublishedOutput, error)
-	Rollback(context.Context) error
-}
-
-// SchemaFinalizer is implemented by publication targets that can remove
-// unpopulated discovered columns from their private staging tables. The
-// runner uses the optional interface so older non-ClickHouse test targets
-// remain source-compatible while production publication requires it when a
-// column must be dropped.
-type SchemaFinalizer interface {
 	FinalizeSchema(context.Context, []OutputSchema) error
+	SetFinalSchemaDigest(string) error
+	Commit(context.Context) ([]PublishedOutput, error)
+	Abort(context.Context, error) error
+	Idempotent() bool
+	ExistingPublishedOutputs() []PublishedOutput
 }
 
 // FinalSchemaDigest computes the versioned digest for the schema actually

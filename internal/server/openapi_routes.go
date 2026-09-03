@@ -1,81 +1,53 @@
 package server
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/gofiber/fiber/v3"
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/publication"
 )
-
-type strictFiberContextKey struct{}
 
 type HTTPRoutes struct {
 	server   *httpapi.HTTPServer
 	load     *loadapi.Handler
-	recipe   httpapi.RecipeExecutionHandler
+	releases publication.BundleCatalog
+	scopes   *authscope.ScopeResolver
 	graphql  graphapi.RouteConfig
 	explorer *explorerHTTPHandlers
 }
 
 var _ loomapi.StrictServerInterface = (*HTTPRoutes)(nil)
 
-func strictFiberContextMiddleware(next loomapi.StrictHandlerFunc, _ string) loomapi.StrictHandlerFunc {
-	return func(c fiber.Ctx, args any) (any, error) {
-		c.SetContext(context.WithValue(c.Context(), strictFiberContextKey{}, c))
-		return next(c, args)
+func serviceErrorResponse(body httpapi.ErrorResponse) loomapi.ServiceErrorResponse {
+	details := body.Error.Details
+	requestID := body.Error.RequestID
+	retryable := body.Error.Retryable
+	var detailsPtr *map[string]interface{}
+	if details != nil {
+		converted := map[string]interface{}(details)
+		detailsPtr = &converted
 	}
+	var requestIDPtr *string
+	if requestID != "" {
+		requestIDPtr = &requestID
+	}
+	return loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: body.Error.Code, Message: body.Error.Message, Details: detailsPtr, RequestId: requestIDPtr, Retryable: &retryable}}
 }
 
-func fiberContext(ctx context.Context) (fiber.Ctx, error) {
-	c, ok := ctx.Value(strictFiberContextKey{}).(fiber.Ctx)
-	if !ok || c == nil {
-		return nil, fmt.Errorf("generated route is missing Fiber request context")
+func legacyErrorFromMap(body loomapi.RawJSON) (loomapi.LegacyErrorResponse, error) {
+	value, ok := body["error"].(string)
+	if !ok {
+		return loomapi.LegacyErrorResponse{}, fmt.Errorf("legacy error response is missing a string error")
 	}
-	return c, nil
-}
-
-func runFiberHandler(ctx context.Context, handler fiber.Handler) (int, []byte, error) {
-	c, err := fiberContext(ctx)
-	if err != nil {
-		return 0, nil, err
+	var result loomapi.LegacyErrorResponse
+	if err := result.Error.FromLegacyErrorResponseError0(value); err != nil {
+		return loomapi.LegacyErrorResponse{}, err
 	}
-	if handler == nil {
-		return http.StatusNotFound, []byte(`{"error":"not found"}`), nil
-	}
-	if err := handler(c); err != nil {
-		return 0, nil, err
-	}
-	status := c.Response().StatusCode()
-	body := append([]byte(nil), c.Response().Body()...)
-	c.Response().ResetBody()
-	return status, body, nil
-}
-
-func decodeResponse[T any](body []byte) (T, error) {
-	var value T
-	if err := json.Unmarshal(body, &value); err != nil {
-		return value, fmt.Errorf("decode generated response: %w", err)
-	}
-	return value, nil
-}
-
-func authoringError(body []byte, status int) (loomapi.ErrorResponse, int, error) {
-	value, err := decodeResponse[loomapi.ErrorResponse](body)
-	return value, status, err
-}
-
-func serviceError(body []byte) (loomapi.ServiceErrorResponse, error) {
-	return decodeResponse[loomapi.ServiceErrorResponse](body)
-}
-
-func legacyError(body []byte) (loomapi.LegacyErrorResponse, error) {
-	return decodeResponse[loomapi.LegacyErrorResponse](body)
+	return result, nil
 }
 
 func unexpectedResponseStatus(operation string, status int) error {

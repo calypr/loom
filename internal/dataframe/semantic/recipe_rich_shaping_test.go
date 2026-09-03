@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
@@ -95,6 +96,35 @@ func TestLowerRecipeAggregatesRejectsUnrepresentableWhereAndCountExpr(t *testing
 	}
 }
 
+func TestLowerRecipeAggregatesPreservesOutputNameAndRequiredValues(t *testing.T) {
+	scope := newRootScope("Specimen")
+	aggregates, err := lowerRecipeAggregates("Specimen", "specimen", scope, []recipe.Aggregate{{
+		Name: "paired", OutputName: "has_pair", Operation: recipe.AggregateContainsAll,
+		Expr: recipeExpr("type.coding[].code"), RequiredValues: []string{"Tumor", "Normal"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].OutputName != "has_pair" || aggregates[0].ValueKind != "boolean" || len(aggregates[0].RequiredValues) != 2 {
+		t.Fatalf("aggregate = %#v", aggregates)
+	}
+}
+
+func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
+	code := "Tumor"
+	scope := newRootScope("Specimen")
+	aggregates, err := lowerRecipeAggregates("Specimen", "specimen", scope, []recipe.Aggregate{{
+		Name: "tumor_count", Operation: recipe.AggregateCount,
+		Where: &recipe.Filter{Select: "specimen.type.coding[].code", Operator: recipe.FilterEquals, Quantifier: recipe.QuantifierAny, Values: []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].PredicateKind != spec.FilterCode || aggregates[0].PredicateEquals != code {
+		t.Fatalf("aggregate = %#v", aggregates)
+	}
+}
+
 func TestLowerRecipeSlicesUsesProjectionFallbacksAndPredicate(t *testing.T) {
 	scope := newRootScope("Patient")
 	want := "female"
@@ -113,7 +143,7 @@ func TestLowerRecipeSlicesUsesProjectionFallbacksAndPredicate(t *testing.T) {
 		t.Fatalf("slice = %#v", slices)
 	}
 	field := slices[0].Fields[0]
-	if len(field.Fallbacks) != 1 || field.ValueMode != string(recipe.ValueModeFirst) {
+	if len(field.Fallbacks) != 1 || field.Projection != spec.ProjectionFirst {
 		t.Fatalf("slice field = %#v", field)
 	}
 }

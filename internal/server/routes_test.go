@@ -16,7 +16,7 @@ import (
 
 type routeRunner struct{}
 
-func (routeRunner) Run(context.Context, loadapi.ImportRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
 	return ingest.LoadSummary{}, nil
 }
 
@@ -28,11 +28,11 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{Runner: routeRunner{}})
+	resourceService, err := loadapi.NewService(loadapi.ServiceConfig{LoadGeneration: routeRunner{}.RunGeneration})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, nil, nil, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}, &explorerHTTPHandlers{lifecycle: &explorerLifecycleHandlers{}, authoring: &explorerAuthoringHandlers{}}); err != nil {
+	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &resolver.Resolver{}, &explorerHTTPHandlers{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,6 +55,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/datasets/project/generations/generation/export"},
 		{http.MethodPost, "/loom/api/v1/dataframe/export"},
+		{http.MethodPut, "/api/v1/raw"},
 	} {
 		resp, err := server.App().Test(httptest.NewRequest(request.method, request.path, nil))
 		if err != nil {
@@ -70,8 +71,6 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 		path   string
 		want   int
 	}{
-		{http.MethodGet, "/api/v1/raw", http.StatusMethodNotAllowed},
-		{http.MethodPut, "/api/v1/raw", http.StatusUnsupportedMediaType},
 		{http.MethodPost, "/api/v1/datasets/project/generations/generation", http.StatusUnsupportedMediaType},
 		{http.MethodPost, "/api/v1/datasets/project/generations/generation/activate", http.StatusBadRequest},
 	} {
@@ -89,7 +88,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnsupportedMediaType {
-		t.Fatalf("resource route status = %d, want %d", resp.StatusCode, http.StatusUnsupportedMediaType)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("removed resource route status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 }

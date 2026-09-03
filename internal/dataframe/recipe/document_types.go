@@ -31,21 +31,64 @@ type Bundle struct {
 // Output describes one row-shaped result. Names are semantic names, not
 // storage identifiers.
 type Output struct {
-	Name               string                `json:"name"`
-	RootResourceType   string                `json:"rootResourceType"`
-	RowGrain           string                `json:"rowGrain"`
-	Fields             []Field               `json:"fields,omitempty"`
-	Filters            []Filter              `json:"filters,omitempty"`
-	Pivots             []Pivot               `json:"pivots,omitempty"`
-	Aggregates         []Aggregate           `json:"aggregates,omitempty"`
-	Slices             []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals         []Traversal           `json:"traversals,omitempty"`
-	Expand             *Expansion            `json:"expand,omitempty"`
-	Identity           *Identity             `json:"identity,omitempty"`
-	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
-	CollisionPolicy    string                `json:"collisionPolicy,omitempty"`
+	Name                  string                `json:"name"`
+	RootResourceType      string                `json:"rootResourceType"`
+	RowGrain              string                `json:"rowGrain"`
+	RootColumnNaming      RootColumnNaming      `json:"rootColumnNaming,omitempty"`
+	TraversalColumnNaming TraversalColumnNaming `json:"traversalColumnNaming,omitempty"`
+	Fields                []Field               `json:"fields,omitempty"`
+	Filters               []Filter              `json:"filters,omitempty"`
+	Pivots                []Pivot               `json:"pivots,omitempty"`
+	Aggregates            []Aggregate           `json:"aggregates,omitempty"`
+	Slices                []RepresentativeSlice `json:"slices,omitempty"`
+	Traversals            []Traversal           `json:"traversals,omitempty"`
+	Expand                *Expansion            `json:"expand,omitempty"`
+	Identity              *Identity             `json:"identity,omitempty"`
+	DynamicColumns        []DynamicColumn       `json:"dynamicColumns,omitempty"`
+	ExtensionColumns      []ExtensionColumn     `json:"extensionColumns,omitempty"`
+	CatalogProjections    []CatalogProjection   `json:"catalogProjections,omitempty"`
+	CollisionPolicy       string                `json:"collisionPolicy,omitempty"`
+}
+
+type RootColumnNaming string
+
+const (
+	RootColumnNamingPrefixed RootColumnNaming = "PREFIXED"
+	RootColumnNamingExact    RootColumnNaming = "EXACT"
+)
+
+func (n RootColumnNaming) Valid() bool {
+	return n == "" || n == RootColumnNamingPrefixed || n == RootColumnNamingExact
+}
+
+func (n RootColumnNaming) Normalized() RootColumnNaming {
+	if n == "" {
+		return RootColumnNamingPrefixed
+	}
+	return n
+}
+
+// TraversalColumnNaming controls how traversal aliases contribute to public
+// output column names. PATH is the backwards-compatible recipe behavior and
+// includes every ancestor alias. ALIAS treats each traversal alias as a
+// globally scoped output namespace, which is useful for authoring systems that
+// allocate stable, globally unique occurrence IDs.
+type TraversalColumnNaming string
+
+const (
+	TraversalColumnNamingPath  TraversalColumnNaming = "PATH"
+	TraversalColumnNamingAlias TraversalColumnNaming = "ALIAS"
+)
+
+func (n TraversalColumnNaming) Valid() bool {
+	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias
+}
+
+func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {
+	if n == "" {
+		return TraversalColumnNamingPath
+	}
+	return n
 }
 
 // Field projects one named semantic value into an output row.
@@ -237,11 +280,12 @@ const (
 	AggregateDistinctValues AggregateOperation = "DISTINCT_VALUES"
 	AggregateMin            AggregateOperation = "MIN"
 	AggregateMax            AggregateOperation = "MAX"
+	AggregateContainsAll    AggregateOperation = "CONTAINS_ALL"
 )
 
 func (op AggregateOperation) Valid() bool {
 	switch op {
-	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax:
+	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateContainsAll:
 		return true
 	default:
 		return false
@@ -249,12 +293,14 @@ func (op AggregateOperation) Valid() bool {
 }
 
 type Aggregate struct {
-	Name      string             `json:"name"`
-	Operation AggregateOperation `json:"operation"`
-	FieldRef  string             `json:"fieldRef,omitempty"`
-	Expr      *Expression        `json:"expr,omitempty"`
-	Where     *Filter            `json:"where,omitempty"`
-	ValueMode ValueMode          `json:"valueMode,omitempty"`
+	Name string `json:"name"`
+	OutputName     string             `json:"outputName,omitempty"`
+	Operation      AggregateOperation `json:"operation"`
+	FieldRef       string             `json:"fieldRef,omitempty"`
+	Expr           *Expression        `json:"expr,omitempty"`
+	Where          *Filter            `json:"where,omitempty"`
+	ValueMode      ValueMode          `json:"valueMode,omitempty"`
+	RequiredValues []string           `json:"requiredValues,omitempty"`
 }
 
 type RepresentativeSlice struct {

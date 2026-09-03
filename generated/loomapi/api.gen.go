@@ -58,9 +58,6 @@ func (e AuthoringCapabilityKind) Valid() bool {
 const (
 	Builder     AuthoringCapabilityOperations = "builder"
 	Commands    AuthoringCapabilityOperations = "commands"
-	Compile     AuthoringCapabilityOperations = "compile"
-	Draft       AuthoringCapabilityOperations = "draft"
-	Export      AuthoringCapabilityOperations = "export"
 	Preview     AuthoringCapabilityOperations = "preview"
 	Publish     AuthoringCapabilityOperations = "publish"
 	Reconcile   AuthoringCapabilityOperations = "reconcile"
@@ -73,12 +70,6 @@ func (e AuthoringCapabilityOperations) Valid() bool {
 	case Builder:
 		return true
 	case Commands:
-		return true
-	case Compile:
-		return true
-	case Draft:
-		return true
-	case Export:
 		return true
 	case Preview:
 		return true
@@ -116,17 +107,18 @@ func (e AuthoringCommandInitialPresentation) Valid() bool {
 
 // Defines values for AuthoringCommandType.
 const (
-	ADDCOLUMN      AuthoringCommandType = "ADD_COLUMN"
-	ADDROUTE       AuthoringCommandType = "ADD_ROUTE"
-	CREATETABLE    AuthoringCommandType = "CREATE_TABLE"
-	DELETETABLE    AuthoringCommandType = "DELETE_TABLE"
-	DUPLICATETABLE AuthoringCommandType = "DUPLICATE_TABLE"
-	REMOVECOLUMN   AuthoringCommandType = "REMOVE_COLUMN"
-	REMOVEROUTE    AuthoringCommandType = "REMOVE_ROUTE"
-	RENAMETABLE    AuthoringCommandType = "RENAME_TABLE"
-	REORDERTABLES  AuthoringCommandType = "REORDER_TABLES"
-	SETTABLEROOT   AuthoringCommandType = "SET_TABLE_ROOT"
-	UPDATECOLUMN   AuthoringCommandType = "UPDATE_COLUMN"
+	ADDCOLUMN       AuthoringCommandType = "ADD_COLUMN"
+	ADDROUTE        AuthoringCommandType = "ADD_ROUTE"
+	CREATETABLE     AuthoringCommandType = "CREATE_TABLE"
+	DELETETABLE     AuthoringCommandType = "DELETE_TABLE"
+	DUPLICATETABLE  AuthoringCommandType = "DUPLICATE_TABLE"
+	REMOVECOLUMN    AuthoringCommandType = "REMOVE_COLUMN"
+	REMOVEROUTE     AuthoringCommandType = "REMOVE_ROUTE"
+	RENAMETABLE     AuthoringCommandType = "RENAME_TABLE"
+	REORDERTABLES   AuthoringCommandType = "REORDER_TABLES"
+	SETTABLEROOT    AuthoringCommandType = "SET_TABLE_ROOT"
+	UPDATECOLUMN    AuthoringCommandType = "UPDATE_COLUMN"
+	UPDATEROUTEEDGE AuthoringCommandType = "UPDATE_ROUTE_EDGE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandType enum.
@@ -153,6 +145,8 @@ func (e AuthoringCommandType) Valid() bool {
 	case SETTABLEROOT:
 		return true
 	case UPDATECOLUMN:
+		return true
+	case UPDATEROUTEEDGE:
 		return true
 	default:
 		return false
@@ -201,21 +195,6 @@ const (
 func (e CandidateSearchResponseKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderCandidateSuggestions:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CandidateSuggestionsKind.
-const (
-	ExplorerCandidateSuggestions CandidateSuggestionsKind = "ExplorerCandidateSuggestions"
-)
-
-// Valid indicates whether the value is a known member of the CandidateSuggestionsKind enum.
-func (e CandidateSuggestionsKind) Valid() bool {
-	switch e {
-	case ExplorerCandidateSuggestions:
 		return true
 	default:
 		return false
@@ -530,20 +509,6 @@ type CandidateSearchResponse struct {
 // CandidateSearchResponseKind defines model for CandidateSearchResponse.Kind.
 type CandidateSearchResponseKind string
 
-// CandidateSuggestions defines model for CandidateSuggestions.
-type CandidateSuggestions struct {
-	ApiVersion    APIVersion               `json:"apiVersion"`
-	CandidateId   string                   `json:"candidateId"`
-	Complete      bool                     `json:"complete"`
-	Kind          CandidateSuggestionsKind `json:"kind"`
-	SnapshotToken string                   `json:"snapshotToken"`
-	Truncated     bool                     `json:"truncated"`
-	Values        []string                 `json:"values"`
-}
-
-// CandidateSuggestionsKind defines model for CandidateSuggestions.Kind.
-type CandidateSuggestionsKind string
-
 // Catalog defines model for Catalog.
 type Catalog struct {
 	AuthorizationScopeDigest string             `json:"authorizationScopeDigest"`
@@ -634,12 +599,6 @@ type CommandResult struct {
 
 // CommandResultType defines model for CommandResult.Type.
 type CommandResultType string
-
-// CompileRequest defines model for CompileRequest.
-type CompileRequest struct {
-	SnapshotToken string    `json:"snapshotToken"`
-	Workspace     Workspace `json:"workspace"`
-}
 
 // CompileResponse defines model for CompileResponse.
 type CompileResponse struct {
@@ -844,21 +803,6 @@ type RoutePolicy struct {
 	MaxSteps           *int `json:"maxSteps,omitempty"`
 }
 
-// SaveDraftRequest defines model for SaveDraftRequest.
-type SaveDraftRequest struct {
-	ExpectedDraftDigest  *string   `json:"expectedDraftDigest,omitempty"`
-	ExpectedDraftVersion int64     `json:"expectedDraftVersion"`
-	SnapshotToken        string    `json:"snapshotToken"`
-	Workspace            Workspace `json:"workspace"`
-}
-
-// SaveDraftResponse defines model for SaveDraftResponse.
-type SaveDraftResponse struct {
-	DraftDigest  string    `json:"draftDigest"`
-	DraftVersion int64     `json:"draftVersion"`
-	Workspace    Workspace `json:"workspace"`
-}
-
 // ServiceErrorBody defines model for ServiceErrorBody.
 type ServiceErrorBody struct {
 	Code      string                  `json:"code"`
@@ -902,6 +846,9 @@ type TablePresentationCellRenderer string
 // Workspace defines model for Workspace.
 type Workspace = authoringv2.Workspace
 
+// AuthResourcePath defines model for AuthResourcePath.
+type AuthResourcePath = string
+
 // ExplorerId defines model for ExplorerId.
 type ExplorerId = string
 
@@ -910,12 +857,6 @@ type Generation = string
 
 // Project defines model for Project.
 type Project = string
-
-// Release defines model for Release.
-type Release = string
-
-// ResourceType defines model for ResourceType.
-type ResourceType = string
 
 // AuthoringBadRequest defines model for AuthoringBadRequest.
 type AuthoringBadRequest = ErrorResponse
@@ -1007,6 +948,12 @@ type ServiceUnprocessable = ServiceErrorResponse
 // ServiceUnsupportedMediaType Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceUnsupportedMediaType = ServiceErrorResponse
 
+// GetDatasetGenerationStatusParams defines parameters for GetDatasetGenerationStatus.
+type GetDatasetGenerationStatusParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // CreateDatasetGenerationMultipartBody defines parameters for CreateDatasetGeneration.
 type CreateDatasetGenerationMultipartBody struct {
 	AuthResourcePath *string              `json:"auth_resource_path,omitempty"`
@@ -1022,28 +969,34 @@ type ActivateDatasetGenerationParams struct {
 	AuthResourcePath     *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// CreateExplorerParams defines parameters for CreateExplorer.
+type CreateExplorerParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// ApplyExplorerBuilderCommandsParams defines parameters for ApplyExplorerBuilderCommands.
+type ApplyExplorerBuilderCommandsParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// PublishExplorerParams defines parameters for PublishExplorer.
+type PublishExplorerParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// ReconcileExplorerBuilderParams defines parameters for ReconcileExplorerBuilder.
+type ReconcileExplorerBuilderParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // PublishRepositoryExplorerConfigParams defines parameters for PublishRepositoryExplorerConfig.
 type PublishRepositoryExplorerConfigParams struct {
 	AuthResourcePath  *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 	XLoomSourceCommit string  `json:"X-Loom-Source-Commit"`
-}
-
-// UploadSnapshotResourceParams defines parameters for UploadSnapshotResource.
-type UploadSnapshotResourceParams struct {
-	XContentSHA256 *string `json:"X-Content-SHA256,omitempty"`
-}
-
-// UploadProjectResourceMultipartBody defines parameters for UploadProjectResource.
-type UploadProjectResourceMultipartBody struct {
-	AuthResourcePath *string            `json:"auth_resource_path,omitempty"`
-	File             openapi_types.File `json:"file"`
-}
-
-// UploadRawNDJSONParams defines parameters for UploadRawNDJSON.
-type UploadRawNDJSONParams struct {
-	Project          *string `form:"project,omitempty" json:"project,omitempty"`
-	Generation       *string `form:"generation,omitempty" json:"generation,omitempty"`
-	AuthResourcePath *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
@@ -1052,17 +1005,8 @@ type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipar
 // CreateExplorerJSONRequestBody defines body for CreateExplorer for application/json ContentType.
 type CreateExplorerJSONRequestBody = RawJSON
 
-// CompileExplorerBuilderJSONRequestBody defines body for CompileExplorerBuilder for application/json ContentType.
-type CompileExplorerBuilderJSONRequestBody = CompileRequest
-
 // ApplyExplorerBuilderCommandsJSONRequestBody defines body for ApplyExplorerBuilderCommands for application/json ContentType.
 type ApplyExplorerBuilderCommandsJSONRequestBody = ApplyCommandsRequest
-
-// CompileExplorerJSONRequestBody defines body for CompileExplorer for application/json ContentType.
-type CompileExplorerJSONRequestBody = CompileRequest
-
-// SaveExplorerDraftJSONRequestBody defines body for SaveExplorerDraft for application/json ContentType.
-type SaveExplorerDraftJSONRequestBody = SaveDraftRequest
 
 // PreviewExplorerJSONRequestBody defines body for PreviewExplorer for application/json ContentType.
 type PreviewExplorerJSONRequestBody = PreviewRequest
@@ -1076,25 +1020,8 @@ type ReconcileExplorerBuilderJSONRequestBody = ReconcileRequest
 // SearchExplorerCandidatesJSONRequestBody defines body for SearchExplorerCandidates for application/json ContentType.
 type SearchExplorerCandidatesJSONRequestBody = CandidateSearchRequest
 
-// CreateSnapshotJSONRequestBody defines body for CreateSnapshot for application/json ContentType.
-type CreateSnapshotJSONRequestBody = RawJSON
-
 // PublishRepositoryExplorerConfigJSONRequestBody defines body for PublishRepositoryExplorerConfig for application/json ContentType.
 type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
-
-// CreateReleaseJSONRequestBody defines body for CreateRelease for application/json ContentType.
-type CreateReleaseJSONRequestBody = RawJSON
-
-// ActivateReleaseCompatibilityJSONRequestBody defines body for ActivateReleaseCompatibility for application/json ContentType.
-//
-// Deprecated: this type has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-type ActivateReleaseCompatibilityJSONRequestBody = RawJSON
-
-// ActivateReleaseJSONRequestBody defines body for ActivateRelease for application/json ContentType.
-type ActivateReleaseJSONRequestBody = RawJSON
-
-// UploadProjectResourceMultipartRequestBody defines body for UploadProjectResource for multipart/form-data ContentType.
-type UploadProjectResourceMultipartRequestBody UploadProjectResourceMultipartBody
 
 // ExecuteDataframeGraphQLJSONRequestBody defines body for ExecuteDataframeGraphQL for application/json ContentType.
 type ExecuteDataframeGraphQLJSONRequestBody = RawJSON
@@ -1423,21 +1350,21 @@ type ServerInterface interface {
 	// GetRecipeExecution Read public metadata for a dataframe recipe execution.
 	// (GET /api/v1/dataframe/recipe-executions/{id})
 	GetRecipeExecution(c fiber.Ctx, id string) error
+	// GetDatasetGenerationStatus Read a dataset generation's persisted load state.
+	// (GET /api/v1/datasets/{project}/generations/{generation})
+	GetDatasetGenerationStatus(c fiber.Ctx, project Project, generation Generation, params GetDatasetGenerationStatusParams) error
 	// CreateDatasetGeneration Upload a multipart dataset generation.
 	// (POST /api/v1/datasets/{project}/generations/{generation})
 	CreateDatasetGeneration(c fiber.Ctx, project Project, generation Generation) error
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(c fiber.Ctx, project Project, generation Generation, params ActivateDatasetGenerationParams) error
-	// GetRepositoryExplorerConfig Read the active repository-owned Explorer config.
-	// (GET /api/v1/projects/{project}/explorer-config)
-	GetRepositoryExplorerConfig(c fiber.Ctx, project Project) error
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(c fiber.Ctx, project Project) error
 	// CreateExplorer Create an interactive Explorer.
 	// (POST /api/v1/projects/{project}/explorers)
-	CreateExplorer(c fiber.Ctx, project Project) error
+	CreateExplorer(c fiber.Ctx, project Project, params CreateExplorerParams) error
 	// GetExplorer Read an Explorer's active runtime projection.
 	// (GET /api/v1/projects/{project}/explorers/{explorerId})
 	GetExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -1445,79 +1372,26 @@ type ServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
-	CompileExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions)
-	GetExplorerCandidateSuggestions(c fiber.Ctx, project Project, explorerId ExplorerId, snapshotToken string, candidateId string) error
-
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
-	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile)
-	CompileExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (PUT /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft)
-	SaveExplorerDraft(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export)
-	ExportExplorerWorkspace(c fiber.Ctx, project Project, explorerId ExplorerId) error
+	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish)
-	PublishExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
+	PublishExplorer(c fiber.Ctx, project Project, explorerId ExplorerId, params PublishExplorerParams) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile)
-	ReconcileExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
+	ReconcileExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId, params ReconcileExplorerBuilderParams) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(c fiber.Ctx, project Project, explorerId ExplorerId) error
-	// AbortSnapshot Abort a generation snapshot.
-	// (DELETE /api/v1/projects/{project}/generations/{generation})
-	AbortSnapshot(c fiber.Ctx, project Project, generation Generation) error
-	// GetSnapshot Read generation snapshot status.
-	// (GET /api/v1/projects/{project}/generations/{generation})
-	GetSnapshot(c fiber.Ctx, project Project, generation Generation) error
-	// CreateSnapshot Create or resume an immutable generation snapshot.
-	// (POST /api/v1/projects/{project}/generations/{generation})
-	CreateSnapshot(c fiber.Ctx, project Project, generation Generation) error
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(c fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error
-	// FinalizeSnapshot Validate and finalize an immutable generation snapshot.
-	// (POST /api/v1/projects/{project}/generations/{generation}/finalize)
-	FinalizeSnapshot(c fiber.Ctx, project Project, generation Generation) error
-	// UploadSnapshotResource Stream one resource type into an immutable snapshot.
-	// (PUT /api/v1/projects/{project}/generations/{generation}/resources/{resourceType})
-	UploadSnapshotResource(c fiber.Ctx, project Project, generation Generation, resourceType ResourceType, params UploadSnapshotResourceParams) error
-	// CreateRelease Create a durable project release candidate.
-	// (POST /api/v1/projects/{project}/releases)
-	CreateRelease(c fiber.Ctx, project Project) error
-	// ActivateReleaseCompatibility Create and activate a release in one legacy operation.
-	// (POST /api/v1/projects/{project}/releases/activate)
-	//
-	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-	ActivateReleaseCompatibility(c fiber.Ctx, project Project) error
-	// GetActiveRelease Read the active project release.
-	// (GET /api/v1/projects/{project}/releases/active)
-	GetActiveRelease(c fiber.Ctx, project Project) error
-	// GetRelease Read a project release by ID.
-	// (GET /api/v1/projects/{project}/releases/{release})
-	GetRelease(c fiber.Ctx, project Project, release Release) error
-	// ActivateRelease Activate an existing durable release.
-	// (POST /api/v1/projects/{project}/releases/{release}/activate)
-	ActivateRelease(c fiber.Ctx, project Project, release Release) error
-	// UploadProjectResource Upload one multipart NDJSON resource file.
-	// (PUT /api/v1/projects/{project}/resources/{resourceType})
-	UploadProjectResource(c fiber.Ctx, project Project, resourceType ResourceType) error
-	// UploadRawNDJSON Stream raw NDJSON into a generation.
-	// (PUT /api/v1/raw)
-	UploadRawNDJSON(c fiber.Ctx, params UploadRawNDJSONParams) error
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(c fiber.Ctx) error
@@ -1566,6 +1440,59 @@ func (siw *ServerInterfaceWrapper) GetRecipeExecution(c fiber.Ctx) error {
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.GetRecipeExecution(c, id)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetDatasetGenerationStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetDatasetGenerationStatus(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "generation" -------------
+	var generation Generation
+
+	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDatasetGenerationStatusParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetDatasetGenerationStatus(c, project, generation, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -1676,35 +1603,6 @@ func (siw *ServerInterfaceWrapper) ActivateDatasetGeneration(c fiber.Ctx) error 
 	return handler(c)
 }
 
-// GetRepositoryExplorerConfig operation middleware
-func (siw *ServerInterfaceWrapper) GetRepositoryExplorerConfig(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetRepositoryExplorerConfig(c, project)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
 // ListExplorers operation middleware
 func (siw *ServerInterfaceWrapper) ListExplorers(c fiber.Ctx) error {
 
@@ -1748,8 +1646,24 @@ func (siw *ServerInterfaceWrapper) CreateExplorer(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateExplorerParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CreateExplorer(c, project)
+		return siw.Handler.CreateExplorer(c, project, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -1837,96 +1751,6 @@ func (siw *ServerInterfaceWrapper) GetExplorerBuilder(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// CompileExplorerBuilder operation middleware
-func (siw *ServerInterfaceWrapper) CompileExplorerBuilder(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CompileExplorerBuilder(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetExplorerCandidateSuggestions operation middleware
-func (siw *ServerInterfaceWrapper) GetExplorerCandidateSuggestions(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	// ------------- Path parameter "snapshotToken" -------------
-	var snapshotToken string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "snapshotToken", c.Params("snapshotToken"), &snapshotToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter snapshotToken: %w", err).Error())
-	}
-
-	// ------------- Path parameter "candidateId" -------------
-	var candidateId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "candidateId", c.Params("candidateId"), &candidateId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter candidateId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetExplorerCandidateSuggestions(c, project, explorerId, snapshotToken, candidateId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
 // GetExplorerAuthoringCapability operation middleware
 func (siw *ServerInterfaceWrapper) GetExplorerAuthoringCapability(c fiber.Ctx) error {
 
@@ -1986,119 +1810,24 @@ func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) err
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
 	}
 
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ApplyExplorerBuilderCommands(c, project, explorerId)
-	}
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApplyExplorerBuilderCommandsParams
 
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// CompileExplorer operation middleware
-func (siw *ServerInterfaceWrapper) CompileExplorer(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
 	}
 
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
+	// ------------- Optional query parameter "auth_resource_path" -------------
 
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
 	}
 
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CompileExplorer(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// SaveExplorerDraft operation middleware
-func (siw *ServerInterfaceWrapper) SaveExplorerDraft(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.SaveExplorerDraft(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ExportExplorerWorkspace operation middleware
-func (siw *ServerInterfaceWrapper) ExportExplorerWorkspace(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ExportExplorerWorkspace(c, project, explorerId)
+		return siw.Handler.ApplyExplorerBuilderCommands(c, project, explorerId, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2171,8 +1900,24 @@ func (siw *ServerInterfaceWrapper) PublishExplorer(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishExplorerParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.PublishExplorer(c, project, explorerId)
+		return siw.Handler.PublishExplorer(c, project, explorerId, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2208,8 +1953,24 @@ func (siw *ServerInterfaceWrapper) ReconcileExplorerBuilder(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReconcileExplorerBuilderParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ReconcileExplorerBuilder(c, project, explorerId)
+		return siw.Handler.ReconcileExplorerBuilder(c, project, explorerId, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2247,117 +2008,6 @@ func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.SearchExplorerCandidates(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// AbortSnapshot operation middleware
-func (siw *ServerInterfaceWrapper) AbortSnapshot(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "generation" -------------
-	var generation Generation
-
-	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.AbortSnapshot(c, project, generation)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetSnapshot operation middleware
-func (siw *ServerInterfaceWrapper) GetSnapshot(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "generation" -------------
-	var generation Generation
-
-	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetSnapshot(c, project, generation)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// CreateSnapshot operation middleware
-func (siw *ServerInterfaceWrapper) CreateSnapshot(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "generation" -------------
-	var generation Generation
-
-	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CreateSnapshot(c, project, generation)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2432,359 +2082,6 @@ func (siw *ServerInterfaceWrapper) PublishRepositoryExplorerConfig(c fiber.Ctx) 
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.PublishRepositoryExplorerConfig(c, project, generation, params)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// FinalizeSnapshot operation middleware
-func (siw *ServerInterfaceWrapper) FinalizeSnapshot(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "generation" -------------
-	var generation Generation
-
-	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.FinalizeSnapshot(c, project, generation)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// UploadSnapshotResource operation middleware
-func (siw *ServerInterfaceWrapper) UploadSnapshotResource(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "generation" -------------
-	var generation Generation
-
-	err = runtime.BindStyledParameterWithOptions("simple", "generation", c.Params("generation"), &generation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	// ------------- Path parameter "resourceType" -------------
-	var resourceType ResourceType
-
-	err = runtime.BindStyledParameterWithOptions("simple", "resourceType", c.Params("resourceType"), &resourceType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter resourceType: %w", err).Error())
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UploadSnapshotResourceParams
-
-	headers := c.GetReqHeaders()
-
-	// ------------- Optional header parameter "X-Content-SHA256" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Content-SHA256")]; found {
-		var XContentSHA256 string
-		n := len(valueList)
-		if n != 1 {
-			return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("Too many values for ParamName X-Content-SHA256, 1 is required, but %d found", n))
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Content-SHA256", valueList[0], &XContentSHA256, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter X-Content-SHA256: %w", err).Error())
-		}
-
-		params.XContentSHA256 = &XContentSHA256
-
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.UploadSnapshotResource(c, project, generation, resourceType, params)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// CreateRelease operation middleware
-func (siw *ServerInterfaceWrapper) CreateRelease(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.CreateRelease(c, project)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ActivateReleaseCompatibility operation middleware
-func (siw *ServerInterfaceWrapper) ActivateReleaseCompatibility(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ActivateReleaseCompatibility(c, project)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetActiveRelease operation middleware
-func (siw *ServerInterfaceWrapper) GetActiveRelease(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetActiveRelease(c, project)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetRelease operation middleware
-func (siw *ServerInterfaceWrapper) GetRelease(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "release" -------------
-	var release Release
-
-	err = runtime.BindStyledParameterWithOptions("simple", "release", c.Params("release"), &release, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter release: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetRelease(c, project, release)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ActivateRelease operation middleware
-func (siw *ServerInterfaceWrapper) ActivateRelease(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "release" -------------
-	var release Release
-
-	err = runtime.BindStyledParameterWithOptions("simple", "release", c.Params("release"), &release, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter release: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ActivateRelease(c, project, release)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// UploadProjectResource operation middleware
-func (siw *ServerInterfaceWrapper) UploadProjectResource(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "resourceType" -------------
-	var resourceType ResourceType
-
-	err = runtime.BindStyledParameterWithOptions("simple", "resourceType", c.Params("resourceType"), &resourceType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter resourceType: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.UploadProjectResource(c, project, resourceType)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// UploadRawNDJSON operation middleware
-func (siw *ServerInterfaceWrapper) UploadRawNDJSON(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UploadRawNDJSONParams
-
-	var query url.Values
-	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", query, &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "generation" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "generation", query, &params.Generation, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter generation: %w", err).Error())
-	}
-
-	// ------------- Optional query parameter "auth_resource_path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.UploadRawNDJSON(c, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -2949,23 +2246,13 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capability", wrapper.GetExplorerAuthoringCapability)
 
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capabilities/:snapshotToken/candidates/:candidateId/suggestions", wrapper.GetExplorerCandidateSuggestions)
-
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/suggestions", wrapper.SearchExplorerCandidates)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.GetExplorerBuilder)
 
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.CompileExplorerBuilder)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/compile", wrapper.CompileExplorer)
-
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/commands", wrapper.ApplyExplorerBuilderCommands)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/reconcile", wrapper.ReconcileExplorerBuilder)
-
-	router.Put(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/draft", wrapper.SaveExplorerDraft)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/export", wrapper.ExportExplorerWorkspace)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/preview", wrapper.PreviewExplorer)
 
@@ -2977,33 +2264,11 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Get(options.BaseURL+"/readyz", wrapper.GetReadiness)
 
-	router.Put(options.BaseURL+"/api/v1/projects/:project/resources/:resourceType", wrapper.UploadProjectResource)
+	router.Get(options.BaseURL+"/api/v1/datasets/:project/generations/:generation", wrapper.GetDatasetGenerationStatus)
 
 	router.Post(options.BaseURL+"/api/v1/datasets/:project/generations/:generation", wrapper.CreateDatasetGeneration)
 
 	router.Post(options.BaseURL+"/api/v1/datasets/:project/generations/:generation/activate", wrapper.ActivateDatasetGeneration)
-
-	router.Put(options.BaseURL+"/api/v1/raw", wrapper.UploadRawNDJSON)
-
-	router.Delete(options.BaseURL+"/api/v1/projects/:project/generations/:generation", wrapper.AbortSnapshot)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/generations/:generation", wrapper.GetSnapshot)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation", wrapper.CreateSnapshot)
-
-	router.Put(options.BaseURL+"/api/v1/projects/:project/generations/:generation/resources/:resourceType", wrapper.UploadSnapshotResource)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation/finalize", wrapper.FinalizeSnapshot)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/releases", wrapper.CreateRelease)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/releases/active", wrapper.GetActiveRelease)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/releases/:release", wrapper.GetRelease)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/releases/:release/activate", wrapper.ActivateRelease)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/releases/activate", wrapper.ActivateReleaseCompatibility)
 
 	router.Get(options.BaseURL+"/api/v1/dataframe/recipe-executions/:id", wrapper.GetRecipeExecution)
 
@@ -3022,8 +2287,6 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId", wrapper.GetExplorer)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation/explorer-config", wrapper.PublishRepositoryExplorerConfig)
-
-	router.Get(options.BaseURL+"/api/v1/projects/:project/explorer-config", wrapper.GetRepositoryExplorerConfig)
 
 }
 
@@ -3133,6 +2396,83 @@ type GetRecipeExecution404JSONResponse struct{ LegacyNotFoundJSONResponse }
 func (response GetRecipeExecution404JSONResponse) VisitGetRecipeExecutionResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatusRequestObject struct {
+	Project    Project    `json:"project"`
+	Generation Generation `json:"generation"`
+	Params     GetDatasetGenerationStatusParams
+}
+
+type GetDatasetGenerationStatusResponseObject interface {
+	VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error
+}
+
+type GetDatasetGenerationStatus200JSONResponse RawJSON
+
+func (response GetDatasetGenerationStatus200JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response GetDatasetGenerationStatus400JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetDatasetGenerationStatus401JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response GetDatasetGenerationStatus403JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response GetDatasetGenerationStatus404JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response GetDatasetGenerationStatus500JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetGenerationStatus503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetDatasetGenerationStatus503JSONResponse) VisitGetDatasetGenerationStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -3313,63 +2653,6 @@ func (response ActivateDatasetGeneration503JSONResponse) VisitActivateDatasetGen
 	return ctx.JSON(&response)
 }
 
-type GetRepositoryExplorerConfigRequestObject struct {
-	Project Project `json:"project"`
-}
-
-type GetRepositoryExplorerConfigResponseObject interface {
-	VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error
-}
-
-type GetRepositoryExplorerConfig200JSONResponse RawJSON
-
-func (response GetRepositoryExplorerConfig200JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetRepositoryExplorerConfig401JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig403JSONResponse struct{ LegacyForbiddenJSONResponse }
-
-func (response GetRepositoryExplorerConfig403JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig404JSONResponse struct{ LegacyNotFoundJSONResponse }
-
-func (response GetRepositoryExplorerConfig404JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetRepositoryExplorerConfig500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
-}
-
-func (response GetRepositoryExplorerConfig500JSONResponse) VisitGetRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
 type ListExplorersRequestObject struct {
 	Project Project `json:"project"`
 }
@@ -3420,6 +2703,7 @@ func (response ListExplorers500JSONResponse) VisitListExplorersResponse(ctx fibe
 
 type CreateExplorerRequestObject struct {
 	Project Project `json:"project"`
+	Params  CreateExplorerParams
 	Body    *CreateExplorerJSONRequestBody
 }
 
@@ -3632,189 +2916,6 @@ func (response GetExplorerBuilder503JSONResponse) VisitGetExplorerBuilderRespons
 	return ctx.JSON(&response)
 }
 
-type CompileExplorerBuilderRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *CompileExplorerBuilderJSONRequestBody
-}
-
-type CompileExplorerBuilderResponseObject interface {
-	VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error
-}
-
-type CompileExplorerBuilder200JSONResponse CompileResponse
-
-func (response CompileExplorerBuilder200JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response CompileExplorerBuilder400JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response CompileExplorerBuilder401JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response CompileExplorerBuilder403JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response CompileExplorerBuilder409JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response CompileExplorerBuilder422JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response CompileExplorerBuilder500JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerBuilder503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response CompileExplorerBuilder503JSONResponse) VisitCompileExplorerBuilderResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestionsRequestObject struct {
-	Project       Project    `json:"project"`
-	ExplorerId    ExplorerId `json:"explorerId"`
-	SnapshotToken string     `json:"snapshotToken"`
-	CandidateId   string     `json:"candidateId"`
-}
-
-type GetExplorerCandidateSuggestionsResponseObject interface {
-	VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error
-}
-
-type GetExplorerCandidateSuggestions200JSONResponse CandidateSuggestions
-
-func (response GetExplorerCandidateSuggestions200JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions400JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions401JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response GetExplorerCandidateSuggestions403JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response GetExplorerCandidateSuggestions404JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response GetExplorerCandidateSuggestions409JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions500JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerCandidateSuggestions503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response GetExplorerCandidateSuggestions503JSONResponse) VisitGetExplorerCandidateSuggestionsResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
 type GetExplorerAuthoringCapabilityRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -3867,6 +2968,7 @@ func (response GetExplorerAuthoringCapability500JSONResponse) VisitGetExplorerAu
 type ApplyExplorerBuilderCommandsRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
+	Params     ApplyExplorerBuilderCommandsParams
 	Body       *ApplyExplorerBuilderCommandsJSONRequestBody
 }
 
@@ -3952,266 +3054,6 @@ type ApplyExplorerBuilderCommands503JSONResponse struct {
 func (response ApplyExplorerBuilderCommands503JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorerRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *CompileExplorerJSONRequestBody
-}
-
-type CompileExplorerResponseObject interface {
-	VisitCompileExplorerResponse(ctx fiber.Ctx) error
-}
-
-type CompileExplorer200JSONResponse CompileResponse
-
-func (response CompileExplorer200JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response CompileExplorer400JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response CompileExplorer401JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response CompileExplorer403JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response CompileExplorer409JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response CompileExplorer422JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response CompileExplorer500JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type CompileExplorer503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response CompileExplorer503JSONResponse) VisitCompileExplorerResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraftRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *SaveExplorerDraftJSONRequestBody
-}
-
-type SaveExplorerDraftResponseObject interface {
-	VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error
-}
-
-type SaveExplorerDraft200JSONResponse SaveDraftResponse
-
-func (response SaveExplorerDraft200JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response SaveExplorerDraft400JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response SaveExplorerDraft401JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response SaveExplorerDraft403JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response SaveExplorerDraft404JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response SaveExplorerDraft409JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response SaveExplorerDraft422JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response SaveExplorerDraft500JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type SaveExplorerDraft503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response SaveExplorerDraft503JSONResponse) VisitSaveExplorerDraftResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspaceRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-}
-
-type ExportExplorerWorkspaceResponseObject interface {
-	VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error
-}
-
-type ExportExplorerWorkspace200JSONResponse Workspace
-
-func (response ExportExplorerWorkspace200JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ExportExplorerWorkspace401JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response ExportExplorerWorkspace403JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response ExportExplorerWorkspace404JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response ExportExplorerWorkspace409JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ExportExplorerWorkspace500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response ExportExplorerWorkspace500JSONResponse) VisitExportExplorerWorkspaceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
 
 	return ctx.JSON(&response)
 }
@@ -4364,6 +3206,7 @@ func (response PreviewExplorer504JSONResponse) VisitPreviewExplorerResponse(ctx 
 type PublishExplorerRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
+	Params     PublishExplorerParams
 	Body       *PublishExplorerJSONRequestBody
 }
 
@@ -4465,6 +3308,7 @@ func (response PublishExplorer503JSONResponse) VisitPublishExplorerResponse(ctx 
 type ReconcileExplorerBuilderRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
+	Params     ReconcileExplorerBuilderParams
 	Body       *ReconcileExplorerBuilderJSONRequestBody
 }
 
@@ -4644,226 +3488,6 @@ func (response SearchExplorerCandidates503JSONResponse) VisitSearchExplorerCandi
 	return ctx.JSON(&response)
 }
 
-type AbortSnapshotRequestObject struct {
-	Project    Project    `json:"project"`
-	Generation Generation `json:"generation"`
-}
-
-type AbortSnapshotResponseObject interface {
-	VisitAbortSnapshotResponse(ctx fiber.Ctx) error
-}
-
-type AbortSnapshot200JSONResponse RawJSON
-
-func (response AbortSnapshot200JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response AbortSnapshot401JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response AbortSnapshot403JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response AbortSnapshot404JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response AbortSnapshot409JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response AbortSnapshot500JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type AbortSnapshot503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response AbortSnapshot503JSONResponse) VisitAbortSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshotRequestObject struct {
-	Project    Project    `json:"project"`
-	Generation Generation `json:"generation"`
-}
-
-type GetSnapshotResponseObject interface {
-	VisitGetSnapshotResponse(ctx fiber.Ctx) error
-}
-
-type GetSnapshot200JSONResponse RawJSON
-
-func (response GetSnapshot200JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshot401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetSnapshot401JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshot403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response GetSnapshot403JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshot404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response GetSnapshot404JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshot500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response GetSnapshot500JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetSnapshot503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response GetSnapshot503JSONResponse) VisitGetSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshotRequestObject struct {
-	Project    Project    `json:"project"`
-	Generation Generation `json:"generation"`
-	Body       *CreateSnapshotJSONRequestBody
-}
-
-type CreateSnapshotResponseObject interface {
-	VisitCreateSnapshotResponse(ctx fiber.Ctx) error
-}
-
-type CreateSnapshot200JSONResponse RawJSON
-
-func (response CreateSnapshot200JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response CreateSnapshot400JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response CreateSnapshot401JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response CreateSnapshot403JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response CreateSnapshot409JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response CreateSnapshot500JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type CreateSnapshot503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response CreateSnapshot503JSONResponse) VisitCreateSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
 type PublishRepositoryExplorerConfigRequestObject struct {
 	Project    Project    `json:"project"`
 	Generation Generation `json:"generation"`
@@ -4947,802 +3571,6 @@ func (response PublishRepositoryExplorerConfig500JSONResponse) VisitPublishRepos
 type PublishRepositoryExplorerConfig503JSONResponse struct{ LegacyUnavailableJSONResponse }
 
 func (response PublishRepositoryExplorerConfig503JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshotRequestObject struct {
-	Project    Project    `json:"project"`
-	Generation Generation `json:"generation"`
-}
-
-type FinalizeSnapshotResponseObject interface {
-	VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error
-}
-
-type FinalizeSnapshot200JSONResponse RawJSON
-
-func (response FinalizeSnapshot200JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response FinalizeSnapshot400JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response FinalizeSnapshot401JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response FinalizeSnapshot403JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response FinalizeSnapshot404JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response FinalizeSnapshot409JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response FinalizeSnapshot422JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response FinalizeSnapshot500JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type FinalizeSnapshot503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response FinalizeSnapshot503JSONResponse) VisitFinalizeSnapshotResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResourceRequestObject struct {
-	Project      Project      `json:"project"`
-	Generation   Generation   `json:"generation"`
-	ResourceType ResourceType `json:"resourceType"`
-	Params       UploadSnapshotResourceParams
-	Body         io.Reader
-}
-
-type UploadSnapshotResourceResponseObject interface {
-	VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error
-}
-
-type UploadSnapshotResource200JSONResponse RawJSON
-
-func (response UploadSnapshotResource200JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response UploadSnapshotResource400JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response UploadSnapshotResource401JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response UploadSnapshotResource403JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response UploadSnapshotResource404JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response UploadSnapshotResource409JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response UploadSnapshotResource422JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response UploadSnapshotResource500JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type UploadSnapshotResource503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response UploadSnapshotResource503JSONResponse) VisitUploadSnapshotResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type CreateReleaseRequestObject struct {
-	Project Project `json:"project"`
-	Body    *CreateReleaseJSONRequestBody
-}
-
-type CreateReleaseResponseObject interface {
-	VisitCreateReleaseResponse(ctx fiber.Ctx) error
-}
-
-type CreateRelease200JSONResponse RawJSON
-
-func (response CreateRelease200JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response CreateRelease400JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response CreateRelease401JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response CreateRelease403JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response CreateRelease404JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response CreateRelease409JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response CreateRelease422JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response CreateRelease500JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type CreateRelease503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response CreateRelease503JSONResponse) VisitCreateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibilityRequestObject struct {
-	Project Project `json:"project"`
-	Body    *ActivateReleaseCompatibilityJSONRequestBody
-}
-
-type ActivateReleaseCompatibilityResponseObject interface {
-	VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error
-}
-
-type ActivateReleaseCompatibility200JSONResponse RawJSON
-
-func (response ActivateReleaseCompatibility200JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response ActivateReleaseCompatibility400JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ActivateReleaseCompatibility401JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response ActivateReleaseCompatibility403JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response ActivateReleaseCompatibility404JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response ActivateReleaseCompatibility409JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response ActivateReleaseCompatibility422JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response ActivateReleaseCompatibility500JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseCompatibility503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response ActivateReleaseCompatibility503JSONResponse) VisitActivateReleaseCompatibilityResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveReleaseRequestObject struct {
-	Project Project `json:"project"`
-}
-
-type GetActiveReleaseResponseObject interface {
-	VisitGetActiveReleaseResponse(ctx fiber.Ctx) error
-}
-
-type GetActiveRelease200JSONResponse RawJSON
-
-func (response GetActiveRelease200JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveRelease401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetActiveRelease401JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveRelease403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response GetActiveRelease403JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveRelease404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response GetActiveRelease404JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveRelease500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response GetActiveRelease500JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetActiveRelease503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response GetActiveRelease503JSONResponse) VisitGetActiveReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type GetReleaseRequestObject struct {
-	Project Project `json:"project"`
-	Release Release `json:"release"`
-}
-
-type GetReleaseResponseObject interface {
-	VisitGetReleaseResponse(ctx fiber.Ctx) error
-}
-
-type GetRelease200JSONResponse RawJSON
-
-func (response GetRelease200JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetRelease401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetRelease401JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetRelease403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response GetRelease403JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetRelease404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response GetRelease404JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetRelease500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response GetRelease500JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetRelease503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response GetRelease503JSONResponse) VisitGetReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateReleaseRequestObject struct {
-	Project Project `json:"project"`
-	Release Release `json:"release"`
-	Body    *ActivateReleaseJSONRequestBody
-}
-
-type ActivateReleaseResponseObject interface {
-	VisitActivateReleaseResponse(ctx fiber.Ctx) error
-}
-
-type ActivateRelease200JSONResponse RawJSON
-
-func (response ActivateRelease200JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response ActivateRelease400JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ActivateRelease401JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response ActivateRelease403JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response ActivateRelease404JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease409JSONResponse struct{ ServiceConflictJSONResponse }
-
-func (response ActivateRelease409JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response ActivateRelease422JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response ActivateRelease500JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type ActivateRelease503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response ActivateRelease503JSONResponse) VisitActivateReleaseResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResourceRequestObject struct {
-	Project      Project      `json:"project"`
-	ResourceType ResourceType `json:"resourceType"`
-	Body         *multipart.Reader
-}
-
-type UploadProjectResourceResponseObject interface {
-	VisitUploadProjectResourceResponse(ctx fiber.Ctx) error
-}
-
-type UploadProjectResource200JSONResponse RawJSON
-
-func (response UploadProjectResource200JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response UploadProjectResource400JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response UploadProjectResource401JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response UploadProjectResource403JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource415JSONResponse struct {
-	ServiceUnsupportedMediaTypeJSONResponse
-}
-
-func (response UploadProjectResource415JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(415)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response UploadProjectResource422JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response UploadProjectResource500JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type UploadProjectResource503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response UploadProjectResource503JSONResponse) VisitUploadProjectResourceResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSONRequestObject struct {
-	Params UploadRawNDJSONParams
-	Body   io.Reader
-}
-
-type UploadRawNDJSONResponseObject interface {
-	VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error
-}
-
-type UploadRawNDJSON200JSONResponse RawJSON
-
-func (response UploadRawNDJSON200JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON400JSONResponse struct{ ServiceBadRequestJSONResponse }
-
-func (response UploadRawNDJSON400JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response UploadRawNDJSON401JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON403JSONResponse struct{ ServiceForbiddenJSONResponse }
-
-func (response UploadRawNDJSON403JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON415JSONResponse struct {
-	ServiceUnsupportedMediaTypeJSONResponse
-}
-
-func (response UploadRawNDJSON415JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(415)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON422JSONResponse struct {
-	ServiceUnprocessableJSONResponse
-}
-
-func (response UploadRawNDJSON422JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON500JSONResponse struct {
-	ServiceInternalErrorJSONResponse
-}
-
-func (response UploadRawNDJSON500JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type UploadRawNDJSON503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response UploadRawNDJSON503JSONResponse) VisitUploadRawNDJSONResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
@@ -6024,15 +3852,15 @@ type StrictServerInterface interface {
 	// GetRecipeExecution Read public metadata for a dataframe recipe execution.
 	// (GET /api/v1/dataframe/recipe-executions/{id})
 	GetRecipeExecution(ctx context.Context, request GetRecipeExecutionRequestObject) (GetRecipeExecutionResponseObject, error)
+	// GetDatasetGenerationStatus Read a dataset generation's persisted load state.
+	// (GET /api/v1/datasets/{project}/generations/{generation})
+	GetDatasetGenerationStatus(ctx context.Context, request GetDatasetGenerationStatusRequestObject) (GetDatasetGenerationStatusResponseObject, error)
 	// CreateDatasetGeneration Upload a multipart dataset generation.
 	// (POST /api/v1/datasets/{project}/generations/{generation})
 	CreateDatasetGeneration(ctx context.Context, request CreateDatasetGenerationRequestObject) (CreateDatasetGenerationResponseObject, error)
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(ctx context.Context, request ActivateDatasetGenerationRequestObject) (ActivateDatasetGenerationResponseObject, error)
-	// GetRepositoryExplorerConfig Read the active repository-owned Explorer config.
-	// (GET /api/v1/projects/{project}/explorer-config)
-	GetRepositoryExplorerConfig(ctx context.Context, request GetRepositoryExplorerConfigRequestObject) (GetRepositoryExplorerConfigResponseObject, error)
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(ctx context.Context, request ListExplorersRequestObject) (ListExplorersResponseObject, error)
@@ -6046,26 +3874,11 @@ type StrictServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(ctx context.Context, request GetExplorerBuilderRequestObject) (GetExplorerBuilderResponseObject, error)
 
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
-	CompileExplorerBuilder(ctx context.Context, request CompileExplorerBuilderRequestObject) (CompileExplorerBuilderResponseObject, error)
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capabilities/{snapshotToken}/candidates/{candidateId}/suggestions)
-	GetExplorerCandidateSuggestions(ctx context.Context, request GetExplorerCandidateSuggestionsRequestObject) (GetExplorerCandidateSuggestionsResponseObject, error)
-
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability)
 	GetExplorerAuthoringCapability(ctx context.Context, request GetExplorerAuthoringCapabilityRequestObject) (GetExplorerAuthoringCapabilityResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(ctx context.Context, request ApplyExplorerBuilderCommandsRequestObject) (ApplyExplorerBuilderCommandsResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/compile)
-	CompileExplorer(ctx context.Context, request CompileExplorerRequestObject) (CompileExplorerResponseObject, error)
-
-	// (PUT /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/draft)
-	SaveExplorerDraft(ctx context.Context, request SaveExplorerDraftRequestObject) (SaveExplorerDraftResponseObject, error)
-
-	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/export)
-	ExportExplorerWorkspace(ctx context.Context, request ExportExplorerWorkspaceRequestObject) (ExportExplorerWorkspaceResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(ctx context.Context, request PreviewExplorerRequestObject) (PreviewExplorerResponseObject, error)
@@ -6078,47 +3891,9 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(ctx context.Context, request SearchExplorerCandidatesRequestObject) (SearchExplorerCandidatesResponseObject, error)
-	// AbortSnapshot Abort a generation snapshot.
-	// (DELETE /api/v1/projects/{project}/generations/{generation})
-	AbortSnapshot(ctx context.Context, request AbortSnapshotRequestObject) (AbortSnapshotResponseObject, error)
-	// GetSnapshot Read generation snapshot status.
-	// (GET /api/v1/projects/{project}/generations/{generation})
-	GetSnapshot(ctx context.Context, request GetSnapshotRequestObject) (GetSnapshotResponseObject, error)
-	// CreateSnapshot Create or resume an immutable generation snapshot.
-	// (POST /api/v1/projects/{project}/generations/{generation})
-	CreateSnapshot(ctx context.Context, request CreateSnapshotRequestObject) (CreateSnapshotResponseObject, error)
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(ctx context.Context, request PublishRepositoryExplorerConfigRequestObject) (PublishRepositoryExplorerConfigResponseObject, error)
-	// FinalizeSnapshot Validate and finalize an immutable generation snapshot.
-	// (POST /api/v1/projects/{project}/generations/{generation}/finalize)
-	FinalizeSnapshot(ctx context.Context, request FinalizeSnapshotRequestObject) (FinalizeSnapshotResponseObject, error)
-	// UploadSnapshotResource Stream one resource type into an immutable snapshot.
-	// (PUT /api/v1/projects/{project}/generations/{generation}/resources/{resourceType})
-	UploadSnapshotResource(ctx context.Context, request UploadSnapshotResourceRequestObject) (UploadSnapshotResourceResponseObject, error)
-	// CreateRelease Create a durable project release candidate.
-	// (POST /api/v1/projects/{project}/releases)
-	CreateRelease(ctx context.Context, request CreateReleaseRequestObject) (CreateReleaseResponseObject, error)
-	// ActivateReleaseCompatibility Create and activate a release in one legacy operation.
-	// (POST /api/v1/projects/{project}/releases/activate)
-	//
-	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-	ActivateReleaseCompatibility(ctx context.Context, request ActivateReleaseCompatibilityRequestObject) (ActivateReleaseCompatibilityResponseObject, error)
-	// GetActiveRelease Read the active project release.
-	// (GET /api/v1/projects/{project}/releases/active)
-	GetActiveRelease(ctx context.Context, request GetActiveReleaseRequestObject) (GetActiveReleaseResponseObject, error)
-	// GetRelease Read a project release by ID.
-	// (GET /api/v1/projects/{project}/releases/{release})
-	GetRelease(ctx context.Context, request GetReleaseRequestObject) (GetReleaseResponseObject, error)
-	// ActivateRelease Activate an existing durable release.
-	// (POST /api/v1/projects/{project}/releases/{release}/activate)
-	ActivateRelease(ctx context.Context, request ActivateReleaseRequestObject) (ActivateReleaseResponseObject, error)
-	// UploadProjectResource Upload one multipart NDJSON resource file.
-	// (PUT /api/v1/projects/{project}/resources/{resourceType})
-	UploadProjectResource(ctx context.Context, request UploadProjectResourceRequestObject) (UploadProjectResourceResponseObject, error)
-	// UploadRawNDJSON Stream raw NDJSON into a generation.
-	// (PUT /api/v1/raw)
-	UploadRawNDJSON(ctx context.Context, request UploadRawNDJSONRequestObject) (UploadRawNDJSONResponseObject, error)
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
@@ -6174,6 +3949,35 @@ func (sh *strictHandler) GetRecipeExecution(ctx fiber.Ctx, id string) error {
 		return err
 	} else if validResponse, ok := response.(GetRecipeExecutionResponseObject); ok {
 		if err := validResponse.VisitGetRecipeExecutionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetDatasetGenerationStatus operation middleware
+func (sh *strictHandler) GetDatasetGenerationStatus(ctx fiber.Ctx, project Project, generation Generation, params GetDatasetGenerationStatusParams) error {
+	var request GetDatasetGenerationStatusRequestObject
+
+	request.Project = project
+	request.Generation = generation
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDatasetGenerationStatus(ctx.Context(), request.(GetDatasetGenerationStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDatasetGenerationStatus")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetDatasetGenerationStatusResponseObject); ok {
+		if err := validResponse.VisitGetDatasetGenerationStatusResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -6241,33 +4045,6 @@ func (sh *strictHandler) ActivateDatasetGeneration(ctx fiber.Ctx, project Projec
 	return nil
 }
 
-// GetRepositoryExplorerConfig operation middleware
-func (sh *strictHandler) GetRepositoryExplorerConfig(ctx fiber.Ctx, project Project) error {
-	var request GetRepositoryExplorerConfigRequestObject
-
-	request.Project = project
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetRepositoryExplorerConfig(ctx.Context(), request.(GetRepositoryExplorerConfigRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetRepositoryExplorerConfig")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetRepositoryExplorerConfigResponseObject); ok {
-		if err := validResponse.VisitGetRepositoryExplorerConfigResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
 // ListExplorers operation middleware
 func (sh *strictHandler) ListExplorers(ctx fiber.Ctx, project Project) error {
 	var request ListExplorersRequestObject
@@ -6296,10 +4073,11 @@ func (sh *strictHandler) ListExplorers(ctx fiber.Ctx, project Project) error {
 }
 
 // CreateExplorer operation middleware
-func (sh *strictHandler) CreateExplorer(ctx fiber.Ctx, project Project) error {
+func (sh *strictHandler) CreateExplorer(ctx fiber.Ctx, project Project, params CreateExplorerParams) error {
 	var request CreateExplorerRequestObject
 
 	request.Project = project
+	request.Params = params
 
 	var body CreateExplorerJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
@@ -6384,70 +4162,6 @@ func (sh *strictHandler) GetExplorerBuilder(ctx fiber.Ctx, project Project, expl
 	return nil
 }
 
-// CompileExplorerBuilder operation middleware
-func (sh *strictHandler) CompileExplorerBuilder(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request CompileExplorerBuilderRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body CompileExplorerBuilderJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.CompileExplorerBuilder(ctx.Context(), request.(CompileExplorerBuilderRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CompileExplorerBuilder")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(CompileExplorerBuilderResponseObject); ok {
-		if err := validResponse.VisitCompileExplorerBuilderResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetExplorerCandidateSuggestions operation middleware
-func (sh *strictHandler) GetExplorerCandidateSuggestions(ctx fiber.Ctx, project Project, explorerId ExplorerId, snapshotToken string, candidateId string) error {
-	var request GetExplorerCandidateSuggestionsRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-	request.SnapshotToken = snapshotToken
-	request.CandidateId = candidateId
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetExplorerCandidateSuggestions(ctx.Context(), request.(GetExplorerCandidateSuggestionsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetExplorerCandidateSuggestions")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetExplorerCandidateSuggestionsResponseObject); ok {
-		if err := validResponse.VisitGetExplorerCandidateSuggestionsResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
 // GetExplorerAuthoringCapability operation middleware
 func (sh *strictHandler) GetExplorerAuthoringCapability(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request GetExplorerAuthoringCapabilityRequestObject
@@ -6477,11 +4191,12 @@ func (sh *strictHandler) GetExplorerAuthoringCapability(ctx fiber.Ctx, project P
 }
 
 // ApplyExplorerBuilderCommands operation middleware
-func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error {
 	var request ApplyExplorerBuilderCommandsRequestObject
 
 	request.Project = project
 	request.ExplorerId = explorerId
+	request.Params = params
 
 	var body ApplyExplorerBuilderCommandsJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
@@ -6502,102 +4217,6 @@ func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Pro
 		return err
 	} else if validResponse, ok := response.(ApplyExplorerBuilderCommandsResponseObject); ok {
 		if err := validResponse.VisitApplyExplorerBuilderCommandsResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// CompileExplorer operation middleware
-func (sh *strictHandler) CompileExplorer(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request CompileExplorerRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body CompileExplorerJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.CompileExplorer(ctx.Context(), request.(CompileExplorerRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CompileExplorer")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(CompileExplorerResponseObject); ok {
-		if err := validResponse.VisitCompileExplorerResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// SaveExplorerDraft operation middleware
-func (sh *strictHandler) SaveExplorerDraft(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request SaveExplorerDraftRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body SaveExplorerDraftJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.SaveExplorerDraft(ctx.Context(), request.(SaveExplorerDraftRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SaveExplorerDraft")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(SaveExplorerDraftResponseObject); ok {
-		if err := validResponse.VisitSaveExplorerDraftResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ExportExplorerWorkspace operation middleware
-func (sh *strictHandler) ExportExplorerWorkspace(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request ExportExplorerWorkspaceRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ExportExplorerWorkspace(ctx.Context(), request.(ExportExplorerWorkspaceRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ExportExplorerWorkspace")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ExportExplorerWorkspaceResponseObject); ok {
-		if err := validResponse.VisitExportExplorerWorkspaceResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -6641,11 +4260,12 @@ func (sh *strictHandler) PreviewExplorer(ctx fiber.Ctx, project Project, explore
 }
 
 // PublishExplorer operation middleware
-func (sh *strictHandler) PublishExplorer(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+func (sh *strictHandler) PublishExplorer(ctx fiber.Ctx, project Project, explorerId ExplorerId, params PublishExplorerParams) error {
 	var request PublishExplorerRequestObject
 
 	request.Project = project
 	request.ExplorerId = explorerId
+	request.Params = params
 
 	var body PublishExplorerJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
@@ -6675,11 +4295,12 @@ func (sh *strictHandler) PublishExplorer(ctx fiber.Ctx, project Project, explore
 }
 
 // ReconcileExplorerBuilder operation middleware
-func (sh *strictHandler) ReconcileExplorerBuilder(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+func (sh *strictHandler) ReconcileExplorerBuilder(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ReconcileExplorerBuilderParams) error {
 	var request ReconcileExplorerBuilderRequestObject
 
 	request.Project = project
 	request.ExplorerId = explorerId
+	request.Params = params
 
 	var body ReconcileExplorerBuilderJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
@@ -6742,96 +4363,6 @@ func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project
 	return nil
 }
 
-// AbortSnapshot operation middleware
-func (sh *strictHandler) AbortSnapshot(ctx fiber.Ctx, project Project, generation Generation) error {
-	var request AbortSnapshotRequestObject
-
-	request.Project = project
-	request.Generation = generation
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.AbortSnapshot(ctx.Context(), request.(AbortSnapshotRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AbortSnapshot")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(AbortSnapshotResponseObject); ok {
-		if err := validResponse.VisitAbortSnapshotResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetSnapshot operation middleware
-func (sh *strictHandler) GetSnapshot(ctx fiber.Ctx, project Project, generation Generation) error {
-	var request GetSnapshotRequestObject
-
-	request.Project = project
-	request.Generation = generation
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetSnapshot(ctx.Context(), request.(GetSnapshotRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetSnapshot")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetSnapshotResponseObject); ok {
-		if err := validResponse.VisitGetSnapshotResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// CreateSnapshot operation middleware
-func (sh *strictHandler) CreateSnapshot(ctx fiber.Ctx, project Project, generation Generation) error {
-	var request CreateSnapshotRequestObject
-
-	request.Project = project
-	request.Generation = generation
-
-	var body CreateSnapshotJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateSnapshot(ctx.Context(), request.(CreateSnapshotRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateSnapshot")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(CreateSnapshotResponseObject); ok {
-		if err := validResponse.VisitCreateSnapshotResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
 // PublishRepositoryExplorerConfig operation middleware
 func (sh *strictHandler) PublishRepositoryExplorerConfig(ctx fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error {
 	var request PublishRepositoryExplorerConfigRequestObject
@@ -6859,280 +4390,6 @@ func (sh *strictHandler) PublishRepositoryExplorerConfig(ctx fiber.Ctx, project 
 		return err
 	} else if validResponse, ok := response.(PublishRepositoryExplorerConfigResponseObject); ok {
 		if err := validResponse.VisitPublishRepositoryExplorerConfigResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// FinalizeSnapshot operation middleware
-func (sh *strictHandler) FinalizeSnapshot(ctx fiber.Ctx, project Project, generation Generation) error {
-	var request FinalizeSnapshotRequestObject
-
-	request.Project = project
-	request.Generation = generation
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.FinalizeSnapshot(ctx.Context(), request.(FinalizeSnapshotRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "FinalizeSnapshot")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(FinalizeSnapshotResponseObject); ok {
-		if err := validResponse.VisitFinalizeSnapshotResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// UploadSnapshotResource operation middleware
-func (sh *strictHandler) UploadSnapshotResource(ctx fiber.Ctx, project Project, generation Generation, resourceType ResourceType, params UploadSnapshotResourceParams) error {
-	var request UploadSnapshotResourceRequestObject
-
-	request.Project = project
-	request.Generation = generation
-	request.ResourceType = resourceType
-	request.Params = params
-
-	request.Body = bytes.NewReader(ctx.Request().Body())
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadSnapshotResource(ctx.Context(), request.(UploadSnapshotResourceRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadSnapshotResource")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(UploadSnapshotResourceResponseObject); ok {
-		if err := validResponse.VisitUploadSnapshotResourceResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// CreateRelease operation middleware
-func (sh *strictHandler) CreateRelease(ctx fiber.Ctx, project Project) error {
-	var request CreateReleaseRequestObject
-
-	request.Project = project
-
-	var body CreateReleaseJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateRelease(ctx.Context(), request.(CreateReleaseRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateRelease")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(CreateReleaseResponseObject); ok {
-		if err := validResponse.VisitCreateReleaseResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ActivateReleaseCompatibility operation middleware
-func (sh *strictHandler) ActivateReleaseCompatibility(ctx fiber.Ctx, project Project) error {
-	var request ActivateReleaseCompatibilityRequestObject
-
-	request.Project = project
-
-	var body ActivateReleaseCompatibilityJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ActivateReleaseCompatibility(ctx.Context(), request.(ActivateReleaseCompatibilityRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ActivateReleaseCompatibility")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ActivateReleaseCompatibilityResponseObject); ok {
-		if err := validResponse.VisitActivateReleaseCompatibilityResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetActiveRelease operation middleware
-func (sh *strictHandler) GetActiveRelease(ctx fiber.Ctx, project Project) error {
-	var request GetActiveReleaseRequestObject
-
-	request.Project = project
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetActiveRelease(ctx.Context(), request.(GetActiveReleaseRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetActiveRelease")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetActiveReleaseResponseObject); ok {
-		if err := validResponse.VisitGetActiveReleaseResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetRelease operation middleware
-func (sh *strictHandler) GetRelease(ctx fiber.Ctx, project Project, release Release) error {
-	var request GetReleaseRequestObject
-
-	request.Project = project
-	request.Release = release
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetRelease(ctx.Context(), request.(GetReleaseRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetRelease")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetReleaseResponseObject); ok {
-		if err := validResponse.VisitGetReleaseResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ActivateRelease operation middleware
-func (sh *strictHandler) ActivateRelease(ctx fiber.Ctx, project Project, release Release) error {
-	var request ActivateReleaseRequestObject
-
-	request.Project = project
-	request.Release = release
-
-	var body ActivateReleaseJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ActivateRelease(ctx.Context(), request.(ActivateReleaseRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ActivateRelease")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ActivateReleaseResponseObject); ok {
-		if err := validResponse.VisitActivateReleaseResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// UploadProjectResource operation middleware
-func (sh *strictHandler) UploadProjectResource(ctx fiber.Ctx, project Project, resourceType ResourceType) error {
-	var request UploadProjectResourceRequestObject
-
-	request.Project = project
-	request.ResourceType = resourceType
-
-	request.Body = multipart.NewReader(bytes.NewReader(ctx.Request().Body()), string(ctx.Request().Header.MultipartFormBoundary()))
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadProjectResource(ctx.Context(), request.(UploadProjectResourceRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadProjectResource")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(UploadProjectResourceResponseObject); ok {
-		if err := validResponse.VisitUploadProjectResourceResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// UploadRawNDJSON operation middleware
-func (sh *strictHandler) UploadRawNDJSON(ctx fiber.Ctx, params UploadRawNDJSONParams) error {
-	var request UploadRawNDJSONRequestObject
-
-	request.Params = params
-
-	request.Body = bytes.NewReader(ctx.Request().Body())
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadRawNDJSON(ctx.Context(), request.(UploadRawNDJSONRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadRawNDJSON")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(UploadRawNDJSONResponseObject); ok {
-		if err := validResponse.VisitUploadRawNDJSONResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -7333,117 +4590,106 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"YMYdzXgcHAbj4PHm8f8DAAD//w==",
+	"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",
+	"L0//FwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

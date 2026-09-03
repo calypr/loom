@@ -15,10 +15,7 @@ import (
 
 const Collection = "loom_dataframe_recipes"
 
-type Client interface {
-	QueryRows(context.Context, string, int, map[string]interface{}, arangostore.RowVisitor) error
-	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
-}
+type Client = arangostore.RowBatchClient
 
 type Registry struct {
 	client    Client
@@ -136,4 +133,4 @@ func recipeDocumentKey(name, translationVersion string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-var _ exec.VersionedStore = (*Registry)(nil)
+var _ exec.Store = (*Registry)(nil)

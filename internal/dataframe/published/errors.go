@@ -22,3 +22,15 @@ func backendCallError(err error) error {
 	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
+
+func backendUnavailable() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+func invalidRequest() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+}
+
+func invalidCursor() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
+}

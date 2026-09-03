@@ -61,16 +61,16 @@ recipe, translation-version, and output selector.
 | `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
-| `PUT /api/v1/projects/:project/resources/:resourceType` | Primary multipart NDJSON resource loader. |
+| `POST /api/v1/datasets/:project/generations/:generation` | Multipart immutable-generation loader used by ETL. |
 
 `GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
 opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
 `/graphql` compatibility route.
 
 The canonical contract for every server route is
-[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, ingestion,
-snapshot/release, recipe execution, GraphQL transport, Explorer lifecycle, and
-Explorer authoring operations. The `:project` path parameter is the tenancy
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, generation
+ingestion/activation, recipe execution, GraphQL transport, Explorer lifecycle,
+and Explorer authoring operations. The `:project` path parameter is the tenancy
 identity used for authorization and becomes the published row `project_id`
 (for example, `HTAN_INT-BForePC`).
 
@@ -98,7 +98,22 @@ HTTP endpoint is required. The ClickHouse account needs database creation plus
 
 ## Local development
 
-The local Compose stack starts both ArangoDB and ClickHouse:
+To run the complete no-auth Explorer demo with the locked FHIR Aggregator
+sample, use:
+
+```bash
+make demo-up
+```
+
+Open [the standalone Explorer](http://127.0.0.1:3080). See
+[Run the standalone Explorer demo](docs/DEMO_QUICKSTART.md) for the seeded
+dataset, smoke checks, logs, and reset commands.
+
+To launch from a separate repository's hydrated `META` data and native Loom
+`CONFIG` workspace, including local CONFIG write-back on Publish, see
+[Launch Loom from a data repository](docs/LOCAL_REPOSITORY_DEMO.md).
+
+For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml up -d
@@ -239,17 +254,12 @@ query ExplorerRows($input: DataframeRowsInput!) {
 }
 ```
 
-The reader requires the exact selector `(recipe, translationVersion, output)`.
-There is no server-side default recipe or `dataType` alias. Loom derives the
-authorized project set from the principal, selects each project's active
-pointer-backed publication, reconciles compatible outputs, and federates them
-into one logical dataframe. Every row exposes `project_id`,
-derived from the publication project identity (for example,
-`HTAN_INT-BForePC`), and it is filterable and sortable like other scalar
-columns. Rows remain permissive JSON; columns and capabilities are discovered
-at runtime so a new publication does not require a GraphQL regeneration or
-server restart. See [`docs/DATAFRAME_FEDERATION.md`](docs/DATAFRAME_FEDERATION.md)
-for the source-selection, authorization, schema, and operational contract.
+The reader requires an explicit `projectId` and exact selector
+`(recipe, translationVersion, output)`. There is no server-side default recipe,
+`dataType` alias, or cross-project federation. Loom authorizes the requested
+project, resolves its active pointer-backed publication, and reads that one
+physical dataframe. Columns and capabilities remain runtime-discovered, so a
+new publication does not require GraphQL regeneration or a server restart.
 
 ## Authorization and tenancy
 
@@ -310,12 +320,12 @@ without rebuilding the server image.
 | [`internal/dataframe/compiler`](internal/dataframe/compiler) | Typed plan IR, lowering, optimization, and AQL rendering. |
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
-| [`internal/dataframe/published`](internal/dataframe/published) | Safe published-data reads and federation. |
+| [`internal/dataframe/published`](internal/dataframe/published) | Safe single-project published-data reads and aggregates. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
 | [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
-| [`internal/api/graphql/graph/materialization`](internal/api/graphql/graph/materialization) | Published-dataframe transport mapping. |
+| [`internal/api/graphql/graph/dataframe`](internal/api/graphql/graph/dataframe) | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
 
 ## Build, generation, and tests
 

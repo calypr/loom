@@ -10,20 +10,17 @@ import (
 
 func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T) {
 	selector := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.SemanticPlan{
-		Version: 1,
-		Project: "p",
-		Root: semantic.SemanticNode{
-			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
-				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-				Aggregates: []semantic.SemanticAggregate{
-					{Name: "count_a", Operation: "COUNT"},
-					{Name: "count_b", Operation: "COUNT"},
-					{Name: "distinct_ids", Operation: "DISTINCT_VALUES", Selector: &selector},
-				},
-			}},
-		},
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
+			Aggregates: []semantic.SemanticAggregate{
+				{Name: "count_a", Operation: "COUNT"},
+				{Name: "count_b", Operation: "COUNT"},
+				{Name: "distinct_ids", Operation: "DISTINCT_VALUES", Selector: &selector},
+			},
+		}},
+	},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -46,10 +43,5 @@ func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T)
 	}
 	if singletonGroups != 1 {
 		t.Fatalf("non-identical aggregate singleton count = %d, diagnostics=%#v", singletonGroups, diagnostics.RichConsumerGroups)
-	}
-	for _, state := range diagnostics.OptimizationPolicy.RuleStates {
-		if state.Rule == ir.PhysicalOptimizationRuleRichConsumerFusion && state.Enabled {
-			t.Fatalf("rich-consumer fusion unexpectedly enabled: %#v", state)
-		}
 	}
 }

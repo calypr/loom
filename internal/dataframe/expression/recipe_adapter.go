@@ -39,21 +39,23 @@ func FromRecipe(input recipe.Expression) (Expression, error) {
 		return Expression{}, fmt.Errorf("recipe expression is empty")
 	}
 	call := Call{Name: input.Call}
-	for _, arg := range input.Args {
+	persistedCast := strings.EqualFold(input.Call, "cast") && len(input.Args) == 2
+	if persistedCast {
+		target, err := parsePersistedCastTarget(input.Args[1])
+		if err != nil {
+			return Expression{}, err
+		}
+		call.Target = &target
+	}
+	for index, arg := range input.Args {
+		if persistedCast && index == 1 {
+			continue
+		}
 		converted, err := FromRecipe(arg)
 		if err != nil {
 			return Expression{}, err
 		}
 		call.Args = append(call.Args, converted)
-	}
-	if strings.EqualFold(input.Call, "cast") && len(input.Args) == 2 && input.Args[1].Literal != nil {
-		var targetName string
-		if err := json.Unmarshal(input.Args[1].Literal, &targetName); err == nil {
-			target := typeForName(targetName)
-			if target.Kind != "" {
-				call.Target = &target
-			}
-		}
 	}
 	return Expression{Kind: CallNode, Call: &call, NullBehavior: NullPropagate}, nil
 }
@@ -106,6 +108,28 @@ func FromRecipeInContexts(input recipe.Expression, contexts map[string]struct{})
 
 func isContextName(value string) bool { return value == "root" || value == "item" }
 
+func parsePersistedCastTarget(input recipe.Expression) (Type, error) {
+	if input.Literal == nil {
+		return Type{}, fmt.Errorf("cast target must be a literal")
+	}
+	if !json.Valid(input.Literal) {
+		return Type{}, fmt.Errorf("cast target literal is invalid JSON")
+	}
+	var value any
+	if err := json.Unmarshal(input.Literal, &value); err != nil {
+		return Type{}, fmt.Errorf("cast target literal is invalid JSON: %w", err)
+	}
+	targetName, ok := value.(string)
+	if !ok {
+		return Type{}, fmt.Errorf("cast target must be a string, got %T", value)
+	}
+	target := typeForName(targetName)
+	if target.Kind == "" {
+		return Type{}, fmt.Errorf("unsupported cast target %q", targetName)
+	}
+	return target, nil
+}
+
 func recipeLiteral(raw json.RawMessage) (Literal, error) {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.UseNumber()
@@ -129,17 +153,32 @@ func recipeLiteral(raw json.RawMessage) (Literal, error) {
 	case []any:
 		kind := KindString
 		if len(v) > 0 {
-			switch v[0].(type) {
-			case bool:
-				kind = KindBoolean
-			case json.Number:
-				kind = KindDecimal
+			var ok bool
+			kind, ok = recipeScalarKind(v[0])
+			if !ok {
+				return Literal{}, fmt.Errorf("literal array element 0 has unsupported type %T", v[0])
+			}
+			if kind == KindNull {
+				return Literal{}, fmt.Errorf("literal array element 0 cannot be null")
+			}
+			for index, item := range v[1:] {
+				itemKind, ok := recipeScalarKind(item)
+				if !ok {
+					return Literal{}, fmt.Errorf("literal array element %d has unsupported type %T", index+1, item)
+				}
+				if itemKind != kind {
+					return Literal{}, fmt.Errorf("literal array contains mixed kinds at index %d: expected %s, got %s", index+1, kind, itemKind)
+				}
 			}
 		}
 		if kind == KindDecimal {
 			converted := make([]any, len(v))
 			for i, item := range v {
-				number, err := strconv.ParseFloat(item.(json.Number).String(), 64)
+				numberValue, ok := item.(json.Number)
+				if !ok {
+					return Literal{}, fmt.Errorf("literal array element %d has type %T, expected number", i, item)
+				}
+				number, err := strconv.ParseFloat(numberValue.String(), 64)
 				if err != nil {
 					return Literal{}, err
 				}
@@ -150,6 +189,21 @@ func recipeLiteral(raw json.RawMessage) (Literal, error) {
 		return Literal{Type: Type{Kind: kind, Cardinality: Many}, Value: v}, nil
 	default:
 		return Literal{}, fmt.Errorf("unsupported recipe literal %T", value)
+	}
+}
+
+func recipeScalarKind(value any) (ValueKind, bool) {
+	switch value.(type) {
+	case nil:
+		return KindNull, true
+	case bool:
+		return KindBoolean, true
+	case string:
+		return KindString, true
+	case json.Number:
+		return KindDecimal, true
+	default:
+		return "", false
 	}
 }
 

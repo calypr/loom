@@ -5,51 +5,6 @@ import (
 	"strings"
 )
 
-func (d Document) Occurrences(c CatalogSnapshot) ([]RouteOccurrence, error) {
-	if err := d.Validate(); err != nil {
-		return nil, err
-	}
-	edges := c.edgeIndex()
-	current := d.RootNodeID
-	occ := []RouteOccurrence{{ID: RootOccurrenceID, NodeID: current}}
-	for i, step := range d.RouteSteps {
-		e := edges[step.EdgeID]
-		if e == nil {
-			return nil, fmt.Errorf("route step %d references unknown edge %q", i, step.EdgeID)
-		}
-		if e.FromNodeID != current {
-			return nil, fmt.Errorf("route step %d is disconnected: edge starts at %q, expected %q", i, e.FromNodeID, current)
-		}
-		id := step.OccurrenceID
-		if id == "" {
-			id = DerivedOccurrenceID(i)
-		}
-		occ = append(occ, RouteOccurrence{ID: id, NodeID: e.ToNodeID, IncomingEdgeID: e.ID})
-		current = e.ToNodeID
-	}
-	return occ, nil
-}
-
-func (d Document) TailOccurrence(c CatalogSnapshot) (RouteOccurrence, error) {
-	occ, err := d.Occurrences(c)
-	if err != nil {
-		return RouteOccurrence{}, err
-	}
-	return occ[len(occ)-1], nil
-}
-
-func (d Document) TailOccurrenceID(c CatalogSnapshot) (string, error) {
-	tail, err := d.TailOccurrence(c)
-	if err != nil {
-		return "", err
-	}
-	return tail.ID, nil
-}
-
-func DerivedOccurrenceID(stepIndex int) string {
-	return fmt.Sprintf("step-%d", stepIndex+1)
-}
-
 func (d Document) Validate() error {
 	if d.Kind != Kind {
 		return fmt.Errorf("unsupported V2 document protocol or kind")
@@ -60,73 +15,14 @@ func (d Document) Validate() error {
 	if !physicalColumnPattern.MatchString(d.Output.ID) {
 		return fmt.Errorf("output id must contain only letters, digits, and underscores and may not start with a digit")
 	}
-	if d.semantic() {
-		return d.validateSemantic()
-	}
-	if emptyID(d.RootNodeID) {
-		return fmt.Errorf("rootNodeId is required")
-	}
-	seenOccurrences := map[string]bool{RootOccurrenceID: true}
-	for i, step := range d.RouteSteps {
-		if emptyID(step.EdgeID) {
-			return fmt.Errorf("routeSteps[%d].edgeId is required", i)
-		}
-		occurrenceID := step.OccurrenceID
-		if occurrenceID == "" {
-			occurrenceID = DerivedOccurrenceID(i)
-		}
-		if step.OccurrenceID != "" {
-			if step.OccurrenceID == RootOccurrenceID {
-				return fmt.Errorf("routeSteps[%d] cannot author the derived base occurrence", i)
-			}
-			if emptyID(step.OccurrenceID) {
-				return fmt.Errorf("routeSteps[%d].occurrenceId is invalid", i)
-			}
-		}
-		if seenOccurrences[occurrenceID] {
-			return fmt.Errorf("duplicate route occurrence id %q", occurrenceID)
-		}
-		seenOccurrences[occurrenceID] = true
-	}
-	seenSelections := map[string]bool{}
-	for i, selection := range d.Selections {
-		if emptyID(selection.CandidateID) {
-			return fmt.Errorf("selections[%d].candidateId is required", i)
-		}
-		if strings.TrimSpace(selection.ProjectionMode) == "" {
-			return fmt.Errorf("selections[%d].projectionMode is required", i)
-		}
-		if selection.OccurrenceID == "base" && selection.OccurrenceID != "" { /* base is valid */
-		}
-		if selection.OccurrenceID != "" && emptyID(selection.OccurrenceID) {
-			return fmt.Errorf("selections[%d].occurrenceId is invalid", i)
-		}
-		key := selection.CandidateID + "\x00" + selection.OccurrenceID + "\x00" + selection.ProjectionMode
-		if seenSelections[key] {
-			return fmt.Errorf("duplicate selection %q", selection.CandidateID)
-		}
-		seenSelections[key] = true
-	}
-	for key, p := range d.Presentation {
-		if emptyID(key) {
-			return fmt.Errorf("presentation keys must be non-empty IDs")
-		}
-		if p.Order != nil && *p.Order < 0 {
-			return fmt.Errorf("presentation[%q].order must not be negative", key)
-		}
-	}
-	return nil
+	return d.validateSemantic()
 }
 
 func (w Workspace) Validate() error {
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
-	semanticWorkspace := false
-	for _, document := range w.Documents {
-		semanticWorkspace = semanticWorkspace || document.semantic()
-	}
-	if semanticWorkspace && strings.TrimSpace(w.Explorer.Title) == "" {
+	if strings.TrimSpace(w.Explorer.Title) == "" {
 		return fmt.Errorf("explorer.title is required")
 	}
 	outputs, tabs, tabOutputs, orders := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[int]bool{}
@@ -186,25 +82,13 @@ func (w Workspace) ValidateForPublication() error {
 		if !visibleOutputs[document.Output.ID] {
 			continue
 		}
-		if document.semantic() {
-			visible := 0
-			for _, column := range document.Columns {
-				if column.Table != nil && (column.Table.Visible == nil || *column.Table.Visible) {
-					visible++
-				}
-			}
-			if visible == 0 {
-				return fmt.Errorf("NO_VISIBLE_COLUMNS: documents[%d]", i)
-			}
-			continue
-		}
-		hidden := 0
-		for _, presentation := range document.Presentation {
-			if presentation.Visible != nil && !*presentation.Visible {
-				hidden++
+		visible := 0
+		for _, column := range document.Columns {
+			if column.Table != nil && (column.Table.Visible == nil || *column.Table.Visible) {
+				visible++
 			}
 		}
-		if len(document.Selections) == 0 || hidden == len(document.Selections) {
+		if visible == 0 {
 			return fmt.Errorf("NO_VISIBLE_COLUMNS: documents[%d]", i)
 		}
 	}
@@ -321,161 +205,10 @@ func (s BuilderState) Validate() error {
 	if s.LifecycleState == LifecycleReady && s.Workspace == nil {
 		return fmt.Errorf("READY Builder state requires workspace")
 	}
-	workspace := s.Workspace
-	if workspace == nil && s.Document != nil {
-		workspace = &Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Documents: []Document{*s.Document}, Tabs: []Tab{{ID: s.Document.Output.ID, Title: s.Document.Output.Title, OutputID: s.Document.Output.ID, Order: 0, Visible: true}}}
-	}
-	if workspace == nil {
+	if s.Workspace == nil {
 		return nil
 	}
-	if err := workspace.Validate(); err != nil {
-		return err
-	}
-	for i := range workspace.Documents {
-		document := workspace.Documents[i]
-		if document.semantic() {
-			continue
-		}
-		one := s
-		one.Workspace = nil
-		one.Document = &document
-		if err := one.validateDocument(); err != nil {
-			return fmt.Errorf("documents[%d]: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func (s BuilderState) validateDocument() error {
-	d := s.Document
-	if d == nil {
-		return nil
-	}
-	edges, candidates, nodes := s.Catalog.edgeIndex(), s.Catalog.candidateIndex(), s.Catalog.nodeIndex()
-	if nodes[d.RootNodeID].ID == "" {
-		return fmt.Errorf("document rootNodeId %q is stale", d.RootNodeID)
-	}
-	if !nodes[d.RootNodeID].RowRootEligible {
-		return fmt.Errorf("ROW_ROOT_NOT_ELIGIBLE: rootNodeId %q", d.RootNodeID)
-	}
-	seenEdges := map[string]bool{}
-	current := d.RootNodeID
-	for i, step := range d.RouteSteps {
-		e, ok := edges[step.EdgeID]
-		if !ok {
-			return fmt.Errorf("routeSteps[%d] references stale edge %q", i, step.EdgeID)
-		}
-		if e.FromNodeID != current {
-			return fmt.Errorf("routeSteps[%d] is disconnected: edge starts at %q, expected %q", i, e.FromNodeID, current)
-		}
-		if seenEdges[e.ID] && !s.Catalog.RoutePolicy.AllowRepeatedEdges {
-			return fmt.Errorf("repeated edge %q is not allowed by route policy", e.ID)
-		}
-		seenEdges[e.ID] = true
-		current = e.ToNodeID
-	}
-	if s.Catalog.RoutePolicy.MaxHops != nil && len(d.RouteSteps) > *s.Catalog.RoutePolicy.MaxHops {
-		return fmt.Errorf("route exceeds routePolicy.maxHops")
-	}
-	occ, err := d.Occurrences(s.Catalog)
-	if err != nil {
-		return err
-	}
-	occByID := map[string]RouteOccurrence{}
-	for _, item := range occ {
-		occByID[item.ID] = item
-	}
-	for i, selection := range d.Selections {
-		candidate, ok := candidates[selection.CandidateID]
-		if !ok {
-			return fmt.Errorf("selections[%d] references stale candidate %q", i, selection.CandidateID)
-		}
-		id := selection.OccurrenceID
-		if id == "" {
-			id = occ[len(occ)-1].ID
-		}
-		item, ok := occByID[id]
-		if !ok {
-			return fmt.Errorf("selections[%d] references stale occurrence %q", i, id)
-		}
-		if candidate.NodeID != item.NodeID {
-			return fmt.Errorf("selection %q belongs to node %q, not occurrence %q node %q", selection.CandidateID, candidate.NodeID, id, item.NodeID)
-		}
-		projectionAllowed := false
-		for _, mode := range candidate.ProjectionModes {
-			if selection.ProjectionMode == mode {
-				projectionAllowed = true
-				break
-			}
-		}
-		if !projectionAllowed {
-			return fmt.Errorf("selection %q projection mode %q is not advertised", selection.CandidateID, selection.ProjectionMode)
-		}
-	}
-	seenResolvedSelections := map[string]bool{}
-	for i, selection := range d.Selections {
-		occurrenceID := effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID)
-		key := selection.CandidateID + "\x00" + occurrenceID + "\x00" + selection.ProjectionMode
-		if seenResolvedSelections[key] {
-			return fmt.Errorf("duplicate selection at selections[%d]", i)
-		}
-		seenResolvedSelections[key] = true
-	}
-	selectionKeys := map[string]bool{}
-	for _, selection := range d.Selections {
-		selectionKeys[PresentationKey(selection.CandidateID, effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID), selection.ProjectionMode)] = true
-	}
-	for key, p := range d.Presentation {
-		if !selectionKeys[key] {
-			return fmt.Errorf("presentation %q does not resolve to a selection", key)
-		}
-		for _, selection := range d.Selections {
-			if PresentationKey(selection.CandidateID, effectiveOccurrence(*d, s.Catalog, selection.OccurrenceID), selection.ProjectionMode) != key {
-				continue
-			}
-			candidate := candidates[selection.CandidateID]
-			if p.Filter != nil && !candidate.Filterable {
-				return fmt.Errorf("UNSUPPORTED_FILTER: presentation %q", key)
-			}
-			if p.Chart != nil && !candidate.Chartable {
-				return fmt.Errorf("UNSUPPORTED_CHART: presentation %q", key)
-			}
-		}
-	}
-	return nil
-}
-
-func effectiveOccurrence(d Document, c CatalogSnapshot, authored string) string {
-	if authored != "" {
-		return authored
-	}
-	occ, err := d.Occurrences(c)
-	if err != nil || len(occ) == 0 {
-		return authored
-	}
-	return occ[len(occ)-1].ID
-}
-
-func (c CatalogSnapshot) nodeIndex() map[string]CatalogNode {
-	out := map[string]CatalogNode{}
-	for _, n := range c.Nodes {
-		out[n.ID] = n
-	}
-	return out
-}
-func (c CatalogSnapshot) edgeIndex() map[string]*CatalogEdge {
-	out := map[string]*CatalogEdge{}
-	for i := range c.Edges {
-		out[c.Edges[i].ID] = &c.Edges[i]
-	}
-	return out
-}
-func (c CatalogSnapshot) candidateIndex() map[string]CatalogCandidate {
-	out := map[string]CatalogCandidate{}
-	for _, n := range c.Candidates {
-		out[n.ID] = n
-	}
-	return out
+	return s.Workspace.Validate()
 }
 
 func emptyID(value string) bool {

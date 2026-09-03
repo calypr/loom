@@ -17,28 +17,7 @@ type GenerationLoadRequest struct {
 	AuthResourcePath string
 	StagedDir        string
 	SubmittedBy      string
-	StageOnly        bool
 	DeferActivation  bool
-}
-
-type ImportRequest struct {
-	Project          string `json:"project"`
-	ResourceType     string `json:"resource_type"`
-	AuthResourcePath string `json:"auth_resource_path,omitempty"`
-	Truncate         bool   `json:"truncate"`
-	UseGeneric       bool   `json:"use_generic"`
-	StagedFilePath   string `json:"-"`
-	OriginalFilename string `json:"original_filename"`
-	SubmittedBy      string `json:"submitted_by,omitempty"`
-}
-
-type ImportResult struct {
-	Project          string              `json:"project"`
-	ResourceType     string              `json:"resource_type"`
-	AuthResourcePath string              `json:"auth_resource_path,omitempty"`
-	OriginalFilename string              `json:"original_filename"`
-	SubmittedBy      string              `json:"submitted_by,omitempty"`
-	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
 }
 
 type GenerationLoadResult struct {
@@ -51,6 +30,13 @@ type GenerationLoadResult struct {
 	Reused           bool                `json:"reused,omitempty"`
 }
 
+type GenerationStatusResult struct {
+	Project    string            `json:"project"`
+	Generation string            `json:"generation"`
+	State      publication.State `json:"state"`
+	Reusable   bool              `json:"reusable"`
+}
+
 type GenerationActivator interface {
 	ReadManifest(context.Context, publication.Ref) (publication.Manifest, error)
 	Activate(context.Context, publication.Manifest) error
@@ -61,26 +47,10 @@ type DataframeReleaseStore interface {
 	GetPointer(context.Context, string) (dataframepublication.BundlePointer, error)
 }
 
-type GenerationRunner interface {
-	RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
-
-type Runner interface {
-	Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error)
-}
+type GenerationLoader func(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error)
 
 type IngestRunner struct {
 	BaseOptions ingest.LoadOptions
-}
-
-func (r IngestRunner) Run(ctx context.Context, req ImportRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
-	opts := r.BaseOptions
-	opts.Project = req.Project
-	opts.AuthResourcePath = req.AuthResourcePath
-	opts.Truncate = req.Truncate
-	opts.UseGeneric = req.UseGeneric
-	opts.EventSink = sink
-	return ingest.LoadSingleResourceFile(ctx, opts, req.ResourceType, req.StagedFilePath)
 }
 
 func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
@@ -96,13 +66,13 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.DeferActivation = req.DeferActivation
 	opts.Truncate = false
 	opts.EventSink = sink
-	opts.StageOnly = req.StageOnly
+	// StageOnly is a CLI mode. The HTTP API stages through DeferActivation.
+	opts.StageOnly = false
 	return ingest.Load(ctx, opts)
 }
 
 type ServiceConfig struct {
-	Runner              Runner
-	GenerationRunner    GenerationRunner
+	LoadGeneration      GenerationLoader
 	Logger              *slog.Logger
 	OnSuccess           func(project string)
 	GenerationActivator GenerationActivator
@@ -110,8 +80,7 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	runner              Runner
-	generationRunner    GenerationRunner
+	loadGeneration      GenerationLoader
 	logger              *slog.Logger
 	onSuccess           func(project string)
 	generationActivator GenerationActivator
@@ -119,15 +88,14 @@ type Service struct {
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
-	if cfg.Runner == nil && cfg.GenerationRunner == nil {
+	if cfg.LoadGeneration == nil {
 		return nil, errors.New("load runner is required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
 	return &Service{
-		runner:              cfg.Runner,
-		generationRunner:    cfg.GenerationRunner,
+		loadGeneration:      cfg.LoadGeneration,
 		logger:              cfg.Logger,
 		onSuccess:           cfg.OnSuccess,
 		generationActivator: cfg.GenerationActivator,
@@ -135,44 +103,28 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}, nil
 }
 
-func (s *Service) Run(ctx context.Context, req ImportRequest) (*ImportResult, error) {
-	if s.runner == nil {
-		return nil, errors.New("resource runner is not configured")
+func (s *Service) generationStatus(ctx context.Context, project, generation string) (*GenerationStatusResult, error) {
+	if project == "" || generation == "" {
+		return nil, errors.New("project and generation are required")
 	}
-	if req.Project == "" {
-		return nil, errors.New("project is required")
+	if s.generationActivator == nil {
+		return nil, errors.New("generation manifest reader is not configured")
 	}
-	if req.ResourceType == "" {
-		return nil, errors.New("resource_type is required")
-	}
-	if req.StagedFilePath == "" {
-		return nil, errors.New("staged file path is required")
-	}
-
-	summary, err := s.runner.Run(ctx, req, nil)
+	ref, err := publication.NewRef(project, generation)
 	if err != nil {
-		s.logger.Error("resource load failed", "project", req.Project, "resource_type", req.ResourceType, "error", err.Error())
 		return nil, err
 	}
-	if s.onSuccess != nil {
-		s.onSuccess(req.Project)
+	manifest, err := s.generationActivator.ReadManifest(ctx, ref)
+	if err != nil {
+		return nil, err
 	}
-	s.logger.Info("resource load succeeded", "project", req.Project, "resource_type", req.ResourceType, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	summaryCopy := summary
-	return &ImportResult{
-		Project:          req.Project,
-		ResourceType:     req.ResourceType,
-		AuthResourcePath: req.AuthResourcePath,
-		OriginalFilename: req.OriginalFilename,
-		SubmittedBy:      req.SubmittedBy,
-		Summary:          &summaryCopy,
+	return &GenerationStatusResult{
+		Project: ref.Project, Generation: ref.Generation,
+		State: manifest.State, Reusable: manifest.IsStaged(),
 	}, nil
 }
 
-func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
-	if s.generationRunner == nil {
-		return nil, errors.New("generation runner is not configured")
-	}
+func (s *Service) runGeneration(ctx context.Context, req GenerationLoadRequest) (*GenerationLoadResult, error) {
 	if req.Project == "" || req.Generation == "" || req.StagedDir == "" {
 		return nil, errors.New("project, generation, and staged directory are required")
 	}
@@ -196,7 +148,7 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 			return nil, fmt.Errorf("inspect existing generation: %w", err)
 		}
 	}
-	summary, err := s.generationRunner.RunGeneration(ctx, req, nil)
+	summary, err := s.loadGeneration(ctx, req, nil)
 	if err != nil {
 		s.logger.Error("generation load failed", "project", req.Project, "generation", req.Generation, "error", err.Error())
 		return nil, err
@@ -205,13 +157,13 @@ func (s *Service) RunGeneration(ctx context.Context, req GenerationLoadRequest) 
 		s.onSuccess(req.Project)
 	}
 	s.logger.Info("generation load succeeded", "project", req.Project, "generation", req.Generation, "vertices", summary.VerticesInserted, "edges", summary.EdgesInserted)
-	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary, Activated: !req.DeferActivation && !req.StageOnly}, nil
+	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary, Activated: !req.DeferActivation}, nil
 }
 
-// ActivateGeneration performs the release switch only after the exact
+// activateGeneration performs the release switch only after the exact
 // dataframe bundle supplied by the caller is durably successful and remains
 // the active pointer for its recipe/generation namespace.
-func (s *Service) ActivateGeneration(ctx context.Context, project, generation, executionID string) error {
+func (s *Service) activateGeneration(ctx context.Context, project, generation, executionID string) error {
 	fail := func(err error) error {
 		if err != nil {
 			s.logger.Error("generation release activation failed", "project", project, "generation", generation, "dataframe_execution_id", executionID, "error", err)

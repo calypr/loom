@@ -1,5 +1,4 @@
 type Query {
-  dataframeDatasets: [DataframeMaterialization!]!
   projectDataframeDatasets(projectId: String!): [DataframeMaterialization!]!
   dataframeDataset(input: DataframeDatasetInput!): DataframeMaterialization
   dataframeRows(input: DataframeRowsInput!): DataframeRowConnection!
@@ -24,33 +23,8 @@ type Mutation {
   runDataframeRecipe(input: RunDataframeRecipeInput!): DataframeRecipeResult!
   validateDataframeRecipe(input: ValidateDataframeRecipeInput!): DataframeRecipeValidation!
   previewDataframeRecipe(input: PreviewDataframeRecipeInput!): DataframeRecipePreview!
-  materializeDataframeRecipeBundle(input: MaterializeDataframeRecipeInput!): DataframeRecipeExecution!
-  startDataframeMaterialization(input: StartDataframeMaterializationInput!): DataframeRecipeExecution!
-  activateProjectRelease(input: ActivateProjectReleaseInput!): ProjectRelease!
 	registerDataframeRecipeRevision(input: RegisterDataframeRecipeRevisionInput!): DataframeRecipeRevision!
 }
-
-input StartDataframeMaterializationInput {
-  project: String!
-  generation: String!
-  selector: DataframeSelectorInput!
-}
-
-input ActivateProjectReleaseInput {
-  project: String!
-  releaseId: ID!
-  expectedActiveRevision: String
-}
-
-type ProjectRelease {
-  id: ID!
-  project: String!
-  generation: String!
-  revision: String!
-  state: ProjectReleaseState!
-}
-
-enum ProjectReleaseState { ACTIVE }
 
 input RegisterDataframeRecipeRevisionInput {
   projectId: String!
@@ -103,11 +77,6 @@ input RunDataframeRecipeInput {
   name: String!
   bindings: DataframeRecipeBindingsInput!
   outputs: [String!]
-}
-
-input MaterializeDataframeRecipeInput {
-  name: String!
-  bindings: DataframeRecipeBindingsInput!
 }
 
 type DataframeRecipeValidation {
@@ -360,11 +329,6 @@ type DataframeMaterialization {
   errorCode: String
   errorRetryable: Boolean
   selector: DataframeSelector
-  availability: DataframeAvailability
-  completeness: Float
-  includedProjectCount: Int
-  expectedProjectCount: Int
-  projectStatuses: [DataframeProjectStatus!]!
 }
 
 input DataframeSelectorInput {
@@ -379,33 +343,8 @@ type DataframeSelector {
   output: String!
 }
 
-enum DataframeAvailability {
-  AVAILABLE
-  DEGRADED
-  UNAVAILABLE
-}
-
-enum DataframeProjectState {
-  CURRENT
-  STALE
-  BUILDING
-  FAILED
-  MISSING
-  EXCLUDED
-}
-
-type DataframeProjectStatus {
-  project: String!
-  state: DataframeProjectState!
-  generation: String
-  executionId: ID
-  createdAt: String
-  updatedAt: String
-  errorCode: String
-  retryable: Boolean!
-}
-
 input DataframeDatasetInput {
+  projectId: String!
   selector: DataframeSelectorInput!
 }
 
@@ -421,6 +360,7 @@ input DataframeSortInput {
 }
 
 input DataframeRowsInput {
+  projectId: String!
   selector: DataframeSelectorInput!
   columns: [String!]
   filters: [DataframeFilterInput!]
@@ -443,6 +383,7 @@ type DataframeRowConnection {
 }
 
 input DataframeAggregateInput {
+  projectId: String!
   selector: DataframeSelectorInput!
   groupBy: [String!]
   filters: [DataframeFilterInput!]
@@ -467,6 +408,7 @@ input DataframeAggregationSpecInput {
 }
 
 input DataframeAggregationsInput {
+  projectId: String!
   selector: DataframeSelectorInput!
   filters: [DataframeFilterInput!]
   specs: [DataframeAggregationSpecInput!]!

@@ -141,11 +141,13 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		if operation.Filter.Expression != nil {
 			return validateRenderablePredicateExpression(*operation.Filter.Expression, collectionKeys)
 		}
-		if strings.ToUpper(strings.TrimSpace(operation.Filter.Predicate.Operator)) != "EQUALS" {
+		switch strings.ToUpper(strings.TrimSpace(operation.Filter.Predicate.Operator)) {
+		case "EQUALS", "IN", "GT":
+		default:
 			return fmt.Errorf("unsupported physical filter operator %q", operation.Filter.Predicate.Operator)
 		}
 		if operation.Filter.Predicate.Right == nil {
-			return fmt.Errorf("EQUALS filter requires a right value")
+			return fmt.Errorf("physical filter operator %q requires a right value", operation.Filter.Predicate.Operator)
 		}
 		if err := checkValue(operation.Filter.Predicate.Left); err != nil {
 			return err
@@ -176,7 +178,7 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 	case ir.PhysicalReturnOp:
 		for _, projection := range operation.Return.Projections {
 			if projection.Expression != nil {
-				if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalLookupExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalCallExpression {
+				if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalCallExpression {
 					return fmt.Errorf("unsupported physical return expression kind %q", projection.Expression.Kind)
 				}
 				continue

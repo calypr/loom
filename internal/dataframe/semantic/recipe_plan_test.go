@@ -1,12 +1,38 @@
 package semantic
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
+
+func TestRecipePlanStoresRootProjectionOrderOnlyOnRootNode(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1, Name: "canonical-fields", TranslationVersion: "test",
+		Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{
+			{Name: "id", Expr: recipe.Expression{Select: "id"}},
+			{Name: "gender", Expr: recipe.Expression{Select: "gender"}},
+		}}},
+	}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := plan.Outputs[0]
+	if got := len(output.Root.Fields); got != 2 || output.Root.Fields[0].Name != "id" || output.Root.Fields[1].Name != "gender" {
+		t.Fatalf("root fields = %#v, want authored order", output.Root.Fields)
+	}
+	typ := reflect.TypeOf(output)
+	if _, ok := typ.FieldByName("Fields"); ok {
+		t.Fatal("OutputPlan retains duplicate root Fields storage")
+	}
+	if _, ok := typ.FieldByName("DeclaredOrder"); ok {
+		t.Fatal("OutputPlan retains duplicate declared order storage")
+	}
+}
 
 func TestSemanticUnnestRejectsNonRepeatedAndUnsafeBindings(t *testing.T) {
 	base := SemanticUnnest{

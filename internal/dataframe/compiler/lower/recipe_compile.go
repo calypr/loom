@@ -34,6 +34,7 @@ type CompiledRecipeOutput struct {
 	Name             string
 	RootResourceType string
 	RowGrain         spec.RowGrain
+	RootColumnNaming recipe.RootColumnNaming
 	Columns          []string
 	// OutputSchema is the compiler-owned ordered projection schema. It is
 	// captured from the finalized physical RETURN projections rather than
@@ -125,29 +126,18 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 }
 
 func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
-	root := cloneRecipeNodeForPhysical(output.Root)
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
-	semanticInput := semantic.SemanticPlan{
-		Version:           1,
+	context := semantic.ExecutionContext{
 		Project:           bindings.Project,
 		DatasetGeneration: bindings.DatasetGeneration,
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 		AuthScopeMode:     bindings.AuthScopeMode,
-		Root:              root,
-		RowIdentity:       &identity,
 	}
-	physical, err := BuildGenericPhysicalPlanWithPolicy(semanticInput, policy)
+	physical, err := buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
 	if err != nil {
-		return CompiledRecipeOutput{}, err
-	}
-
-	// Recipe expressions are richer than selector-only GraphQL fields.  The
-	// generic plan supplies the complete scoped traversal/set structure; patch
-	// only the expression payloads using the already checked recipe AST.
-	if err := patchRecipeExpressions(&physical, output); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
 	if err := appendRecipeIdentity(&physical, output); err != nil {
@@ -171,7 +161,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
-		RowGrain: output.RowGrain, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
+		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Plan: physical,
 	}, nil
 }

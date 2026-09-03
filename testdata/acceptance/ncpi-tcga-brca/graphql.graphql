@@ -1,0 +1,6 @@
+query AcceptanceDataset($dataset: DataframeDatasetInput!, $rows: DataframeRowsInput!, $count: DataframeAggregateInput!, $facets: DataframeAggregationsInput!) {
+  dataset: dataframeDataset(input: $dataset) { id name projectId datasetGeneration rowCount columns { name } }
+  rows: dataframeRows(input: $rows) { columns rows totalCount pageInfo { hasNextPage } }
+  count: dataframeAggregate(input: $count) { columns rows }
+  facets: dataframeAggregations(input: $facets) { aggregations }
+}

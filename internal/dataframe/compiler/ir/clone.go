@@ -1,10 +1,6 @@
 package ir
 
-import (
-	"encoding/json"
-
-	"github.com/calypr/loom/internal/dataframe/spec"
-)
+import "github.com/calypr/loom/internal/dataframe/spec"
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -62,6 +58,108 @@ func ClonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	return clonePhysicalSubplan(subplan)
 }
 
+// CanonicalExecutionPhysicalPlan returns the renderer-relevant plan contract.
+// Compiler diagnostics and semantic source locations are deliberately removed:
+// they explain a plan but do not change what the backend executes.
+func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
+	out := clonePhysicalPlan(plan)
+	out.Source = PhysicalSource{}
+	out.DeferredExpressionLets = nil
+	out.AppliedRules = nil
+	out.SharedTraversalCount = 0
+	out.OptimizationPolicy = PhysicalOptimizationReport{}
+	out.RequiredMatchReuseCount = 0
+	canonicalizePhysicalOperations(out.Operations)
+	return out
+}
+
+func canonicalizePhysicalOperations(operations []PhysicalOperation) {
+	for index := range operations {
+		operation := &operations[index]
+		operation.Source = PhysicalSource{}
+		if operation.Set != nil {
+			canonicalizePhysicalSubplan(&operation.Set.Subplan)
+		}
+		if operation.Filter != nil && operation.Filter.Expression != nil {
+			canonicalizePhysicalPredicateExpression(operation.Filter.Expression)
+		}
+		if operation.ExpressionLet != nil {
+			canonicalizePhysicalExpression(&operation.ExpressionLet.Expression)
+		}
+		if operation.Unnest != nil {
+			canonicalizePhysicalExpression(&operation.Unnest.Expression)
+		}
+		if operation.Return != nil {
+			for projection := range operation.Return.Projections {
+				canonicalizePhysicalExpression(operation.Return.Projections[projection].Expression)
+			}
+		}
+		if operation.PathExtend != nil {
+			canonicalizePhysicalOperations(operation.PathExtend.Scope)
+		}
+	}
+}
+
+func canonicalizePhysicalSubplan(subplan *PhysicalSubplan) {
+	if subplan == nil {
+		return
+	}
+	canonicalizePhysicalOperations(subplan.Operations)
+	canonicalizePhysicalExpression(&subplan.Return)
+}
+
+func canonicalizePhysicalPredicateExpression(predicate *PhysicalPredicateExpression) {
+	if predicate == nil {
+		return
+	}
+	if predicate.Comparison != nil {
+		canonicalizePhysicalExpression(predicate.Comparison.LeftExpression)
+	}
+	canonicalizePhysicalSubplan(predicate.Exists)
+	for index := range predicate.Children {
+		canonicalizePhysicalPredicateExpression(&predicate.Children[index])
+	}
+}
+
+func canonicalizePhysicalExpression(expression *PhysicalExpression) {
+	if expression == nil {
+		return
+	}
+	if expression.Aggregate != nil {
+		canonicalizePhysicalExpression(expression.Aggregate.Value)
+		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
+	}
+	if expression.Slice != nil {
+		canonicalizePhysicalPredicateExpression(expression.Slice.Predicate)
+		canonicalizePhysicalExpression(expression.Slice.Sort)
+		for index := range expression.Slice.Projections {
+			canonicalizePhysicalExpression(&expression.Slice.Projections[index].Expression)
+		}
+	}
+	if expression.KeyedMap != nil {
+		canonicalizePhysicalExpression(&expression.KeyedMap.Source)
+		canonicalizePhysicalExpression(&expression.KeyedMap.ItemKey)
+		canonicalizePhysicalExpression(&expression.KeyedMap.ItemValue)
+		for index := range expression.KeyedMap.ValueFallbacks {
+			canonicalizePhysicalExpression(&expression.KeyedMap.ValueFallbacks[index])
+		}
+	}
+	if expression.KeySet != nil {
+		canonicalizePhysicalExpression(&expression.KeySet.Source)
+		canonicalizePhysicalExpression(&expression.KeySet.ItemKey)
+	}
+	if expression.Object != nil {
+		for index := range expression.Object.Fields {
+			canonicalizePhysicalExpression(&expression.Object.Fields[index].Expression)
+		}
+	}
+	if expression.Call != nil {
+		for index := range expression.Call.Args {
+			canonicalizePhysicalExpression(&expression.Call.Args[index])
+		}
+	}
+}
+
 func clonePhysicalBindVars(bindVars map[string]any) map[string]any {
 	if bindVars == nil {
 		return nil
@@ -105,6 +203,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			projectionCopy.Fields = append([]PhysicalSetProjectionField(nil), operation.Set.Projection.Fields...)
 			setCopy.Projection = &projectionCopy
 		}
+		if operation.Set.Reduction != nil {
+			reductionCopy := *operation.Set.Reduction
+			reductionCopy.Fields = append([]PhysicalSetReductionField(nil), operation.Set.Reduction.Fields...)
+			setCopy.Reduction = &reductionCopy
+		}
 		if operation.Set.Prepared != nil {
 			preparedCopy := *operation.Set.Prepared
 			preparedCopy.Fields = append([]PhysicalPreparedField(nil), operation.Set.Prepared.Fields...)
@@ -122,10 +225,6 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		derivedCopy.Inputs = make([]PhysicalValue, len(operation.DerivedLet.Inputs))
 		for index, input := range operation.DerivedLet.Inputs {
 			derivedCopy.Inputs[index] = clonePhysicalValue(input)
-		}
-		if operation.DerivedLet.Expression != nil {
-			expression := clonePhysicalExpression(*operation.DerivedLet.Expression)
-			derivedCopy.Expression = &expression
 		}
 		copy.DerivedLet = &derivedCopy
 	}
@@ -269,13 +368,6 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Slice = &slice
 	}
-	if expression.Lookup != nil {
-		lookup := *expression.Lookup
-		lookup.Source = clonePhysicalExpression(expression.Lookup.Source)
-		lookup.ItemKey = clonePhysicalExpression(expression.Lookup.ItemKey)
-		lookup.ItemValue = clonePhysicalExpression(expression.Lookup.ItemValue)
-		copy.Lookup = &lookup
-	}
 	if expression.ObjectLookup != nil {
 		lookup := *expression.ObjectLookup
 		copy.ObjectLookup = &lookup
@@ -312,20 +404,6 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		copy.Object = &object
 	}
 	return copy
-}
-
-// PhysicalExpressionFingerprint returns a deterministic structural identity
-// for optimizer reuse decisions. It intentionally includes typed bind keys
-// and cardinality/null contracts but never bind values.
-func PhysicalExpressionFingerprint(expression PhysicalExpression) (string, error) {
-	if err := validatePhysicalExpressionObjectCycles(expression); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(expression)
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
 }
 
 func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {

@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -79,6 +80,40 @@ func TestQueryRowsWrapsDriverQueryError(t *testing.T) {
 	err := queryRows(context.Background(), queryer, "RETURN 1", 1, nil, func(map[string]any) error { return nil })
 	if !errors.Is(err, want) || !strings.Contains(err.Error(), "arango query") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestIsQueryMemoryLimitExceededRecognizesWrappedArangoResourceLimit(t *testing.T) {
+	driverErr := shared.ArangoError{
+		HasError:     true,
+		Code:         500,
+		ErrorNum:     shared.ErrResourceLimit,
+		ErrorMessage: "AQL: query would use more memory than allowed",
+	}
+	err := fmt.Errorf("arango query: %w", driverErr)
+
+	if !IsQueryMemoryLimitExceeded(err) {
+		t.Fatalf("IsQueryMemoryLimitExceeded(%v) = false, want true", err)
+	}
+	if !IsQueryResourceLimitExceeded(err) {
+		t.Fatalf("IsQueryResourceLimitExceeded(%v) = false, want true", err)
+	}
+	if IsQueryMemoryLimitExceeded(errors.New("unrelated query failure")) {
+		t.Fatal("unrelated query failure was classified as a memory-limit error")
+	}
+	outOfMemory := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrOutOfMemory, ErrorMessage: "out of memory"}
+	if IsQueryMemoryLimitExceeded(outOfMemory) {
+		t.Fatal("database out-of-memory was classified as a configured query-memory limit")
+	}
+	if !IsQueryOutOfMemory(outOfMemory) {
+		t.Fatal("database out-of-memory was not recognized")
+	}
+	otherResource := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "resource limit exceeded"}
+	if IsQueryMemoryLimitExceeded(otherResource) {
+		t.Fatal("non-memory resource limit was classified as a memory limit")
+	}
+	if !IsQueryResourceLimitExceeded(otherResource) {
+		t.Fatal("non-memory resource limit was not recognized")
 	}
 }
 

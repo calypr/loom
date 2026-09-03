@@ -28,11 +28,8 @@ type TraversalLoweringRequest struct {
 }
 
 // TraversalLoweringResult contains the canonical physical traversal and the
-// bind values required by its renderer. The route is retained as provenance
-// for callers that need to inspect the schema-derived contract; callers must
-// not mutate it or substitute a direction after construction.
+// bind values required by its renderer.
 type TraversalLoweringResult struct {
-	Route     storageRoute
 	Traversal ir.PhysicalTraversal
 	BindVars  map[string]any
 }
@@ -88,7 +85,6 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 	typeBind := prefix + "_target_type"
 	edgeCollectionBind := prefix + "_edge_collection"
 	return TraversalLoweringResult{
-		Route: route,
 		Traversal: ir.PhysicalTraversal{
 			SourceVariable:        request.SourceVariable,
 			TargetVariable:        request.TargetVariable,

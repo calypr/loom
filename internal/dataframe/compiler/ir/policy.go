@@ -33,23 +33,17 @@ type PhysicalOptimizationPolicy struct {
 type PhysicalOptimizationRule string
 
 const (
-	PhysicalOptimizationRuleTraversalSharing   PhysicalOptimizationRule = "traversal_sharing"
-	PhysicalOptimizationRulePreparedSelectors  PhysicalOptimizationRule = "prepared_selectors"
-	PhysicalOptimizationRuleNestedSharing      PhysicalOptimizationRule = "nested_traversal_sharing"
-	PhysicalOptimizationRuleRichConsumerFusion PhysicalOptimizationRule = "rich_consumer_fusion"
-	PhysicalOptimizationRuleCompactProjection  PhysicalOptimizationRule = "compact_set_projection"
-	PhysicalOptimizationRuleEndpointTraversal  PhysicalOptimizationRule = "endpoint_traversal"
-	PhysicalOptimizationRuleKeyedMapSharing    PhysicalOptimizationRule = "keyed_map_sharing"
+	PhysicalOptimizationRuleTraversalSharing  PhysicalOptimizationRule = "traversal_sharing"
+	PhysicalOptimizationRulePreparedSelectors PhysicalOptimizationRule = "prepared_selectors"
+	PhysicalOptimizationRuleCompactProjection PhysicalOptimizationRule = "compact_set_projection"
+	PhysicalOptimizationRuleEndpointTraversal PhysicalOptimizationRule = "endpoint_traversal"
 )
 
 var allPhysicalOptimizationRules = []PhysicalOptimizationRule{
 	PhysicalOptimizationRuleTraversalSharing,
 	PhysicalOptimizationRulePreparedSelectors,
-	PhysicalOptimizationRuleNestedSharing,
-	PhysicalOptimizationRuleRichConsumerFusion,
 	PhysicalOptimizationRuleCompactProjection,
 	PhysicalOptimizationRuleEndpointTraversal,
-	PhysicalOptimizationRuleKeyedMapSharing,
 }
 
 // RuleEnabled resolves one rule without mutating the caller's policy. A
@@ -64,7 +58,7 @@ func (policy PhysicalOptimizationPolicy) RuleEnabled(rule PhysicalOptimizationRu
 		}
 	}
 	switch rule {
-	case PhysicalOptimizationRuleTraversalSharing, PhysicalOptimizationRuleCompactProjection, PhysicalOptimizationRuleEndpointTraversal, PhysicalOptimizationRuleKeyedMapSharing:
+	case PhysicalOptimizationRuleTraversalSharing, PhysicalOptimizationRuleCompactProjection, PhysicalOptimizationRuleEndpointTraversal:
 		return true
 	default:
 		return false
@@ -149,11 +143,8 @@ func DefaultPhysicalOptimizationPolicy() PhysicalOptimizationPolicy {
 	}{
 		{name: "LOOM_PHYSICAL_RULE_TRAVERSAL_SHARING", rule: PhysicalOptimizationRuleTraversalSharing},
 		{name: "LOOM_PHYSICAL_RULE_PREPARED_SELECTORS", rule: PhysicalOptimizationRulePreparedSelectors},
-		{name: "LOOM_PHYSICAL_RULE_NESTED_SHARING", rule: PhysicalOptimizationRuleNestedSharing},
-		{name: "LOOM_PHYSICAL_RULE_RICH_FUSION", rule: PhysicalOptimizationRuleRichConsumerFusion},
 		{name: "LOOM_PHYSICAL_RULE_COMPACT_PROJECTION", rule: PhysicalOptimizationRuleCompactProjection},
 		{name: "LOOM_PHYSICAL_RULE_ENDPOINT_TRAVERSAL", rule: PhysicalOptimizationRuleEndpointTraversal},
-		{name: "LOOM_PHYSICAL_RULE_KEYED_MAP_SHARING", rule: PhysicalOptimizationRuleKeyedMapSharing},
 	} {
 		switch strings.ToLower(strings.TrimSpace(os.Getenv(setting.name))) {
 		case "on", "1", "true", "enabled":

@@ -77,7 +77,7 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		return err
 	}
 	switch aggregate.Operation {
-	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate:
+	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate:
 	default:
 		return fmt.Errorf("unknown aggregate operation %q", aggregate.Operation)
 	}
@@ -94,6 +94,27 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		if err := validatePhysicalPredicateExpression(*aggregate.Predicate, defined, bindVars); err != nil {
 			return fmt.Errorf("aggregate predicate: %w", err)
 		}
+	}
+	if aggregate.Operation == PhysicalContainsAllAggregate {
+		if strings.TrimSpace(aggregate.RequiredValuesBindKey) == "" {
+			return fmt.Errorf("CONTAINS_ALL requires required values bind")
+		}
+		if err := requireBind(bindVars, aggregate.RequiredValuesBindKey); err != nil {
+			return err
+		}
+		values, ok := bindVars[aggregate.RequiredValuesBindKey].([]string)
+		if !ok || len(values) == 0 {
+			return fmt.Errorf("required values bind %q must be a non-empty []string", aggregate.RequiredValuesBindKey)
+		}
+		seen := map[string]bool{}
+		for _, value := range values {
+			if strings.TrimSpace(value) == "" || seen[value] {
+				return fmt.Errorf("required values bind %q contains an empty or duplicate value", aggregate.RequiredValuesBindKey)
+			}
+			seen[value] = true
+		}
+	} else if strings.TrimSpace(aggregate.RequiredValuesBindKey) != "" {
+		return fmt.Errorf("aggregate operation %q does not accept required values", aggregate.Operation)
 	}
 	return nil
 }

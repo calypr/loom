@@ -22,14 +22,6 @@ const (
 	StatusFailed   Status = "FAILED"
 )
 
-// These aliases make the wire values convenient to use without making callers
-// depend on the underlying spelling.
-const (
-	BUILDING Status = StatusBuilding
-	READY    Status = StatusReady
-	FAILED   Status = StatusFailed
-)
-
 type Operation string
 
 const (
@@ -47,13 +39,6 @@ const (
 	ProjectionFirst         ProjectionMode = "FIRST"
 	ProjectionArray         ProjectionMode = "ARRAY"
 	ProjectionDistinctArray ProjectionMode = "DISTINCT_ARRAY"
-)
-
-// Short aliases are useful to adapters that mirror the frontend vocabulary.
-const (
-	FIRST          ProjectionMode = ProjectionFirst
-	ARRAY          ProjectionMode = ProjectionArray
-	DISTINCT_ARRAY ProjectionMode = ProjectionDistinctArray
 )
 
 type FilterOperator string
@@ -199,10 +184,6 @@ type Snapshot struct {
 	AuditCandidates []Candidate      `json:"auditCandidates,omitempty"`
 	Token           string           `json:"token"`
 }
-
-// CapabilitySnapshot is the descriptive name used at API seams; Snapshot is
-// retained as the concise package-local spelling.
-type CapabilitySnapshot = Snapshot
 
 var (
 	ErrSnapshotUnavailable = errors.New("capability snapshot is unavailable")

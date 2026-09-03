@@ -13,9 +13,10 @@ type AggregationSpec struct {
 }
 
 type AggregationsRequest struct {
-	Filters         []Filter
-	Specs           []AggregationSpec
-	AccessByProject map[string]SourceAccess
+	Filters           []Filter
+	Specs             []AggregationSpec
+	AuthResourcePaths []string
+	Unrestricted      bool
 }
 
 type AggregationResult struct {
@@ -28,8 +29,8 @@ type AggregationResult struct {
 }
 
 type AggregationsResult struct {
-	Dataset      FederatedDataset
-	Aggregations []AggregationResult
+	Materialization Materialization
+	Aggregations    []AggregationResult
 }
 
 const (
@@ -72,8 +73,9 @@ type AggregateJobResult struct {
 }
 
 type AggregateBatchRequest struct {
-	Jobs            []AggregateJob
-	AccessByProject map[string]SourceAccess
+	Jobs              []AggregateJob
+	AuthResourcePaths []string
+	Unrestricted      bool
 }
 
 type AggregateBatchResult struct {

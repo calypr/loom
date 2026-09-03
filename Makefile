@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -18,7 +18,28 @@ DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
+# Make treats the positional version as a second goal. Reject every ambiguous
+# form while parsing so no release recipe can start with the wrong version.
+ifneq ($(filter release-ui,$(MAKECMDGOALS)),)
+ifneq ($(firstword $(MAKECMDGOALS)),release-ui)
+$(error Usage: make release-ui X.Y.Z)
+endif
+ifneq ($(words $(MAKECMDGOALS)),2)
+$(error Usage: make release-ui X.Y.Z)
+endif
+ifeq ($(origin VERSION),command line)
+$(error Usage: do not set VERSION=; run make release-ui X.Y.Z)
+endif
+release-ui-version := $(word 2,$(MAKECMDGOALS))
+.PHONY: $(release-ui-version)
+$(release-ui-version):
+	@:
+endif
+
 build: build-cli build-server
+
+release-ui:
+	./scripts/release-loom-ui.sh release "$(release-ui-version)"
 
 generate: generate-fhir generate-graphql generate-openapi
 
@@ -78,7 +99,7 @@ dataframe-boundaries:
 
 dataframe-test: dataframe-boundaries
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/dataframe/spec ./internal/dataframe/semantic ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/optimize ./internal/dataframe/compiler/render/aql ./internal/dataframe/compiler ./internal/dataframe/runtime -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/dataframe/spec ./internal/dataframe/semantic ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/optimize ./internal/dataframe/compiler/render/aql ./internal/dataframe/compiler ./internal/dataframe/execution -count=1
 
 conformance:
 	mkdir -p $(GOCACHE_DIR)
@@ -89,6 +110,29 @@ docker-build:
 
 docker-run:
 	docker run --rm -p 8080:8080 $(IMAGE)
+
+# Full real-data acceptance path. The script owns temporary Kubernetes
+# port-forwards, the current-worktree Loom process, and guarded run databases.
+acceptance-real:
+	./scripts/acceptance-real.sh
+
+acceptance-performance:
+	./scripts/acceptance-performance.sh
+
+demo-up:
+	./scripts/demo-up.sh
+
+demo-down:
+	./scripts/demo-down.sh
+
+demo-smoke:
+	./scripts/demo-smoke.sh
+
+demo-browser-smoke:
+	./scripts/demo-browser-smoke.sh
+
+repository-up:
+	./scripts/loom-repo-up.sh --repository "$(if $(REPOSITORY),$(REPOSITORY),$(CURDIR))"
 
 clean:
 	rm -rf bin

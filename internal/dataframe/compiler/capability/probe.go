@@ -91,27 +91,10 @@ type CandidateRequest struct {
 	Chart            *Chart
 }
 
-// CostEstimate is intentionally descriptive rather than a hidden limit. A
-// caller may install a policy that rejects an expensive finite request while
-// still allowing arbitrary route depth when its own budget permits it.
-type CostEstimate struct {
-	TraversalCount int
-	CandidateCount int
-}
-
-// CostPolicy is an optional request-scoped safety hook. It is called before
-// compilation and receives the context supplied to the probe.
-type CostPolicy interface {
-	Allow(context.Context, CostEstimate) error
-}
-
-// Options controls the explicitly authorized physical rewrite and cost
-// policy. The default is the same conservative policy used by normal recipe
-// compilation.
+// Options controls the explicitly authorized physical rewrite. The default is
+// the same conservative policy used by normal recipe compilation.
 type Options struct {
-	Policy    ir.PhysicalOptimizationPolicy
-	Cost      CostPolicy
-	CostLimit int
+	Policy ir.PhysicalOptimizationPolicy
 }
 
 func (o Options) normalized() Options {
@@ -186,7 +169,8 @@ func ProbeRoot(ctx context.Context, request RootRequest, options ...Options) (Re
 	if !ok {
 		return Result{}, fmt.Errorf("resource type %q has no supported row grain", canonical)
 	}
-	physical, rendered, err := compile(ctx, request.Scope, semantic.SemanticPlan{Version: 1, Project: request.Project, DatasetGeneration: request.DatasetGeneration, AuthResourcePaths: cloneStrings(request.AuthResourcePaths), AuthScopeMode: request.AuthScopeMode, Root: semantic.SemanticNode{Alias: "root", ResourceType: canonical}}, optionsFor(options))
+	output := semantic.OutputPlan{RootResourceType: canonical, Root: semantic.SemanticNode{Alias: "root", ResourceType: canonical}}
+	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	_ = physical
 	if err != nil {
 		return Result{}, err
@@ -210,8 +194,8 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 	}
 	toType, _ := fhirschema.ConcreteResourceType(request.ToResourceType)
 	child := semantic.SemanticNode{Alias: routeAlias(request.Alias, 1), ResourceType: toType, EdgeLabel: request.EdgeLabel, MatchMode: request.MatchMode}
-	plan := semantic.SemanticPlan{Version: 1, Project: request.Project, DatasetGeneration: request.DatasetGeneration, AuthResourcePaths: cloneStrings(request.AuthResourcePaths), AuthScopeMode: request.AuthScopeMode, Root: semantic.SemanticNode{Alias: "root", ResourceType: rootType, Children: []semantic.SemanticNode{child}}}
-	physical, rendered, err := compile(ctx, request.Scope, plan, optionsFor(options))
+	output := semantic.OutputPlan{RootResourceType: rootType, Root: semantic.SemanticNode{Alias: "root", ResourceType: rootType, Children: []semantic.SemanticNode{child}}}
+	physical, rendered, err := compile(ctx, request.Scope, output, optionsFor(options))
 	if err != nil {
 		return Result{}, err
 	}
@@ -241,11 +225,6 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	}
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
-	}
-	if optionsValue.Cost != nil {
-		if err := optionsValue.Cost.Allow(ctx, CostEstimate{TraversalCount: len(request.Route), CandidateCount: 1}); err != nil {
-			return Result{}, err
-		}
 	}
 	fieldKind := prepared.fieldKind
 	metadata := CandidateCapability{ResourceType: prepared.resourceType, FieldRef: prepared.fieldRef, Selector: prepared.selector.CanonicalPath(), FieldKind: fieldKind, Primitive: prepared.primitive, Cardinality: prepared.cardinality, Repeated: prepared.repeated}
@@ -374,12 +353,17 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	if err := validateCandidateProjection(prepared, mode); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
-	field := semantic.SemanticField{Name: "candidate", FieldRef: prepared.fieldRef, Selector: prepared.selector, ValueMode: valueMode(mode), ExprType: expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}}
+	fieldType := expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}
 	if prepared.primitive != fhirschema.PrimitiveUnknown {
-		field.ExprType.Kind = expressionKind(prepared.primitive)
+		fieldType.Kind = expressionKind(prepared.primitive)
 	}
 	if prepared.repeated {
-		field.ExprType.Cardinality = expression.Many
+		fieldType.Cardinality = expression.Many
+	}
+	field := semantic.SemanticField{
+		Name: "candidate", FieldRef: prepared.fieldRef,
+		Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: prepared.selector.CanonicalPath()}), Type: fieldType},
+		Projection: mode,
 	}
 	root := prepared.root
 	target := &root
@@ -401,8 +385,8 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 		selector := prepared.selector
 		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector}}
 	}
-	plan := semantic.SemanticPlan{Version: 1, Root: root}
-	physical, rendered, err := compile(ctx, prepared.scope, plan, options)
+	output := semantic.OutputPlan{RootResourceType: root.ResourceType, Root: root}
+	physical, rendered, err := compile(ctx, prepared.scope, output, options)
 	return physical, rendered, err
 }
 
@@ -416,21 +400,18 @@ func validateCandidateProjection(prepared preparedCandidate, mode spec.Projectio
 	return nil
 }
 
-func compile(ctx context.Context, scope Scope, plan semantic.SemanticPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
+func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, options Options) (ir.PhysicalPlan, Rendered, error) {
 	if err := contextErr(ctx); err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
 	options = options.normalized()
-	if options.Cost != nil {
-		if err := options.Cost.Allow(ctx, CostEstimate{TraversalCount: countSemanticTraversals(plan.Root)}); err != nil {
-			return ir.PhysicalPlan{}, Rendered{}, err
-		}
+	context := semantic.ExecutionContext{
+		Project:           scope.Project,
+		DatasetGeneration: scope.DatasetGeneration,
+		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
+		AuthScopeMode:     scope.AuthScopeMode,
 	}
-	plan.Project = scope.Project
-	plan.DatasetGeneration = scope.DatasetGeneration
-	plan.AuthResourcePaths = cloneStrings(scope.AuthResourcePaths)
-	plan.AuthScopeMode = scope.AuthScopeMode
-	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(plan, options.Policy)
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(output, context, options.Policy)
 	if err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
@@ -606,19 +587,6 @@ func expressionKind(primitive fhirschema.PrimitiveKind) expression.ValueKind {
 	}
 }
 
-func valueMode(mode spec.ProjectionMode) string {
-	switch mode {
-	case spec.ProjectionFirst:
-		return "FIRST"
-	case spec.ProjectionArray:
-		return "ALL"
-	case spec.ProjectionDistinctArray:
-		return "DISTINCT"
-	default:
-		return "AUTO"
-	}
-}
-
 func defaultProjection(repeated bool) spec.ProjectionMode {
 	if repeated {
 		return spec.ProjectionFirst
@@ -642,14 +610,6 @@ func findTraversal(plan ir.PhysicalPlan) (ir.PhysicalTraversal, bool) {
 		return ir.PhysicalTraversal{}, false
 	}
 	return walk(plan.Operations)
-}
-
-func countSemanticTraversals(node semantic.SemanticNode) int {
-	total := len(node.Children)
-	for _, child := range node.Children {
-		total += countSemanticTraversals(child)
-	}
-	return total
 }
 
 func contextErr(ctx context.Context) error {

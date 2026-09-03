@@ -30,6 +30,10 @@ type PhysicalSet struct {
 	// SortByKey makes the set's node order part of physical semantics. Optional
 	// relationship materialization must not rely on Arango traversal order.
 	SortByKey bool
+	// Reduction contains set-level reductions for direct child projections. It
+	// is intentionally separate from the identity-bearing set because nested
+	// traversals still consume every matching child.
+	Reduction *PhysicalSetReduction
 	Prepared  *PhysicalPreparedSet
 }
 
@@ -120,7 +124,42 @@ type PhysicalSetProjectionField struct {
 	ResourceType  string
 	Selector      spec.Selector
 	ExecutionMode PhysicalSelectorExecutionMode
+	Demand        PhysicalSelectorValueDemand
 }
+
+// PhysicalSelectorValueDemand describes how much of a selector's result a
+// projected set must retain. The zero value preserves every value so plans
+// built without demand analysis remain conservative.
+type PhysicalSelectorValueDemand string
+
+const (
+	PhysicalSelectorAllValues  PhysicalSelectorValueDemand = ""
+	PhysicalSelectorFirstValue PhysicalSelectorValueDemand = "FIRST_ONLY"
+)
+
+// PhysicalSetReduction is the typed contract for reducing selector slots
+// after a set has been materialized. The renderer owns the AQL spelling; the
+// IR only describes which projected slot supplies each result and which
+// cardinality-preserving reduction applies.
+type PhysicalSetReduction struct {
+	Variable          string
+	SourceSetVariable string
+	Fields            []PhysicalSetReductionField
+}
+
+type PhysicalSetReductionField struct {
+	Name        string
+	SourceField string
+	Mode        PhysicalSetReductionMode
+}
+
+type PhysicalSetReductionMode string
+
+const (
+	PhysicalSetReductionFirst    PhysicalSetReductionMode = "FIRST"
+	PhysicalSetReductionAll      PhysicalSetReductionMode = "ALL"
+	PhysicalSetReductionDistinct PhysicalSetReductionMode = "DISTINCT"
+)
 
 // PhysicalSetOutputField names the only stored properties that may survive a
 // compact set projection. The graph identity fields preserve nested traversal
@@ -189,10 +228,9 @@ type PhysicalFilter struct {
 // PhysicalDerivedLet names a derived value. Operator is a compiler-owned
 // symbolic operation (for example UNIQUE or LENGTH), never raw AQL.
 type PhysicalDerivedLet struct {
-	Variable   string
-	Operator   string
-	Inputs     []PhysicalValue
-	Expression *PhysicalExpression
+	Variable string
+	Operator string
+	Inputs   []PhysicalValue
 }
 
 // PhysicalExpressionLet binds a deterministic expression once in the

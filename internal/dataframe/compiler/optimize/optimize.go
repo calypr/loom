@@ -91,9 +91,6 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 		decision.Reason = "estimated prefix work reduction exceeds policy minimum"
 		out.OptimizationPolicy.AddDecision(decision)
 	}
-	if policy.RuleEnabled(ir.PhysicalOptimizationRuleKeyedMapSharing) {
-		sharePhysicalLookupFamilies(&out, policy)
-	}
 	if err := out.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate optimized physical plan: %w", err)
 	}
@@ -185,6 +182,10 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 	// selectors against the wrong resource payload and leaves typed subsets
 	// with empty values.
 	base.Projection = nil
+	// The heterogeneous shared neighbor set has no consumer-specific selector
+	// slots, so it must not retain a reduction belonging to the original typed
+	// set.
+	base.Reduction = nil
 	base.Subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: t.TargetVariable}}
 	// Rebuild operation stream, inserting the broad traversal immediately before
 	// the first consumer and replacing each consumer with a typed subset.
@@ -224,6 +225,11 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 			prepared := *set.Prepared
 			prepared.SourceSetVariable = set.Variable
 			set.Prepared = &prepared
+		}
+		if set.Reduction != nil {
+			reduction := *set.Reduction
+			reduction.SourceSetVariable = set.Variable
+			set.Reduction = &reduction
 		}
 		newOps = append(newOps, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Source: op.Source, Set: &set})
 	}
@@ -300,10 +306,6 @@ func rewritePhysicalOperationVariables(op ir.PhysicalOperation, fromTarget, toTa
 		d := *op.DerivedLet
 		for i := range d.Inputs {
 			d.Inputs[i] = rewritePhysicalValue(d.Inputs[i], fromTarget, toTarget, fromEdge, toEdge)
-		}
-		if d.Expression != nil {
-			expression := rewritePhysicalExpressionVariables(*d.Expression, fromTarget, toTarget, fromEdge, toEdge)
-			d.Expression = &expression
 		}
 		op.DerivedLet = &d
 	}

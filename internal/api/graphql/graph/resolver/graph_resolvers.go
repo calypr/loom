@@ -7,7 +7,7 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
-	"github.com/calypr/loom/internal/dataframe/runtime"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
 func (r *queryResolver) resolveFHIRGraph(ctx context.Context, input model.FhirGraphQueryInput) (*model.FhirGraphQueryResult, error) {
@@ -31,7 +31,7 @@ func (r *queryResolver) resolveFHIRGraph(ctx context.Context, input model.FhirGr
 		paths = append(paths, mapped)
 	}
 	diagnostics := (*model.DataframeQueryDiagnostics)(nil)
-	if value, ok := result.Diagnostics.(runtime.QueryDiagnostics); ok {
+	if value, ok := result.Diagnostics.(dataframeexecution.QueryDiagnostics); ok {
 		diagnostics = dataframeDiagnostics(value)
 	}
 	return &model.FhirGraphQueryResult{SourceGeneration: result.SourceGeneration, Paths: paths, ReturnedCount: result.ReturnedCount, PageInfo: &model.FhirGraphPageInfo{HasMore: result.PageInfo.HasMore}, Diagnostics: diagnostics}, nil

@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -20,7 +21,7 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "patients", "Patients", "test"); err != nil {
+	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "patients", "Patients", "", "test"); err != nil {
 		t.Fatal(err)
 	}
 	selector := dataset.DataframeSelector{Recipe: "patients-query", TranslationVersion: "v1", Output: "patients"}
@@ -47,7 +48,7 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 	store.mu.Unlock()
 
 	app := fiber.New()
-	registerTestExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
@@ -75,10 +76,6 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 }
 
 func TestViewerProjectionDoesNotInventColumnsWithoutPublishedSchema(t *testing.T) {
-	service, err := explorer.NewService(newTestExplorerStore())
-	if err != nil {
-		t.Fatal(err)
-	}
 	selector := dataset.DataframeSelector{Recipe: "patients-query", TranslationVersion: "v1", Output: "patients"}
 	revision := explorer.Revision{
 		Recipe: recipe.Bundle{
@@ -93,7 +90,7 @@ func TestViewerProjectionDoesNotInventColumnsWithoutPublishedSchema(t *testing.T
 		}},
 	}
 
-	runtime := service.BuildViewerProjection(&revision)
+	runtime := explorer.BuildViewerProjection(&revision)
 	if runtime == nil || len(runtime.Outputs) != 1 {
 		t.Fatalf("runtime = %#v", runtime)
 	}
@@ -104,10 +101,6 @@ func TestViewerProjectionDoesNotInventColumnsWithoutPublishedSchema(t *testing.T
 }
 
 func TestViewerProjectionRejectsAliasedPhysicalColumns(t *testing.T) {
-	service, err := explorer.NewService(newTestExplorerStore())
-	if err != nil {
-		t.Fatal(err)
-	}
 	selector := dataset.DataframeSelector{Recipe: "patients-query", TranslationVersion: "v1", Output: "patients"}
 	revision := explorer.Revision{
 		Recipe: recipe.Bundle{
@@ -128,7 +121,7 @@ func TestViewerProjectionRejectsAliasedPhysicalColumns(t *testing.T) {
 		}},
 	}
 
-	runtime := service.BuildViewerProjection(&revision)
+	runtime := explorer.BuildViewerProjection(&revision)
 	if runtime == nil || len(runtime.Outputs) != 1 {
 		t.Fatalf("runtime = %#v", runtime)
 	}
@@ -142,12 +135,12 @@ func TestExplorerStateRouteReturnsExplicitUnpublishedProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateEmptyInteractive(context.Background(), "project-a", "empty", "Empty", "test"); err != nil {
+	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "empty", "Empty", "", "test"); err != nil {
 		t.Fatal(err)
 	}
 
 	app := fiber.New()
-	registerTestExplorerLifecycleRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, ExplorerV2LifecycleConfig{})
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/empty", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)

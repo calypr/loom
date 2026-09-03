@@ -4,20 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
-	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
-	"github.com/calypr/loom/internal/authscope"
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
-	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/engine"
 )
 
 func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
@@ -31,7 +23,7 @@ func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
 // compiler schema to the backend-neutral publication schema. Publication must
 // not reconstruct nested names from semantic recipe nodes because those names
 // are finalized by physical lowering.
-func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publication.LogicalColumn {
+func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName string) []publication.LogicalColumn {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name != outputName {
 			continue
@@ -67,14 +59,18 @@ func recipeOutputLogicalColumns(plan engine.Resolved, outputName string) []publi
 			if column.Discovered {
 				provenance = publication.ColumnDiscovered
 			}
-			columns = append(columns, publication.LogicalColumn{Name: publication.FlatColumnName(output.RootResourceType, column.Name), SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
+			name := column.Name
+			if output.RootColumnNaming != recipe.RootColumnNamingExact {
+				name = publication.FlatColumnName(output.RootResourceType, name)
+			}
+			columns = append(columns, publication.LogicalColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
 		}
 		return columns
 	}
 	return []publication.LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}}
 }
 
-func recipeOutputRootResourceType(plan engine.Resolved, outputName string) string {
+func recipeOutputRootResourceType(plan dataframeexecution.Resolved, outputName string) string {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name == outputName {
 			return output.RootResourceType
@@ -83,7 +79,16 @@ func recipeOutputRootResourceType(plan engine.Resolved, outputName string) strin
 	return ""
 }
 
-func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full engine.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
+func recipeOutputUsesExactRootColumns(plan dataframeexecution.Resolved, outputName string) bool {
+	for _, output := range plan.Compiled.Outputs {
+		if output.Name == outputName {
+			return output.RootColumnNaming == recipe.RootColumnNamingExact
+		}
+	}
+	return false
+}
+
+func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
 	streams, err := recipeEngine.Streams(ctx, full)
 	if err != nil {
 		return publication.BundleIdentity{}, err
@@ -102,10 +107,14 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 		stream := stream
 		columns := recipeOutputLogicalColumns(full, stream.Name)
 		rootResourceType := recipeOutputRootResourceType(full, stream.Name)
+		exactRootColumns := recipeOutputUsesExactRootColumns(full, stream.Name)
 		streamInputs = append(streamInputs, publication.OutputStream{
 			Name: stream.Name, Columns: columns,
 			Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 				_, err := stream.Stream(streamCtx, func(row map[string]any) error {
+					if exactRootColumns {
+						return visit(row)
+					}
 					qualified, err := publication.QualifyFlatRow(rootResourceType, row)
 					if err != nil {
 						return err
@@ -129,105 +138,9 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *engine.Engine, tar
 	return identity, err
 }
 
-func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []engine.OutputStream) string {
+func incrementalPublicationOutput(bindings recipe.RuntimeBindings, streams []dataframeexecution.OutputStream) string {
 	if len(bindings.OutputNames) != 1 || len(streams) != 1 {
 		return ""
 	}
 	return streams[0].Name
-}
-
-func recipeResolvedDynamicColumnCounts(plan engine.Resolved) map[string]int {
-	counts := make(map[string]int, len(plan.Semantic.ResolvedColumns))
-	for dynamicMap, columns := range plan.Semantic.ResolvedColumns {
-		counts[dynamicMap] = len(columns)
-	}
-	return counts
-}
-
-func recipeMaterializer(recipeEngine *engine.Engine, bundleTarget publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) func(context.Context, string, recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
-	return func(ctx context.Context, name string, bindings recipe.RuntimeBindings) (graphresolver.RecipeExecution, error) {
-		if bundleTarget == nil {
-			cause := degradation
-			if cause == nil {
-				cause = dataframeerrors.ErrBackendUnavailable
-			}
-			return graphresolver.RecipeExecution{}, dataframeerrors.Wrap(cause, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-		}
-		bindings.IncludeAuthResourcePath = true
-		var identity publication.BundleIdentity
-		_, err := recipeEngine.Materialize(ctx, name, bindings, func(ctx context.Context, full engine.Resolved) error {
-			logger.Info("recipe materialization resolved",
-				"name", name,
-				"project", bindings.Project,
-				"resolved_schema_digest", full.ResolvedSchemaDigest,
-				"dynamic_column_counts", recipeResolvedDynamicColumnCounts(full),
-			)
-			var err error
-			identity, err = publishResolvedRecipe(ctx, recipeEngine, bundleTarget, name, bindings, full, batchRows, batchBytes)
-			return err
-		})
-		if err != nil {
-			var dynamicDrift *engine.DynamicDriftError
-			if errors.As(err, &dynamicDrift) {
-				logger.Error("recipe materialization dynamic schema drift",
-					"name", name,
-					"project", bindings.Project,
-					"dynamic_map", dynamicDrift.DynamicName,
-					"unexpected_key", dynamicDrift.Key,
-					"frozen_key_count", dynamicDrift.FrozenKeyCount,
-				)
-				err = dataframeerrors.Wrap(
-					err,
-					dataframeerrors.CodeSchemaConflict,
-					"recipe dynamic-column schema does not match observed data",
-					dataframeerrors.WithDetails(map[string]any{
-						"dynamicMap":     dynamicDrift.DynamicName,
-						"unexpectedKey":  dynamicDrift.Key,
-						"frozenKeyCount": dynamicDrift.FrozenKeyCount,
-					}),
-				)
-			}
-			logger.Error("recipe materialization failed", "name", name, "project", bindings.Project, "error", err.Error())
-			return graphresolver.RecipeExecution{}, err
-		}
-		published, err := registry.FindExecutionByKey(ctx, identity.Key())
-		if err != nil {
-			logger.Error("load published recipe execution failed", "name", name, "project", bindings.Project, "error", err.Error())
-			return graphresolver.RecipeExecution{}, fmt.Errorf("load published recipe execution: %w", err)
-		}
-		outputs := make([]graphresolver.RecipeExecutionOutput, 0, len(published.Outputs))
-		for _, output := range published.Outputs {
-			rowCount := int(output.RowCount)
-			outputs = append(outputs, graphresolver.RecipeExecutionOutput{
-				Name: output.Name, State: string(output.State.Canonical()), RowCount: &rowCount,
-				Columns: append([]publication.PhysicalColumn(nil), output.Columns...),
-			})
-		}
-		return graphresolver.RecipeExecution{ID: published.ID, Name: name, RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest, SourceGeneration: published.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
-	}
-}
-
-func recipePublicationProcessor(recipeEngine *engine.Engine, logger *slog.Logger, batchRows, batchBytes int) publicationclickhouse.ExecutionProcessor {
-	return func(ctx context.Context, execution publication.BundleExecution, target publication.Target) error {
-		mode := authscope.ReadScopeMode(execution.AuthScopeMode)
-		if mode == "" { // Compatibility for executions created before scope mode was persisted.
-			mode = authscope.ReadScopeUnrestricted
-			if len(execution.AuthResourcePaths) != 0 {
-				mode = authscope.ReadScopeRestricted
-			}
-		}
-		bindings := recipe.RuntimeBindings{
-			Project: execution.Project, DatasetGeneration: execution.DatasetGeneration,
-			AuthResourcePaths: append([]string(nil), execution.AuthResourcePaths...),
-			AuthScopeMode:     mode, IncludeAuthResourcePath: true,
-		}
-		_, err := recipeEngine.MaterializeVersion(ctx, execution.Name, execution.TranslationVersion, bindings, func(ctx context.Context, full engine.Resolved) error {
-			_, publishErr := publishResolvedRecipe(ctx, recipeEngine, target, execution.Name, bindings, full, batchRows, batchBytes)
-			return publishErr
-		})
-		if err != nil && logger != nil {
-			logger.Error("asynchronous recipe materialization failed", "execution_id", execution.ID, "recipe", execution.Name, "translation_version", execution.TranslationVersion, "project", execution.Project, "generation", execution.DatasetGeneration, "error", err.Error())
-		}
-		return err
-	}
 }

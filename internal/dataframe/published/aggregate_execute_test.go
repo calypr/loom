@@ -27,7 +27,7 @@ func TestExecuteAggregateBatchRichShapesShareScans(t *testing.T) {
 			{ID: 2, ResponseMode: AggregateResponseStats, Column: "facet_000"},
 			{ID: 3, ResponseMode: AggregateResponseMissing, Column: "facet_000"},
 		},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestExecuteAggregateBatchUsesTypedMultiColumnOrdering(t *testing.T) {
 		{"__loom_slot": int64(0), "__loom_group_json": "[null,\"a\"]", "__loom_metric": int64(1)},
 	}}}
 	result, err := (&Reader{ClickHouse: fake}).ExecuteAggregateBatch(context.Background(), dataset, AggregateBatchRequest{
-		Jobs:            []AggregateJob{{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000", "facet_001"}, Operation: "COUNT"}},
-		AccessByProject: map[string]SourceAccess{"project": {Unrestricted: true}},
+		Jobs:         []AggregateJob{{ID: 1, ResponseMode: AggregateResponseLegacy, GroupBy: []string{"facet_000", "facet_001"}, Operation: "COUNT"}},
+		Unrestricted: true,
 	})
 	if err != nil {
 		t.Fatal(err)

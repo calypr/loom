@@ -99,9 +99,6 @@ func HasResource(resourceType string) bool {
 	return ok
 }
 
-// ResourceExists is the explicit predicate form of HasResource.
-func ResourceExists(resourceType string) bool { return HasResource(resourceType) }
-
 // DefinitionExists reports whether name is represented by the generated FHIR
 // schema. Unlike HasResource, it also accepts backbone and choice definitions
 // that are valid selector sources but are not graph collections. This is a

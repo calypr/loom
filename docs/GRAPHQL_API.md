@@ -424,8 +424,8 @@ Clients should not send generation IDs or physical table names as query
 selectors.
 
 `authResourcePaths` on graph requests is a narrowing request. It cannot widen
-the principal's authorized scope. Flat reads apply authorization to each
-published source automatically, including federated reads across projects.
+the principal's authorized scope. Flat reads authorize the explicit project
+and apply its generation-scoped resource paths to the selected publication.
 
 ## Current boundaries
 

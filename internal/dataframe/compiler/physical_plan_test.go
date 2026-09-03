@@ -167,7 +167,7 @@ func TestPhysicalPlanValidateRichExpressionRejectsUnsafeScopeAndShape(t *testing
 		Variable: "files",
 		Subplan: ir.PhysicalSubplan{
 			Captures:   []string{"future"},
-			Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{Variable: "x", Expression: physicalExpressionPtr(physicalValueExpression(ir.PhysicalValue{Variable: "future"}, ir.PhysicalScalarCardinality))}}},
+			Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{Variable: "x", Expression: physicalValueExpression(ir.PhysicalValue{Variable: "future"}, ir.PhysicalScalarCardinality)}}},
 			Return:     physicalValueExpression(ir.PhysicalValue{Variable: "x"}, ir.PhysicalScalarCardinality),
 		},
 	}}
@@ -177,9 +177,9 @@ func TestPhysicalPlanValidateRichExpressionRejectsUnsafeScopeAndShape(t *testing
 
 	plan = validPhysicalPlan()
 	plan.Version = 2
-	plan.Operations[3] = ir.PhysicalOperation{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{
+	plan.Operations[3] = ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{
 		Variable: "pivot",
-		Expression: &ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Pivot: &ir.PhysicalPivotMap{
+		Expression: ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Pivot: &ir.PhysicalPivotMap{
 			Source: ir.PhysicalValue{Variable: "specimen"}, ResourceType: "Specimen",
 			KeySelector: mustPhysicalSelector(t, "type.coding[].display"), ValueSelector: mustPhysicalSelector(t, "type.coding[].display"), ColumnsBindKey: "edge_label",
 		}},

@@ -81,3 +81,50 @@ func TestRevisionRegistryRoundTrip(t *testing.T) {
 		t.Fatalf("cross-project err=%v", err)
 	}
 }
+
+func TestRevisionRegistryRejectsParentForFirstRevision(t *testing.T) {
+	client := &revisionClient{}
+	registry, err := NewRevisionRegistry(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "files", TranslationVersion: "1", Outputs: []recipe.Output{{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document_reference"}}}
+
+	if _, err := registry.Register(context.Background(), "project-a", bundle, "missing"); err == nil {
+		t.Fatal("Register accepted a parent for the first revision")
+	}
+	if len(client.docs) != 0 {
+		t.Fatalf("Register persisted a dangling first revision: %#v", client.docs)
+	}
+}
+
+func TestRevisionRegistryRequiresCurrentParentForLaterRevisions(t *testing.T) {
+	client := &revisionClient{}
+	registry, err := NewRevisionRegistry(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "files", TranslationVersion: "1", Outputs: []recipe.Output{{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document_reference"}}}
+	first, err := registry.Register(context.Background(), "project-a", bundle, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundle.TranslationVersion = "2"
+	second, err := registry.Register(context.Background(), "project-a", bundle, first.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Parent != first.Digest {
+		t.Fatalf("second.Parent = %q, want %q", second.Parent, first.Digest)
+	}
+
+	bundle.TranslationVersion = "3"
+	if _, err := registry.Register(context.Background(), "project-a", bundle, ""); err == nil {
+		t.Fatal("Register accepted an empty parent for a later revision")
+	}
+	bundle.TranslationVersion = "4"
+	if _, err := registry.Register(context.Background(), "project-a", bundle, first.Digest); err == nil {
+		t.Fatal("Register accepted a stale parent for a later revision")
+	}
+}

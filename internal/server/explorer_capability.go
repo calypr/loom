@@ -17,7 +17,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/capabilitystore"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
 	"golang.org/x/sync/singleflight"
 )
@@ -44,53 +44,11 @@ type explorerCapabilityResolver struct {
 	evidence  catalog.CapabilityEvidenceReader
 	scopes    *authscope.ScopeResolver
 	manifests dataset.ActiveResolver
-	snapshots capabilitystore.Repository
+	snapshots capability.Repository
 	builds    singleflight.Group
 }
 
-type ExplorerCapabilityReader func(context.Context, string, string, string) (capability.Snapshot, error)
-type ExplorerCapabilityTokenReader func(context.Context, string, string) (capability.Snapshot, error)
-
-// AuthorizedCapability is the capability contract handed to compilation and
-// execution.  The scope is part of the contract: callers must not derive it
-// again from a token or accidentally turn a restricted-empty scope into an
-// unrestricted one.  Both values are copied before they cross this boundary.
-type AuthorizedCapability struct {
-	Snapshot capability.Snapshot
-	Scope    authscope.ReadScope
-}
-
-// Clone returns an independent authorized capability.  Snapshot.Clone also
-// copies nested diagnostic values through the capability package's immutable
-// accessor, while ReadScope.Clone protects the authorization path slice.
-func (a AuthorizedCapability) Clone() AuthorizedCapability {
-	return AuthorizedCapability{Snapshot: a.Snapshot.Clone(), Scope: a.Scope.Clone()}
-}
-
-// ExplorerAuthorizedCapabilityCompilationReader accepts an opaque snapshot
-// token for a new compile. Implementations must require that token to belong
-// to the currently active dataset generation.
-type ExplorerAuthorizedCapabilityCompilationReader func(context.Context, string, string) (AuthorizedCapability, error)
-
-// ExplorerAuthorizedCapabilityExecutionReader loads an exact retained token
-// for preview/materialization. Implementations may accept inactive generations
-// while retained, but must re-authorize the caller against the token's exact
-// generation and scope digest.
-type ExplorerAuthorizedCapabilityExecutionReader func(context.Context, string, string) (AuthorizedCapability, error)
-
-// ExplorerCapabilityCompilationResolver documents the compile authorization
-// seam for callers that want a resolver object rather than a function field.
-type ExplorerCapabilityCompilationResolver interface {
-	ResolveForCompilation(context.Context, string, string) (AuthorizedCapability, error)
-}
-
-// ExplorerCapabilityExecutionResolver documents the execution authorization
-// seam for callers that want a resolver object rather than a function field.
-type ExplorerCapabilityExecutionResolver interface {
-	ResolveForExecution(context.Context, string, string) (AuthorizedCapability, error)
-}
-
-func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capabilitystore.Repository) (*explorerCapabilityResolver, error) {
+func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*explorerCapabilityResolver, error) {
 	if evidence == nil || manifests == nil || snapshots == nil {
 		return nil, fmt.Errorf("Explorer capability evidence, manifest resolver, and snapshot repository are required")
 	}
@@ -150,14 +108,16 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	value, err, _ := r.builds.Do(key, func() (any, error) {
 		if existing, getErr := r.snapshots.GetByIdentity(ctx, identity); getErr == nil && existing.Usable() {
 			return existing.Clone(), nil
-		} else if getErr != nil && !errors.Is(getErr, capabilitystore.ErrNotFound) {
+		} else if getErr != nil && !errors.Is(getErr, capability.ErrNotFound) {
 			return nil, getErr
 		}
-		observer := capabilityObserverFromEvidence(evidence)
-		builder := capability.NewBuilder(identity, observer, observer, observer, explorerCapabilityCompiler{scope: compilerprobe.Scope{
+		compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{
 			Project: storageProject, DatasetGeneration: generation,
 			AuthResourcePaths: append([]string(nil), scope.AuthResourcePaths...), AuthScopeMode: scope.Mode,
-		}})
+		}}
+		builder := capability.NewBuilder(identity, capabilityEvidenceFromCatalog(evidence), capability.CompilerCallbacks{
+			Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate,
+		})
 		builder.Policy = capability.Policy{
 			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
 			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
@@ -199,49 +159,49 @@ func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, 
 // preview and other execution paths may use an inactive generation while its
 // immutable capability remains available. The caller's current effective
 // scope must still match the scope digest captured by the snapshot.
-func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
 	snapshot, err := r.snapshots.GetByToken(ctx, token)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	if snapshot.Identity.Project != project {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	scope, err := r.resolveScope(ctx, principal, projectid.Legacy(project), snapshot.Identity.Generation)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	if explorerScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	if err := snapshot.ValidateToken(token); err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
-	return AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
+	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
 // ResolveForCompilation loads an exact token for a new compile. Unlike
 // execution, compilation is only valid against the currently active immutable
 // dataset generation; a retained inactive token is rejected even when its
 // scope is otherwise still authorized.
-func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
-		return AuthorizedCapability{}, err
+		return lifecycle.AuthorizedCapability{}, err
 	}
 	manifest, err := dataset.ResolveActive(ctx, r.manifests, projectid.Legacy(project))
 	if err != nil {
-		return AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
+		return lifecycle.AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
 	}
 	if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {
-		return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	return authorized.Clone(), nil
 }
@@ -293,30 +253,14 @@ func capabilityIdentityKey(identity capability.SnapshotIdentity) (string, error)
 	return hex.EncodeToString(sum[:]), nil
 }
 
-type capabilityEvidenceObserver struct {
-	resources     []capability.ResourceObservation
-	relationships []capability.RelationshipObservation
-	fields        []capability.FieldObservation
-}
-
-func (o capabilityEvidenceObserver) ListResources(context.Context) ([]capability.ResourceObservation, error) {
-	return append([]capability.ResourceObservation(nil), o.resources...), nil
-}
-func (o capabilityEvidenceObserver) ListRelationships(context.Context) ([]capability.RelationshipObservation, error) {
-	return append([]capability.RelationshipObservation(nil), o.relationships...), nil
-}
-func (o capabilityEvidenceObserver) ListFields(context.Context) ([]capability.FieldObservation, error) {
-	out := append([]capability.FieldObservation(nil), o.fields...)
-	for i := range out {
-		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
+func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.Evidence {
+	out := capability.Evidence{
+		ResourcesAvailable:     value.ResourceInventory.Available,
+		RelationshipsAvailable: value.Relationships.Available,
+		FieldsAvailable:        value.FieldEnrichment.Available,
 	}
-	return out, nil
-}
-
-func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capabilityEvidenceObserver {
-	out := capabilityEvidenceObserver{}
 	for _, item := range value.ResourceInventory.Values {
-		out.resources = append(out.resources, capability.ResourceObservation{ResourceType: item.ResourceType, Populated: item.DocumentCount > 0, DocumentCount: item.DocumentCount})
+		out.Resources = append(out.Resources, capability.ResourceObservation{ResourceType: item.ResourceType, Populated: item.DocumentCount > 0, DocumentCount: item.DocumentCount})
 	}
 	relationships := map[string]capability.RelationshipObservation{}
 	for _, item := range value.Relationships.Values {
@@ -343,10 +287,10 @@ func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capability
 		}
 	}
 	for _, item := range relationships {
-		out.relationships = append(out.relationships, item)
+		out.Relationships = append(out.Relationships, item)
 	}
-	sort.Slice(out.relationships, func(i, j int) bool {
-		a, b := out.relationships[i], out.relationships[j]
+	sort.Slice(out.Relationships, func(i, j int) bool {
+		a, b := out.Relationships[i], out.Relationships[j]
 		return strings.Join([]string{a.SourceResourceType, a.Label, a.TargetResourceType, a.StorageDirection}, "\x00") < strings.Join([]string{b.SourceResourceType, b.Label, b.TargetResourceType, b.StorageDirection}, "\x00")
 	})
 	type fieldAggregate struct {
@@ -376,10 +320,10 @@ func capabilityObserverFromEvidence(value catalog.CapabilityEvidence) capability
 			aggregate.observation.SuggestedValues = append(aggregate.observation.SuggestedValues, suggestion)
 		}
 		sort.Strings(aggregate.observation.SuggestedValues)
-		out.fields = append(out.fields, aggregate.observation)
+		out.Fields = append(out.Fields, aggregate.observation)
 	}
-	sort.Slice(out.fields, func(i, j int) bool {
-		return out.fields[i].ResourceType+"\x00"+out.fields[i].Path < out.fields[j].ResourceType+"\x00"+out.fields[j].Path
+	sort.Slice(out.Fields, func(i, j int) bool {
+		return out.Fields[i].ResourceType+"\x00"+out.Fields[i].Path < out.Fields[j].ResourceType+"\x00"+out.Fields[j].Path
 	})
 	return out
 }

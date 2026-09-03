@@ -95,8 +95,8 @@ open http://127.0.0.1:8080/apollo
 
 Current Builder authoring uses the versioned REST V2 workflow. List project
 Explorers, then load the selected Explorer's
-`/authoring/v2/builder` state. Save canonical drafts with `PUT /draft`, compile
-to an immutable receipt with `POST /compile`, preview that receipt with
+`/authoring/v2/builder` state. Persist canonical edits with `POST /commands`,
+compile the exact draft to an immutable receipt with `POST /reconcile`, preview that receipt with
 `POST /preview`, and activate it only with `POST /publish`. Loom owns catalog
 resolution, recipe lowering, compilation, materialization, persistence, and
 diagnostics.

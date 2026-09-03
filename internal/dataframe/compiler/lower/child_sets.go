@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent semantic.SemanticNode, parentVariable string, child semantic.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
+func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent semantic.SemanticNode, parentVariable string, child semantic.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
 	prefix := fmt.Sprintf("child_set_%d", setIndex)
 	targetVariable := fmt.Sprintf("%s_node", prefix)
 	edgeVariable := fmt.Sprintf("%s_edge", prefix)
@@ -76,29 +76,20 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 	set := ir.PhysicalSet{Variable: prefix, Subplan: subplan, Unique: true, SortByKey: true, Output: output}
 	projections := make([]ir.PhysicalProjection, 0, len(child.Fields))
 	for index, field := range child.Fields {
-		selection, err := semantic.ResolveSemanticField(child.ResourceType, child.Alias, index, field)
+		projection, err := lowerSemanticFieldProjection(physical, child, index, field, ir.PhysicalValue{Variable: set.Variable}, bindings, lowerer)
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		cardinality, distinct := ir.PhysicalScalarCardinality, false
-		nullBehavior := ir.PhysicalPreserveNull
-		switch selection.Projection {
-		case spec.ProjectionArray:
-			cardinality, nullBehavior = ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull
-		case spec.ProjectionDistinctArray:
-			cardinality, distinct, nullBehavior = ir.PhysicalArrayCardinality, true, ir.PhysicalEmptyOnNull
-		case spec.ProjectionScalar, spec.ProjectionFirst:
-		default:
-			return ir.PhysicalSet{}, nil, fmt.Errorf("child field %q has unsupported projection %q", field.Name, selection.Projection)
-		}
-		projections = append(projections, ir.PhysicalProjection{Name: projectionPrefix + "__" + field.Name, Expression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: set.Variable}, ResourceType: child.ResourceType, Selector: selection.Selector, Fallbacks: append([]spec.Selector(nil), selection.Fallbacks...), Distinct: distinct, ExecutionMode: selectorExecutionMode(child.ResourceType, selection.Selector, selection.Fallbacks...)}}})
+		projection.Name = projectionPrefix + "__" + field.Name
+		projections = append(projections, projection)
 	}
 	for _, aggregate := range child.Aggregates {
 		expression, err := physicalAggregateExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, aggregate, true)
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: projectionPrefix + "__" + aggregate.Name, Expression: &expression})
+		name := aggregateProjectionName(aggregate, projectionPrefix+"__")
+		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	for _, pivot := range child.Pivots {
 		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, projectionPrefix+"__")
@@ -324,9 +315,22 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		return
 	}
 	selectors := map[string]spec.Selector{}
+	allValues := map[string]bool{}
 	fallback := false
-	var collect func(*ir.PhysicalExpression)
-	collect = func(expression *ir.PhysicalExpression) {
+	var collect func(*ir.PhysicalExpression, bool)
+	var collectPredicate func(*ir.PhysicalPredicateExpression)
+	collectPredicate = func(predicate *ir.PhysicalPredicateExpression) {
+		if predicate == nil {
+			return
+		}
+		if predicate.Comparison != nil {
+			collect(predicate.Comparison.LeftExpression, false)
+		}
+		for index := range predicate.Children {
+			collectPredicate(&predicate.Children[index])
+		}
+	}
+	collect = func(expression *ir.PhysicalExpression, firstValueConsumer bool) {
 		if expression == nil {
 			return
 		}
@@ -339,38 +343,53 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 				fallback = true
 				return
 			}
-			selectors[physicalSelectorIdentity(expression.Extract.Selector)] = expression.Extract.Selector
+			key := physicalSelectorIdentity(expression.Extract.Selector)
+			selectors[key] = expression.Extract.Selector
+			if !firstValueConsumer || expression.Cardinality == ir.PhysicalArrayCardinality || expression.Extract.Selector.Filter != nil {
+				allValues[key] = true
+			}
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
-				collect(expression.Aggregate.Value)
-				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
-					collect(expression.Aggregate.Predicate.Comparison.LeftExpression)
-				}
+				collect(expression.Aggregate.Value, false)
+				collectPredicate(expression.Aggregate.Predicate)
 			}
 		case ir.PhysicalPivotExpression:
 			if expression.Pivot != nil && expression.Pivot.Source.Variable == set.Variable {
-				selectors[physicalSelectorIdentity(expression.Pivot.KeySelector)] = expression.Pivot.KeySelector
-				selectors[physicalSelectorIdentity(expression.Pivot.ValueSelector)] = expression.Pivot.ValueSelector
+				if len(expression.Pivot.ValueFallbacks) != 0 {
+					fallback = true
+					return
+				}
+				key := physicalSelectorIdentity(expression.Pivot.KeySelector)
+				value := physicalSelectorIdentity(expression.Pivot.ValueSelector)
+				selectors[key] = expression.Pivot.KeySelector
+				selectors[value] = expression.Pivot.ValueSelector
+				allValues[key] = true
+				allValues[value] = true
 			}
 		case ir.PhysicalSliceExpression:
 			if expression.Slice != nil {
-				if expression.Slice.Predicate != nil && expression.Slice.Predicate.Comparison != nil {
-					collect(expression.Slice.Predicate.Comparison.LeftExpression)
-				}
+				collectPredicate(expression.Slice.Predicate)
+				collect(expression.Slice.Sort, false)
 				for index := range expression.Slice.Projections {
-					collect(&expression.Slice.Projections[index].Expression)
+					collect(&expression.Slice.Projections[index].Expression, false)
 				}
 			}
 		case ir.PhysicalObjectExpression:
 			if expression.Object != nil {
 				for index := range expression.Object.Fields {
-					collect(&expression.Object.Fields[index].Expression)
+					collect(&expression.Object.Fields[index].Expression, false)
 				}
 			}
+		case ir.PhysicalCallExpression:
+			fallback = true
+		case ir.PhysicalKeyedMapExpression:
+			fallback = true
+		case ir.PhysicalKeySetExpression:
+			fallback = true
 		}
 	}
 	for index := range projections {
-		collect(projections[index].Expression)
+		collect(projections[index].Expression, true)
 	}
 	if fallback || len(selectors) == 0 {
 		return
@@ -384,10 +403,52 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 	fieldBySelector := make(map[string]string, len(keys))
 	for index, key := range keys {
 		name := fmt.Sprintf("__loom_projection_%d", index)
-		fields = append(fields, ir.PhysicalSetProjectionField{Name: name, ResourceType: resourceType, Selector: selectors[key], ExecutionMode: selectorExecutionMode(resourceType, selectors[key])})
 		fieldBySelector[key] = name
+		demand := ir.PhysicalSelectorFirstValue
+		if allValues[key] {
+			demand = ir.PhysicalSelectorAllValues
+		}
+		fields = append(fields, ir.PhysicalSetProjectionField{Name: name, ResourceType: resourceType, Selector: selectors[key], ExecutionMode: selectorExecutionMode(resourceType, selectors[key]), Demand: demand})
+	}
+	reductionFields := make([]ir.PhysicalSetReductionField, 0)
+	for index := range projections {
+		projection := &projections[index]
+		if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalExtractExpression || projection.Expression.Extract == nil {
+			continue
+		}
+		extract := projection.Expression.Extract
+		if extract.Source.Variable != set.Variable || extract.Source.BindKey != "" || len(extract.Source.Path) != 0 || len(extract.Fallbacks) != 0 {
+			continue
+		}
+		slot, ok := fieldBySelector[physicalSelectorIdentity(extract.Selector)]
+		if !ok {
+			continue
+		}
+		mode := ir.PhysicalSetReductionFirst
+		if projection.Expression.Cardinality == ir.PhysicalArrayCardinality {
+			mode = ir.PhysicalSetReductionAll
+			if projection.Expression.Extract.Distinct {
+				mode = ir.PhysicalSetReductionDistinct
+			}
+		}
+		name := fmt.Sprintf("__loom_reduced_%d", len(reductionFields))
+		reductionFields = append(reductionFields, ir.PhysicalSetReductionField{Name: name, SourceField: slot, Mode: mode})
+		projection.Value = ir.PhysicalValue{Variable: set.Variable + "_reduced", Path: []string{name}}
+		projection.Expression = nil
 	}
 	var rewrite func(*ir.PhysicalExpression)
+	var rewritePredicate func(*ir.PhysicalPredicateExpression)
+	rewritePredicate = func(predicate *ir.PhysicalPredicateExpression) {
+		if predicate == nil {
+			return
+		}
+		if predicate.Comparison != nil {
+			rewrite(predicate.Comparison.LeftExpression)
+		}
+		for index := range predicate.Children {
+			rewritePredicate(&predicate.Children[index])
+		}
+	}
 	rewrite = func(expression *ir.PhysicalExpression) {
 		if expression == nil {
 			return
@@ -402,9 +463,7 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
 				rewrite(expression.Aggregate.Value)
-				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
-					rewrite(expression.Aggregate.Predicate.Comparison.LeftExpression)
-				}
+				rewritePredicate(expression.Aggregate.Predicate)
 			}
 		case ir.PhysicalPivotExpression:
 			if expression.Pivot != nil && expression.Pivot.Source.Variable == set.Variable {
@@ -413,9 +472,8 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 			}
 		case ir.PhysicalSliceExpression:
 			if expression.Slice != nil {
-				if expression.Slice.Predicate != nil && expression.Slice.Predicate.Comparison != nil {
-					rewrite(expression.Slice.Predicate.Comparison.LeftExpression)
-				}
+				rewritePredicate(expression.Slice.Predicate)
+				rewrite(expression.Slice.Sort)
 				for index := range expression.Slice.Projections {
 					rewrite(&expression.Slice.Projections[index].Expression)
 				}
@@ -432,6 +490,9 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		rewrite(projections[index].Expression)
 	}
 	set.Projection = &ir.PhysicalSetProjection{Fields: fields}
+	if len(reductionFields) != 0 {
+		set.Reduction = &ir.PhysicalSetReduction{Variable: set.Variable + "_reduced", SourceSetVariable: set.Variable, Fields: reductionFields}
+	}
 	set.Output = nil
 }
 

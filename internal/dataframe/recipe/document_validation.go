@@ -45,6 +45,12 @@ func (b Bundle) Validate() error {
 		if strings.TrimSpace(output.RowGrain) == "" {
 			return validationError("required", path+".rowGrain", "rowGrain is required")
 		}
+		if !output.TraversalColumnNaming.Valid() {
+			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH or ALIAS")
+		}
+		if !output.RootColumnNaming.Valid() {
+			return validationError("invalid_root_column_naming", path+".rootColumnNaming", "must be PREFIXED or EXACT")
+		}
 		if output.CollisionPolicy != "" && output.CollisionPolicy != "error" && output.CollisionPolicy != "overwrite" && output.CollisionPolicy != "coalesce" {
 			return validationError("invalid_collision_policy", path+".collisionPolicy", "must be error, overwrite, or coalesce")
 		}
@@ -54,6 +60,11 @@ func (b Bundle) Validate() error {
 		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
 			return err
+		}
+		if output.TraversalColumnNaming.Normalized() == TraversalColumnNamingAlias {
+			if err := validateGloballyUniqueTraversalAliases(output.Traversals, path+".traversals", map[string]string{}); err != nil {
+				return err
+			}
 		}
 		if output.Expand != nil {
 			if err := validateRecipeName(output.Expand.As, path+".expand.as"); err != nil {
@@ -81,6 +92,24 @@ func (b Bundle) Validate() error {
 			if err := projection.validateAt(fmt.Sprintf("%s.catalogProjections[%d]", path, index)); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateGloballyUniqueTraversalAliases(items []Traversal, path string, seen map[string]string) error {
+	for index, traversal := range items {
+		itemPath := fmt.Sprintf("%s[%d]", path, index)
+		alias := strings.TrimSpace(traversal.Alias)
+		if alias == "" {
+			alias = strings.TrimSpace(traversal.Name)
+		}
+		if firstPath, exists := seen[alias]; exists {
+			return validationError("duplicate_global_traversal_alias", itemPath+".alias", fmt.Sprintf("alias %q is already used at %s", alias, firstPath))
+		}
+		seen[alias] = itemPath + ".alias"
+		if err := validateGloballyUniqueTraversalAliases(traversal.Traversals, itemPath+".traversals", seen); err != nil {
+			return err
 		}
 	}
 	return nil
