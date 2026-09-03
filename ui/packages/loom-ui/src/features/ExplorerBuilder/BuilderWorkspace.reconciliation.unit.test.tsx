@@ -36,15 +36,21 @@ vi.mock('./components/BuilderToolbar', () => ({
     previewDisabled,
     publishDisabled,
     publishing,
+    busy,
   }: {
     readonly onPreview: () => void;
     readonly onPublish: () => void;
     readonly previewDisabled: boolean;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
+    readonly busy: boolean;
   }) => (
     <div>
-      <button type="button" disabled={previewDisabled} onClick={onPreview}>
+      <button
+        type="button"
+        disabled={previewDisabled || busy}
+        onClick={onPreview}
+      >
         Preview
       </button>
       <button
@@ -218,6 +224,15 @@ const deferredRequest = <T,>() => {
   };
 };
 
+const abortableRequest = <T,>() => {
+  let reject: (reason: Error) => void = () => undefined;
+  const promise = new Promise<T>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  const abort = vi.fn(() => reject(new Error('CLIENT_CANCELLED')));
+  return { unwrap: vi.fn(() => promise), abort };
+};
+
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
   let reconcile: Mock;
@@ -317,6 +332,44 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+  });
+
+  it('cancels a stale preview when a patient column changes', async () => {
+    const pendingPreview = abortableRequest<never>();
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockImplementation(() => {
+      const [isLoading, setLoading] = React.useState(false);
+      const trigger = React.useCallback(() => {
+        setLoading(true);
+        void pendingPreview
+          .unwrap()
+          .then(
+            () => setLoading(false),
+            () => setLoading(false),
+          );
+        return pendingPreview;
+      }, []);
+      return [trigger, { isLoading }];
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const previewButton = await screen.findByRole('button', {
+      name: 'Preview',
+    });
+    fireEvent.click(previewButton);
+    await waitFor(() => expect(previewButton).toBeDisabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pendingPreview.abort).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(previewButton).toBeEnabled());
   });
 
   it('publishes a server-persisted draft after the Builder is reloaded', async () => {
