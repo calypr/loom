@@ -406,6 +406,7 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion,
 		Project: snapshot.Identity.Project, ExplorerID: request.ExplorerID, IntentDigest: intentDigest, SnapshotToken: snapshot.Token,
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest,
+		ShapeDigest:      snapshot.Identity.ShapeDigest,
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
 		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{}`), PublicOutputContract: contract,

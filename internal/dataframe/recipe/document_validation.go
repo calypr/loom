@@ -250,7 +250,7 @@ func validateExpression(e Expression, path string) error {
 type arity struct{ min, max int }
 
 var callArities = map[string]arity{
-	"coalesce": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1},
+	"coalesce": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1}, "length": {1, 1},
 	"canonical_json": {1, 1},
 	"concat":         {1, -1}, "join": {2, 2}, "cast": {2, 2}, "reference_id": {1, 1},
 	"path_segment": {1, 1}, "basename": {1, 1}, "last_segment": {1, 1},

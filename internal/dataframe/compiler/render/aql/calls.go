@@ -44,6 +44,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		return "@" + key
 	}
 	switch name {
+	case "length":
+		if err := require(1); err != nil {
+			return "", err
+		}
+		return "LENGTH(" + args[0] + ")", nil
 	case "coalesce_string":
 		if len(args) == 0 {
 			return "", fmt.Errorf("coalesce_string requires at least one argument")

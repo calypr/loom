@@ -71,6 +71,26 @@ func TestShapePlanCacheHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestFieldCatalogProfilerRecordsExactNestedArrayMaxima(t *testing.T) {
+	profiler := NewProfilerForGeneration("TEST", "generation-a", "", "Patient", nil)
+	profiler.ObservePayload(map[string]any{
+		"name": []any{
+			map[string]any{"given": []any{"A", "B"}},
+			map[string]any{"given": []any{"C", "D", "E"}},
+		},
+	}, map[string]float64{})
+
+	maxima := map[string]int{}
+	for _, document := range profiler.Documents() {
+		if document.Kind == fieldKindArray {
+			maxima[document.Path] = document.MaxItems
+		}
+	}
+	if maxima["name[]"] != 2 || maxima["name[].given[]"] != 3 {
+		t.Fatalf("array maxima = %#v, want name=2 and given=3", maxima)
+	}
+}
+
 func TestFieldCatalogProfilerCanonicalPaths(t *testing.T) {
 	cache := NewShapePlanCache()
 	profiler := NewProfilerForGeneration("TEST", "", "pathA", "Observation", cache)

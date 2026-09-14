@@ -6,6 +6,11 @@ import type {
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { useDismissibleLayer } from './useDismissibleLayer';
+import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
+
+const PREVIEW_ROW_HEIGHT = 44;
+const PREVIEW_HEADER_HEIGHT = 42;
+const PREVIEW_COLUMN_WIDTH = 180;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -93,12 +98,38 @@ export const PreviewTable = ({
   const [draggedColumn, setDraggedColumn] = useState<string>();
   const [dropIndex, setDropIndex] = useState<number>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
+  const previewScrollRef = React.useRef<HTMLDivElement>(null);
+  const viewport = useVirtualViewport(previewScrollRef);
+  const formattingCacheRef = React.useRef<BoundedCache<string> | null>(null);
+  if (!formattingCacheRef.current) formattingCacheRef.current = new BoundedCache(5000);
+  const formattingCache = formattingCacheRef.current;
+  const previewIdentityRef = React.useRef<ExplorerBuilderPreviewResult | undefined>(undefined);
+  if (previewIdentityRef.current !== preview) {
+    formattingCache.clear();
+    previewIdentityRef.current = preview;
+  }
   const authoredByColumn = new Map(
     table?.document.columns.map((column) => [column.column, column]) ?? [],
   );
+  const authoredColumnsFor = (column: ExplorerBuilderEmission) => {
+    const names = column.authoredColumns ?? [column.column];
+    return names.flatMap((name) => {
+      const authored = authoredByColumn.get(name);
+      return authored ? [authored] : [];
+    });
+  };
+  const authoredColumnFor = (column: ExplorerBuilderEmission) =>
+    authoredColumnsFor(column)[0];
+  const configuredColumns = [...authoredByColumn.values()].sort(
+    (left, right) =>
+      (left.table?.order ?? Number.MAX_SAFE_INTEGER) -
+      (right.table?.order ?? Number.MAX_SAFE_INTEGER),
+    );
   const orderedColumns: ExplorerBuilderEmission[] = (preview?.columns ?? [])
     .map((column) => {
-      const authored = authoredByColumn.get(column.column);
+      const authored = (column.authoredColumns ?? [column.column])
+        .map((name) => authoredByColumn.get(name))
+        .find((value) => value !== undefined);
       return {
         ...column,
         outputId: preview?.outputId ?? table?.outputId ?? '',
@@ -114,26 +145,55 @@ export const PreviewTable = ({
     })
     .sort(
       (left, right) =>
-        (authoredByColumn.get(left.column)?.table?.order ??
-          Number.MAX_SAFE_INTEGER) -
-        (authoredByColumn.get(right.column)?.table?.order ??
-          Number.MAX_SAFE_INTEGER),
+        Math.min(
+          Number.MAX_SAFE_INTEGER,
+          ...authoredColumnsFor(left).map(
+            (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
+          ),
+        ) -
+        Math.min(
+          Number.MAX_SAFE_INTEGER,
+          ...authoredColumnsFor(right).map(
+            (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
+          ),
+        ),
     );
   const columns = orderedColumns.filter((column) => {
-    const authored = authoredByColumn.get(column.column);
-    return authored?.table?.visible ?? Boolean(authored?.table);
+    return authoredColumnsFor(column).some(
+      (authored) => authored.table?.visible ?? Boolean(authored.table),
+    );
   });
+  const rows = preview?.rows ?? [];
+  const columnRange = virtualRange({
+    count: columns.length,
+    offset: viewport.scrollLeft,
+    viewport: viewport.width,
+    itemSize: PREVIEW_COLUMN_WIDTH,
+    overscan: 2,
+  });
+  const rowRange = virtualRange({
+    count: rows.length,
+    offset: Math.max(0, viewport.scrollTop - PREVIEW_HEADER_HEIGHT),
+    viewport: Math.max(0, viewport.height - PREVIEW_HEADER_HEIGHT),
+    itemSize: PREVIEW_ROW_HEIGHT,
+    overscan: 3,
+  });
+  const visibleColumns = columns.slice(columnRange.start, columnRange.end);
+  const formattedCell = (rowIndex: number, column: ExplorerBuilderEmission, rawValue: unknown): string =>
+    formattingCache.getOrSet(`display:${rowIndex}:${column.emissionId}`, () => formatPreviewCell(rawValue));
+  const titledCell = (rowIndex: number, column: ExplorerBuilderEmission, rawValue: unknown): string =>
+    formattingCache.getOrSet(`title:${rowIndex}:${column.emissionId}`, () => previewCellTitle(rawValue));
   const resetDrag = () => {
     draggedColumnRef.current = undefined;
     setDraggedColumn(undefined);
     setDropIndex(undefined);
   };
   const reorderColumns = (columnName: string, insertionIndex: number) => {
-    const fromIndex = orderedColumns.findIndex(
+    const fromIndex = configuredColumns.findIndex(
       (column) => column.column === columnName,
     );
     if (fromIndex < 0) return;
-    const reordered = [...orderedColumns];
+    const reordered = [...configuredColumns];
     const [moved] = reordered.splice(fromIndex, 1);
     const adjustedIndex = Math.max(
       0,
@@ -144,13 +204,12 @@ export const PreviewTable = ({
     );
     reordered.splice(adjustedIndex, 0, moved);
     const updates = reordered.flatMap((column, order) => {
-      const authored = authoredByColumn.get(column.column);
-      return !authored || authored.table?.order === order
+      return column.table?.order === order
         ? []
         : [
             {
-              ...authored,
-              table: { ...(authored.table ?? {}), order },
+              ...column,
+              table: { ...(column.table ?? {}), order },
             },
           ];
     });
@@ -180,13 +239,11 @@ export const PreviewTable = ({
                 aria-label="Table columns"
                 className="max-h-[min(60dvh,28rem)] overflow-y-auto overflow-x-hidden py-1 pr-1"
               >
-                {orderedColumns.map((column, index) => {
-                  const authored = authoredByColumn.get(column.column);
-                  const visible =
-                    authored?.table?.visible ?? Boolean(authored?.table);
+                {configuredColumns.map((column, index) => {
+                  const visible = column.table?.visible ?? Boolean(column.table);
                   return (
                     <div
-                      key={column.emissionId}
+                      key={column.column}
                       role="listitem"
                       onDragOver={(event) => {
                         if (!draggedColumnRef.current) return;
@@ -223,8 +280,8 @@ export const PreviewTable = ({
                         <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
                       )}
                       <span
-                        aria-label={`Drag ${authored?.label ?? column.label}`}
-                        draggable={Boolean(authored)}
+                        aria-label={`Drag ${column.label}`}
+                        draggable
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData(
@@ -245,27 +302,25 @@ export const PreviewTable = ({
                           type="checkbox"
                           className="mt-0.5 shrink-0"
                           checked={visible}
-                          disabled={!authored}
                           onChange={(event) =>
-                            authored &&
                             onColumnChange({
-                              ...authored,
+                              ...column,
                               table: {
-                                ...(authored.table ?? {}),
+                                ...(column.table ?? {}),
                                 visible: event.currentTarget.checked,
-                                order: authored.table?.order ?? index,
+                                order: column.table?.order ?? index,
                               },
                             })
                           }
                         />
                         <span className="min-w-0 break-words">
-                          {authored?.label ?? column.label}
+                          {column.label}
                         </span>
                       </label>
                     </div>
                   );
                 })}
-                {draggedColumn && dropIndex === orderedColumns.length && (
+                {draggedColumn && dropIndex === configuredColumns.length && (
                   <div className="mx-1 h-0.5 rounded bg-blue-500" />
                 )}
               </div>
@@ -293,6 +348,7 @@ export const PreviewTable = ({
         </label>
       </div>
       <div
+        ref={previewScrollRef}
         data-testid="preview-table-scroll"
         className="max-h-[min(65dvh,40rem)] max-w-full overflow-auto overscroll-contain"
       >
@@ -301,46 +357,78 @@ export const PreviewTable = ({
             Choose a row resource and at least one visible column, then preview.
           </p>
         ) : (
-          <table className="w-max min-w-full border-collapse text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600">
-              <tr>
-                {columns.map((column) => (
-                  <th
+          <div
+            role="table"
+            aria-rowcount={rows.length + 1}
+            aria-colcount={columns.length}
+            className="relative text-left text-xs"
+            style={{
+              width: Math.max(viewport.width, columns.length * PREVIEW_COLUMN_WIDTH),
+              height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
+            }}
+          >
+            <div
+              role="row"
+              className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600"
+              style={{ height: PREVIEW_HEADER_HEIGHT }}
+            >
+              {visibleColumns.map((column, visibleIndex) => {
+                const columnIndex = columnRange.start + visibleIndex;
+                return (
+                  <div
+                    role="columnheader"
                     key={column.emissionId}
-                    className="whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
+                    className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
+                    style={{
+                      left: columnIndex * PREVIEW_COLUMN_WIDTH,
+                      width: PREVIEW_COLUMN_WIDTH,
+                      height: PREVIEW_HEADER_HEIGHT,
+                    }}
                   >
-                    {authoredByColumn.get(column.column)?.label ?? column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(preview.rows ?? []).map((row, rowIndex) => (
-                <tr
+                    {column.label}
+                  </div>
+                );
+              })}
+            </div>
+            {rows.slice(rowRange.start, rowRange.end).map((row, visibleRowIndex) => {
+              const rowIndex = rowRange.start + visibleRowIndex;
+              return (
+                <div
+                  role="row"
                   key={rowIndex}
-                  className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50/60"
+                  className="absolute left-0 right-0 odd:bg-white even:bg-slate-50/70 hover:bg-blue-50/60"
+                  style={{
+                    top: PREVIEW_HEADER_HEIGHT + rowIndex * PREVIEW_ROW_HEIGHT,
+                    height: PREVIEW_ROW_HEIGHT,
+                  }}
                 >
-                  {columns.map((column) => {
+                  {visibleColumns.map((column, visibleColumnIndex) => {
+                    const columnIndex = columnRange.start + visibleColumnIndex;
                     const rawValue = row[column.publicColumn];
-                    const value = formatPreviewCell(rawValue);
                     return (
-                      <td
+                      <div
+                        role="cell"
                         key={column.emissionId}
-                        className="max-w-56 border-b border-slate-100 px-4 py-2.5 text-slate-700"
+                        className="absolute top-0 max-w-56 overflow-hidden border-b border-slate-100 px-4 py-2.5 text-slate-700"
+                        style={{
+                          left: columnIndex * PREVIEW_COLUMN_WIDTH,
+                          width: PREVIEW_COLUMN_WIDTH,
+                          height: PREVIEW_ROW_HEIGHT,
+                        }}
                       >
                         <div
                           className="truncate whitespace-nowrap"
-                          title={previewCellTitle(rawValue)}
+                          title={titledCell(rowIndex, column, rawValue)}
                         >
-                          {value}
+                          {formattedCell(rowIndex, column, rawValue)}
                         </div>
-                      </td>
+                      </div>
                     );
                   })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </section>

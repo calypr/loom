@@ -5,6 +5,9 @@ import type {
   ExplorerBuilderColumn,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { useVirtualViewport, virtualRange } from './virtualization';
+
+const CANDIDATE_ROW_HEIGHT = 74;
 
 const titleForResource = (value: string): string =>
   value
@@ -201,17 +204,20 @@ const ConfiguredColumnRow = ({
 
 const AvailableColumnRow = ({
   candidate,
+  displayName,
   disabled,
+  onDisplayNameChange,
   onAdd,
 }: {
   readonly candidate: ExplorerBuilderCandidate;
+  readonly displayName: string;
   readonly disabled: boolean;
+  readonly onDisplayNameChange: (value: string) => void;
   readonly onAdd: (
     displayName: string,
     initialPresentation: InitialPresentation,
   ) => void;
 }) => {
-  const [displayName, setDisplayName] = useState(candidate.label);
   const normalizedDisplayName = displayName.trim();
 
   return (
@@ -222,9 +228,9 @@ const AvailableColumnRow = ({
           className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-700 outline-blue-500 focus:border-blue-500"
           value={displayName}
           disabled={disabled}
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
+          onChange={(event) => onDisplayNameChange(event.currentTarget.value)}
           onBlur={() => {
-            if (!displayName.trim()) setDisplayName(candidate.label);
+            if (!displayName.trim()) onDisplayNameChange(candidate.label);
           }}
         />
         <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
@@ -314,6 +320,9 @@ export const ColumnSelector = ({
   readonly onRemove: (column: string) => void;
 }) => {
   const [query, setQuery] = useState('');
+  const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
+  const candidateScrollRef = React.useRef<HTMLDivElement>(null);
+  const viewport = useVirtualViewport(candidateScrollRef);
   const occurrence = derivedOccurrences(table, catalog).find(
     (candidate) => candidate.id === occurrenceId,
   );
@@ -399,6 +408,13 @@ export const ColumnSelector = ({
         }),
     [available, configured, configuredCapabilities, normalizedQuery],
   );
+  const rowRange = virtualRange({
+    count: rows.length,
+    offset: viewport.scrollTop,
+    viewport: viewport.height,
+    itemSize: CANDIDATE_ROW_HEIGHT,
+    overscan: 3,
+  });
   const addCandidate = (
     candidate: ExplorerBuilderCandidate,
     displayName: string,
@@ -489,41 +505,63 @@ export const ColumnSelector = ({
             <span>Chart</span>
             <span />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-white/80">
+          <div
+            ref={candidateScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto bg-white/80"
+          >
             {rows.length ? (
-              rows.map((row, order) =>
-                row.kind === 'configured' ? (
-                  <ConfiguredColumnRow
-                    key={`configured:${row.column.column}`}
-                    column={row.column}
-                    order={row.column.table?.order ?? order}
-                    disabled={disabled}
-                    filterable={
-                      configuredCapabilities.get(row.column.column)
-                        ?.filterable ?? true
-                    }
-                    chartable={
-                      configuredCapabilities.get(row.column.column)
-                        ?.chartable ?? true
-                    }
-                    onChange={onChange}
-                    onRemove={() => onRemove(row.column.column)}
-                  />
-                ) : (
-                  <AvailableColumnRow
-                    key={`available:${row.candidate.candidateId}`}
-                    candidate={row.candidate}
-                    disabled={disabled}
-                    onAdd={(displayName, initialPresentation) =>
-                      addCandidate(
-                        row.candidate,
-                        displayName,
-                        initialPresentation,
-                      )
-                    }
-                  />
-                ),
-              )
+              <div
+                className="relative"
+                style={{ height: rows.length * CANDIDATE_ROW_HEIGHT }}
+              >
+                {rows.slice(rowRange.start, rowRange.end).map((row, visibleIndex) => {
+                  const order = rowRange.start + visibleIndex;
+                  return (
+                    <div
+                      key={row.kind === 'configured' ? `configured:${row.column.column}` : `available:${row.candidate.candidateId}`}
+                      className="absolute inset-x-0"
+                      style={{ top: order * CANDIDATE_ROW_HEIGHT, height: CANDIDATE_ROW_HEIGHT }}
+                    >
+                      {row.kind === 'configured' ? (
+                        <ConfiguredColumnRow
+                          column={row.column}
+                          order={row.column.table?.order ?? order}
+                          disabled={disabled}
+                          filterable={
+                            configuredCapabilities.get(row.column.column)
+                              ?.filterable ?? true
+                          }
+                          chartable={
+                            configuredCapabilities.get(row.column.column)
+                              ?.chartable ?? true
+                          }
+                          onChange={onChange}
+                          onRemove={() => onRemove(row.column.column)}
+                        />
+                      ) : (
+                        <AvailableColumnRow
+                          candidate={row.candidate}
+                          displayName={availableDisplayNames[row.candidate.candidateId] ?? row.candidate.label}
+                          disabled={disabled}
+                          onDisplayNameChange={(value) =>
+                            setAvailableDisplayNames((current) => ({
+                              ...current,
+                              [row.candidate.candidateId]: value,
+                            }))
+                          }
+                          onAdd={(displayName, initialPresentation) =>
+                            addCandidate(
+                              row.candidate,
+                              displayName,
+                              initialPresentation,
+                            )
+                          }
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <p className="p-4 text-sm text-slate-500">
                 {loadingCandidates

@@ -19,6 +19,7 @@ func testReceipt() CompilationReceipt {
 		SnapshotToken:            "sha256:snapshot",
 		AuthorizationScopeDigest: "sha256:scope",
 		CapabilitySchemaDigest:   "sha256:schema",
+		ShapeDigest:              "sha256:shape",
 		SourceGeneration:         "generation-a",
 		RecipeDigest:             "sha256:recipe",
 		ResolvedSchemaDigest:     "sha256:resolved-schema",
@@ -123,6 +124,26 @@ func TestCompilationReceiptValidateID(t *testing.T) {
 	r.ID = "receipt_wrong"
 	if err := r.ValidateID(); err == nil {
 		t.Fatal("accepted mismatched receipt ID")
+	}
+}
+
+func TestCompilationReceiptKeepsV10ReceiptsExecutableWithoutShapeDigest(t *testing.T) {
+	r := testReceipt()
+	r.CompilerContractVersion = legacyCompilationReceiptCompilerContractVersion
+	r.ShapeDigest = ""
+	r.CompilationKey, _ = CompilationKey(r)
+	r.ID, _ = ReceiptID(r)
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompilationReceiptV11RequiresShapeDigest(t *testing.T) {
+	r := testReceipt()
+	r.ShapeDigest = ""
+	r.CompilationKey, _ = CompilationKey(r)
+	if err := r.Validate(); err == nil {
+		t.Fatal("accepted a v11 receipt without a generation shape digest")
 	}
 }
 

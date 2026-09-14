@@ -148,21 +148,23 @@ export const GuidedGraphWorkspace = ({
       edgeId,
       activeAllowExistingExtension,
     );
+  const catalogNodeById = useMemo(
+    () => new Map(catalog.nodes.map((node) => [node.nodeId, node] as const)),
+    [catalog.nodes],
+  );
   const occurrences = useMemo(
     () =>
       derivedOccurrences(table, catalog).map((occurrence) => ({
         occurrenceId: occurrence.id,
         index: occurrence.index,
         nodeId: occurrence.nodeId,
-        resourceType:
-          catalog.nodes.find((node) => node.nodeId === occurrence.nodeId)
-            ?.resourceType ?? occurrence.nodeId,
+        resourceType: catalogNodeById.get(occurrence.nodeId)?.resourceType ?? occurrence.nodeId,
         incomingEdgeId: occurrence.incomingEdgeId,
         relationship: occurrence.relationship,
         parentId: occurrence.parentId,
         depth: occurrence.depth,
       })),
-    [catalog, table],
+    [catalog, catalogNodeById, table],
   );
   const traversalIdentity = `${isExpanded}:${occurrences.map((occurrence) => occurrence.occurrenceId).join(',')}`;
   const isTraversalOverflowing = useTraversalOverflow(
@@ -171,15 +173,29 @@ export const GuidedGraphWorkspace = ({
     traversalIdentity,
   );
   const occurrencesByNode = useMemo(() => {
-    const result = new Map<string, typeof occurrences>();
-    occurrences.forEach((occurrence) => {
-      result.set(occurrence.nodeId, [
-        ...(result.get(occurrence.nodeId) ?? []),
-        occurrence,
-      ]);
-    });
+    const result = new Map<string, Array<(typeof occurrences)[number]>>();
+    for (const occurrence of occurrences) {
+      const existing = result.get(occurrence.nodeId);
+      if (existing) existing.push(occurrence);
+      else result.set(occurrence.nodeId, [occurrence]);
+    }
     return result;
   }, [occurrences]);
+  const resourceTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of catalog.nodes) {
+      counts.set(node.resourceType, (counts.get(node.resourceType) ?? 0) + 1);
+    }
+    return counts;
+  }, [catalog.nodes]);
+  const edgeById = useMemo(
+    () => new Map(catalog.edges.map((edge) => [edge.edgeId, edge] as const)),
+    [catalog.edges],
+  );
+  const routeEdgeIds = useMemo(
+    () => new Set(occurrences.flatMap((occurrence) => occurrence.incomingEdgeId ? [occurrence.incomingEdgeId] : [])),
+    [occurrences],
+  );
   const editableEdgesByOccurrence = useMemo(
     () =>
       new Map(
@@ -198,9 +214,22 @@ export const GuidedGraphWorkspace = ({
     () => legalOutgoingEdges(catalog, table, selectedOccurrenceId),
     [catalog, selectedOccurrenceId, table],
   );
-  const legalNextNodeIds = useMemo(
-    () => new Set(legalNextEdges.map((edge) => edge.toNodeId)),
+  const legalNextEdgeIds = useMemo(
+    () => new Set(legalNextEdges.map((edge) => edge.edgeId)),
     [legalNextEdges],
+  );
+  const legalNextEdgesByTarget = useMemo(() => {
+    const result = new Map<string, typeof legalNextEdges>();
+    for (const edge of legalNextEdges) {
+      const existing = result.get(edge.toNodeId);
+      if (existing) existing.push(edge);
+      else result.set(edge.toNodeId, [edge]);
+    }
+    return result;
+  }, [legalNextEdges]);
+  const legalNextNodeIds = useMemo(
+    () => new Set(legalNextEdgesByTarget.keys()),
+    [legalNextEdgesByTarget],
   );
   const nodes: Node[] = catalog.nodes.map((node, index) => {
     const nodeOccurrences = occurrencesByNode.get(node.nodeId) ?? [];
@@ -218,10 +247,7 @@ export const GuidedGraphWorkspace = ({
       !isPendingRowStart && activeInspectedNodeId === node.nodeId;
     const isReachable = legalNextNodeIds.has(node.nodeId);
     const canStart = occurrences.length === 0 && node.rowRootEligible;
-    const duplicate =
-      catalog.nodes.filter(
-        (candidate) => candidate.resourceType === node.resourceType,
-      ).length > 1;
+    const duplicate = (resourceTypeCounts.get(node.resourceType) ?? 0) > 1;
     return {
       id: node.nodeId,
       position: layout.positions.get(node.nodeId) ?? {
@@ -306,12 +332,8 @@ export const GuidedGraphWorkspace = ({
     [catalog.edges],
   );
   const edges: Edge[] = catalog.edges.map((edge) => {
-    const isRouteEdge = occurrences.some(
-      (occurrence) => occurrence.incomingEdgeId === edge.edgeId,
-    );
-    const isLegalNextEdge = legalNextEdges.some(
-      (candidate) => candidate.edgeId === edge.edgeId,
-    );
+    const isRouteEdge = routeEdgeIds.has(edge.edgeId);
+    const isLegalNextEdge = legalNextEdgeIds.has(edge.edgeId);
     const edgeColor = isRouteEdge
       ? '#2563eb'
       : isLegalNextEdge
@@ -378,18 +400,12 @@ export const GuidedGraphWorkspace = ({
     if (disabled) return;
     if (occurrences.length === 0) {
       updateInspection(nodeId);
-      const node = catalog.nodes.find(
-        (candidate) => candidate.nodeId === nodeId,
-      );
+      const node = catalogNodeById.get(nodeId);
       if (node?.rowRootEligible) onSetBase(nodeId);
       return;
     }
-    const routeOccurrences = occurrences.filter(
-      (occurrence) => occurrence.nodeId === nodeId,
-    );
-    const matchingEdges = legalNextEdges.filter(
-      (edge) => edge.toNodeId === nodeId,
-    );
+    const routeOccurrences = occurrencesByNode.get(nodeId) ?? [];
+    const matchingEdges = legalNextEdgesByTarget.get(nodeId) ?? [];
     if (routeOccurrences.length > 0 && matchingEdges.length > 0) {
       updateInspection(nodeId, undefined, true);
       return;
@@ -417,12 +433,10 @@ export const GuidedGraphWorkspace = ({
   };
   const inspectEdge = (edgeId: string) => {
     if (disabled) return;
-    const edge = catalog.edges.find((candidate) => candidate.edgeId === edgeId);
+    const edge = edgeById.get(edgeId);
     if (!edge) return;
     updateInspection(edge.toNodeId, edgeId);
-    const routeOccurrence = occurrences
-      .filter((occurrence) => occurrence.nodeId === edge.toNodeId)
-      .at(-1);
+    const routeOccurrence = occurrencesByNode.get(edge.toNodeId)?.at(-1);
     if (routeOccurrence) onSelectOccurrence(routeOccurrence.occurrenceId);
   };
   const useAsRowStart = (nodeId: string) => {
@@ -431,8 +445,7 @@ export const GuidedGraphWorkspace = ({
     selectEdge(undefined);
   };
   const addRelationship = (edgeId: string, nodeId: string) => {
-    if (disabled || !legalNextEdges.some((edge) => edge.edgeId === edgeId))
-      return;
+    if (disabled || !legalNextEdgeIds.has(edgeId)) return;
     onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
     updateInspection();
   };

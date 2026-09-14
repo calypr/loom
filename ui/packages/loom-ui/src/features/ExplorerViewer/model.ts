@@ -70,7 +70,7 @@ export const initialViewerState = (
   const chartsVisible: Record<string, boolean> = {};
   for (const output of runtime.outputs) {
     outputs[output.outputId] = initialOutputState();
-    chartsVisible[output.outputId] = true;
+    chartsVisible[output.outputId] = false;
   }
   return {
     activeOutputId: selected,

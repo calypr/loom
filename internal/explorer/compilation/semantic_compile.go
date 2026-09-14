@@ -49,7 +49,9 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
 	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
-	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: "none", Lossless: true, MLReady: true, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	countEmissions := map[string]int{}
+	presentationOrder := 0
 
 	for index, column := range document.Columns {
 		occurrence := occurrences[column.OccurrenceID]
@@ -66,6 +68,8 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		filterable, chartable := column.Filter != nil, column.Chart != nil
 		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+column.Source.Kind+"\x00"+column.Source.FieldPath+"\x00"+column.Source.Match+"\x00"+column.Source.Operation+"\x00"+column.Source.WherePath+"\x00"+column.Source.WhereEquals+"\x00"+column.Column)
 		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode), "FIRST")
+		sourceRepeated := false
+		choiceArm := ""
 
 		switch column.Source.Kind {
 		case authoringv2.SourceField:
@@ -74,10 +78,61 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.fieldPath", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": column.Source.FieldPath}, nil)
 			}
 			candidateID = candidate.ID
+			sourceRepeated = len(candidate.RepeatedBoundaries) > 0
 			logicalType = firstNonEmpty(column.LogicalType, candidate.LogicalType, "string")
 			filterable = filterable && supportsOperation(candidate.SupportedOperations, capability.OperationFilter)
 			chartable = chartable && supportsOperation(candidate.SupportedOperations, capability.OperationChart)
 			path := strings.TrimPrefix(strings.TrimSpace(column.Source.FieldPath), "root.")
+			choiceArm = choiceArmForPath(path)
+			if projectionMode == "INDEXED" {
+				indexed, counts, expandErr := expandIndexedProjection(leaf, path, candidate.RepeatedBoundaries)
+				if expandErr != nil {
+					code := "INDEXED_BOUNDARY_INVALID"
+					switch {
+					case strings.Contains(expandErr.Error(), "complete repeated-boundary evidence"):
+						code = "SHAPE_PROFILE_INCOMPLETE"
+					case strings.Contains(expandErr.Error(), "observed"):
+						code = "INDEXED_BOUNDARY_TOO_WIDE"
+					case strings.Contains(expandErr.Error(), "physical columns"):
+						code = "INDEXED_OUTPUT_TOO_WIDE"
+					}
+					return Result{}, fail("lower", code, fmt.Sprintf("$.columns[%d].source.fieldPath", index), expandErr.Error(), map[string]any{"fieldPath": path, "maximum": maxIndexedBoundaryItems}, expandErr)
+				}
+				emissionIDs := make([]string, 0, len(indexed)+len(counts))
+				for _, item := range indexed {
+					nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: item.Leaf, FieldRef: column.Source.FieldPath, Expr: recipe.Expression{Select: alias + "." + item.Selector}, ValueMode: recipe.ValueModeFirst})
+					publicColumn := indexedLeaf(column.Column, item.Coordinates)
+					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: indexedLabel(column.Label, item.Coordinates), LogicalType: logicalType, Nullable: true, Shape: "indexed_scalar", SourceResourceType: occurrence.graph.ResourceType, SourcePath: path, ChoiceArm: choiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), item.Coordinates...), Lossless: true, MLReady: true, Filterable: filterable, Chartable: chartable}
+					emitted = append(emitted, emission)
+					contract.Columns = append(contract.Columns, publicColumnContract(emission))
+					presentation.Columns = append(presentation.Columns, presentationColumn(column, index, presentationOrder, emission))
+					presentationOrder++
+					emissionIDs = append(emissionIDs, emission.EmissionID)
+				}
+				for _, count := range counts {
+					key := column.OccurrenceID + "\x00" + count.Leaf
+					publicColumn := count.Leaf
+					if column.OccurrenceID != authoringv2.RootOccurrenceID {
+						publicColumn = safeName(column.OccurrenceID) + "__" + count.Leaf
+					}
+					if existing, ok := countEmissions[key]; ok {
+						emitted[existing].AuthoredColumns = append(emitted[existing].AuthoredColumns, column.Column)
+						contract.Columns[existing].AuthoredColumns = append(contract.Columns[existing].AuthoredColumns, column.Column)
+						emissionIDs = append(emissionIDs, emitted[existing].EmissionID)
+						continue
+					}
+					nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: count.Leaf, FieldRef: count.Selector, Expr: recipe.Expression{Call: "length", Args: []recipe.Expression{{Select: alias + "." + count.Selector}}}, ValueMode: recipe.ValueModeAuto})
+					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: "boundary_" + shortHash(key), CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: "COUNT", AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: count.Leaf, LogicalType: "integer", Nullable: false, Shape: "repeated_count", SourceResourceType: occurrence.graph.ResourceType, SourcePath: count.Selector, Coordinates: append([]capability.RepeatedCoordinate(nil), count.Coordinates...), Lossless: true, MLReady: true}
+					emitted = append(emitted, emission)
+					contract.Columns = append(contract.Columns, publicColumnContract(emission))
+					presentation.Columns = append(presentation.Columns, presentationColumn(column, index, presentationOrder, emission))
+					presentationOrder++
+					countEmissions[key] = len(emitted) - 1
+					emissionIDs = append(emissionIDs, emission.EmissionID)
+				}
+				mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
+				continue
+			}
 			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: column.Source.FieldPath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
 		case authoringv2.SourceProjectID:
 			literal, _ := json.Marshal(project)
@@ -105,7 +160,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 
 		visible := true
-		orderValue := index
+		orderValue := presentationOrder
 		pinned := false
 		if column.Table != nil {
 			if column.Table.Visible != nil {
@@ -119,8 +174,22 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			visible = false
 		}
 		emissionID := column.Column
-		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable}
+		lossless := true
+		mlReady := true
+		if column.Source.Kind == authoringv2.SourceField && sourceRepeated {
+			lossless = projectionMode == "ALL"
+			mlReady = projectionMode != "ALL"
+		} else if column.Source.Kind != authoringv2.SourceField && column.Source.Kind != authoringv2.SourceProjectID {
+			lossless = false
+		}
+		shape := "scalar"
+		if projectionMode == "ALL" {
+			shape = "array"
+		}
+		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: column.Source.FieldPath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, Filterable: filterable, Chartable: chartable}
 		emitted = append(emitted, emission)
+		contract.Lossless = contract.Lossless && lossless
+		contract.MLReady = contract.MLReady && mlReady
 		mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
 		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, Pinned: pinned}
 		if column.Filter != nil {
@@ -138,7 +207,8 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 		}
 		presentation.Columns = append(presentation.Columns, presented)
-		contract.Columns = append(contract.Columns, explorer.PublicOutputColumn{Column: column.Column, Label: column.Label, LogicalType: logicalType, Filterable: filterable, Chartable: chartable})
+		contract.Columns = append(contract.Columns, publicColumnContract(emission))
+		presentationOrder++
 	}
 
 	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
@@ -153,6 +223,62 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	}
 	_ = order
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
+}
+
+func choiceArmForPath(path string) string {
+	for _, raw := range strings.Split(strings.TrimPrefix(path, "root."), ".") {
+		part := strings.TrimSuffix(raw, "[]")
+		for _, family := range []string{"value", "effective", "deceased", "onset", "performed", "occurrence", "timing", "asNeeded", "medication"} {
+			if len(part) > len(family) && strings.HasPrefix(part, family) {
+				next := part[len(family)]
+				if next >= 'A' && next <= 'Z' {
+					return part
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func indexedLabel(label string, coordinates []capability.RepeatedCoordinate) string {
+	parts := []string{label}
+	for _, coordinate := range coordinates {
+		parts = append(parts, fmt.Sprintf("[%d]", coordinate.Index))
+	}
+	return strings.Join(parts, " ")
+}
+
+func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputColumn {
+	return explorer.PublicOutputColumn{
+		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
+		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
+		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...),
+		Lossless: column.Lossless, MLReady: column.MLReady, Filterable: column.Filterable, Chartable: column.Chartable,
+	}
+}
+
+func presentationColumn(source authoringv2.Column, sourceOrder, order int, emission explorer.EmittedColumn) PresentationColumn {
+	visible := true
+	pinned := false
+	if source.Table != nil {
+		if source.Table.Visible != nil {
+			visible = *source.Table.Visible
+		}
+		pinned = source.Table.Pinned
+	} else {
+		visible = false
+	}
+	result := PresentationColumn{EmissionID: emission.EmissionID, PublicColumn: emission.PublicColumn, Label: emission.Label, Visible: visible, Order: order, Pinned: pinned}
+	if source.Filter != nil && emission.Filterable {
+		result.FilterLabel = firstNonEmpty(source.Filter.Label, emission.Label)
+		result.FilterOrder = sourceOrder
+	}
+	if source.Chart != nil && emission.Chartable {
+		result.ChartType = source.Chart.Type
+		result.ChartTitle = source.Chart.Title
+		result.ChartOrder = sourceOrder
+	}
+	return result
 }
 
 func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Snapshot) (map[string]semanticOccurrence, []string, error) {

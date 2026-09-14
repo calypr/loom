@@ -45,7 +45,7 @@ func TestReceiptArangoStoreUsesImmutableTenantScopedQueries(t *testing.T) {
 		ReceiptFormatVersion:    explorer.CurrentReceiptFormatVersion,
 		CompilerContractVersion: explorer.CurrentCompilerContractVersion,
 		Project:                 "project-a", ExplorerID: "explorer-a", IntentDigest: "intent", SnapshotToken: "snapshot",
-		AuthorizationScopeDigest: "scope", CapabilitySchemaDigest: "schema",
+		AuthorizationScopeDigest: "scope", CapabilitySchemaDigest: "schema", ShapeDigest: "shape",
 		SourceGeneration: "generation", RecipeDigest: "recipe", ResolvedSchemaDigest: "resolved-schema",
 		Bundle: bundle, PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"output","columns":[]}]}`),
 		OutputColumnProvenance: map[string]map[string]string{"output": {"__loom_row_id": "EXPLICIT"}},

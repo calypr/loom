@@ -18,7 +18,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const TranslationVersion = "authoring-v2-native-5"
+const TranslationVersion = "authoring-v2-native-6"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // remain transport-neutral so adapters never parse error strings.
@@ -99,6 +99,7 @@ type WorkspaceResult struct {
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, wire)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
@@ -190,17 +191,34 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 		for i, mode := range candidate.ProjectionModes {
 			modes[i] = wireProjectionMode(mode)
 		}
-		defaultMode := ""
-		if len(modes) > 0 {
-			defaultMode = modes[0]
-		}
+		defaultMode := preferredProjectionMode(modes)
 		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType,
 			Repeated: candidate.Cardinality != "scalar", Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
-			ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
+			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
+			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries),
 		})
 	}
 	return catalog
+}
+
+func preferredProjectionMode(values []string) string {
+	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST"} {
+		for _, value := range values {
+			if value == preferred {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func authoringRepeatedBoundaries(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
+	out := make([]authoringv2.RepeatedBoundary, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
+	}
+	return out
 }
 
 func validateSnapshot(snapshot capability.Snapshot) error {
@@ -263,6 +281,8 @@ func wireProjectionMode(mode capability.ProjectionMode) string {
 	switch mode {
 	case capability.ProjectionScalar:
 		return "VALUE"
+	case capability.ProjectionIndexed:
+		return "INDEXED"
 	case capability.ProjectionArray, capability.ProjectionDistinctArray:
 		return "ALL"
 	default:

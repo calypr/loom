@@ -56,6 +56,9 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 			continue
 		}
 		stat.docCount++
+		if field.Kind == fieldKindArray {
+			stat.maxItems = max(stat.maxItems, maxArrayItems(payload, field.Accessor))
+		}
 		switch field.Kind {
 		case fieldKindScalar:
 			for _, value := range values {
@@ -152,6 +155,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 			p.stats[path] = stat
 		}
 		stat.docCount += otherStat.docCount
+		stat.maxItems = max(stat.maxItems, otherStat.maxItems)
 		stat.distinctTruncated = stat.distinctTruncated || otherStat.distinctTruncated
 		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
 		stat.setPivotScope(otherStat.pivotItemSource, otherStat.pivotItemResourceType, otherStat.pivotValueSelectors)
@@ -204,6 +208,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			Path:                  stat.path,
 			Kind:                  stat.kind,
 			DocCount:              stat.docCount,
+			MaxItems:              stat.maxItems,
 			SampleCount:           len(distinctValues),
 			DistinctValues:        distinctValues,
 			DistinctTruncated:     stat.distinctTruncated,
@@ -220,6 +225,56 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		})
 	}
 	return out
+}
+
+func maxArrayItems(root any, accessor []pathStep) int {
+	if len(accessor) == 0 || !accessor[len(accessor)-1].iterateArray {
+		return 0
+	}
+	nodes := []any{root}
+	for index, step := range accessor {
+		last := index == len(accessor)-1
+		next := make([]any, 0, len(nodes))
+		for _, node := range nodes {
+			object, ok := node.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, ok := object[step.field]
+			if !ok || value == nil {
+				continue
+			}
+			if step.iterateArray {
+				items, ok := value.([]any)
+				if !ok {
+					continue
+				}
+				if last {
+					return maxLength(nodes, step.field)
+				}
+				next = append(next, items...)
+				continue
+			}
+			next = append(next, value)
+		}
+		nodes = next
+	}
+	return 0
+}
+
+func maxLength(nodes []any, field string) int {
+	maximum := 0
+	for _, node := range nodes {
+		object, ok := node.(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := object[field].([]any)
+		if ok {
+			maximum = max(maximum, len(items))
+		}
+	}
+	return maximum
 }
 
 func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {

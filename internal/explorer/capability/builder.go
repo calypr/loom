@@ -31,6 +31,7 @@ type FieldObservation struct {
 	Label                 string
 	LogicalType           string
 	Cardinality           string
+	RepeatedBoundaries    []RepeatedBoundary
 	Observed              bool
 	ObservedDocumentCount int64
 	Populated             bool
@@ -125,6 +126,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
 	for i := range fields {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
+		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
 	}
 
 	policy := b.Policy
@@ -257,7 +259,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		base := t + "\x00" + path
 		ord := candOrd[base]
 		candOrd[base] = ord + 1
-		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
+		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, RepeatedBoundaries: append([]RepeatedBoundary(nil), f.RepeatedBoundaries...), Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
 		c.SuggestedValues = append([]string(nil), f.SuggestedValues...)
 		c.SuggestionsComplete = f.SuggestionsComplete
 		c.SuggestionsTruncated = f.SuggestionsTruncated
@@ -290,6 +292,9 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.LogicalType = first(proof.LogicalType, c.LogicalType)
 		c.Cardinality = first(proof.Cardinality, c.Cardinality)
 		c.ProjectionModes = append([]ProjectionMode(nil), proof.ProjectionModes...)
+		if len(c.RepeatedBoundaries) > 0 {
+			c.ProjectionModes = append([]ProjectionMode{ProjectionIndexed}, c.ProjectionModes...)
+		}
 		c.FilterOperators = append([]FilterOperator(nil), proof.FilterOperators...)
 		c.ChartAggregations = append([]ChartAggregation(nil), proof.ChartAggregations...)
 		c.SupportedOperations = append([]Operation(nil), proof.SupportedOperations...)
@@ -354,7 +359,8 @@ func fieldKey(f FieldObservation) string {
 func fieldSortKey(f FieldObservation) string {
 	values := append([]string(nil), f.SuggestedValues...)
 	sort.Strings(values)
-	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"))
+	boundaries, _ := json.Marshal(f.RepeatedBoundaries)
+	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"), boundaries)
 }
 func boolInt(v bool) int {
 	if v {

@@ -116,7 +116,7 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 	paths := append([]string(nil), scope.AuthResourcePaths...)
 	sort.Strings(paths)
 	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
-	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema"}, Status: capability.StatusReady, Complete: true, Token: token}
+	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
 }
 
 func testConfig(snapshot capability.Snapshot) Config {
@@ -150,6 +150,7 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 		SnapshotToken:            snapshot.Token,
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
+		ShapeDigest:              snapshot.Identity.ShapeDigest,
 		SourceGeneration:         snapshot.Identity.Generation,
 		RecipeDigest:             bundleDigest,
 		ResolvedRecipeDigest:     bundleDigest,

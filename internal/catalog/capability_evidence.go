@@ -67,6 +67,29 @@ func FieldEnrichmentDigest(records []FieldEnrichmentObservation) (string, error)
 	return canonicalDigest(canonical)
 }
 
+func RepeatedShapeDigest(records []FieldEnrichmentObservation) (string, error) {
+	type boundary struct {
+		Project           string `json:"project"`
+		DatasetGeneration string `json:"datasetGeneration,omitempty"`
+		AuthResourcePath  string `json:"authResourcePath,omitempty"`
+		ResourceType      string `json:"resourceType"`
+		Path              string `json:"path"`
+		MaxItems          int    `json:"maxItems"`
+	}
+	values := make([]boundary, 0)
+	for _, record := range records {
+		if record.MaxItems <= 0 {
+			continue
+		}
+		values = append(values, boundary{record.Project, record.DatasetGeneration, record.AuthResourcePath, record.ResourceType, record.Path, record.MaxItems})
+	}
+	sort.Slice(values, func(i, j int) bool {
+		left, right := values[i], values[j]
+		return left.Project+"\x00"+left.DatasetGeneration+"\x00"+left.AuthResourcePath+"\x00"+left.ResourceType+"\x00"+left.Path < right.Project+"\x00"+right.DatasetGeneration+"\x00"+right.AuthResourcePath+"\x00"+right.ResourceType+"\x00"+right.Path
+	})
+	return canonicalDigest(values)
+}
+
 func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObservation {
 	if len(in) == 0 {
 		return []FieldEnrichmentObservation{}

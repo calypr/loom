@@ -101,6 +101,10 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 		TraversalPolicyVersion:   explorerTraversalPolicyVersion,
 		ProjectionPolicyVersion:  explorerProjectionPolicyVersion,
 	}
+	identity.ShapeDigest, err = catalog.RepeatedShapeDigest(evidence.FieldEnrichment.Values)
+	if err != nil {
+		return capability.Snapshot{}, fmt.Errorf("digest repeated shape evidence: %w", err)
+	}
 	key, err := capabilityIdentityKey(identity)
 	if err != nil {
 		return capability.Snapshot{}, err
@@ -296,6 +300,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	type fieldAggregate struct {
 		observation capability.FieldObservation
 		values      map[string]struct{}
+		maxItems    int
 	}
 	fields := map[string]*fieldAggregate{}
 	for _, item := range value.FieldEnrichment.Values {
@@ -306,6 +311,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			fields[key] = aggregate
 		}
 		aggregate.observation.ObservedDocumentCount += item.DocCount
+		aggregate.maxItems = max(aggregate.maxItems, item.MaxItems)
 		aggregate.observation.Populated = aggregate.observation.Populated || item.DocCount > 0
 		if item.DistinctTruncated {
 			aggregate.observation.SuggestionsComplete = false
@@ -313,6 +319,21 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		}
 		for _, suggestion := range item.DistinctValues {
 			aggregate.values[suggestion] = struct{}{}
+		}
+	}
+	for _, aggregate := range fields {
+		parts := strings.Split(aggregate.observation.Path, ".")
+		prefix := make([]string, 0, len(parts))
+		for _, part := range parts {
+			prefix = append(prefix, part)
+			if !strings.HasSuffix(part, "[]") {
+				continue
+			}
+			boundaryPath := strings.Join(prefix, ".")
+			boundary := fields[aggregate.observation.ResourceType+"\x00"+boundaryPath]
+			if boundary != nil && boundary.maxItems > 0 {
+				aggregate.observation.RepeatedBoundaries = append(aggregate.observation.RepeatedBoundaries, capability.RepeatedBoundary{Path: boundaryPath, MaxItems: boundary.maxItems})
+			}
 		}
 	}
 	for _, aggregate := range fields {
@@ -406,8 +427,9 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		count := candidate.ObservedDocumentCount
 		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
-			FieldPath:   candidate.FieldPath,
-			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
+			FieldPath:          candidate.FieldPath,
+			RepeatedBoundaries: repeatedBoundariesForAuthoring(candidate.RepeatedBoundaries),
+			LogicalType:        candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
@@ -458,7 +480,7 @@ func stringChartOperations(values []capability.ChartAggregation) []string {
 	return out
 }
 func defaultProjectionMode(values []string) string {
-	for _, preferred := range []string{"VALUE", "FIRST", "ALL", "COUNT"} {
+	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST", "COUNT"} {
 		for _, value := range values {
 			if value == preferred {
 				return value
@@ -466,4 +488,12 @@ func defaultProjectionMode(values []string) string {
 		}
 	}
 	return ""
+}
+
+func repeatedBoundariesForAuthoring(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
+	out := make([]authoringv2.RepeatedBoundary, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
+	}
+	return out
 }

@@ -16,12 +16,81 @@ func fixtureSnapshot() capability.Snapshot {
 
 func fixtureSnapshotForProject(project string) capability.Snapshot {
 	identity := capability.SnapshotIdentity{Project: project, Generation: "generation-a", AuthorizationScopeDigest: "scope-a", SchemaDigest: "schema-a", CompilerVersion: "compiler-a"}
-	policy := capability.Policy{Route: capability.RoutePolicy{Version: "route-a", AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: "projection-a", Modes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}}}
+	policy := capability.Policy{Route: capability.RoutePolicy{Version: "route-a", AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: "projection-a", Modes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}}}
 	nodes := []capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}, {ID: "n_encounter", ResourceType: "Encounter", RowRootEligible: true, RowGrain: "resource"}}
 	edges := []capability.Edge{{ID: "e_encounter", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters"}, {ID: "e_self", FromNodeID: "n_encounter", ToNodeID: "n_encounter", Label: "revisits"}}
 	ops := []capability.Operation{capability.OperationSelect, capability.OperationFilter, capability.OperationChart}
-	candidates := []capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops}, {ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops}}
+	candidates := []capability.Candidate{
+		{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops},
+		{ID: "c_patient_given", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].given[]", Label: "Patient.name.given", LogicalType: "string", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "name[]", MaxItems: 2}, {Path: "name[].given[]", MaxItems: 3}}, ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray}, SupportedOperations: ops},
+		{ID: "c_patient_family", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", Label: "Patient.name.family", LogicalType: "string", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "name[]", MaxItems: 2}}, ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray}, SupportedOperations: ops},
+		{ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops},
+	}
 	return capability.NewSnapshot(identity, policy, capability.StatusReady, true, false, nodes, edges, candidates, nil)
+}
+
+func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "name[].given[]", ProjectionMode: "INDEXED"}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OutputContract.Lossless || !result.OutputContract.MLReady || result.OutputContract.RowMultiplication != "none" {
+		t.Fatalf("output contract = %#v", result.OutputContract)
+	}
+	wantFields := []string{"given__0__0", "given__0__1", "given__0__2", "given__1__0", "given__1__1", "given__1__2"}
+	fields := result.Bundle.Outputs[0].Fields
+	if len(fields) != len(wantFields)+3 {
+		t.Fatalf("fields = %d, want %d values plus three counts: %#v", len(fields), len(wantFields), fields)
+	}
+	for index, want := range wantFields {
+		if fields[index].Name != want {
+			t.Fatalf("field[%d] = %q, want %q", index, fields[index].Name, want)
+		}
+	}
+	if len(result.Bundle.Outputs[0].Fields) != 9 {
+		t.Fatalf("fields including counts = %#v, want six values plus three counts", result.Bundle.Outputs[0].Fields)
+	}
+	if got := result.EmittedColumns[0].Coordinates; len(got) != 2 || got[0].Index != 0 || got[1].Index != 0 {
+		t.Fatalf("first coordinates = %#v", got)
+	}
+	if len(result.IdentityMappings) != 1 || len(result.IdentityMappings[0].EmissionIDs) != 9 {
+		t.Fatalf("identity mappings = %#v", result.IdentityMappings)
+	}
+}
+
+func TestCompileIndexedProjectionTracksEveryOwnerOfSharedBoundaryCount(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{
+			{Column: "given", Label: "Given", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "name[].given[]", ProjectionMode: "INDEXED"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "family", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "name[].family", ProjectionMode: "INDEXED"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, column := range result.EmittedColumns {
+		if column.PublicColumn != "name__count" {
+			continue
+		}
+		if len(column.AuthoredColumns) != 2 || column.AuthoredColumns[0] != "given" || column.AuthoredColumns[1] != "family" {
+			t.Fatalf("shared count owners = %#v", column.AuthoredColumns)
+		}
+		if got := result.OutputContract.Columns[index].AuthoredColumns; len(got) != 2 || got[0] != "given" || got[1] != "family" {
+			t.Fatalf("shared contract owners = %#v", got)
+		}
+		return
+	}
+	t.Fatal("shared name__count emission was not produced")
 }
 
 func TestCompileAcceptsEquivalentProjectIdentities(t *testing.T) {
@@ -77,7 +146,7 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	}
 	want := []string{"patient_id", "encounter__code", "project_id"}
 	for index, column := range result.OutputContract.Columns {
-		if column.Column != want[index] || result.EmittedColumns[index].PublicColumn != want[index] {
+		if column.Column != want[index] || len(column.AuthoredColumns) != 0 || result.EmittedColumns[index].PublicColumn != want[index] || len(result.EmittedColumns[index].AuthoredColumns) != 0 {
 			t.Fatalf("column %d = %#v emission=%#v", index, column, result.EmittedColumns[index])
 		}
 	}

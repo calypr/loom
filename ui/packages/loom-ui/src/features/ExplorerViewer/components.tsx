@@ -13,12 +13,16 @@ import {
 } from '@mantine/core';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import type { EChartsOption } from 'echarts';
-import ReactECharts from 'echarts-for-react';
 import type { LoomFacetResult, LoomOutputResult } from '../../api';
 import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
 import { PAGE_SIZES, activeOutputState, isPageSize, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType } from './serialization';
+import { BoundedFormatCache } from './formatCache';
+
+const LazyReactECharts = React.lazy(() =>
+  import('echarts-for-react').then((module) => ({ default: module.default })),
+);
 
 export type ViewerRow = Readonly<Record<string, unknown>>;
 
@@ -115,31 +119,48 @@ export const facetValues = (facet: LoomFacetResult | undefined, column: string):
 
 const COLLAPSED_FACET_VALUES = 6;
 
-const FacetFilter = ({ id, label, description, facet, column, values, multiple, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly values: ReadonlyArray<string>; readonly multiple: boolean; readonly onChange: (values: ReadonlyArray<string>) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
+const FacetFilter = ({ id, label, description, facet, column, values, multiple, debounce = false, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly values: ReadonlyArray<string>; readonly multiple: boolean; readonly debounce?: boolean; readonly onChange: (values: ReadonlyArray<string>) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
   const expanded = state.expandedFacets.includes(id);
   const options = facetValues(facet, column);
-  const selected = new Set(values);
+  const [draftValues, setDraftValues] = React.useState(values);
+  const timer = React.useRef<number | undefined>(undefined);
+  const currentValues = debounce ? draftValues : values;
+  const selected = new Set(currentValues);
   const orderedOptions = [...options].sort((left, right) => Number(selected.has(right.value)) - Number(selected.has(left.value)));
   const visibleOptions = expanded ? orderedOptions : orderedOptions.slice(0, COLLAPSED_FACET_VALUES);
   const hiddenCount = Math.max(0, orderedOptions.length - COLLAPSED_FACET_VALUES);
   const toggleValue = (value: string, checked: boolean) => {
-    if (!checked) {
-      onChange(values.filter((candidate) => candidate !== value));
+    const next = !checked
+      ? currentValues.filter((candidate) => candidate !== value)
+      : multiple ? [...currentValues, value] : [value];
+    if (!debounce) {
+      onChange(next);
       return;
     }
-    onChange(multiple ? [...values, value] : [value]);
+    setDraftValues(next);
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => onChange(next), 250);
   };
 
   return (
     <section className="border-b border-slate-200 px-4 py-4 last:border-b-0" aria-labelledby={`${id}-label`}>
       <Group justify="space-between" align="flex-start" gap="xs" mb={description ? 2 : "xs"} wrap="nowrap">
         <Text id={`${id}-label`} fw={650} size="sm" className="min-w-0 break-words">{label}</Text>
-        {values.length > 0 ? (
-          <Button variant="subtle" size="compact-xs" px={4} onClick={() => onChange([])}>Clear</Button>
+        {currentValues.length > 0 ? (
+          <Button variant="subtle" size="compact-xs" px={4} onClick={() => {
+            setDraftValues([]);
+            if (timer.current !== undefined) window.clearTimeout(timer.current);
+            if (debounce) timer.current = window.setTimeout(() => onChange([]), 250);
+            else onChange([]);
+          }}>Clear</Button>
         ) : null}
       </Group>
       {description ? <Text c="dimmed" size="xs" mb="xs">{description}</Text> : null}
-      {visibleOptions.length > 0 ? (
+      {!facet ? (
+        <Button variant="subtle" size="compact-xs" px={0} onClick={() => dispatch({ type: 'toggleFacet', facet: id })}>
+          Load values
+        </Button>
+      ) : visibleOptions.length > 0 ? (
         <Stack gap={3}>
           {visibleOptions.map((entry) => (
             <Checkbox
@@ -196,7 +217,7 @@ export const FilterRail = ({ runtime, output, result, state, dispatch }: { reado
           const values = outputState.filterValues[binding.column] ?? [];
           const kind = filterType(binding);
           return (
-            <FacetFilter key={binding.column} id={`${output.outputId}:filter:${binding.column}`} label={filterLabel(binding)} facet={facetFor(binding.column)} column={binding.column} values={values} multiple={kind !== 'enum'} onChange={(nextValues) => dispatch({ type: 'setFilter', outputId: output.outputId, column: binding.column, values: nextValues })} state={state} dispatch={dispatch} />
+            <FacetFilter key={binding.column} id={`${output.outputId}:filter:${binding.column}`} label={filterLabel(binding)} facet={facetFor(binding.column)} column={binding.column} values={values} multiple={kind !== 'enum'} debounce onChange={(nextValues) => dispatch({ type: 'setFilter', outputId: output.outputId, column: binding.column, values: nextValues })} state={state} dispatch={dispatch} />
           );
         })}
         {bindings.length === 0 && sharedEntries.length === 0 ? <Text c="dimmed" size="xs" p="md">No runtime filters declared.</Text> : null}
@@ -222,7 +243,11 @@ export const ChartPanel = ({ binding, output, result }: { readonly binding: Expl
   return (
     <Paper component="article" withBorder radius="md" p="md" className="min-w-0">
       <Text fw={700} size="sm">{binding.title ?? binding.label ?? binding.column}</Text>
-      {values.length === 0 ? <Text c="dimmed" size="xs" mt="xs">No facet values are available for this chart.</Text> : <ReactECharts option={option} notMerge lazyUpdate style={{ height: 250, width: '100%' }} />}
+      {values.length === 0 ? <Text c="dimmed" size="xs" mt="xs">No facet values are available for this chart.</Text> : (
+        <React.Suspense fallback={<Text c="dimmed" size="xs" mt="xs">Loading chart…</Text>}>
+          <LazyReactECharts option={option} notMerge lazyUpdate style={{ height: 250, width: '100%' }} />
+        </React.Suspense>
+      )}
     </Paper>
   );
 };
@@ -235,13 +260,25 @@ export const OutputCharts = ({ output, result, visible }: { readonly output: Exp
 export const OutputTable = ({ runtime, output, result, state, dispatch }: { readonly runtime: ExplorerRuntimeV1; readonly output: ExplorerRuntimeOutputV1; readonly result?: LoomOutputResult; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
   const bindings = useMemo(() => output.table.columns.filter((binding) => binding.visible && output.columns.some((column) => column.column === binding.column && column.visible)), [output]);
   const tableData = useMemo(() => [...(result?.rows ?? [])], [result?.rows]);
+  const formattingCacheRef = React.useRef<BoundedFormatCache | null>(null);
+  if (!formattingCacheRef.current) formattingCacheRef.current = new BoundedFormatCache(4096);
+  const formattingCache = formattingCacheRef.current;
+  const resultIdentityRef = React.useRef<ReadonlyArray<Record<string, unknown>> | undefined>(undefined);
+  if (resultIdentityRef.current !== result?.rows) {
+    formattingCache.clear();
+    resultIdentityRef.current = result?.rows;
+  }
+  const cellText = (rowIndex: number, column: string, value: unknown): string =>
+    formattingCache.getOrSet(`display:${rowIndex}:${column}`, () => textFor(value));
+  const cellTitle = (rowIndex: number, column: string, value: unknown): string =>
+    formattingCache.getOrSet(`title:${rowIndex}:${column}`, () => textFor(value));
   const tableColumns = useMemo<ColumnDef<ViewerRow>[]>(() => bindings.map((binding) => ({
     id: binding.column,
     accessorKey: binding.column,
     size: 180,
     header: binding.label ?? output.columns.find((column) => column.column === binding.column)?.label ?? binding.column,
-    cell: (info) => binding.cellRenderer === 'fileActions' ? <FileCell value={info.row.original[binding.column]} row={info.row.original} runtime={runtime} /> : <Text size="xs" lineClamp={3} title={textFor(info.row.original[binding.column])}>{textFor(info.row.original[binding.column])}</Text>,
-  })), [bindings, output.columns, runtime]);
+    cell: (info) => binding.cellRenderer === 'fileActions' ? <FileCell value={info.row.original[binding.column]} row={info.row.original} runtime={runtime} /> : <Text size="xs" lineClamp={3} title={cellTitle(info.row.index, binding.column, info.row.original[binding.column])}>{cellText(info.row.index, binding.column, info.row.original[binding.column])}</Text>,
+  })), [bindings, cellText, cellTitle, output.columns, runtime]);
   const table = useReactTable({ data: tableData, columns: tableColumns, getCoreRowModel: getCoreRowModel(), enableColumnPinning: true, initialState: { columnPinning: { left: bindings.filter((binding) => binding.pinned).map((binding) => binding.column) } } });
   const activeSort = activeOutputState(state, output.outputId).sort;
 

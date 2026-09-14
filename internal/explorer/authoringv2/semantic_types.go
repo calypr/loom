@@ -125,7 +125,7 @@ func (s ColumnSource) validate(path string) error {
 	if mode == "" {
 		mode = "FIRST"
 	}
-	if mode != "VALUE" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
+	if mode != "VALUE" && mode != "INDEXED" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
 		return fmt.Errorf("%s.projectionMode %q is unsupported", path, s.ProjectionMode)
 	}
 	switch s.Kind {

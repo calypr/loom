@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 // PublicOutputContracts is the current, transport-neutral public output
@@ -20,16 +22,30 @@ type PublicOutputContracts struct {
 
 // PublicOutputContract describes one compiled workspace output.
 type PublicOutputContract struct {
-	OutputID string               `json:"outputId"`
-	Columns  []PublicOutputColumn `json:"columns"`
+	OutputID          string               `json:"outputId"`
+	RootResourceType  string               `json:"rootResourceType,omitempty"`
+	RowGrain          string               `json:"rowGrain,omitempty"`
+	RowMultiplication string               `json:"rowMultiplication,omitempty"`
+	Lossless          bool                 `json:"lossless"`
+	MLReady           bool                 `json:"mlReady"`
+	Columns           []PublicOutputColumn `json:"columns"`
 }
 
 type PublicOutputColumn struct {
-	Column      string `json:"column"`
-	Label       string `json:"label"`
-	LogicalType string `json:"logicalType"`
-	Filterable  bool   `json:"filterable"`
-	Chartable   bool   `json:"chartable"`
+	Column             string                          `json:"column"`
+	AuthoredColumns    []string                        `json:"authoredColumns,omitempty"`
+	Label              string                          `json:"label"`
+	LogicalType        string                          `json:"logicalType"`
+	Nullable           bool                            `json:"nullable"`
+	Shape              string                          `json:"shape,omitempty"`
+	SourceResourceType string                          `json:"sourceResourceType,omitempty"`
+	SourcePath         string                          `json:"sourcePath,omitempty"`
+	ChoiceArm          string                          `json:"choiceArm,omitempty"`
+	Coordinates        []capability.RepeatedCoordinate `json:"coordinates,omitempty"`
+	Lossless           bool                            `json:"lossless"`
+	MLReady            bool                            `json:"mlReady"`
+	Filterable         bool                            `json:"filterable"`
+	Chartable          bool                            `json:"chartable"`
 
 	// Compiler identities remain available to internal legacy tests only. They
 	// are deliberately absent from the V2 public contract.
@@ -158,15 +174,25 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 	if strings.TrimSpace(c.OutputID) == "" {
 		return invalidOutputContract("outputId is required")
 	}
-	outputFound := false
+	var compiledOutput *recipe.Output
 	for _, output := range bundle.Outputs {
 		if output.Name == c.OutputID {
-			outputFound = true
+			value := output
+			compiledOutput = &value
 			break
 		}
 	}
-	if !outputFound {
+	if compiledOutput == nil {
 		return invalidOutputContract("outputId %q is absent from the compiled recipe", c.OutputID)
+	}
+	if c.RootResourceType != "" && c.RootResourceType != compiledOutput.RootResourceType {
+		return invalidOutputContract("rootResourceType %q does not match compiled recipe %q", c.RootResourceType, compiledOutput.RootResourceType)
+	}
+	if c.RowGrain != "" && c.RowGrain != compiledOutput.RowGrain {
+		return invalidOutputContract("rowGrain %q does not match compiled recipe %q", c.RowGrain, compiledOutput.RowGrain)
+	}
+	if c.RowMultiplication != "" && c.RowMultiplication != "none" {
+		return invalidOutputContract("unsupported rowMultiplication %q", c.RowMultiplication)
 	}
 	if len(c.Columns) != len(emitted) {
 		return invalidOutputContract("column count %d does not match emitted column count %d", len(c.Columns), len(emitted))
@@ -184,7 +210,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		}
 		seenPublic[column.PublicColumn] = struct{}{}
 		actual := c.Columns[i]
-		if actual.Column != column.PublicColumn || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}

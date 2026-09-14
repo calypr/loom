@@ -733,7 +733,7 @@ components:
       enum: [loom.calypr.org/explorer-authoring/v2]
     ProjectionMode:
       type: string
-      enum: [SCALAR, FIRST, ARRAY, DISTINCT_ARRAY, VALUE, ALL, DISTINCT]
+      enum: [SCALAR, INDEXED, FIRST, ARRAY, DISTINCT_ARRAY, VALUE, ALL, DISTINCT]
     Workspace:
       type: object
       x-go-type: authoringv2.Workspace
@@ -745,6 +745,7 @@ components:
       properties:
         apiVersion: {$ref: '#/components/schemas/APIVersion'}
         kind: {type: string, enum: [ExplorerBuilderWorkspace]}
+        semanticsVersion: {type: integer, minimum: 1}
         explorer: {$ref: '#/components/schemas/ExplorerMetadata'}
         documents:
           type: array
@@ -822,7 +823,7 @@ components:
           enum: [field, identifierBySystem, extensionByUrl, codingBySystem, observationComponentByCode, projectId]
         fieldPath: {type: string}
         match: {type: string}
-        projectionMode: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
     Column:
       type: object
       additionalProperties: false
@@ -1048,6 +1049,24 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ProjectionMode'}
         defaultProjectionMode: {$ref: '#/components/schemas/ProjectionMode'}
+        repeatedBoundaries:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedBoundary'}
+    RepeatedBoundary:
+      type: object
+      additionalProperties: false
+      required: [path, maxItems]
+      properties:
+        path: {type: string, minLength: 1}
+        maxItems: {type: integer, minimum: 0}
+    RepeatedCoordinate:
+      type: object
+      additionalProperties: false
+      required: [boundaryPath, index, width]
+      properties:
+        boundaryPath: {type: string, minLength: 1}
+        index: {type: integer, minimum: 0}
+        width: {type: integer, minimum: 1}
     RoutePolicy:
       type: object
       additionalProperties: false
@@ -1085,10 +1104,24 @@ components:
       required: [column, label, logicalType, filterable, chartable]
       properties:
         column: {type: string, minLength: 1}
+        authoredColumns:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
         label: {type: string}
         logicalType: {type: string, minLength: 1}
         filterable: {type: boolean}
         chartable: {type: boolean}
+        nullable: {type: boolean}
+        shape: {type: string}
+        sourceResourceType: {type: string}
+        sourcePath: {type: string}
+        choiceArm: {type: string}
+        coordinates:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedCoordinate'}
+        lossless: {type: boolean}
+        mlReady: {type: boolean}
     ReceiptOutput:
       type: object
       additionalProperties: false
@@ -1097,6 +1130,10 @@ components:
         outputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
         rowGrain: {type: string}
+        rootResourceType: {type: string}
+        rowMultiplication: {type: string, enum: [none, expand]}
+        lossless: {type: boolean}
+        mlReady: {type: boolean}
         columns:
           type: array
           items: {$ref: '#/components/schemas/ContractColumn'}
@@ -1112,6 +1149,13 @@ components:
         generation: {type: string, minLength: 1}
         intentDigest: {type: string, minLength: 1}
         compilerVersion: {type: string, minLength: 1}
+        shapeDigest: {type: string, minLength: 1}
+        recipeDigest: {type: string, minLength: 1}
+        resolvedRecipeDigest: {type: string, minLength: 1}
+        resolvedSchemaDigest: {type: string, minLength: 1}
+        outputContractDigest: {type: string, minLength: 1}
+        authorizationScopeDigest: {type: string, minLength: 1}
+        capabilitySchemaDigest: {type: string, minLength: 1}
         builder: {$ref: '#/components/schemas/Workspace'}
         outputs:
           type: array

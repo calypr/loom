@@ -4,12 +4,13 @@
 package authoringv2
 
 const (
-	APIVersion       = "loom.calypr.org/explorer-authoring/v2"
-	Kind             = "ExplorerBuilderDocument"
-	WorkspaceKind    = "ExplorerBuilderWorkspace"
-	StateKind        = "ExplorerBuilderState"
-	CatalogKind      = "ExplorerBuilderCatalog"
-	RootOccurrenceID = "base"
+	APIVersion              = "loom.calypr.org/explorer-authoring/v2"
+	Kind                    = "ExplorerBuilderDocument"
+	WorkspaceKind           = "ExplorerBuilderWorkspace"
+	StateKind               = "ExplorerBuilderState"
+	CatalogKind             = "ExplorerBuilderCatalog"
+	RootOccurrenceID        = "base"
+	CurrentSemanticsVersion = 2
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a
@@ -34,13 +35,14 @@ type Output struct {
 // Workspace is the atomic authoring unit. Documents are independent table
 // intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
-	APIVersion    string                           `json:"apiVersion"`
-	Kind          string                           `json:"kind"`
-	Explorer      ExplorerMetadata                 `json:"explorer"`
-	Documents     []Document                       `json:"documents"`
-	Tabs          []Tab                            `json:"tabs"`
-	SharedFilters map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
-	FileActions   *FileActions                     `json:"fileActions,omitempty"`
+	APIVersion       string                           `json:"apiVersion"`
+	Kind             string                           `json:"kind"`
+	SemanticsVersion int                              `json:"semanticsVersion,omitempty"`
+	Explorer         ExplorerMetadata                 `json:"explorer"`
+	Documents        []Document                       `json:"documents"`
+	Tabs             []Tab                            `json:"tabs"`
+	SharedFilters    map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions      *FileActions                     `json:"fileActions,omitempty"`
 }
 
 type Tab struct {
@@ -111,25 +113,31 @@ type CatalogEdge struct {
 }
 
 type CatalogCandidate struct {
-	ID                    string   `json:"candidateId"`
-	NodeID                string   `json:"nodeId"`
-	FieldPath             string   `json:"fieldPath"`
-	Label                 string   `json:"label"`
-	LogicalType           string   `json:"logicalType"`
-	Repeated              bool     `json:"repeated"`
-	Filterable            bool     `json:"filterable"`
-	Chartable             bool     `json:"chartable"`
-	ProjectionModes       []string `json:"projectionModes"`
-	DefaultProjectionMode string   `json:"defaultProjectionMode"`
-	FilterOperators       []string `json:"-"`
-	ChartOperations       []string `json:"-"`
-	Cardinality           string   `json:"-"`
-	Populated             bool     `json:"-"`
-	Count                 *int64   `json:"-"`
-	SuggestionsAvailable  bool     `json:"-"`
-	SuggestionsComplete   bool     `json:"-"`
-	SuggestionsTruncated  bool     `json:"-"`
-	SuggestionCount       int      `json:"-"`
+	ID                    string             `json:"candidateId"`
+	NodeID                string             `json:"nodeId"`
+	FieldPath             string             `json:"fieldPath"`
+	Label                 string             `json:"label"`
+	LogicalType           string             `json:"logicalType"`
+	Repeated              bool               `json:"repeated"`
+	Filterable            bool               `json:"filterable"`
+	Chartable             bool               `json:"chartable"`
+	ProjectionModes       []string           `json:"projectionModes"`
+	DefaultProjectionMode string             `json:"defaultProjectionMode"`
+	RepeatedBoundaries    []RepeatedBoundary `json:"repeatedBoundaries,omitempty"`
+	FilterOperators       []string           `json:"-"`
+	ChartOperations       []string           `json:"-"`
+	Cardinality           string             `json:"-"`
+	Populated             bool               `json:"-"`
+	Count                 *int64             `json:"-"`
+	SuggestionsAvailable  bool               `json:"-"`
+	SuggestionsComplete   bool               `json:"-"`
+	SuggestionsTruncated  bool               `json:"-"`
+	SuggestionCount       int                `json:"-"`
+}
+
+type RepeatedBoundary struct {
+	Path     string `json:"path"`
+	MaxItems int    `json:"maxItems"`
 }
 
 // RoutePolicy has no default hop ceiling: nil MaxHops means every finite

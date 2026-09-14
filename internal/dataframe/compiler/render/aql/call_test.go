@@ -52,6 +52,13 @@ func TestRenderGenericPhysicalCallsParameterizeLiterals(t *testing.T) {
 	if strings.Contains(got, `"A"`) || strings.Contains(got, `"B"`) {
 		t.Fatalf("literal values leaked into AQL: %q", got)
 	}
+	got, err = renderer.renderExpression(callExpression("length", callExpression("all", scalarLiteral("left"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "LENGTH([@left])" {
+		t.Fatalf("length = %q", got)
+	}
 }
 
 func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {

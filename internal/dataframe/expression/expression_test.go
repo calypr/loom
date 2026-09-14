@@ -42,6 +42,7 @@ func TestCheckOperationTypes(t *testing.T) {
 		{"last_segment", Function("last_segment", stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"concat", Function("concat", stringOne, stringOne), Type{Kind: KindString, Cardinality: RequiredOne}},
 		{"first", Function("first", Function("all", stringOne)), Type{Kind: KindString, Cardinality: OptionalOne}},
+		{"length", Function("length", Function("all", stringOne)), Type{Kind: KindInteger, Cardinality: RequiredOne}},
 		{"uuid5", Function("uuid5", stringOne, stringOne), Type{Kind: KindUUID, Cardinality: RequiredOne}},
 		{"case", Function("case", Constant(Type{Kind: KindBoolean, Cardinality: RequiredOne}, true), stringOne), Type{Kind: KindString, Cardinality: OptionalOne}},
 		{"eq", Function("eq", stringOne, stringOne), Type{Kind: KindBoolean, Cardinality: OptionalOne}},

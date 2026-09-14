@@ -14,7 +14,7 @@ import (
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	receipt := &explorer.CompilationReceipt{ID: "same-id"}
-	columns := []explorer.EmittedColumn{{EmissionID: "emission", OutputID: "same-id", PublicColumn: "public", LogicalType: "string"}}
+	columns := []explorer.EmittedColumn{{EmissionID: "emission", OutputID: "same-id", AuthoredColumns: []string{"given"}, PublicColumn: "given__0", LogicalType: "string"}}
 	encoder, err := newPreviewResponseEncoder(receipt, "same-id", columns, 4096)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +38,9 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	}
 	if decoded.ReceiptID != receipt.ID || decoded.OutputID != "same-id" || decoded.RowCount != 1 || len(decoded.Rows) != 1 || len(decoded.Columns) != 1 {
 		t.Fatalf("response = %#v", decoded)
+	}
+	if len(decoded.Columns[0].AuthoredColumns) != 1 || decoded.Columns[0].AuthoredColumns[0] != "given" {
+		t.Fatalf("authored columns = %#v", decoded.Columns[0].AuthoredColumns)
 	}
 }
 

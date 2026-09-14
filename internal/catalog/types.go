@@ -132,6 +132,7 @@ type FieldEnrichmentObservation struct {
 	Path                  string                      `json:"path"`
 	Kind                  string                      `json:"kind"`
 	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
 	SampleCount           int                         `json:"sample_count"`
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
@@ -186,6 +187,7 @@ type FieldCatalogDocument struct {
 	Path                  string                      `json:"path"`
 	Kind                  string                      `json:"kind"`
 	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
 	SampleCount           int                         `json:"sample_count"`
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
@@ -242,6 +244,7 @@ type PopulatedField struct {
 	Path                  string                      `json:"path"`
 	Kind                  string                      `json:"kind"`
 	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
 	SampleCount           int                         `json:"sample_count"`
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
@@ -326,6 +329,7 @@ type fieldCatalogStats struct {
 	path                  string
 	kind                  string
 	docCount              int64
+	maxItems              int
 	distinctValues        []string
 	distinctSet           map[string]struct{}
 	distinctTruncated     bool

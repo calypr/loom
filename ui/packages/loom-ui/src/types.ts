@@ -10,7 +10,13 @@ export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
 
 const opaqueIdSchema = z.string().trim().min(1);
-const projectionModeSchema = z.enum(['VALUE', 'FIRST', 'ALL', 'DISTINCT']);
+const projectionModeSchema = z.enum([
+  'VALUE',
+  'INDEXED',
+  'FIRST',
+  'ALL',
+  'DISTINCT',
+]);
 const unknownRecordSchema = z.record(z.string(), z.unknown());
 
 export const explorerAuthoringDiagnosticSchema = z
@@ -181,6 +187,7 @@ export const explorerBuilderWorkspaceSchema = z
   .object({
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
     kind: z.literal('ExplorerBuilderWorkspace'),
+    semanticsVersion: z.number().int().positive().optional(),
     explorer: z
       .object({ title: z.string().min(1), description: z.string().optional() })
       .strict(),
@@ -281,6 +288,16 @@ export const explorerBuilderCandidateSchema = z
     chartable: z.boolean(),
     projectionModes: z.array(projectionModeSchema).min(1),
     defaultProjectionMode: projectionModeSchema,
+    repeatedBoundaries: z
+      .array(
+        z
+          .object({
+            path: opaqueIdSchema,
+            maxItems: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 export const explorerBuilderCatalogSchema = z
@@ -390,10 +407,29 @@ export type ExplorerBuilderCommandsResult = z.infer<
 export const explorerBuilderContractColumnSchema = z
   .object({
     column: opaqueIdSchema,
+    authoredColumns: z.array(opaqueIdSchema).min(1).optional(),
     label: z.string(),
     logicalType: opaqueIdSchema,
     filterable: z.boolean(),
     chartable: z.boolean(),
+    nullable: z.boolean().optional(),
+    shape: z.string().optional(),
+    sourceResourceType: z.string().optional(),
+    sourcePath: z.string().optional(),
+    choiceArm: z.string().optional(),
+    coordinates: z
+      .array(
+        z
+          .object({
+            boundaryPath: opaqueIdSchema,
+            index: z.number().int().nonnegative(),
+            width: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .optional(),
+    lossless: z.boolean().optional(),
+    mlReady: z.boolean().optional(),
   })
   .strict();
 export type ExplorerBuilderContractColumn = z.infer<
@@ -426,6 +462,10 @@ export const explorerBuilderReceiptOutputSchema = z
     outputId: opaqueIdSchema,
     title: z.string().optional(),
     rowGrain: z.string().optional(),
+    rootResourceType: z.string().optional(),
+    rowMultiplication: z.enum(['none', 'expand']).optional(),
+    lossless: z.boolean().optional(),
+    mlReady: z.boolean().optional(),
     columns: z.array(explorerBuilderContractColumnSchema),
   })
   .strict();
@@ -438,6 +478,13 @@ export const explorerBuilderCompileResultSchema = z
     generation: z.string().optional(),
     intentDigest: z.string().optional(),
     compilerVersion: z.string().optional(),
+    shapeDigest: z.string().optional(),
+    recipeDigest: z.string().optional(),
+    resolvedRecipeDigest: z.string().optional(),
+    resolvedSchemaDigest: z.string().optional(),
+    outputContractDigest: z.string().optional(),
+    authorizationScopeDigest: z.string().optional(),
+    capabilitySchemaDigest: z.string().optional(),
     builder: explorerBuilderWorkspaceSchema,
     outputs: z.array(explorerBuilderReceiptOutputSchema),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),

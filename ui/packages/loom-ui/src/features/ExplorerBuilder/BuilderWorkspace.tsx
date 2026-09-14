@@ -24,6 +24,7 @@ import { BuilderToolbar } from './components/BuilderToolbar';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
 import { PreviewTable } from './components/PreviewTable';
+import { DataframeContractPanel } from './components/DataframeContractPanel';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -1127,6 +1128,12 @@ const BuilderWorkspaceContent = ({
                 }
               />
             </div>
+            {state.receipt && state.reconciliation === 'resolved' && table ? (
+              <DataframeContractPanel
+                receipt={state.receipt}
+                outputId={table.outputId}
+              />
+            ) : null}
             <PreviewTable
               preview={state.preview}
               table={table}

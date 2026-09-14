@@ -193,7 +193,7 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		return fmt.Errorf("call name is required")
 	}
 	known := map[string]bool{
-		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true,
+		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true, "length": true,
 		"canonical_json": true,
 		"concat":         true, "join": true, "cast": true, "reference_id": true,
 		"path_segment": true, "basename": true, "last_segment": true,

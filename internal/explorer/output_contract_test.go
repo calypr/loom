@@ -67,6 +67,9 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 		"physical column": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0].Column = "forged"
 		},
+		"authored column": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
+			c.Outputs[0].Columns[0].AuthoredColumns = []string{"forged"}
+		},
 		"label metadata": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0].Label = "forged"
 		},

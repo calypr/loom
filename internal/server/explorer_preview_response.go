@@ -111,9 +111,18 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 		out = append(out, v2EmissionWire{
 			Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType,
 			Filterable: column.Filterable, Chartable: column.Chartable,
+			AuthoredColumns: stringSlicePointer(column.AuthoredColumns),
 		})
 	}
 	return out
+}
+
+func stringSlicePointer(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	copy := append([]string(nil), values...)
+	return &copy
 }
 
 func (e *previewResponseTooLargeError) Error() string {

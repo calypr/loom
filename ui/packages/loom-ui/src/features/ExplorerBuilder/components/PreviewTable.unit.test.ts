@@ -189,5 +189,148 @@ describe('PreviewTable column controls', () => {
       }),
     ]);
   });
-});
 
+  it('renders a bounded cell window for a wide preview', () => {
+    const wideColumns = Array.from({ length: 200 }, (_, index) =>
+      column(`column_${index}`, `Column ${index}`, index),
+    );
+    const widePreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: wideColumns.map((value) => ({
+        column: value.column,
+        label: value.label,
+        logicalType: 'string',
+        filterable: true,
+        chartable: true,
+      })),
+      rows: Array.from({ length: 1000 }, () =>
+        Object.fromEntries(wideColumns.map((value) => [value.column, 'value'])),
+      ),
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: widePreview,
+        table: { ...table, document: { ...table.document, columns: wideColumns } },
+        limit: 1000,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getAllByRole('cell').length).toBeLessThanOrEqual(1500);
+  });
+
+  it('renders indexed physical columns under one authored column', () => {
+    const given: ExplorerBuilderColumn = {
+      ...column('given', 'Given names', 0),
+      source: {
+        kind: 'field',
+        fieldPath: 'name[].given[]',
+        projectionMode: 'INDEXED',
+      },
+    };
+    const indexedPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [
+        {
+          column: 'given__0__0',
+          authoredColumns: ['given'],
+          label: 'Given names [0] [0]',
+          logicalType: 'string',
+          filterable: true,
+          chartable: true,
+        },
+        {
+          column: 'given__0__1',
+          authoredColumns: ['given'],
+          label: 'Given names [0] [1]',
+          logicalType: 'string',
+          filterable: true,
+          chartable: true,
+        },
+        {
+          column: 'name__count',
+          authoredColumns: ['given'],
+          label: 'name__count',
+          logicalType: 'integer',
+          filterable: false,
+          chartable: false,
+        },
+      ],
+      rows: [
+        {
+          given__0__0: 'Ada',
+          given__0__1: 'Augusta',
+          name__count: 1,
+        },
+      ],
+    };
+
+    render(
+      React.createElement(PreviewTable, {
+        preview: indexedPreview,
+        table: {
+          ...table,
+          document: { ...table.document, columns: [given] },
+        },
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-colcount', '3');
+    expect(screen.getByRole('columnheader', { name: 'Given names [0] [0]' })).toBeInTheDocument();
+    expect(screen.getByText('Ada')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByRole('checkbox', { name: 'Given names' })).toHaveProperty(
+      'checked',
+      true,
+    );
+  });
+
+  it('shows a shared count when any authored owner is visible', () => {
+    const hiddenGiven: ExplorerBuilderColumn = {
+      ...column('given', 'Given names', 0),
+      table: { visible: false, order: 0 },
+    };
+    const visibleFamily = column('family', 'Family names', 1);
+    const sharedCountPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [
+        {
+          column: 'name__count',
+          authoredColumns: ['given', 'family'],
+          label: 'name__count',
+          logicalType: 'integer',
+          filterable: false,
+          chartable: false,
+        },
+      ],
+      rows: [{ name__count: 2 }],
+    };
+
+    render(
+      React.createElement(PreviewTable, {
+        preview: sharedCountPreview,
+        table: {
+          ...table,
+          document: {
+            ...table.document,
+            columns: [hiddenGiven, visibleFamily],
+          },
+        },
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-colcount', '1');
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+});

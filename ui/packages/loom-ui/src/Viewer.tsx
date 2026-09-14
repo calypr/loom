@@ -1,4 +1,4 @@
-import React, { useMemo, useReducer, useState } from 'react';
+import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
 import { ChartToggle, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
@@ -60,6 +60,9 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
   const outputId = output?.outputId ?? '';
   const request = useMemo(() => output ? outputRequestFor(project, runtime, { ...state, activeOutputId: outputId }, output) : undefined, [output, outputId, project, runtime, state]);
   const resultQuery = useLoomOutput(request ?? { project, selector: { recipe: '', translationVersion: '', output: '' }, columns: [] }, { enabled: Boolean(request) });
+  const resultCache = useRef(new Map<string, LoomOutputResult>());
+  if (resultQuery.data) resultCache.current.set(outputId, resultQuery.data);
+  const result = resultQuery.data ?? resultCache.current.get(outputId);
   const client = useLoomClient();
   if (!output || !request) return null;
 
@@ -75,7 +78,7 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
     try {
       const customAction = action ? customActions?.[action.type] : undefined;
       if (action && customAction) {
-        await customAction({ project, runtime, output, action, request, result: resultQuery.data }, new AbortController().signal);
+        await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
       } else {
         const targetOutput = action?.output
           ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
@@ -132,9 +135,9 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
             <Tabs.Panel value={candidate.outputId} key={candidate.outputId}>
               {candidate.outputId === outputId ? (
                 <div className="grid grid-cols-1 gap-4 pt-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
-                  <FilterRail runtime={runtime} output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
+                  <FilterRail runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
                   <section className="min-w-0" aria-label={output.title}>
-                    <QuerySummary output={output} runtime={runtime} state={state} result={resultQuery.data} dispatch={dispatch} />
+                    <QuerySummary output={output} runtime={runtime} state={state} result={result} dispatch={dispatch} />
                     <Group justify="space-between" gap="sm" mih={40} mb="xs">
                       {resultQuery.isLoading
                         ? <Group gap="xs" role="status"><Loader size="xs" /><Text c="dimmed" size="xs">Updating results…</Text></Group>
@@ -143,9 +146,9 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
                           : <Text c="dimmed" size="xs">Visual overview</Text>}
                       {output.charts.length > 0 ? <ChartToggle outputId={outputId} visible={state.chartsVisible[outputId] ?? true} dispatch={dispatch} /> : null}
                     </Group>
-                    <OutputCharts output={output} result={resultQuery.data} visible={state.chartsVisible[outputId] ?? true} />
-                    <PageControls output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
-                    <OutputTable runtime={runtime} output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
+                    <OutputCharts output={output} result={result} visible={state.chartsVisible[outputId] ?? true} />
+                    <PageControls output={output} result={result} state={state} dispatch={dispatch} />
+                    <OutputTable runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
                   </section>
                 </div>
               ) : null}

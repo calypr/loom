@@ -36,6 +36,7 @@ type ProjectionMode string
 
 const (
 	ProjectionScalar        ProjectionMode = "SCALAR"
+	ProjectionIndexed       ProjectionMode = "INDEXED"
 	ProjectionFirst         ProjectionMode = "FIRST"
 	ProjectionArray         ProjectionMode = "ARRAY"
 	ProjectionDistinctArray ProjectionMode = "DISTINCT_ARRAY"
@@ -71,6 +72,7 @@ type SnapshotIdentity struct {
 	ResourceInventoryDigest  string `json:"resourceInventoryDigest"`
 	RelationshipDigest       string `json:"relationshipDigest"`
 	FieldDigest              string `json:"fieldDigest"`
+	ShapeDigest              string `json:"shapeDigest,omitempty"`
 	ProtocolVersion          string `json:"protocolVersion"`
 	CompilerVersion          string `json:"compilerVersion"`
 	TraversalPolicyVersion   string `json:"traversalPolicyVersion"`
@@ -143,6 +145,7 @@ type Candidate struct {
 	Label                 string             `json:"label"`
 	LogicalType           string             `json:"logicalType"`
 	Cardinality           string             `json:"cardinality,omitempty"`
+	RepeatedBoundaries    []RepeatedBoundary `json:"repeatedBoundaries,omitempty"`
 	ProjectionModes       []ProjectionMode   `json:"projectionModes"`
 	FilterOperators       []FilterOperator   `json:"filterOperators"`
 	ChartAggregations     []ChartAggregation `json:"chartAggregations"`
@@ -154,6 +157,17 @@ type Candidate struct {
 	SuggestionsComplete   bool               `json:"suggestionsComplete"`
 	SuggestionsTruncated  bool               `json:"suggestionsTruncated"`
 	BlockedReason         string             `json:"blockedReason,omitempty"`
+}
+
+type RepeatedBoundary struct {
+	Path     string `json:"path"`
+	MaxItems int    `json:"maxItems"`
+}
+
+type RepeatedCoordinate struct {
+	BoundaryPath string `json:"boundaryPath"`
+	Index        int    `json:"index"`
+	Width        int    `json:"width"`
 }
 
 type Diagnostic struct {
@@ -323,6 +337,7 @@ func cloneCandidates(v []Candidate) []Candidate {
 		out[i].ChartAggregations = append([]ChartAggregation(nil), out[i].ChartAggregations...)
 		out[i].SupportedOperations = append([]Operation(nil), out[i].SupportedOperations...)
 		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
+		out[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), out[i].RepeatedBoundaries...)
 	}
 	return out
 }

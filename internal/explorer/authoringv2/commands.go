@@ -179,6 +179,7 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 	if err != nil {
 		return Workspace{}, nil, err
 	}
+	working = MigrateLosslessDefaults(working, catalog)
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
 		result, applyErr := applyCommand(&working, catalog, commandID, index, command)
