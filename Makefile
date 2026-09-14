@@ -111,8 +111,9 @@ docker-build:
 docker-run:
 	docker run --rm -p 8080:8080 $(IMAGE)
 
-# Full real-data acceptance path. The script owns temporary Kubernetes
-# port-forwards, the current-worktree Loom process, and guarded run databases.
+# Full real-data acceptance path. Rebuild the canonical loom-demo deployment
+# without replacing its data, then verify the locked fixture in an isolated
+# Compose project that is removed after evidence capture.
 acceptance-real:
 	./scripts/acceptance-real.sh
 

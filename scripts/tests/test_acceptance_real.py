@@ -5,68 +5,83 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "acceptance-real.sh"
-WORKFLOW = ROOT / ".github" / "workflows" / "acceptance.yaml"
 PERFORMANCE = ROOT / "scripts" / "acceptance-performance.sh"
+COMPOSE = ROOT / "compose.yaml"
+WORKFLOW = ROOT / ".github" / "workflows" / "acceptance.yaml"
 
 
-class AcceptanceRealScriptTest(unittest.TestCase):
+class AcceptanceDeploymentContractTest(unittest.TestCase):
     def test_shell_syntax(self) -> None:
-        subprocess.run(["bash", "-n", str(SCRIPT)], cwd=ROOT, check=True)
-        subprocess.run(["bash", "-n", str(PERFORMANCE)], cwd=ROOT, check=True)
+        for script in (SCRIPT, PERFORMANCE, ROOT / "scripts" / "demo-up.sh"):
+            subprocess.run(["bash", "-n", str(script)], cwd=ROOT, check=True)
 
-    def test_local_and_github_wiring_contract(self) -> None:
+    def test_acceptance_real_uses_compose_demo_transaction_and_smoke(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn('start_forward "$clickhouse_service" 8123 clickhouse-http', source)
-        self.assertIn('start_forward "$clickhouse_service" 9000 clickhouse-native', source)
-        self.assertIn('--clickhouse-url "$clickhouse_native_url"', source)
-        self.assertIn('--run-id "$run_id"', source)
-        self.assertIn('server_config=$(mktemp "${TMPDIR:-/tmp}/loom-acceptance-server-config.XXXXXX.json")', source)
-        self.assertIn('chmod 600 "$server_config"', source)
-        self.assertIn("jq -n \\", source)
-        self.assertIn('--arg schema "$server_source_root/schemas/graph-fhir.json"', source)
-        self.assertIn('"$build_dir/arango-fhir-server" --config "$server_config" --no-auth', source)
-        self.assertIn('LOOM_ACCEPTANCE_CLICKHOUSE_PASSWORD="$clickhouse_password" "$build_dir/loom-acceptance"', source)
-        self.assertNotIn('--clickhouse-password "$clickhouse_password"', source)
-        self.assertNotIn('--arg clickhouse_password "$clickhouse_password"', source)
-        self.assertNotIn('curl -fsS --user "$clickhouse_username:$clickhouse_password"', source)
-        self.assertIn('LOOM_ACCEPTANCE_CONFIG_CLICKHOUSE_PASSWORD="$clickhouse_password" jq -n', source)
-        self.assertIn('--config "$clickhouse_curl_config"', source)
-        self.assertIn("LOOM_ACCEPTANCE_KUBE_CONFIG_SECRET:-loom-config", source)
-        self.assertIn("get secret \"$secret_name\" -o jsonpath='{.data.config\\.yaml}'", source)
-        self.assertIn(".server.clickhouse.username", source)
-        self.assertIn(".server.clickhouse.password", source)
-        self.assertIn('LOOM_ACCEPTANCE_CURL_USER="$clickhouse_username:$clickhouse_password"', source)
-        cleanup = source.split("cleanup() {", 1)[1].split("trap cleanup EXIT", 1)[0]
-        self.assertLess(cleanup.index("clickhouse_http_request"), cleanup.index('for pid in "${processes'))
-        self.assertNotIn("arango-fhir-proto", source)
-        self.assertNotIn("$repo_root/.gocache", source)
+        self.assertIn('canonical_project=${LOOM_DEMO_COMPOSE_PROJECT:-loom-demo}', source)
+        self.assertIn('run_id=${LOOM_ACCEPTANCE_RUN_ID:-$acceptance_id}', source)
+        self.assertIn('LOOM_DEMO_SEED=false', source)
+        self.assertIn('acceptance_project="loom-acceptance-$acceptance_id"', source)
+        self.assertIn('LOOM_ACCEPTANCE_PROJECT:-NCPI_ACCEPTANCE', source)
+        self.assertIn('"$repo_root/scripts/demo-up.sh"', source)
+        self.assertIn('"$repo_root/scripts/demo-smoke.sh"', source)
+        self.assertIn('"$repo_root/scripts/demo-browser-smoke.sh"', source)
+        self.assertIn("jq -e '.status == \"PASSED\"'", source)
+        self.assertIn("run --rm --no-deps -T --entrypoint /bin/sh demo-seed", source)
+        self.assertIn("tar -C /var/lib/loom/artifacts -cf - .", source)
+        self.assertIn('tar -C "$artifacts" -xf -', source)
+        self.assertIn("compose-ps.txt", source)
+        self.assertIn("compose-images.txt", source)
+        self.assertNotIn("kubectl", source)
+        self.assertNotIn("Kubernetes", source)
+        self.assertNotIn("LOOM_ACCEPTANCE_MODE", source)
+        self.assertIn('scripts/demo-down.sh" --volumes --remove-orphans', source)
+        self.assertIn('deployment_project:$deployment_project', source)
+        self.assertIn('acceptance_project:$acceptance_project', source)
 
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("http://127.0.0.1:8529/_api/version", workflow)
-        self.assertNotIn("http://localhost:8529/_api/version", workflow)
-        self.assertIn("\n  pull_request:\n", workflow)
-        self.assertNotIn("\n  push:\n", workflow)
-        self.assertIn("CLICKHOUSE_USER: loom_ci", workflow)
-        self.assertIn("CLICKHOUSE_PASSWORD: loom_ci_password", workflow)
-        self.assertIn("--user=loom_ci --password=loom_ci_password", workflow)
-        self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn("run: make acceptance-performance", workflow)
-        self.assertIn("- name: Summarize acceptance evidence", workflow)
-        self.assertIn("GITHUB_STEP_SUMMARY", workflow)
-        self.assertIn("current/report.json", workflow)
-        self.assertIn("vertices_inserted", workflow)
-        self.assertIn("row_digest", workflow)
-        self.assertIn("cleanup_status", workflow)
-        self.assertNotIn("LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE", workflow)
+    def test_compose_has_source_contexts_run_namespace_and_named_artifacts(self) -> None:
+        source = COMPOSE.read_text(encoding="utf-8")
 
-        performance = PERFORMANCE.read_text(encoding="utf-8")
-        self.assertIn('git archive "$base_ref"', performance)
-        self.assertIn('LOOM_ACCEPTANCE_SERVER_SOURCE_ROOT="$source_root"', performance)
-        self.assertIn('if [[ ! -f "$base_source/cmd/loom-acceptance/main.go" ]]', performance)
-        self.assertIn('LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true base_unavailable "base commit predates the acceptance protocol"', performance)
-        self.assertIn("--performance-repeat-base-report", performance)
-        self.assertIn("--performance-repeat-current-report", performance)
+        self.assertIn("context: ${LOOM_API_BUILD_CONTEXT:-.}", source)
+        self.assertIn("context: ${LOOM_UI_BUILD_CONTEXT:-./ui}", source)
+        self.assertIn("${LOOM_DEMO_RUN_ID:-d000000000000001}", source)
+        self.assertIn("image: ${LOOM_UI_IMAGE:-loom-demo-ui:local}", source)
+        self.assertIn("${LOOM_DEMO_FIXTURE_CACHE_DIR:-fixture_cache}:/var/cache/loom", source)
+        self.assertIn("demo_artifacts:/var/lib/loom/artifacts", source)
+
+    def test_performance_isolates_projects_ports_images_and_cleanup(self) -> None:
+        source = PERFORMANCE.read_text(encoding="utf-8")
+
+        self.assertIn('git archive "$base_ref"', source)
+        self.assertIn('project="${compose_prefix}-${comparison_id}-${name}"', source)
+        self.assertIn('read -r api_port ui_port <<<"$(free_ports)"', source)
+        self.assertIn('LOOM_DEMO_SOURCE_ROOT="$source_root"', source)
+        self.assertIn('LOOM_API_BUILD_CONTEXT="$source_root"', source)
+        self.assertIn('LOOM_UI_BUILD_CONTEXT="$source_root/ui"', source)
+        self.assertIn('LOOM_API_IMAGE="loom-acceptance-api:${comparison_id}-${name}"', source)
+        self.assertIn('LOOM_UI_IMAGE="loom-acceptance-ui:${comparison_id}-${name}"', source)
+        self.assertIn('LOOM_DEMO_FIXTURE_CACHE_DIR="$cache"', source)
+        self.assertIn('LOOM_ACCEPTANCE_FIXTURE_PREPARED=true', source)
+        self.assertIn('LOOM_ACCEPTANCE_ISOLATED=true', source)
+        self.assertIn('active_project=$project', source)
+        self.assertIn('if [[ -n "$active_project" ]]', source)
+        self.assertIn('if [[ "$name" == *-repeat ]]; then browser_smoke=false; fi', source)
+        self.assertIn('scripts/demo-down.sh" --volumes --remove-orphans', source)
+        self.assertIn("--performance-repeat-base-report", source)
+        self.assertIn("--performance-repeat-current-report", source)
+
+    def test_github_workflow_uses_compose_performance_path(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertNotIn("services:", source)
+        self.assertNotIn("LOOM_ACCEPTANCE_MODE", source)
+        self.assertIn("LOOM_ACCEPTANCE_BROWSER_SMOKE: false", source)
+        self.assertIn("run: make acceptance-performance", source)
+        self.assertIn("fetch-depth: 0", source)
+        self.assertIn("GITHUB_STEP_SUMMARY", source)
+        self.assertIn("current/report.json", source)
+        self.assertIn("cleanup_status", source)
+        self.assertIn("actions/upload-artifact@v4", source)
 
 
 if __name__ == "__main__":

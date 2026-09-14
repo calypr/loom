@@ -16,7 +16,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:25.3
     environment:
-      CLICKHOUSE_DB: loom_acceptance_d000000000000001
+      CLICKHOUSE_DB: loom_acceptance_${LOOM_DEMO_RUN_ID:-d000000000000001}
       CLICKHOUSE_USER: loom_demo
       CLICKHOUSE_PASSWORD: loom_demo_password
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
@@ -31,7 +31,7 @@ services:
   loom-api:
     image: ${LOOM_API_IMAGE:-loom-demo-api:local}
     build:
-      context: .
+      context: ${LOOM_API_BUILD_CONTEXT:-.}
     command:
       - --listen
       - :8080
@@ -39,13 +39,13 @@ services:
       - --url
       - http://arangodb:8529
       - --database
-      - loom_acceptance_d000000000000001
+      - loom_acceptance_${LOOM_DEMO_RUN_ID:-d000000000000001}
       - --schema
       - /app/schemas/graph-fhir.json
       - --clickhouse-url
       - clickhouse://clickhouse:9000
       - --clickhouse-database
-      - loom_acceptance_d000000000000001
+      - loom_acceptance_${LOOM_DEMO_RUN_ID:-d000000000000001}
       - --clickhouse-username
       - loom_demo
       - --clickhouse-password
@@ -76,7 +76,7 @@ services:
     entrypoint: ["/app/loom-acceptance"]
     command:
       - --run-id
-      - d000000000000001
+      - ${LOOM_DEMO_RUN_ID:-d000000000000001}
       - --loom-url
       - http://loom-api:8080
       - --arango-url
@@ -106,13 +106,14 @@ services:
         condition: service_healthy
     volumes:
       - ${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro
-      - fixture_cache:/var/cache/loom
+      - ${LOOM_DEMO_FIXTURE_CACHE_DIR:-fixture_cache}:/var/cache/loom
       - demo_artifacts:/var/lib/loom/artifacts
     restart: "no"
 
   loom-ui:
+    image: ${LOOM_UI_IMAGE:-loom-demo-ui:local}
     build:
-      context: ./ui
+      context: ${LOOM_UI_BUILD_CONTEXT:-./ui}
       dockerfile: apps/demo/Dockerfile
     depends_on:
       loom-api:

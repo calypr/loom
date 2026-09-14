@@ -13,10 +13,25 @@ comparison_id=${LOOM_ACCEPTANCE_COMPARISON_ID:-$(od -An -N8 -tx1 /dev/urandom | 
 [[ "$comparison_id" =~ ^[a-f0-9]{16}$ ]] || { echo "invalid comparison ID" >&2; exit 2; }
 artifacts=${LOOM_ACCEPTANCE_ARTIFACTS:-"$repo_root/.artifacts/acceptance/performance-$comparison_id"}
 cache=${LOOM_ACCEPTANCE_FIXTURE_CACHE:-"$repo_root/.cache/acceptance/fixture"}
+compose_prefix=${LOOM_ACCEPTANCE_COMPOSE_PROJECT_PREFIX:-loom-acceptance}
+[[ "$compose_prefix" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid acceptance Compose project prefix" >&2; exit 2; }
 mkdir -p "$artifacts" "$cache"
+cache=$(cd "$cache" && pwd)
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/loom-acceptance-base.XXXXXX")
-cleanup() { rm -rf "$temporary_root"; }
+active_project=""
+active_artifacts=""
+cleanup() {
+  local command_status=$?
+  trap - EXIT
+  if [[ -n "$active_project" ]]; then
+    LOOM_DEMO_COMPOSE_PROJECT="$active_project" \
+      "$repo_root/scripts/demo-down.sh" --volumes --remove-orphans \
+      >>"$active_artifacts/compose-down.log" 2>&1 || true
+  fi
+  rm -rf "$temporary_root"
+  exit "$command_status"
+}
 trap cleanup EXIT
 base_source="$temporary_root/base"
 mkdir -p "$base_source"
@@ -42,36 +57,97 @@ if ! git archive "$base_ref" | tar -x -C "$base_source"; then
   exit $?
 fi
 
+# Validate/fetch once on the host. Each Compose project mounts this same
+# content-addressed directory, so base/current variants do not refetch it.
 if [[ -n "${LOOM_ACCEPTANCE_GOCACHE:-}" ]]; then
   GOCACHE="$LOOM_ACCEPTANCE_GOCACHE" go run ./cmd/loom-acceptance --fixture-only --fixture-cache "$cache"
 else
   go run ./cmd/loom-acceptance --fixture-only --fixture-cache "$cache"
 fi
 
+free_ports() {
+  python3 -c 'import socket; sockets=[]; ports=[]
+for _ in range(2):
+ s=socket.socket(); s.bind(("127.0.0.1", 0)); sockets.append(s); ports.append(str(s.getsockname()[1]))
+print(" ".join(ports)); [s.close() for s in sockets]'
+}
+
+variant_run_id() {
+  printf '%s' "$comparison_id:$1" | shasum -a 256 | cut -c1-16
+}
+
 run_variant() {
   local name=$1 source_root=$2
-  LOOM_ACCEPTANCE_ARTIFACTS="$artifacts/$name" \
-  LOOM_ACCEPTANCE_FIXTURE_CACHE="$cache" \
-  LOOM_ACCEPTANCE_SERVER_SOURCE_ROOT="$source_root" \
-  "$repo_root/scripts/acceptance-real.sh"
+  local project="${compose_prefix}-${comparison_id}-${name}"
+  local variant_artifacts="$artifacts/$name"
+  local ports api_port ui_port run_id browser_smoke
+  mkdir -p "$variant_artifacts"
+  read -r api_port ui_port <<<"$(free_ports)"
+  run_id=$(variant_run_id "$name")
+  browser_smoke=${LOOM_ACCEPTANCE_BROWSER_SMOKE:-true}
+  if [[ "$name" == *-repeat ]]; then browser_smoke=false; fi
+
+  local acceptance_status=0 teardown_status=0
+  active_project=$project
+  active_artifacts=$variant_artifacts
+  if env \
+    LOOM_ACCEPTANCE_ARTIFACTS="$variant_artifacts" \
+    LOOM_ACCEPTANCE_FIXTURE_CACHE="$cache" \
+    LOOM_ACCEPTANCE_FIXTURE_PREPARED=true \
+    LOOM_ACCEPTANCE_ISOLATED=true \
+    LOOM_ACCEPTANCE_BROWSER_SMOKE="$browser_smoke" \
+    LOOM_ACCEPTANCE_RUN_ID="$run_id" \
+    LOOM_DEMO_COMPOSE_PROJECT="$project" \
+    LOOM_DEMO_RUN_ID="$run_id" \
+    LOOM_DEMO_API_PORT="$api_port" \
+    LOOM_DEMO_UI_PORT="$ui_port" \
+    LOOM_DEMO_FIXTURE_CACHE_DIR="$cache" \
+    LOOM_DEMO_SOURCE_ROOT="$source_root" \
+    LOOM_API_BUILD_CONTEXT="$source_root" \
+    LOOM_UI_BUILD_CONTEXT="$source_root/ui" \
+    LOOM_API_IMAGE="loom-acceptance-api:${comparison_id}-${name}" \
+    LOOM_UI_IMAGE="loom-acceptance-ui:${comparison_id}-${name}" \
+    "$repo_root/scripts/acceptance-real.sh"; then
+    :
+  else
+    acceptance_status=$?
+  fi
+
+  # Only generated project names reach this cleanup. The canonical loom-demo
+  # project is never passed to demo-down by the performance driver.
+  if LOOM_DEMO_COMPOSE_PROJECT="$project" "$repo_root/scripts/demo-down.sh" --volumes --remove-orphans \
+    >"$variant_artifacts/compose-down.log" 2>&1; then
+    active_project=""
+    active_artifacts=""
+  else
+    teardown_status=$?
+  fi
+  if (( acceptance_status != 0 )); then return "$acceptance_status"; fi
+  return "$teardown_status"
 }
 
 if [[ ! -f "$base_source/cmd/loom-acceptance/main.go" ]]; then
   run_variant current "$repo_root"
   LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true base_unavailable "base commit predates the acceptance protocol"
-  exit 0
+  exit $?
 fi
 
 head_key=$(git rev-parse HEAD 2>/dev/null || printf '0')
 last_hex=${head_key: -1}
 if (( 16#$last_hex % 2 == 0 )); then
   first_order=base-current
-  if ! run_variant base "$base_source"; then base_unavailable "base server did not complete the current acceptance protocol"; exit $?; fi
+  if ! run_variant base "$base_source"; then
+    base_unavailable "base server did not complete the current acceptance protocol"
+    exit $?
+  fi
   run_variant current "$repo_root"
 else
   first_order=current-base
   run_variant current "$repo_root"
-  if ! run_variant base "$base_source"; then base_unavailable "base server did not complete the current acceptance protocol"; exit $?; fi
+  if ! run_variant base "$base_source"; then
+    base_unavailable "base server did not complete the current acceptance protocol"
+    exit $?
+  fi
 fi
 
 compare=(go run ./cmd/loom-acceptance
@@ -87,9 +163,15 @@ if (( compare_status != 3 )); then exit "$compare_status"; fi
 
 if [[ "$first_order" == base-current ]]; then
   run_variant current-repeat "$repo_root"
-  if ! run_variant base-repeat "$base_source"; then base_unavailable "repeat base run failed"; exit $?; fi
+  if ! run_variant base-repeat "$base_source"; then
+    base_unavailable "repeat base run failed"
+    exit $?
+  fi
 else
-  if ! run_variant base-repeat "$base_source"; then base_unavailable "repeat base run failed"; exit $?; fi
+  if ! run_variant base-repeat "$base_source"; then
+    base_unavailable "repeat base run failed"
+    exit $?
+  fi
   run_variant current-repeat "$repo_root"
 fi
 

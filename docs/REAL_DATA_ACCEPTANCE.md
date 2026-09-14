@@ -2,9 +2,14 @@
 
 ## Purpose
 
-`make acceptance-real` proves the path an NCPI researcher uses. The command loads a fixed FHIR Aggregator cohort into ArangoDB, publishes an Explorer V2 workspace into ClickHouse, reads the Explorer viewer state, and queries the published dataframe through GraphQL. `make acceptance-performance` runs that proof for a Git base and the current worktree on the same services, then applies the regression gate.
+`make acceptance-real` proves the path an NCPI researcher uses. The command loads a fixed FHIR Aggregator cohort into ArangoDB, publishes an Explorer V2 workspace into ClickHouse, reads the Explorer viewer state, and queries the published dataframe through GraphQL. `make acceptance-performance` runs that proof for a Git base and the current worktree in equivalent isolated Compose projects, then applies the regression gate.
 
-Local runs use the existing Kubernetes database pods through port-forwards. GitHub runs use job service containers. Both modes build and start Loom from the checkout under test; neither uses the deployed Loom pod as evidence.
+Docker Compose is authoritative for local and GitHub runs. `make acceptance-real`
+rebuilds and redeploys the canonical `loom-demo` project from the current
+source without reseeding it. It then runs the full `demo-seed` transaction and
+API/UI smoke checks in a disposable Compose project. The verification project
+and its volumes are removed after evidence is exported; the canonical project
+and its data remain available.
 
 ## Fixture contract
 
@@ -101,13 +106,28 @@ func (r *Runner) Run(context.Context) (Report, error)
 
 `Runner.Run` owns the acceptance transaction. Callers do not coordinate load, publication, verification, or cleanup stages.
 
-## Execution targets
+## Execution target
 
-The Kubernetes target resolves services by label or fixed-name fallback. It port-forwards only ArangoDB and ClickHouse. It builds the loader and Loom server from the current worktree, creates guarded run-specific database names, starts the local server with `--no-auth`, and waits for `/readyz`.
+The canonical Compose target builds the API and UI from the current source,
+starts ArangoDB, ClickHouse, and Loom, and keeps the stable
+`d000000000000001` database namespace. Acceptance uses a second, generated
+project with a unique database namespace, free host ports, and unique image
+tags. A source-root override points both build contexts at an archived base
+checkout or the current checkout.
 
-The GitHub target receives ArangoDB and ClickHouse service URLs from the workflow. It builds and starts the same checkout with the same run-specific database policy.
+Acceptance seeds the oracle's `NCPI_ACCEPTANCE` project inside the disposable
+database by default. Set `LOOM_ACCEPTANCE_PROJECT` when that namespace must be
+changed. No fixture generation is written to the canonical database.
 
-Database names must match `^loom_acceptance_[a-f0-9]{16}$`. Cleanup drops only the two captured databases after it verifies the names. It does not delete records from shared application databases. Cleanup then lists Arango databases and queries ClickHouse `system.databases` to prove that both names are absent.
+The seed report is written to the `demo_artifacts` named volume. The acceptance
+script exports it with a tar stream into the host artifact directory, avoiding
+a host bind mount whose ownership would be controlled by the image's non-root
+user. The exported report must have `status: "PASSED"` before smoke checks run.
+
+Database names must match `^loom_acceptance_[a-f0-9]{16}$`. Local acceptance
+and performance cleanup remove only generated projects and their run-specific
+volumes after evidence is exported; they never target canonical `loom-demo`
+volumes.
 
 ## Assertions
 
@@ -123,13 +143,18 @@ The command performs these checks:
 8. Query GraphQL dataset metadata, sorted rows, counts, and facets. Require numeric `rowCount` and `totalCount`, array-shaped `rows`, and reject any GraphQL `errors` value. Compare per-column coverage and boolean truth counts with the readable oracle, then compare the normalized rows with the exact `row_digest`.
 9. Publish the same workspace again and prove that its execution and selector are unchanged.
 
-The command writes partial evidence before cleanup. A cleanup failure is joined with the original scenario failure.
+The command writes partial evidence before the smoke checks and records the
+deployment and verification projects, images, services, and cleanup result
+alongside the report.
 
 ## Performance comparison
 
 Correctness always blocks a change. Performance compares the base and the current checkout on the same machine, against the same fixture and service versions. Local dirty-tree runs use `HEAD` as the base. Pull requests use the pull request base SHA. Pushes use the previous commit when GitHub provides it.
 
-Each variant receives empty run-specific databases. The runner warms and validates the fixture before either variant and alternates execution order from the head digest. It records:
+Each variant receives run-specific databases in an isolated Compose project.
+The runner warms and validates the fixture once on the host and mounts that
+content-addressed cache into each variant, then alternates execution order from
+the head digest. It records:
 
 - generation upload time;
 - Explorer publication time;
@@ -138,7 +163,12 @@ Each variant receives empty run-specific databases. The runner warms and validat
 
 A metric is a suspected regression when the head is at least twice as slow and exceeds the absolute floor. The floor is 5 seconds for ingestion and publication, and 100 milliseconds for API probes. The runner repeats a suspected regression in reverse order. CI fails only when the same metric crosses both limits twice.
 
-If the base commit cannot build or does not support the protocol, the report uses `BASE_UNAVAILABLE`. That status fails unless the explicit `LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true` rollout flag is present. Remove the workflow flag once the acceptance protocol exists on every supported base branch.
+If the base commit cannot build or does not support the protocol, the report
+uses `BASE_UNAVAILABLE`. That status fails unless the explicit
+`LOOM_ACCEPTANCE_ALLOW_BASE_UNAVAILABLE=true` rollout flag is present. Each
+performance variant is torn down with `compose down --volumes` after its
+report is exported. The canonical `loom-demo` project is never targeted by
+that cleanup.
 
 ## Files
 
@@ -148,7 +178,7 @@ internal/acceptance/                 Fixture, target, scenario, evidence, and co
 testdata/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
 scripts/acceptance-real.sh          Stable local and CI entry point
 scripts/acceptance-performance.sh   Same-machine base/current regression driver
-.github/workflows/acceptance.yaml   GitHub service and artifact wiring
+.github/workflows/acceptance.yaml   GitHub Compose and artifact wiring
 .codex/skills/verify-loom/          Agent-facing launch, drive, evidence, and cleanup instructions
 ```
 
