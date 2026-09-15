@@ -402,6 +402,28 @@ const outputQuery = (request: LoomOutputRequest): {
   return { query, variables };
 };
 
+const materializationIdentity = (
+  value: Readonly<Record<string, unknown>>,
+): string | undefined => {
+  const selector = isRecord(value.selector)
+    ? {
+        recipe: value.selector.recipe,
+        translationVersion: value.selector.translationVersion,
+        output: value.selector.output,
+      }
+    : undefined;
+  const identity = {
+    id: value.id,
+    revision: value.revision,
+    projectId: value.projectId,
+    datasetGeneration: value.datasetGeneration,
+    selector,
+  };
+  return Object.values(identity).every((part) => part !== undefined)
+    ? JSON.stringify(identity)
+    : undefined;
+};
+
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   const baseUrl = options.baseUrl ?? '/';
@@ -623,8 +645,17 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     const payload = await request('/graphql/graph', { method: 'POST', signal, body: JSON.stringify({ query, variables }) });
     if (!isRecord(payload)) throw new LoomRequestError({ status: 502, code: 'INVALID_GRAPHQL_RESPONSE', message: 'Loom returned an invalid GraphQL response.', retryable: false });
     if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const first = isRecord(payload.errors[0]) && typeof payload.errors[0].message === 'string' ? payload.errors[0].message : 'Loom GraphQL request failed.';
-      throw new LoomRequestError({ status: 'CUSTOM_ERROR', code: 'GRAPHQL_ERROR', message: first, retryable: false });
+      const firstError = isRecord(payload.errors[0]) ? payload.errors[0] : {};
+      const message = typeof firstError.message === 'string' ? firstError.message : 'Loom GraphQL request failed.';
+      const extensions = isRecord(firstError.extensions) ? firstError.extensions : {};
+      const code = typeof extensions.code === 'string' ? extensions.code : 'GRAPHQL_ERROR';
+      throw new LoomRequestError({
+        status: code === 'STALE_CURSOR' ? 409 : 'CUSTOM_ERROR',
+        code,
+        message,
+        retryable: extensions.retryable === true,
+        details: extensions,
+      });
     }
     return payload.data as T;
   };
@@ -656,10 +687,23 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     const rows: Array<Record<string, unknown>> = [];
     let columns: ReadonlyArray<string> = outputRequest.columns ?? [];
     let after: string | undefined;
+    let pinnedMaterialization: string | undefined;
     const first = Math.max(outputRequest.first ?? 100, 1000);
     while (true) {
       if (signal?.aborted) throw new DOMException('The export was aborted.', 'AbortError');
       const page = await queryOutput({ ...outputRequest, first, after, facets: [] }, signal);
+      if (page.materialization) {
+        const identity = materializationIdentity(page.materialization);
+        if (identity && pinnedMaterialization && identity !== pinnedMaterialization) {
+          throw new LoomRequestError({
+            status: 409,
+            code: 'PUBLICATION_CONFLICT',
+            message: 'The published output changed during export; restart from the first page.',
+            retryable: false,
+          });
+        }
+        if (identity) pinnedMaterialization = identity;
+      }
       if (columns.length === 0) columns = page.columns;
       rows.push(...page.rows);
       if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor || page.pageInfo.endCursor === after) break;

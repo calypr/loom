@@ -273,4 +273,46 @@ describe('Loom project paths', () => {
     expect(firstBody.variables.input.first).toBe(1000);
     expect(secondBody.variables.input.after).toBe('next');
   });
+
+  it('preserves a typed stale-cursor conflict from GraphQL', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      errors: [{ message: 'The page cursor is stale.', extensions: { code: 'STALE_CURSOR', retryable: false } }],
+    }), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.queryOutput({
+      project: 'NCPI_ACCEPTANCE',
+      selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
+    })).rejects.toMatchObject({ status: 409, code: 'STALE_CURSOR', retryable: false });
+  });
+
+  it('rejects export pages that change publication identity', async () => {
+    const materialization = (revision: string) => ({
+      id: `execution:${revision}:Patient`,
+      revision,
+      projectId: 'NCPI_ACCEPTANCE',
+      datasetGeneration: 'generation-1',
+      selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
+    });
+    const page = (revision: string, rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({ data: {
+      dataframeRows: {
+        materialization: materialization(revision),
+        columns: ['id'],
+        rows,
+        totalCount: 2,
+        pageInfo: { hasNextPage, endCursor },
+      },
+    } }), { status: 200 });
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(page('revision-a', [['one']], true, 'next'))
+      .mockResolvedValueOnce(page('revision-b', [['two']], false));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.exportOutput({
+      project: 'NCPI_ACCEPTANCE',
+      selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
+      columns: ['id'],
+    })).rejects.toMatchObject({ status: 409, code: 'PUBLICATION_CONFLICT' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });
