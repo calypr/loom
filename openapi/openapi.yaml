@@ -349,7 +349,11 @@ paths:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '400': {$ref: '#/components/responses/GraphQLBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409': {$ref: '#/components/responses/GraphQLConflict'}
+        '409':
+          description: The GraphQL operation used stale cursor, revision, or publication identity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
         '500': {$ref: '#/components/responses/GraphQLInternalError'}
   /graphql/dataframe:
@@ -369,7 +373,11 @@ paths:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '400': {$ref: '#/components/responses/GraphQLBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409': {$ref: '#/components/responses/GraphQLConflict'}
+        '409':
+          description: The GraphQL operation used stale cursor, revision, or publication identity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
         '500': {$ref: '#/components/responses/GraphQLInternalError'}
   /apollo:
@@ -603,11 +611,6 @@ components:
           schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
     GraphQLBadRequest:
       description: The GraphQL HTTP request envelope or transport parameters are malformed.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
-    GraphQLConflict:
-      description: The GraphQL operation used stale cursor, revision, or publication identity.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/RawJSON'}

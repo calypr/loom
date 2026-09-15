@@ -61,7 +61,7 @@ func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.Execute
 	case http.StatusBadRequest:
 		return loomapi.ExecuteGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
 	case http.StatusConflict:
-		return loomapi.ExecuteGraphQL409JSONResponse{GraphQLConflictJSONResponse: loomapi.GraphQLConflictJSONResponse(value)}, nil
+		return loomapi.ExecuteGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
 		return loomapi.ExecuteGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
@@ -93,7 +93,7 @@ func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomap
 	case http.StatusBadRequest:
 		return loomapi.ExecuteDataframeGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
 	case http.StatusConflict:
-		return loomapi.ExecuteDataframeGraphQL409JSONResponse{GraphQLConflictJSONResponse: loomapi.GraphQLConflictJSONResponse(value)}, nil
+		return loomapi.ExecuteDataframeGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
 		return loomapi.ExecuteDataframeGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
