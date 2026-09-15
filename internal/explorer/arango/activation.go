@@ -177,7 +177,7 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			}
 		}
 	}
-	publication := activatedPublication(state.candidate, candidateKey)
+	publication := activatedPublication(state.candidate, candidateKey, now)
 	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{
 		"status":      explorer.RevisionActive,
 		"activatedAt": now,
@@ -194,7 +194,7 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 	return updateActiveExplorerDocument(ctx, tx, ownerKey, candidateKey)
 }
 
-func activatedPublication(candidate map[string]any, revisionID string) map[string]any {
+func activatedPublication(candidate map[string]any, revisionID string, now time.Time) map[string]any {
 	publication := map[string]any{}
 	if value, ok := candidate["publication"].(map[string]any); ok {
 		for key, item := range value {
@@ -203,6 +203,7 @@ func activatedPublication(candidate map[string]any, revisionID string) map[strin
 	}
 	publication["state"] = string(explorer.RevisionActive)
 	publication["revisionId"] = revisionID
+	publication["updatedAt"] = now
 	if _, ok := publication["generation"]; !ok {
 		if generation, ok := candidate["sourceGeneration"].(string); ok && generation != "" {
 			publication["generation"] = generation

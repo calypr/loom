@@ -128,6 +128,7 @@ func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []exp
 	failedAt := time.Now().UTC()
 	f.repositoryRevision.FailedAt = &failedAt
 	f.repositoryRevision.Publication.State = string(explorer.RevisionFailed)
+	f.repositoryRevision.Publication.UpdatedAt = time.Unix(0, 0).UTC()
 	return f.repositoryRevision, nil
 }
 
@@ -148,6 +149,7 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 		f.repositoryRevision.FailedAt = nil
 		f.repositoryRevision.Publication.State = string(explorer.RevisionActive)
 		f.repositoryRevision.Publication.RevisionID = revisionID
+		f.repositoryRevision.Publication.UpdatedAt = time.Now().UTC()
 	}
 	if f.repositoryOwner != nil {
 		f.repositoryOwner.ActiveRevisionID = revisionID
@@ -377,6 +379,9 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			}
 			if store.repositoryOwner == nil || store.repositoryOwner.ActiveRevisionID != store.repositoryRevision.ID {
 				t.Fatalf("retry did not converge owner pointer: owner=%#v revision=%#v", store.repositoryOwner, store.repositoryRevision)
+			}
+			if store.repositoryRevision.Publication.UpdatedAt.IsZero() || store.repositoryRevision.Publication.UpdatedAt.Equal(time.Unix(0, 0).UTC()) {
+				t.Fatalf("retry left stale publication timestamp: %#v", store.repositoryRevision.Publication)
 			}
 		})
 	}

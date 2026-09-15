@@ -164,6 +164,9 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	if !ok || publication["state"] != string(explorer.RevisionActive) || publication["revisionId"] != "revision-a" || publication["generation"] != "generation-a" {
 		t.Fatalf("activation publication=%#v", patch["publication"])
 	}
+	if updatedAt, ok := publication["updatedAt"].(time.Time); !ok || updatedAt.IsZero() {
+		t.Fatalf("activation publication updatedAt=%#v", publication["updatedAt"])
+	}
 }
 
 func TestActivationUsesTransactionsAndSingleModificationQueries(t *testing.T) {
