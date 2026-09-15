@@ -45,9 +45,11 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 	if strings.TrimSpace(project) == "" || strings.TrimSpace(bundle.Name) == "" {
 		return recipe.RecipeRevision{}, fmt.Errorf("project and recipe name are required")
 	}
-	if err := bundle.Validate(); err != nil {
+	canonical, err := bundle.CanonicalBundle()
+	if err != nil {
 		return recipe.RecipeRevision{}, err
 	}
+	bundle = canonical
 	digest, err := bundle.Digest()
 	if err != nil {
 		return recipe.RecipeRevision{}, err

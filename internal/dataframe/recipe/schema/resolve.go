@@ -60,6 +60,7 @@ type Resolved struct {
 	Bundle               recipe.Bundle
 	Scope                Scope
 	StoredRecipeDigest   string
+	ExpandedRecipeDigest string
 	ResolvedSchemaDigest string
 	ScopeDigest          string
 	SourceSnapshot       SourceSnapshot
@@ -99,14 +100,20 @@ func (d *memoizedDiscovery) Fields(ctx context.Context, scope Scope, resourceTyp
 }
 
 func Resolve(ctx context.Context, bundle recipe.Bundle, scope Scope, discovery Discovery) (Resolved, error) {
-	if err := bundle.Validate(); err != nil {
-		return Resolved{}, err
-	}
 	storedDigest, err := bundle.Digest()
 	if err != nil {
 		return Resolved{}, fmt.Errorf("digest stored recipe: %w", err)
 	}
-	base := Resolved{Scope: scope, StoredRecipeDigest: storedDigest, SourceSnapshot: sourceSnapshot(scope)}
+	normalized, err := bundle.CanonicalBundle()
+	if err != nil {
+		return Resolved{}, err
+	}
+	bundle = normalized
+	expandedDigest, err := bundle.Digest()
+	if err != nil {
+		return Resolved{}, fmt.Errorf("digest expanded recipe: %w", err)
+	}
+	base := Resolved{Scope: scope, StoredRecipeDigest: storedDigest, ExpandedRecipeDigest: expandedDigest, SourceSnapshot: sourceSnapshot(scope)}
 	if discovery == nil {
 		if hasCatalogDeclarations(bundle) {
 			return Resolved{}, fmt.Errorf("catalog-backed recipe requires schema discovery")

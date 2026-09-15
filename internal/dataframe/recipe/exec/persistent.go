@@ -2,7 +2,6 @@ package exec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -73,23 +72,9 @@ func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.B
 }
 
 func canonicalEntry(bundle recipe.Bundle) (Entry, error) {
-	if bundle.Fragments != nil {
-		expanded, err := bundle.ExpandFragments()
-		if err != nil {
-			return Entry{}, err
-		}
-		bundle = expanded
-	}
-	if err := bundle.Validate(); err != nil {
-		return Entry{}, err
-	}
-	canonical, err := bundle.CanonicalJSON()
+	immutable, err := bundle.CanonicalBundle()
 	if err != nil {
 		return Entry{}, err
-	}
-	var immutable recipe.Bundle
-	if err := json.Unmarshal(canonical, &immutable); err != nil {
-		return Entry{}, fmt.Errorf("clone recipe: %w", err)
 	}
 	digest, err := immutable.Digest()
 	if err != nil {
