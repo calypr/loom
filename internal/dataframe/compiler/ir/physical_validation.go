@@ -618,6 +618,13 @@ func validatePhysicalFilter(filter PhysicalFilter, defined map[string]bool, bind
 		return fmt.Errorf("filter requires exactly one legacy predicate or predicate expression")
 	}
 	if legacy {
+		if filter.Predicate.LeftExpression == nil {
+			switch strings.ToUpper(strings.TrimSpace(filter.Predicate.Operator)) {
+			case "EQUALS", "IN", "GT":
+			default:
+				return fmt.Errorf("unsupported physical filter operator %q in legacy predicate", filter.Predicate.Operator)
+			}
+		}
 		return validatePhysicalPredicate(filter.Predicate, defined, bindVars)
 	}
 	return validatePhysicalPredicateExpression(*filter.Expression, defined, bindVars)
