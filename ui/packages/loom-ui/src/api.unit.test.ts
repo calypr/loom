@@ -122,7 +122,7 @@ describe('Loom project paths', () => {
   it('scopes dataframe row queries to the selected project', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(
-        JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [], totalCount: 0 } } }),
+        JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [], totalCount: 0, pageInfo: { hasNextPage: false } } } }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       ),
     );
@@ -393,6 +393,47 @@ describe('Loom project paths', () => {
     expect(payload.variables.facetInput.specs).toEqual([{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }]);
     expect(result.rows).toEqual([{ status: 'active' }]);
     expect(result.facets[0]?.rows[0]).toEqual({ key: 'active', doc_count: 1 });
+  });
+
+  it('rejects malformed GraphQL output connections instead of defaulting fields', async () => {
+    const validConnection = {
+      columns: ['status'],
+      rows: [['active']],
+      totalCount: 1,
+      pageInfo: { hasNextPage: false },
+    };
+    const malformed = [
+      { ...validConnection, columns: undefined },
+      { ...validConnection, rows: undefined },
+      { ...validConnection, pageInfo: undefined },
+      { ...validConnection, materialization: { revision: 7 } },
+    ];
+    for (const connection of malformed) {
+      const client = createLoomClient({
+        fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ data: { dataframeRows: connection } }), { status: 200 })),
+      });
+      await expect(client.queryOutput({
+        project: 'NCPI_ACCEPTANCE',
+        selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
+      })).rejects.toMatchObject({ status: 502, code: 'INVALID_OUTPUT_RESPONSE' });
+    }
+  });
+
+  it('normalizes array and object GraphQL row forms without changing values', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ data: {
+      dataframeRows: {
+        columns: ['status', 'nested.value'],
+        rows: [['active', 1], { status: 'pending', 'nested.value': 2 }],
+        totalCount: 2,
+        pageInfo: { hasNextPage: false },
+      },
+    } }), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.queryOutput({
+      project: 'NCPI_ACCEPTANCE',
+      selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
+    })).resolves.toMatchObject({ rows: [{ status: 'active', nested: { value: 1 } }, { status: 'pending', nested: { value: 2 } }] });
   });
 
   it('exports all cursor pages as an escaped CSV Blob', async () => {

@@ -17,6 +17,7 @@ import {
   type ExplorerRuntimeV1,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
+import { z } from 'zod';
 
 export interface ExplorerSummary {
   readonly project: string;
@@ -224,11 +225,11 @@ export interface LoomClient {
     args: DeleteExplorerArgs,
     signal?: AbortSignal,
   ) => Promise<null>;
-  readonly fetchGraphQL: <T>(
+  readonly fetchGraphQL: (
     query: string,
     variables?: Readonly<Record<string, unknown>>,
     signal?: AbortSignal,
-  ) => Promise<T>;
+  ) => Promise<unknown>;
   readonly rows: (
     selector: ExplorerRuntimeV1['outputs'][number]['selector'],
     columns: ReadonlyArray<string>,
@@ -330,12 +331,54 @@ export class LoomRequestError extends Error implements ExplorerAuthoringApiError
   }
 }
 
-const shapeRows = (rows: unknown, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
-  if (!Array.isArray(rows)) return [];
+const graphQLRowSchema = z.union([
+  z.array(z.unknown()),
+  z.record(z.string(), z.unknown()),
+]);
+type GraphQLRow = z.infer<typeof graphQLRowSchema>;
+const graphQLFacetSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  columns: z.array(z.string()),
+  rows: z.array(graphQLRowSchema),
+  missingCount: z.number().finite().nullable().optional(),
+  truncated: z.boolean().optional(),
+}).passthrough();
+type GraphQLFacet = z.infer<typeof graphQLFacetSchema>;
+const graphQLMaterializationSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  revision: z.string().optional(),
+  projectId: z.string().optional(),
+  datasetGeneration: z.string().optional(),
+  state: z.string().optional(),
+  rowCount: z.number().int().nonnegative().nullable().optional(),
+  selector: z.object({
+    recipe: z.string(),
+    translationVersion: z.string(),
+    output: z.string(),
+  }).strict().nullable().optional(),
+}).passthrough();
+const graphQLConnectionSchema = z.object({
+  materialization: graphQLMaterializationSchema.optional(),
+  columns: z.array(z.string()),
+  rows: z.array(graphQLRowSchema),
+  totalCount: z.number().int().nonnegative().nullable(),
+  pageInfo: z.object({
+    hasNextPage: z.boolean(),
+    endCursor: z.string().nullable().optional(),
+  }).strict(),
+}).passthrough();
+const graphQLOutputDataSchema = z.object({
+  dataframeRows: graphQLConnectionSchema,
+  dataframeAggregations: z.object({ aggregations: z.array(graphQLFacetSchema) }).passthrough().optional(),
+}).passthrough();
+
+const shapeRows = (rows: ReadonlyArray<GraphQLRow>, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
   return rows.map((row) => {
     const source = Array.isArray(row)
       ? Object.fromEntries(columns.map((column, index) => [column, row[index]]))
-      : isRecord(row) ? row : {};
+      : row;
     const result: Record<string, unknown> = {};
     Object.entries(source).forEach(([key, value]) => {
       const parts = key.split('.').filter(Boolean);
@@ -346,8 +389,13 @@ const shapeRows = (rows: unknown, columns: ReadonlyArray<string>): Array<Record<
       let cursor = result;
       parts.slice(0, -1).forEach((part) => {
         const nested = cursor[part];
-        if (!isRecord(nested)) cursor[part] = {};
-        cursor = cursor[part] as Record<string, unknown>;
+        if (!isRecord(nested)) {
+          const next: Record<string, unknown> = {};
+          cursor[part] = next;
+          cursor = next;
+        } else {
+          cursor = nested;
+        }
       });
       cursor[parts[parts.length - 1]] = value;
     });
@@ -358,9 +406,8 @@ const shapeRows = (rows: unknown, columns: ReadonlyArray<string>): Array<Record<
 const numberOrNull = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-const normalizedFacet = (value: unknown): LoomFacetResult | undefined => {
-  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.kind !== 'string') return undefined;
-  const columns = Array.isArray(value.columns) ? value.columns.filter((column): column is string => typeof column === 'string') : [];
+const normalizedFacet = (value: GraphQLFacet): LoomFacetResult => {
+  const columns = value.columns;
   const rows = shapeRows(value.rows, columns);
   const missingCount = numberOrNull(value.missingCount);
   return {
@@ -650,7 +697,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return null;
   };
-  const fetchGraphQL = async <T>(query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<T> => {
+  const fetchGraphQL = async (query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown> => {
     const payload = await request('/graphql/graph', { method: 'POST', signal, body: JSON.stringify({ query, variables }) });
     if (!isRecord(payload)) throw new LoomRequestError({ status: 502, code: 'INVALID_GRAPHQL_RESPONSE', message: 'Loom returned an invalid GraphQL response.', retryable: false });
     if (Array.isArray(payload.errors) && payload.errors.length > 0) {
@@ -666,27 +713,26 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         details: extensions,
       });
     }
-    return payload.data as T;
+    return payload.data;
   };
   const queryOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<LoomOutputResult> => {
     const prepared = outputQuery(outputRequest);
-    const data = await fetchGraphQL<unknown>(prepared.query, prepared.variables, signal);
-    if (!isRecord(data) || !isRecord(data.dataframeRows)) {
+    const data = await fetchGraphQL(prepared.query, prepared.variables, signal);
+    const parsed = graphQLOutputDataSchema.safeParse(data);
+    if (!parsed.success || (prepared.variables.facetInput !== undefined && !parsed.data?.dataframeAggregations)) {
       throw new LoomRequestError({ status: 502, code: 'INVALID_OUTPUT_RESPONSE', message: 'Loom returned an invalid output response.', retryable: false });
     }
-    const connection = data.dataframeRows;
-    const columns = Array.isArray(connection.columns) ? connection.columns.filter((column): column is string => typeof column === 'string') : [];
-    const pageInfo = isRecord(connection.pageInfo) ? connection.pageInfo : {};
-    const facets = isRecord(data.dataframeAggregations) && Array.isArray(data.dataframeAggregations.aggregations)
-      ? data.dataframeAggregations.aggregations.map(normalizedFacet).filter((facet): facet is LoomFacetResult => facet !== undefined)
-      : [];
-    const materialization = isRecord(connection.materialization) ? connection.materialization : undefined;
-    const endCursor = typeof pageInfo.endCursor === 'string' ? pageInfo.endCursor : undefined;
+    const connection = parsed.data.dataframeRows;
+    const columns = connection.columns;
+    const pageInfo = connection.pageInfo;
+    const facets = parsed.data.dataframeAggregations?.aggregations.map(normalizedFacet) ?? [];
+    const materialization = connection.materialization;
+    const endCursor = pageInfo.endCursor ?? undefined;
     return {
       columns,
       rows: shapeRows(connection.rows, columns),
-      totalCount: numberOrNull(connection.totalCount),
-      pageInfo: { hasNextPage: pageInfo.hasNextPage === true, ...(endCursor ? { endCursor } : {}) },
+      totalCount: connection.totalCount,
+      pageInfo: { hasNextPage: pageInfo.hasNextPage, ...(endCursor ? { endCursor } : {}) },
       ...(materialization ? { materialization } : {}),
       facets,
     };
