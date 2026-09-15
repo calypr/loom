@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -30,8 +31,11 @@ type leaseBundleCatalog struct {
 	renewBlock           bool
 	renewStarted         chan struct{}
 	saveErr              error
+	saveErrAfter         int
+	saveCalls            int
 	requireSaveContext   bool
 	savedSnapshots       []publication.BundleExecution
+	savedOwners          []string
 	pointerErr           error
 	publishErr           error
 	publishCommitThenErr error
@@ -40,8 +44,16 @@ type leaseBundleCatalog struct {
 func newBundleCatalogFixture() *bundleCatalogFixture {
 	return &bundleCatalogFixture{executions: map[string]publication.BundleExecution{}, pointers: map[string]publication.BundlePointer{}}
 }
-func (c *bundleCatalogFixture) SaveExecution(_ context.Context, e publication.BundleExecution) error {
-	c.executions[e.ID] = e
+func (c *bundleCatalogFixture) SaveExecution(_ context.Context, e publication.BundleExecution, _ string) error {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	var snapshot publication.BundleExecution
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return err
+	}
+	c.executions[e.ID] = snapshot
 	return nil
 }
 func (c *bundleCatalogFixture) GetExecution(_ context.Context, id string) (publication.BundleExecution, error) {
@@ -67,15 +79,20 @@ func (c *bundleCatalogFixture) GetPointer(_ context.Context, name string) (publi
 	return p, nil
 }
 
-func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e publication.BundleExecution) error {
+func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e publication.BundleExecution, owner string) error {
+	c.saveCalls++
 	if c.requireSaveContext && ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if c.saveErrAfter > 0 && c.saveCalls == c.saveErrAfter {
+		return c.saveErr
 	}
 	if c.saveErr != nil {
 		return c.saveErr
 	}
 	c.savedSnapshots = append(c.savedSnapshots, e)
-	return c.bundleCatalogFixture.SaveExecution(ctx, e)
+	c.savedOwners = append(c.savedOwners, owner)
+	return c.bundleCatalogFixture.SaveExecution(ctx, e, owner)
 }
 func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (publication.BundlePointer, error) {
 	if c.pointerErr != nil {
@@ -348,6 +365,13 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 	if _, ok := client.tables[execution.Outputs[0].PhysicalTable]; ok {
 		t.Fatal("staging table survived reconciliation")
 	}
+	snapshot := catalog.executions[execution.ID]
+	if snapshot.OwnerID != "" {
+		t.Fatalf("reconciled execution retained lease owner %q", snapshot.OwnerID)
+	}
+	if len(catalog.savedOwners) == 0 || catalog.savedOwners[len(catalog.savedOwners)-1] == "" {
+		t.Fatal("reconciled execution was not saved with a fence owner")
+	}
 }
 
 func TestPublishedOutputResolutionIsProjectAndGenerationScoped(t *testing.T) {
@@ -427,6 +451,47 @@ func TestClickHouseBundleTransactionMetadataHonorsContext(t *testing.T) {
 		t.Fatalf("canceled metadata write saved %d snapshots, want %d", got, savesBefore)
 	}
 	_ = tx.Abort(context.Background(), err)
+}
+
+func TestClickHouseBundleTransactionDoesNotReplayUncertainInsert(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true}
+	client := newBundleClickHouseFixture()
+	store, _ := NewBundleStore(client, catalog)
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "uncertain-insert"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	catalog.saveErr = errors.New("checkpoint failed after insert")
+	catalog.saveErrAfter = catalog.saveCalls + 1
+	row := map[string]any{"id": "1"}
+	err = tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{row})
+	if !errors.Is(err, ErrBundleCheckpointUncertain) {
+		t.Fatalf("InsertRows() error = %v, want uncertain checkpoint", err)
+	}
+	output := tx.execution.Outputs[0]
+	if got := len(client.tables[output.PhysicalTable]); got != 1 {
+		t.Fatalf("accepted rows = %d, want one before cleanup", got)
+	}
+	if err := tx.InsertRows(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}, []map[string]any{row}); !errors.Is(err, ErrBundleCheckpointUncertain) {
+		t.Fatalf("replayed InsertRows() error = %v, want uncertain checkpoint", err)
+	}
+	if client.insertCalls != 1 {
+		t.Fatalf("ClickHouse insert calls = %d, want one", client.insertCalls)
+	}
+	catalog.saveErr = nil
+	if abortErr := tx.Abort(context.Background(), err); !errors.Is(abortErr, err) {
+		t.Fatalf("Abort() error = %v, want original uncertain checkpoint", abortErr)
+	}
+	if _, ok := client.tables[output.PhysicalTable]; ok {
+		t.Fatal("uncertain staging table survived abort")
+	}
+	snapshot := catalog.executions[tx.execution.ID]
+	if snapshot.State != publication.BundleFailed || len(snapshot.Outputs) != 1 || snapshot.Outputs[0].RowCount != 0 {
+		t.Fatalf("failed execution snapshot = %#v, want failed zero-row metadata", snapshot)
+	}
 }
 
 func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {

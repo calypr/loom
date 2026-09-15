@@ -17,8 +17,8 @@ const (
 	BundleLeasesCollection     = "loom_dataframe_bundle_leases"
 )
 
-func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution) error {
-	if execution.ID == "" || execution.Key == "" || execution.OwnerID == "" {
+func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution, fenceOwner string) error {
+	if execution.ID == "" || execution.Key == "" || fenceOwner == "" {
 		return publication.ErrBundleLeaseLost
 	}
 	data, err := json.Marshal(execution)
@@ -44,7 +44,7 @@ INSERT @execution
 REPLACE @execution IN @@collection
 RETURN {saved: true}`, r.batchSize, map[string]interface{}{
 		"@collection": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
-		"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
+		"leaseKey": execution.Key, "owner": fenceOwner, "now": time.Now().UTC(),
 		"executionKey": execution.ID, "execution": doc,
 	}, func(map[string]any) error {
 		saved = true

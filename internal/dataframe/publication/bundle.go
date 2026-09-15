@@ -195,7 +195,7 @@ type BundlePointer struct {
 // BundleCatalog is the durable metadata/pointer boundary. Implementations
 // make pointer updates and lease acquisition atomic in their backing store.
 type BundleCatalog interface {
-	SaveExecution(context.Context, BundleExecution) error
+	SaveExecution(context.Context, BundleExecution, string) error
 	GetExecution(context.Context, string) (BundleExecution, error)
 	FindExecutionByKey(context.Context, string) (BundleExecution, error)
 	GetPointer(context.Context, string) (BundlePointer, error)
