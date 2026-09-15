@@ -2,10 +2,13 @@ package published
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -140,12 +143,18 @@ func emptyFilterCollection(value any) bool {
 }
 
 type pageCursor struct {
+	Version   int    `json:"version,omitempty"`
+	Binding   string `json:"binding,omitempty"`
 	RowID     string `json:"rowId"`
 	SortValue any    `json:"sortValue,omitempty"`
 }
 
 func encodeCursor(rowID string, sortValue any) string {
-	data, _ := json.Marshal(pageCursor{RowID: rowID, SortValue: sortValue})
+	return encodeBoundCursor(rowID, sortValue, "")
+}
+
+func encodeBoundCursor(rowID string, sortValue any, binding string) string {
+	data, _ := json.Marshal(pageCursor{Version: 1, Binding: binding, RowID: rowID, SortValue: sortValue})
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
@@ -162,6 +171,71 @@ func decodeCursor(cursor string) (*pageCursor, error) {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 	}
 	return &value, nil
+}
+
+type cursorFilter struct {
+	Column string          `json:"column"`
+	Op     string          `json:"op"`
+	Value  json.RawMessage `json:"value"`
+}
+
+type cursorSort struct {
+	Column string `json:"column"`
+	Desc   bool   `json:"desc"`
+}
+
+type cursorBinding struct {
+	Version           int            `json:"version"`
+	Project           string         `json:"project"`
+	DatasetGeneration string         `json:"datasetGeneration"`
+	Revision          string         `json:"revision"`
+	Selector          string         `json:"selector"`
+	PhysicalTable     string         `json:"physicalTable"`
+	Columns           []string       `json:"columns"`
+	Sort              *cursorSort    `json:"sort,omitempty"`
+	Filters           []cursorFilter `json:"filters"`
+}
+
+func cursorFingerprint(materialization Materialization, req PageRequest) (string, error) {
+	revision := materialization.Revision
+	if revision == "" {
+		revision = materialization.ID
+	}
+	selector := ""
+	if materialization.Selector.Valid() {
+		selector = materialization.Selector.Key()
+	}
+	filters := make([]cursorFilter, 0, len(req.Filters))
+	for _, filter := range req.Filters {
+		value, err := json.Marshal(filter.Value)
+		if err != nil {
+			return "", invalidCursor()
+		}
+		filters = append(filters, cursorFilter{Column: strings.TrimSpace(filter.Column), Op: strings.ToUpper(strings.TrimSpace(filter.Op)), Value: value})
+	}
+	sort.SliceStable(filters, func(i, j int) bool {
+		if filters[i].Column != filters[j].Column {
+			return filters[i].Column < filters[j].Column
+		}
+		if filters[i].Op != filters[j].Op {
+			return filters[i].Op < filters[j].Op
+		}
+		return string(filters[i].Value) < string(filters[j].Value)
+	})
+	var sortBy *cursorSort
+	if req.Sort != nil {
+		sortBy = &cursorSort{Column: strings.TrimSpace(req.Sort.Column), Desc: req.Sort.Desc}
+	}
+	payload, err := json.Marshal(cursorBinding{
+		Version: 1, Project: materialization.Project, DatasetGeneration: materialization.DatasetGeneration,
+		Revision: revision, Selector: selector, PhysicalTable: materialization.PhysicalTable,
+		Columns: append([]string(nil), req.Columns...), Sort: sortBy, Filters: filters,
+	})
+	if err != nil {
+		return "", invalidCursor()
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func contains(values []string, needle string) bool {

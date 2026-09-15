@@ -49,6 +49,16 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	if err != nil {
 		return Page{}, err
 	}
+	var binding string
+	if cursor != nil {
+		binding, err = cursorFingerprint(materialization, req)
+		if err != nil {
+			return Page{}, err
+		}
+		if cursor.Version != 1 || cursor.Binding == "" || cursor.Binding != binding {
+			return Page{}, staleCursor()
+		}
+	}
 	queryColumns := append([]string(nil), columns...)
 	if req.Sort != nil && !contains(queryColumns, req.Sort.Column) {
 		queryColumns = append(queryColumns, req.Sort.Column)
@@ -128,7 +138,13 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 				return Page{}, invalidCursor()
 			}
 		}
-		next = encodeCursor(fmt.Sprint(last["__loom_row_id"]), sortValue)
+		if binding == "" {
+			binding, err = cursorFingerprint(materialization, req)
+			if err != nil {
+				return Page{}, err
+			}
+		}
+		next = encodeBoundCursor(fmt.Sprint(last["__loom_row_id"]), sortValue, binding)
 	}
 	for _, row := range rows {
 		delete(row, "__loom_total")
