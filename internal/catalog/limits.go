@@ -11,6 +11,10 @@ type ProfileLimits struct {
 	MaxPivotColumnsPerField    int
 	MaxExtensionValuesPerField int
 	MaxShapePlans              int
+	// MaxRetainedBytes is an aggregate budget shared by shape plans and all
+	// profilers using one cache. It bounds the in-memory catalog summary for a
+	// load even when many workers observe distinct values concurrently.
+	MaxRetainedBytes int
 }
 
 const (
@@ -20,6 +24,7 @@ const (
 	DefaultMaxPivotColumnsPerField    = 4096
 	DefaultMaxExtensionValuesPerField = 4096
 	DefaultMaxShapePlans              = 2048
+	DefaultMaxRetainedBytes           = 64 << 20
 )
 
 // DefaultProfileLimits are deliberately finite. Callers that need a
@@ -32,6 +37,7 @@ func DefaultProfileLimits() ProfileLimits {
 		MaxPivotColumnsPerField:    DefaultMaxPivotColumnsPerField,
 		MaxExtensionValuesPerField: DefaultMaxExtensionValuesPerField,
 		MaxShapePlans:              DefaultMaxShapePlans,
+		MaxRetainedBytes:           DefaultMaxRetainedBytes,
 	}
 }
 
@@ -54,6 +60,9 @@ func (l ProfileLimits) normalized() ProfileLimits {
 	}
 	if l.MaxShapePlans <= 0 {
 		l.MaxShapePlans = defaults.MaxShapePlans
+	}
+	if l.MaxRetainedBytes <= 0 {
+		l.MaxRetainedBytes = defaults.MaxRetainedBytes
 	}
 	return l
 }

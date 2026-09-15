@@ -323,6 +323,9 @@ type Profiler struct {
 	limits            ProfileLimits
 	shapeCache        *ShapePlanCache
 	stats             map[string]*fieldCatalogStats
+	retainedBytes     int
+	truncated         bool
+	budget            *retentionBudget
 }
 
 type fieldCatalogStats struct {
@@ -349,9 +352,71 @@ type fieldCatalogStats struct {
 
 // Shared write-side shape planning cache.
 type ShapePlanCache struct {
-	mu       sync.RWMutex
-	plans    map[string]*shapePlan
-	maxPlans int
+	mu            sync.RWMutex
+	plans         map[string]*shapePlan
+	maxPlans      int
+	maxBytes      int
+	retainedBytes int
+	truncated     bool
+	budget        *retentionBudget
+}
+
+type retentionBudget struct {
+	mu   sync.Mutex
+	max  int
+	used int
+}
+
+func newRetentionBudget(max int) *retentionBudget {
+	return &retentionBudget{max: max}
+}
+
+func (b *retentionBudget) reserve(weight int) bool {
+	if weight <= 0 {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.max > 0 && b.used > b.max-weight {
+		return false
+	}
+	b.used += weight
+	return true
+}
+
+func (b *retentionBudget) release(weight int) {
+	if weight <= 0 {
+		return
+	}
+	b.mu.Lock()
+	b.used -= weight
+	if b.used < 0 {
+		b.used = 0
+	}
+	b.mu.Unlock()
+}
+
+func (b *retentionBudget) usage() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.used
+}
+
+func (c *ShapePlanCache) retentionBudget(max int) *retentionBudget {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.budget == nil {
+		c.budget = newRetentionBudget(max)
+	} else if c.budget.max <= 0 && max > 0 {
+		c.budget.max = max
+	}
+	return c.budget
+}
+
+func (c *ShapePlanCache) isTruncated() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.truncated
 }
 
 type shapePlan struct {

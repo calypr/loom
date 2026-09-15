@@ -168,7 +168,7 @@ func loadFile(
 	var workersWG sync.WaitGroup
 	workerTimingsChan := make(chan map[string]float64, workerCount)
 	workerCatalogsChan := make(chan *catalog.Profiler, workerCount)
-	shapeCache := catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans)
+	shapeCache := catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
 
 	var fileRows int64
 	var fileVertices int64

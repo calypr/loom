@@ -62,12 +62,72 @@ func TestFieldCatalogProfilerBoundsHighCardinalityValues(t *testing.T) {
 	}
 }
 
+func TestFieldCatalogProfilerBoundsAggregateRetainedBytes(t *testing.T) {
+	limits := ProfileLimits{
+		MaxFields:                  8,
+		MaxDistinctValuesPerField:  8,
+		MaxDistinctValueBytes:      64,
+		MaxPivotColumnsPerField:    8,
+		MaxExtensionValuesPerField: 8,
+		MaxShapePlans:              8,
+		MaxRetainedBytes:           300,
+	}
+	profiler := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", nil, limits)
+	for _, value := range []string{"one", "two", "three", "four"} {
+		profiler.ObservePayload(map[string]any{"id": value}, map[string]float64{})
+	}
+
+	idField := catalogDocumentForPath(t, profiler.Documents(), "id")
+	if profiler.RetentionBytes() > limits.MaxRetainedBytes {
+		t.Fatalf("retained bytes = %d, want at most %d", profiler.RetentionBytes(), limits.MaxRetainedBytes)
+	}
+	if !profiler.Truncated() || !idField.DistinctTruncated {
+		t.Fatalf("profiler truncation = %v, id field = %#v, want aggregate truncation evidence", profiler.Truncated(), idField)
+	}
+}
+
+func TestFieldCatalogProfilerMergeHonorsAggregateRetainedBytes(t *testing.T) {
+	limits := ProfileLimits{
+		MaxFields:                  8,
+		MaxDistinctValuesPerField:  8,
+		MaxDistinctValueBytes:      64,
+		MaxPivotColumnsPerField:    8,
+		MaxExtensionValuesPerField: 8,
+		MaxShapePlans:              8,
+		MaxRetainedBytes:           300,
+	}
+	cache := NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
+	left := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", cache, limits)
+	right := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", cache, limits)
+	left.ObservePayload(map[string]any{"id": "left"}, map[string]float64{})
+	right.ObservePayload(map[string]any{"id": "right"}, map[string]float64{})
+
+	if err := left.Merge(right); err != nil {
+		t.Fatal(err)
+	}
+	if left.RetentionBytes() > limits.MaxRetainedBytes || !left.Truncated() {
+		t.Fatalf("merged profiler retained bytes = %d, truncated = %v, want bounded truncated result", left.RetentionBytes(), left.Truncated())
+	}
+}
+
 func TestShapePlanCacheHonorsLimit(t *testing.T) {
 	cache := NewShapePlanCacheWithLimit(1)
 	cache.getOrBuild("shape-a", map[string]any{"id": "a"})
 	cache.getOrBuild("shape-b", map[string]any{"name": "b"})
 	if got := len(cache.plans); got != 1 {
 		t.Fatalf("shape plan cache size = %d, want 1", got)
+	}
+}
+
+func TestShapePlanCacheHonorsByteLimit(t *testing.T) {
+	cache := NewShapePlanCacheWithLimits(8, 100)
+	cache.getOrBuild("shape-a", map[string]any{"id": "a", "name": "b"})
+	if got := cache.retainedBytes; got > cache.maxBytes {
+		t.Fatalf("shape plan cache bytes = %d, want at most %d", got, cache.maxBytes)
+	}
+	cache.getOrBuild("shape-b", map[string]any{"long": strings.Repeat("value", 32)})
+	if got := cache.retainedBytes; got > cache.maxBytes {
+		t.Fatalf("shape plan cache bytes after oversized plan = %d, want at most %d", got, cache.maxBytes)
 	}
 }
 
