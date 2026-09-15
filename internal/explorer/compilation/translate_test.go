@@ -29,6 +29,15 @@ func fixtureSnapshotForProject(project string) capability.Snapshot {
 	return capability.NewSnapshot(identity, policy, capability.StatusReady, true, false, nodes, edges, candidates, nil)
 }
 
+func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
+	if got := wireProjectionMode(capability.ProjectionArray); got != "ALL" {
+		t.Fatalf("array wire mode = %q, want ALL", got)
+	}
+	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
+		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	}
+}
+
 func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 	visible := true
 	document := authoringv2.Document{

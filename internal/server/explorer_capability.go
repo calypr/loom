@@ -457,8 +457,10 @@ func stringProjectionModes(values []capability.ProjectionMode) []string {
 		switch value {
 		case capability.ProjectionScalar:
 			out[i] = "VALUE"
-		case capability.ProjectionArray, capability.ProjectionDistinctArray:
+		case capability.ProjectionArray:
 			out[i] = "ALL"
+		case capability.ProjectionDistinctArray:
+			out[i] = "DISTINCT"
 		default:
 			out[i] = string(value)
 		}

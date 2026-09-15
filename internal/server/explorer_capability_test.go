@@ -85,6 +85,28 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	}
 }
 
+func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionDistinctArray},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || len(wire.Candidates[0].ProjectionModes) != 2 {
+		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+	if wire.Candidates[0].ProjectionModes[0] != "ALL" || wire.Candidates[0].ProjectionModes[1] != "DISTINCT" {
+		t.Fatalf("projection modes = %#v, want [ALL DISTINCT]", wire.Candidates[0].ProjectionModes)
+	}
+}
+
 func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
 	store := newTestCapabilityStore()

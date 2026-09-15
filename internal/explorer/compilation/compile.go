@@ -283,8 +283,10 @@ func wireProjectionMode(mode capability.ProjectionMode) string {
 		return "VALUE"
 	case capability.ProjectionIndexed:
 		return "INDEXED"
-	case capability.ProjectionArray, capability.ProjectionDistinctArray:
+	case capability.ProjectionArray:
 		return "ALL"
+	case capability.ProjectionDistinctArray:
+		return "DISTINCT"
 	default:
 		return string(mode)
 	}
