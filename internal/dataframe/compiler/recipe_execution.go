@@ -22,6 +22,7 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	}
 	queries := make([]CompiledQuery, 0, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
+		output.TranslationVersion = resolved.SemanticPlan.TranslationVersion
 		query, err := CompileRecipeOutputWithPolicy(output, resolved.SemanticPlan.Bindings, limit, policy)
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
@@ -72,23 +73,24 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	return CompiledQuery{
-		Project:           bindings.Project,
-		DatasetGeneration: normalizeDatasetGeneration(bindings.DatasetGeneration),
-		RootResourceType:  output.RootResourceType,
-		AuthResourcePaths: cloneStrings(bindings.AuthResourcePaths),
-		PlanMode:          "physical",
-		PlanProfile:       "generic_fhir_graph_recipe",
-		TraversalCount:    physicalTraversalCount(physical),
-		RowIdentity:       output.RowIdentity.Clone(),
-		OptimizationRules: recipeOptimizationRules(physical),
-		Query:             rendered.Query,
-		BindVars:          rendered.BindVars,
-		Columns:           columns,
-		OutputSchema:      outputSchema,
-		PublicColumns:     publicColumns,
-		PivotFields:       pivotFields,
-		Limit:             limit,
-		PlanDiagnostics:   physicalPlanDiagnostics(physical),
+		Project:            bindings.Project,
+		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
+		RootResourceType:   output.RootResourceType,
+		TranslationVersion: output.TranslationVersion,
+		AuthResourcePaths:  cloneStrings(bindings.AuthResourcePaths),
+		PlanMode:           "physical",
+		PlanProfile:        "generic_fhir_graph_recipe",
+		TraversalCount:     physicalTraversalCount(physical),
+		RowIdentity:        output.RowIdentity.Clone(),
+		OptimizationRules:  recipeOptimizationRules(physical),
+		Query:              rendered.Query,
+		BindVars:           rendered.BindVars,
+		Columns:            columns,
+		OutputSchema:       outputSchema,
+		PublicColumns:      publicColumns,
+		PivotFields:        pivotFields,
+		Limit:              limit,
+		PlanDiagnostics:    physicalPlanDiagnostics(physical),
 	}, nil
 }
 

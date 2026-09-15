@@ -64,6 +64,33 @@ func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *tes
 	}
 }
 
+func TestCompileResolvedRecipePlanRejectsInvalidOutputSelection(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	for _, tc := range []struct {
+		name    string
+		selects []string
+		want    string
+	}{
+		{"unknown", []string{"missing"}, "unknown output"},
+		{"duplicate", []string{"Patient", "Patient"}, "duplicate output"},
+		{"blank", []string{""}, "output name is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
@@ -80,6 +107,9 @@ func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	}
 	if len(compiled.Outputs) != len(plan.Outputs) {
 		t.Fatalf("compiled output count = %d, want %d", len(compiled.Outputs), len(plan.Outputs))
+	}
+	if compiled.TranslationVersion != "test" {
+		t.Fatalf("translation version = %q, want test", compiled.TranslationVersion)
 	}
 	for _, output := range compiled.Outputs {
 		if len(output.Plan.Operations) == 0 {
@@ -743,6 +773,58 @@ func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T
 		return
 	}
 	t.Fatalf("compiled schema missing author_reference: %#v", compiled.Outputs[0].OutputSchema)
+}
+
+func TestCompiledRecipeSliceFieldsHonorValueModes(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "slice-modes", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+		Slices: []recipe.RepresentativeSlice{{Name: "representatives", Limit: 2, Fields: []recipe.Field{
+			{Name: "first", Expr: recipe.Expression{Select: "name[].family"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "all", Expr: recipe.Expression{Select: "name[].given[]"}, ValueMode: recipe.ValueModeAll},
+			{Name: "distinct", Expr: recipe.Expression{Select: "name[].given[]"}, ValueMode: recipe.ValueModeDistinct},
+		}}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		cardinality ir.PhysicalCardinality
+		distinct    bool
+	}{
+		"first":    {ir.PhysicalScalarCardinality, false},
+		"all":      {ir.PhysicalArrayCardinality, false},
+		"distinct": {ir.PhysicalArrayCardinality, true},
+	}
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalSliceExpression || projection.Expression.Slice == nil {
+				continue
+			}
+			for _, nested := range projection.Expression.Slice.Projections {
+				if expected, ok := want[nested.Name]; ok {
+					if nested.Expression.Cardinality != expected.cardinality || nested.Expression.Extract == nil || nested.Expression.Extract.Distinct != expected.distinct {
+						t.Fatalf("slice field %q = %#v, want cardinality %s distinct=%t", nested.Name, nested.Expression, expected.cardinality, expected.distinct)
+					}
+					delete(want, nested.Name)
+				}
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing slice fields: %#v", want)
+	}
 }
 
 func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T) {

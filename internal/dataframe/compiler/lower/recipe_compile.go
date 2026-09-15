@@ -21,6 +21,7 @@ import (
 type CompiledRecipe struct {
 	Version              int
 	RecipeDigest         string
+	TranslationVersion   string
 	ResolvedSchemaDigest string
 	ScopeDigest          string
 	SourceGeneration     string
@@ -32,6 +33,7 @@ type CompiledRecipe struct {
 // semantics live in Plan.
 type CompiledRecipeOutput struct {
 	Name               string
+	TranslationVersion string
 	RootResourceType   string
 	RowGrain           spec.RowGrain
 	RootColumnNaming   recipe.RootColumnNaming
@@ -103,6 +105,7 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 	result := CompiledRecipe{
 		Version:              1,
 		RecipeDigest:         semanticPlan.RecipeDigest,
+		TranslationVersion:   semanticPlan.TranslationVersion,
 		ResolvedSchemaDigest: resolved.ResolvedSchemaDigest,
 		ScopeDigest:          resolved.ScopeDigest,
 		SourceGeneration:     resolved.SourceGeneration,
