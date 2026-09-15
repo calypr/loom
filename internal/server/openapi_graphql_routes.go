@@ -36,7 +36,7 @@ func serveGraphQL(ctx context.Context, handler http.Handler, body any, method st
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	return response.Code, append([]byte(nil), response.Body.Bytes()...), nil
+	return response.Code, response.Body.Bytes(), nil
 }
 
 func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.ExecuteGraphQLRequestObject) (loomapi.ExecuteGraphQLResponseObject, error) {
