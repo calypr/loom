@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -16,15 +17,74 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	if err != nil {
 		return nil, err
 	}
-	var out *explorer.Revision
-	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": doc}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
+	var (
+		out      *explorer.Revision
+		existing *explorer.Revision
+	)
+	err = s.client.QueryRows(ctx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN {new: NEW, old: OLD}`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": doc}, func(row map[string]any) error {
+		if value, ok := row["new"]; ok && value != nil {
+			decoded, err := decode[explorer.Revision](value)
+			if err != nil {
+				return err
+			}
+			out = &decoded
+		}
+		if value, ok := row["old"]; ok && value != nil {
+			decoded, err := decode[explorer.Revision](value)
+			if err != nil {
+				return err
+			}
+			existing = &decoded
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
+	}
+	if existing != nil && !sameRevisionContent(*existing, revision) {
+		return nil, explorer.ErrImmutableRevision
+	}
+	if out == nil && existing != nil {
+		out = existing
 	}
 	if out == nil {
 		return nil, explorer.ErrNotFound
 	}
 	return out, nil
+}
+
+func sameRevisionContent(left, right explorer.Revision) bool {
+	leftContent := revisionImmutableContent(left)
+	rightContent := revisionImmutableContent(right)
+	return reflect.DeepEqual(leftContent, rightContent)
+}
+
+type immutableRevision struct {
+	ID                   string
+	Project              string
+	ExplorerID           string
+	Config               []byte
+	AuthoringBundle      []byte
+	IntentDigest         string
+	CompilationReceiptID string
+	PublicOutputContract []byte
+	Recipe               any
+	RecipeDigest         string
+	ResolvedSchemaDigest string
+	SourceGeneration     string
+	Materializations     []explorer.Materialization
+	EmittedColumns       []explorer.EmittedColumn
+	Dataset              explorer.DatasetMetadata
+}
+
+func revisionImmutableContent(value explorer.Revision) immutableRevision {
+	return immutableRevision{
+		ID: value.ID, Project: value.Project, ExplorerID: value.ExplorerID,
+		Config: append([]byte(nil), value.Config...), AuthoringBundle: append([]byte(nil), value.AuthoringBundle...), IntentDigest: value.IntentDigest,
+		CompilationReceiptID: value.CompilationReceiptID, PublicOutputContract: append([]byte(nil), value.PublicOutputContract...), Recipe: value.Recipe,
+		RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration,
+		Materializations: append([]explorer.Materialization(nil), value.Materializations...), EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Dataset: value.Dataset,
+	}
 }
 
 func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision, error) {

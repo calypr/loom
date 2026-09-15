@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer"
 	storepkg "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -26,6 +27,58 @@ type queryCall struct {
 	query string
 	binds map[string]any
 }
+
+type revisionClient struct {
+	doc map[string]any
+}
+
+func (c *revisionClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
+	return fn(ctx, c)
+}
+
+func (c *revisionClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+	if strings.Contains(query, "RETURN {new: NEW, old: OLD}") {
+		incoming := binds["doc"].(map[string]any)
+		if c.doc == nil {
+			c.doc = incoming
+			return visit(map[string]any{"new": incoming, "old": nil})
+		}
+		return visit(map[string]any{"new": c.doc, "old": c.doc})
+	}
+	return nil
+}
+
+func TestInsertRevisionRejectsChangedImmutableContent(t *testing.T) {
+	client := &revisionClient{}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := explorer.Revision{ID: "revision-a", Project: "project-a", ExplorerID: "patients", Config: []byte(`{"version":1}`), RecipeDigest: "recipe-a"}
+	stored, err := adapter.InsertRevision(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored.Config) != string(first.Config) {
+		t.Fatalf("stored config = %s, want %s", stored.Config, first.Config)
+	}
+	changed := first
+	changed.Config = []byte(`{"version":2}`)
+	if _, err := adapter.InsertRevision(context.Background(), changed); err != explorer.ErrImmutableRevision {
+		t.Fatalf("changed revision error = %v, want ErrImmutableRevision", err)
+	}
+	if got := client.doc["config"]; got == nil {
+		t.Fatal("changed revision removed the original document")
+	}
+	retried, err := adapter.InsertRevision(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retried.Config) != string(first.Config) {
+		t.Fatalf("identical retry config = %s, want %s", retried.Config, first.Config)
+	}
+}
+
 type activationClient struct{ calls []queryCall }
 
 func (c *activationClient) WithTransaction(ctx context.Context, _ storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
