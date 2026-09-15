@@ -239,7 +239,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes),
+				catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans),
 				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
