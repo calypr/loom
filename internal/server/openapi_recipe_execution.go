@@ -25,11 +25,7 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string
 	if r.scopes != nil {
 		principal, _ := authscope.PrincipalFromContext(ctx)
 		if _, scopeErr := r.scopes.ResolveReadScopeForGeneration(ctx, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
-			status := http.StatusForbidden
-			if errors.Is(scopeErr, authscope.ErrUnauthenticated) {
-				status = http.StatusUnauthorized
-			}
-			return map[string]any{"error": "recipe execution not found"}, status
+			return map[string]any{"error": "recipe execution not found"}, recipeExecutionAuthorizationStatus(scopeErr)
 		}
 	}
 	outputs := make([]map[string]any, 0, len(execution.Outputs))
@@ -48,6 +44,19 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string
 		outputs = append(outputs, map[string]any{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
 	}
 	return map[string]any{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs}, http.StatusOK
+}
+
+func recipeExecutionAuthorizationStatus(err error) int {
+	switch {
+	case errors.Is(err, authscope.ErrUnauthenticated):
+		return http.StatusUnauthorized
+	case errors.Is(err, authscope.ErrForbidden):
+		return http.StatusForbidden
+	case errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusServiceUnavailable
+	}
 }
 
 func recipeExecutionHTTPState(state publication.BundleState) string {
