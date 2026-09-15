@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDevSession, createVerificationReport, sourceMountMatches } from './loom-dev.mjs';
+import { commandEnvironment, createDevSession, createVerificationReport, sourceMountMatches } from './loom-dev.mjs';
 
 test('development session defaults to isolated names, ports, and fixture', () => {
   const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));
@@ -45,6 +45,14 @@ test('default development sessions separate worktree identities and ports', () =
     for (const root of roots) rmSync(root, { recursive: true, force: true });
     rmSync(registryRoot, { recursive: true, force: true });
   }
+});
+
+test('derived ports are forwarded to Compose', () => {
+  const target = createDevSession({}, process.cwd());
+  const env = commandEnvironment(target);
+  assert.equal(env.LOOM_DEV_SOURCE_ROOT, target.sourceRoot);
+  assert.equal(env.LOOM_DEV_API_PORT, String(target.apiPort));
+  assert.equal(env.LOOM_DEV_UI_PORT, String(target.uiPort));
 });
 
 test('explicit ports bypass an unusable port registry', () => {

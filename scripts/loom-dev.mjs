@@ -233,9 +233,12 @@ const recordEvidence = (report, path) => {
   if (!report.evidencePaths.includes(path)) report.evidencePaths.push(path);
 };
 
-const commandEnvironment = (target) => {
-  return { ...process.env, LOOM_DEV_SOURCE_ROOT: target.sourceRoot };
-};
+export const commandEnvironment = (target) => ({
+  ...process.env,
+  LOOM_DEV_SOURCE_ROOT: target.sourceRoot,
+  LOOM_DEV_API_PORT: String(target.apiPort),
+  LOOM_DEV_UI_PORT: String(target.uiPort),
+});
 
 const run = (command, args, options = {}) => new Promise((resolvePromise, reject) => {
   const child = spawn(command, args, {
