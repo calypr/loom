@@ -102,8 +102,13 @@ func TestPublicOutputContractRejectsForgedAggregateQualityFlags(t *testing.T) {
 		t.Fatalf("forged lossless aggregate accepted: %v", err)
 	}
 	contract.Outputs[0].Lossless = false
+	contract.Outputs[0].MLReady = true
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged ML-ready aggregate accepted: %v", err)
+	}
+	contract.Outputs[0].MLReady = false
 	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
-		t.Fatalf("matching lossless aggregate rejected: %v", err)
+		t.Fatalf("matching lossless and ML-ready aggregates rejected: %v", err)
 	}
 }
 
