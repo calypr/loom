@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/calypr/loom",
+  "branch": "planning/architecture-workpackages-20260915",
+  "source_baseline_sha": "3af5e2a7c1f47c104b601f92d7e517b265671bfd",
+  "source_parent_sha": "8090e53acb32935847f0bc1d2d04f2a5dcb4deb2",
+  "remote_verified": true,
+  "verified_on": "2026-09-15",
+  "compatibility_policy": "Coordinated breaking changes are permitted when justified. Each affected work package must identify caller migrations, persisted-format handling, and integration order. No implementation or production migration is authorized by this planning pass.",
+  "checks": [
+    {"command": "make test", "result": "passed", "scope": "Full Go repository suite and four development-tool tests"},
+    {"command": "cd ui && npm run check-boundaries && npm test && npm run build", "result": "passed", "scope": "Boundary checks, test typechecking, 103 UI tests, package build and demo production build", "warning": "Vite reports chunks larger than 500 kB; no build failure"},
+    {"command": "node --test .codex/skills/verify-loom-ui/scripts/verify.test.mjs", "result": "passed", "scope": "Six verification-driver unit tests; no authenticated environment was exercised"},
+    {"command": "make dev-doctor", "result": "passed", "scope": "Isolated development stack and fixture"},
+    {"command": "make verify-fast", "result": "passed", "assertions": 20, "browser_scenario_ms": 6790, "total_ms": 11173, "local_evidence": ".artifacts/loom-dev/mu32yqal-7d728b7e/report.json", "scope": "Real Builder, Preview, Publish, materialization, Viewer, filter, CSV and reload using synthetic isolated data"}
+  ],
+  "limitations": [
+    "The browser fixture does not prove one-to-many related-record losslessness.",
+    "The current run did not repeat verify-full source/HMR/failure-recovery probes while discovery workers were reading source.",
+    "Production authentication, production datasets, concurrent publication/export and large-scale performance were not tested by this baseline run.",
+    "Machine-local MCP settings, datasets, binaries, GitNexus indexes and raw audit scratch are excluded from the remote baseline."
+  ]
+}
