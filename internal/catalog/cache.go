@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,16 +10,60 @@ import (
 	"sync"
 )
 
+const (
+	DefaultCacheMaxEntries = 1024
+	DefaultCacheMaxBytes   = 64 << 20
+)
+
+type CacheOptions struct {
+	MaxEntries int
+	MaxBytes   int
+}
+
+type CacheStats struct {
+	Entries   int
+	Bytes     int
+	Evictions uint64
+}
+
+type cacheEntryKind string
+
+const (
+	cacheFields     cacheEntryKind = "fields"
+	cacheReferences cacheEntryKind = "references"
+)
+
+type cacheEntry struct {
+	kind   cacheEntryKind
+	key    string
+	value  any
+	weight int
+}
+
 type Cache struct {
-	mu         sync.RWMutex
-	fields     map[string][]PopulatedField
-	references map[string][]PopulatedReference
+	mu        sync.Mutex
+	limits    CacheOptions
+	entries   map[string]*list.Element
+	lru       *list.List
+	bytes     int
+	evictions uint64
 }
 
 func NewCache() *Cache {
+	return NewCacheWithOptions(CacheOptions{})
+}
+
+func NewCacheWithOptions(options CacheOptions) *Cache {
+	if options.MaxEntries <= 0 {
+		options.MaxEntries = DefaultCacheMaxEntries
+	}
+	if options.MaxBytes <= 0 {
+		options.MaxBytes = DefaultCacheMaxBytes
+	}
 	return &Cache{
-		fields:     make(map[string][]PopulatedField),
-		references: make(map[string][]PopulatedReference),
+		limits:  options,
+		entries: make(map[string]*list.Element),
+		lru:     list.New(),
 	}
 }
 
@@ -28,20 +73,17 @@ func (c *Cache) DiscoverFields(fn func(context.Context, PopulatedFieldOptions) (
 		if err != nil {
 			return nil, err
 		}
-		c.mu.RLock()
-		cached, ok := c.fields[key]
-		c.mu.RUnlock()
+		cached, ok := c.get(cacheFields, key)
 		if ok {
-			return cloneFields(cached), nil
+			return cloneFields(cached.([]PopulatedField)), nil
 		}
 		results, err := fn(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		c.mu.Lock()
-		c.fields[key] = cloneFields(results)
-		c.mu.Unlock()
-		return cloneFields(results), nil
+		cached = cloneFields(results)
+		c.put(cacheFields, key, cached)
+		return cloneFields(cached.([]PopulatedField)), nil
 	}
 }
 
@@ -51,20 +93,17 @@ func (c *Cache) DiscoverReferences(fn func(context.Context, PopulatedReferenceOp
 		if err != nil {
 			return nil, err
 		}
-		c.mu.RLock()
-		cached, ok := c.references[key]
-		c.mu.RUnlock()
+		cached, ok := c.get(cacheReferences, key)
 		if ok {
-			return cloneReferences(cached), nil
+			return cloneReferences(cached.([]PopulatedReference)), nil
 		}
 		results, err := fn(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		c.mu.Lock()
-		c.references[key] = cloneReferences(results)
-		c.mu.Unlock()
-		return cloneReferences(results), nil
+		cached = cloneReferences(results)
+		c.put(cacheReferences, key, cached)
+		return cloneReferences(cached.([]PopulatedReference)), nil
 	}
 }
 
@@ -76,14 +115,10 @@ func (c *Cache) InvalidateProject(project string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for key := range c.fields {
-		if strings.HasPrefix(key, project+"|") {
-			delete(c.fields, key)
-		}
-	}
-	for key := range c.references {
-		if strings.HasPrefix(key, project+"|") {
-			delete(c.references, key)
+	for entryKey, element := range c.entries {
+		entry := element.Value.(cacheEntry)
+		if strings.HasPrefix(entry.key, project+"|") {
+			c.removeLocked(entryKey, element)
 		}
 	}
 }
@@ -91,8 +126,67 @@ func (c *Cache) InvalidateProject(project string) {
 func (c *Cache) InvalidateAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.fields = make(map[string][]PopulatedField)
-	c.references = make(map[string][]PopulatedReference)
+	c.entries = make(map[string]*list.Element)
+	c.lru.Init()
+	c.bytes = 0
+}
+
+func (c *Cache) Stats() CacheStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return CacheStats{Entries: len(c.entries), Bytes: c.bytes, Evictions: c.evictions}
+}
+
+func (c *Cache) get(kind cacheEntryKind, key string) (any, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entryKey := string(kind) + "\x00" + key
+	element, ok := c.entries[entryKey]
+	if !ok {
+		return nil, false
+	}
+	c.lru.MoveToFront(element)
+	return element.Value.(cacheEntry).value, true
+}
+
+func (c *Cache) put(kind cacheEntryKind, key string, value any) {
+	weight := cacheValueWeight(key, value)
+	if weight > c.limits.MaxBytes {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entryKey := string(kind) + "\x00" + key
+	if existing, ok := c.entries[entryKey]; ok {
+		c.removeLocked(entryKey, existing)
+	}
+	for len(c.entries) >= c.limits.MaxEntries || c.bytes+weight > c.limits.MaxBytes {
+		oldest := c.lru.Back()
+		if oldest == nil {
+			return
+		}
+		oldestKey := oldest.Value.(cacheEntry)
+		c.removeLocked(string(oldestKey.kind)+"\x00"+oldestKey.key, oldest)
+		c.evictions++
+	}
+	entry := cacheEntry{kind: kind, key: key, value: value, weight: weight}
+	c.entries[entryKey] = c.lru.PushFront(entry)
+	c.bytes += weight
+}
+
+func (c *Cache) removeLocked(key string, element *list.Element) {
+	entry := element.Value.(cacheEntry)
+	delete(c.entries, key)
+	c.lru.Remove(element)
+	c.bytes -= entry.weight
+}
+
+func cacheValueWeight(key string, value any) int {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return len(key)
+	}
+	return len(key) + len(encoded)
 }
 
 func fieldKey(opts PopulatedFieldOptions) (string, error) {
