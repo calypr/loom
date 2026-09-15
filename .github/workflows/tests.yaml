@@ -41,6 +41,25 @@ jobs:
         go-version: 1.26.5
         cache: true
 
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    - name: Install UI dependencies
+      working-directory: ui
+      run: npm ci --ignore-scripts --no-audit --no-fund
+
+    - name: Run UI behavioral tests
+      working-directory: ui
+      run: npm test
+
+    - name: Build UI
+      working-directory: ui
+      run: npm run build
+
     - name: Generate FHIR code
       run: make generate-fhir
 
