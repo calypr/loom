@@ -31,11 +31,11 @@ type CompiledRecipe struct {
 // Columns is metadata for the stream/materialization layer; all query
 // semantics live in Plan.
 type CompiledRecipeOutput struct {
-	Name             string
-	RootResourceType string
-	RowGrain         spec.RowGrain
-	RootColumnNaming recipe.RootColumnNaming
-	Columns          []string
+	Name               string
+	RootResourceType   string
+	RowGrain           spec.RowGrain
+	RootColumnNaming   recipe.RootColumnNaming
+	Columns            []string
 	// OutputSchema is the compiler-owned ordered projection schema. It is
 	// captured from the finalized physical RETURN projections rather than
 	// reconstructed by a transport adapter from the semantic recipe tree.
@@ -110,7 +110,24 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 	}
 	selected := map[string]bool{}
 	for _, name := range semanticPlan.Bindings.OutputNames {
+		if strings.TrimSpace(name) == "" {
+			return CompiledRecipe{}, fmt.Errorf("invalid output selection: output name is required")
+		}
+		if selected[name] {
+			return CompiledRecipe{}, fmt.Errorf("invalid output selection: duplicate output %q", name)
+		}
 		selected[name] = true
+	}
+	if len(selected) > 0 {
+		available := make(map[string]struct{}, len(semanticPlan.Outputs))
+		for _, output := range semanticPlan.Outputs {
+			available[output.Name] = struct{}{}
+		}
+		for name := range selected {
+			if _, ok := available[name]; !ok {
+				return CompiledRecipe{}, fmt.Errorf("invalid output selection: unknown output %q", name)
+			}
+		}
 	}
 	for _, output := range semanticPlan.Outputs {
 		if len(selected) > 0 && !selected[output.Name] {
