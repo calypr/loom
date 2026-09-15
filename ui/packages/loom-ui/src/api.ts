@@ -530,15 +530,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     if (!entry) {
       const controller = new AbortController();
       const promise = Promise.resolve().then(() => run(controller.signal));
-      entry = { controller, promise, consumers: 0, settled: false };
-      cache.set(key, entry);
+      const createdEntry: CacheEntry = { controller, promise, consumers: 0, settled: false };
+      entry = createdEntry;
+      cache.set(key, createdEntry);
       void promise.then(
         () => {
-          entry!.settled = true;
+          createdEntry.settled = true;
         },
         () => {
-          entry!.settled = true;
-          if (cache.get(key) === entry) cache.delete(key);
+          createdEntry.settled = true;
+          if (cache.get(key) === createdEntry) cache.delete(key);
         },
       );
     }
@@ -605,16 +606,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       (requestSignal) => request(projectPath(args), { signal: requestSignal }),
       (value): ReadonlyArray<ExplorerSummary> => {
         if (!Array.isArray(value)) throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
-        return value.flatMap((item): ReadonlyArray<ExplorerSummary> => {
-          if (!isRecord(item) || typeof item.project !== 'string' || typeof item.explorerId !== 'string' || typeof item.title !== 'string' || typeof item.management !== 'string' || typeof item.updatedAt !== 'string') return [];
-          return [{
+        return value.map((item): ExplorerSummary => {
+          if (!isRecord(item) || typeof item.project !== 'string' || typeof item.explorerId !== 'string' || typeof item.title !== 'string' || typeof item.management !== 'string' || typeof item.updatedAt !== 'string') throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
+          return {
             project: item.project,
             explorerId: item.explorerId,
             title: item.title,
             management: item.management,
             ...(typeof item.activeRevisionId === 'string' ? { activeRevisionId: item.activeRevisionId } : {}),
             updatedAt: item.updatedAt,
-          }];
+          };
         });
       },
       signal,
