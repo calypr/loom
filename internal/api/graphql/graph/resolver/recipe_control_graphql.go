@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/api/authpolicy"
 	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -41,12 +42,8 @@ func recipeGraphQLError(err error) error {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
 		case errors.Is(err, recipeexec.ErrRecipeNotFound):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
-		case errors.Is(err, authscope.ErrUnauthenticated):
-			err = dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
-		case errors.Is(err, authscope.ErrForbidden):
-			err = dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthorizedProject, "")
-		case errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
-			err = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden), errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
+			err = authpolicy.Classify(err, authpolicy.OperationRecipeControl)
 		case errors.Is(err, context.Canceled):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeClientCanceled, "")
 		case errors.Is(err, context.DeadlineExceeded):

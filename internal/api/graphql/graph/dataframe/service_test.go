@@ -69,3 +69,23 @@ func TestAuthorizeUnrestrictedMaterializationWithoutResolver(t *testing.T) {
 		t.Fatalf("access = %#v", access)
 	}
 }
+
+func TestMapReaderErrorUsesDataframeReadAuthorizationPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		err       error
+		code      string
+		retryable bool
+	}{
+		{name: "forbidden", err: authscope.ErrForbidden, code: "FORBIDDEN"},
+		{name: "authorization outage", err: authscope.ErrAuthorizationBackendUnavailable, code: "BACKEND_UNAVAILABLE", retryable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mapped := mapReaderError(test.err)
+			userErr, ok := dataframeerrors.AsUserError(mapped)
+			if !ok || userErr.Code() != test.code || userErr.Retryable() != test.retryable {
+				t.Fatalf("mapped error = %#v, want code=%s retryable=%t", mapped, test.code, test.retryable)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
@@ -27,5 +28,25 @@ func TestRecipeExecutionAuthorizationStatusDistinguishesDenialFromOutage(t *test
 	}
 	if got := recipeExecutionAuthorizationStatus(errors.New("unexpected scope failure")); got != http.StatusServiceUnavailable {
 		t.Fatalf("unknown scope status = %d, want %d", got, http.StatusServiceUnavailable)
+	}
+}
+
+func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		err       error
+		code      string
+		retryable bool
+	}{
+		{name: "forbidden", err: authscope.ErrForbidden, code: "UNAUTHORIZED_PROJECT"},
+		{name: "authorization outage", err: authscope.ErrAuthorizationBackendUnavailable, code: "BACKEND_UNAVAILABLE", retryable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mapped := recipeAuthorizationError(test.err)
+			userErr, ok := dataframeerrors.AsUserError(mapped)
+			if !ok || userErr.Code() != test.code || userErr.Retryable() != test.retryable {
+				t.Fatalf("mapped error = %#v, want code=%s retryable=%t", mapped, test.code, test.retryable)
+			}
+		})
 	}
 }
