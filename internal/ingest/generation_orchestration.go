@@ -24,6 +24,24 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	return loadGeneration(ctx, opts)
 }
 
+const generationCleanupTimeout = 10 * time.Second
+
+// Cleanup actions receive independent deadlines. A stalled manifest transition
+// cannot consume the close deadline, so failure cleanup may use two windows.
+func boundedGenerationCleanup(parent context.Context, timeout time.Duration, cleanup func(context.Context) error) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	return cleanup(cleanupCtx)
+}
+
+func generationCleanupError(parent context.Context, timeout time.Duration, original error, label string, cleanup func(context.Context) error) error {
+	cleanupErr := boundedGenerationCleanup(parent, timeout, cleanup)
+	if cleanupErr == nil {
+		return original
+	}
+	return errors.Join(original, fmt.Errorf("%s: %w", label, cleanupErr))
+}
+
 func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary, err error) {
 	opts = normalizeLoadOptions(opts)
 
@@ -105,7 +123,9 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
+	defer func() {
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", client.Close)
+	}()
 	catalogStore, err := catalogarango.New(client)
 	if err != nil {
 		return summary, err
@@ -155,14 +175,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		// Once STAGED is persisted we deliberately leave it alone,
 		// because an activation error is an unknown outcome rather than proof
 		// that the generation failed.
-		_, cleanupErr := lifecycleStore.TransitionManifest(
-			context.WithoutCancel(ctx),
-			manifest,
-			publication.StateFailed,
-		)
-		if cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("mark dataset generation %s/%s failed: %w", plan.Dataset.Project, plan.Dataset.Generation, cleanupErr))
-		}
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, fmt.Sprintf("mark dataset generation %s/%s failed", plan.Dataset.Project, plan.Dataset.Generation), func(cleanupCtx context.Context) error {
+			_, err := lifecycleStore.TransitionManifest(cleanupCtx, manifest, publication.StateFailed)
+			return err
+		})
 	}()
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
@@ -223,7 +239,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCacheWithLimit(opts.CatalogLimits.MaxShapePlans),
+				catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes),
 				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
