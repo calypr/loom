@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -48,5 +49,21 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 				t.Fatalf("mapped error = %#v, want code=%s retryable=%t", mapped, test.code, test.retryable)
 			}
 		})
+	}
+}
+
+func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t *testing.T) {
+	denial, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
+	if status != http.StatusForbidden || denial["error"] != "recipe execution not found" {
+		t.Fatalf("denial response = %#v, %d; want concealed 403", denial, status)
+	}
+
+	outage, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrAuthorizationBackendUnavailable)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("outage status = %d, want 503", status)
+	}
+	errorBody, ok := outage["error"].(map[string]interface{})
+	if !ok || errorBody["code"] != "BACKEND_UNAVAILABLE" || errorBody["retryable"] != true {
+		t.Fatalf("outage response = %#v, want structured retryable service error", outage)
 	}
 }

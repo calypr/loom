@@ -25,7 +25,7 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string
 	if r.scopes != nil {
 		principal, _ := authscope.PrincipalFromContext(ctx)
 		if _, scopeErr := r.scopes.ResolveReadScopeForGeneration(ctx, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths); scopeErr != nil {
-			return map[string]any{"error": "recipe execution not found"}, recipeExecutionAuthorizationStatus(scopeErr)
+			return recipeExecutionAuthorizationResponse(ctx, scopeErr)
 		}
 	}
 	outputs := make([]map[string]any, 0, len(execution.Outputs))
@@ -44,6 +44,26 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string
 		outputs = append(outputs, map[string]any{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
 	}
 	return map[string]any{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs}, http.StatusOK
+}
+
+// recipeExecutionAuthorizationResponse keeps concealment for denials while
+// exposing a retryable shared service envelope for an authorization outage.
+// The generated OpenAPI adapter owns the final 503 response type; this seam
+// keeps the semantic route behavior testable without hand-editing generated
+// code.
+func recipeExecutionAuthorizationResponse(ctx context.Context, err error) (map[string]any, int) {
+	status := recipeExecutionAuthorizationStatus(err)
+	if status != http.StatusServiceUnavailable {
+		return map[string]any{"error": "recipe execution not found"}, status
+	}
+	_, response := mapServiceError(err, ctx)
+	body, conversionErr := rawJSON(response)
+	if conversionErr != nil {
+		return map[string]any{"error": map[string]any{
+			"code": "BACKEND_UNAVAILABLE", "message": "the backend is temporarily unavailable", "retryable": true,
+		}}, status
+	}
+	return map[string]any(body), status
 }
 
 func recipeExecutionAuthorizationStatus(err error) int {
