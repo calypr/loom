@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -170,6 +171,26 @@ func (c *bundleCatalogFixture) RenewBundleLease(context.Context, string, string,
 }
 func (c *bundleCatalogFixture) ReleaseBundleLease(context.Context, string, string) error {
 	return nil
+}
+
+type blockingFindCatalog struct {
+	*bundleCatalogFixture
+	blockedKey  string
+	findStarted chan struct{}
+	releaseFind chan struct{}
+	findOnce    sync.Once
+}
+
+func (c *blockingFindCatalog) FindExecutionByKey(ctx context.Context, key string) (publication.BundleExecution, error) {
+	if key == c.blockedKey {
+		c.findOnce.Do(func() { close(c.findStarted) })
+		select {
+		case <-c.releaseFind:
+		case <-ctx.Done():
+			return publication.BundleExecution{}, ctx.Err()
+		}
+	}
+	return c.bundleCatalogFixture.FindExecutionByKey(ctx, key)
 }
 
 type bundleClickHouseFixture struct {
@@ -415,6 +436,60 @@ func TestClickHouseBundleStoreRejectsDuplicateInFlightExecution(t *testing.T) {
 	}
 	if _, err := store.beginBundle(context.Background(), identity); !errors.Is(err, ErrBundleInFlight) {
 		t.Fatalf("duplicate execution error = %v", err)
+	}
+}
+
+func TestClickHouseBundleStoreSerializesBeginsPerBundleKey(t *testing.T) {
+	catalog := &blockingFindCatalog{
+		bundleCatalogFixture: newBundleCatalogFixture(),
+		blockedKey:           publication.BundleIdentity{Name: "blocked-a", EngineVersion: "loom"}.Key(),
+		findStarted:          make(chan struct{}),
+		releaseFind:          make(chan struct{}),
+	}
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	type beginResult struct {
+		tx  publication.Transaction
+		err error
+	}
+	firstDone := make(chan beginResult, 1)
+	go func() {
+		tx, err := store.Begin(context.Background(), publication.PublicationIdentity{Name: "blocked-a"}, nil)
+		firstDone <- beginResult{tx: tx, err: err}
+	}()
+	select {
+	case <-catalog.findStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first begin did not reach the catalog")
+	}
+
+	secondDone := make(chan beginResult, 1)
+	go func() {
+		tx, err := store.Begin(context.Background(), publication.PublicationIdentity{Name: "parallel-b"}, nil)
+		secondDone <- beginResult{tx: tx, err: err}
+	}()
+	var second beginResult
+	select {
+	case second = <-secondDone:
+	case <-time.After(time.Second):
+		close(catalog.releaseFind)
+		<-firstDone
+		t.Fatal("different bundle begin was blocked by another key")
+	}
+	if second.err != nil {
+		close(catalog.releaseFind)
+		<-firstDone
+		t.Fatalf("different bundle begin failed: %v", second.err)
+	}
+	if second.tx != nil {
+		_ = second.tx.Abort(context.Background(), errors.New("test cleanup"))
+	}
+	close(catalog.releaseFind)
+	first := <-firstDone
+	if first.err != nil {
+		t.Fatalf("blocked bundle begin failed: %v", first.err)
+	}
+	if first.tx != nil {
+		_ = first.tx.Abort(context.Background(), errors.New("test cleanup"))
 	}
 }
 

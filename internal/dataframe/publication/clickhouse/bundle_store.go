@@ -31,9 +31,15 @@ type ClickHouseBundleStore struct {
 	clickHouse         BundleClickHouseStore
 	catalog            publication.BundleCatalog
 	prefix             string
-	mu                 sync.Mutex
+	keyLocksMu         sync.Mutex
+	keyLocks           map[string]*bundleKeyLock
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
+}
+
+type bundleKeyLock struct {
+	ready chan struct{}
+	refs  int
 }
 
 type BundleClickHouseStore interface {
@@ -48,7 +54,14 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 	if client == nil || catalog == nil {
 		return nil, fmt.Errorf("ClickHouse client and bundle catalog are required")
 	}
-	return &ClickHouseBundleStore{clickHouse: client, catalog: catalog, prefix: "loom_bundle", leaseTTL: 2 * time.Minute, leaseRenewInterval: 30 * time.Second}, nil
+	return &ClickHouseBundleStore{
+		clickHouse:         client,
+		catalog:            catalog,
+		prefix:             "loom_bundle",
+		keyLocks:           make(map[string]*bundleKeyLock),
+		leaseTTL:           2 * time.Minute,
+		leaseRenewInterval: 30 * time.Second,
+	}, nil
 }
 
 var _ publication.Target = (*ClickHouseBundleStore)(nil)
@@ -97,9 +110,6 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 
 func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity publication.BundleIdentity) (*clickHouseBundleTx, error) {
 	identity = identity.Canonical()
-	// ponytail: one process-wide begin lock; catalog leases handle cross-process races, per-key locks if throughput matters.
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if strings.TrimSpace(identity.Name) == "" {
 		return nil, fmt.Errorf("bundle name is required")
 	}
@@ -107,6 +117,11 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 		identity.EngineVersion = "loom"
 	}
 	key := identity.Key()
+	unlock, err := s.lockBundleKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if existing, err := s.catalog.FindExecutionByKey(ctx, key); err == nil {
 		switch existing.State {
 		case publication.BundlePublished, publication.BundleReady:
@@ -154,6 +169,38 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 	tx := &clickHouseBundleTx{store: s, execution: execution, expectedPointer: expectedPointer}
 	tx.startLeaseRenewal(ctx)
 	return tx, nil
+}
+
+func (s *ClickHouseBundleStore) lockBundleKey(ctx context.Context, key string) (func(), error) {
+	s.keyLocksMu.Lock()
+	lock := s.keyLocks[key]
+	if lock == nil {
+		lock = &bundleKeyLock{ready: make(chan struct{}, 1)}
+		lock.ready <- struct{}{}
+		s.keyLocks[key] = lock
+	}
+	lock.refs++
+	s.keyLocksMu.Unlock()
+
+	select {
+	case <-lock.ready:
+		return func() {
+			lock.ready <- struct{}{}
+			s.releaseBundleKeyRef(key, lock)
+		}, nil
+	case <-ctx.Done():
+		s.releaseBundleKeyRef(key, lock)
+		return nil, ctx.Err()
+	}
+}
+
+func (s *ClickHouseBundleStore) releaseBundleKeyRef(key string, lock *bundleKeyLock) {
+	s.keyLocksMu.Lock()
+	defer s.keyLocksMu.Unlock()
+	lock.refs--
+	if lock.refs == 0 && s.keyLocks[key] == lock {
+		delete(s.keyLocks, key)
+	}
 }
 
 func (s *ClickHouseBundleStore) pointer(ctx context.Context, name string) (string, error) {
