@@ -1,6 +1,9 @@
 package authoringv2
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	visible := true
@@ -17,6 +20,24 @@ func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	migrated := MigrateLosslessDefaults(legacy, catalog)
 	if migrated.SemanticsVersion != CurrentSemanticsVersion || migrated.Documents[0].Columns[0].Source.ProjectionMode != "INDEXED" {
 		t.Fatalf("migrated workspace = %#v", migrated)
+	}
+	if len(migrated.MigrationDecisions) != 1 || migrated.MigrationDecisions[0] != "semantics-v2:repeated-first-to-indexed:patients:names" {
+		t.Fatalf("migration decisions = %#v", migrated.MigrationDecisions)
+	}
+	legacyDigest, err := legacy.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	migratedDigest, err := migrated.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedDigest == legacyDigest {
+		t.Fatal("migration decision did not change the workspace digest")
+	}
+	raw, err := migrated.CanonicalJSON()
+	if err != nil || !strings.Contains(string(raw), `"migrationDecisions"`) {
+		t.Fatalf("canonical migration decision = %s, err=%v", raw, err)
 	}
 	if legacy.SemanticsVersion != 0 || legacy.Documents[0].Columns[0].Source.ProjectionMode != "FIRST" {
 		t.Fatal("migration mutated its input")

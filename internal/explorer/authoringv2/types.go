@@ -35,14 +35,17 @@ type Output struct {
 // Workspace is the atomic authoring unit. Documents are independent table
 // intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
-	APIVersion       string                           `json:"apiVersion"`
-	Kind             string                           `json:"kind"`
-	SemanticsVersion int                              `json:"semanticsVersion,omitempty"`
-	Explorer         ExplorerMetadata                 `json:"explorer"`
-	Documents        []Document                       `json:"documents"`
-	Tabs             []Tab                            `json:"tabs"`
-	SharedFilters    map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
-	FileActions      *FileActions                     `json:"fileActions,omitempty"`
+	APIVersion       string `json:"apiVersion"`
+	Kind             string `json:"kind"`
+	SemanticsVersion int    `json:"semanticsVersion,omitempty"`
+	// MigrationDecisions records automatic interpretation of ambiguous legacy
+	// intent so the choice remains visible and part of the workspace digest.
+	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
+	Explorer           ExplorerMetadata                 `json:"explorer"`
+	Documents          []Document                       `json:"documents"`
+	Tabs               []Tab                            `json:"tabs"`
+	SharedFilters      map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions        *FileActions                     `json:"fileActions,omitempty"`
 }
 
 type Tab struct {

@@ -1,6 +1,9 @@
 package authoringv2
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // MigrateLosslessDefaults upgrades mutable pre-v2 workspaces whose repeated
 // fields were historically reduced to FIRST. Published receipts are immutable
@@ -10,6 +13,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 		return workspace
 	}
 	workspace.Documents = append([]Document(nil), workspace.Documents...)
+	workspace.MigrationDecisions = append([]string(nil), workspace.MigrationDecisions...)
 	for index := range workspace.Documents {
 		workspace.Documents[index].Columns = append([]Column(nil), workspace.Documents[index].Columns...)
 	}
@@ -38,6 +42,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 					continue
 				}
 				column.Source.ProjectionMode = "INDEXED"
+				workspace.MigrationDecisions = append(workspace.MigrationDecisions, fmt.Sprintf("semantics-v2:repeated-first-to-indexed:%s:%s", document.Output.ID, column.Column))
 				break
 			}
 		}
