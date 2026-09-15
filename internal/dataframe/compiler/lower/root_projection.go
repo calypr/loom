@@ -274,10 +274,24 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		if err != nil {
 			return ir.PhysicalExpression{}, err
 		}
+		cardinality, distinct := ir.PhysicalScalarCardinality, false
+		switch selection.Projection {
+		case spec.ProjectionArray:
+			cardinality = ir.PhysicalArrayCardinality
+		case spec.ProjectionDistinctArray:
+			cardinality, distinct = ir.PhysicalArrayCardinality, true
+		case spec.ProjectionScalar, spec.ProjectionFirst:
+		default:
+			return ir.PhysicalExpression{}, fmt.Errorf("slice %q field %q has unsupported projection %q", slice.Name, selection.Name, selection.Projection)
+		}
+		nullBehavior := ir.PhysicalPreserveNull
+		if cardinality == ir.PhysicalArrayCardinality {
+			nullBehavior = ir.PhysicalEmptyOnNull
+		}
 		physicalSlice.Projections = append(physicalSlice.Projections, ir.PhysicalExpressionProjection{
 			Name: selection.Name,
-			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: fallbacks, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
+			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior,
+				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: fallbacks, Distinct: distinct, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
 		})
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil
