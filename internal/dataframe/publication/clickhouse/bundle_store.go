@@ -864,20 +864,12 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 		return nil
 	}
 	states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}
-	if paged, ok := s.catalog.(publication.PagedBundleCatalog); ok {
-		for _, state := range states {
-			if err := paged.VisitExecutionPages(ctx, state, olderThan, s.reconcilePageSize, publication.BundleExecutionPageFunc(process)); err != nil {
-				return err
-			}
-		}
-		return nil
+	paged, ok := s.catalog.(publication.PagedBundleCatalog)
+	if !ok {
+		return fmt.Errorf("bundle catalog does not support paged reconciliation")
 	}
 	for _, state := range states {
-		executions, err := s.catalog.ListExecutions(ctx, state, olderThan)
-		if err != nil {
-			return err
-		}
-		if err := process(executions); err != nil {
+		if err := paged.VisitExecutionPages(ctx, state, olderThan, s.reconcilePageSize, publication.BundleExecutionPageFunc(process)); err != nil {
 			return err
 		}
 	}
