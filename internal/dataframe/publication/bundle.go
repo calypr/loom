@@ -243,3 +243,4 @@ func WithPhase(err error, phase, output string) error {
 
 var ErrBundleNotFound = fmt.Errorf("bundle execution not found")
 var ErrBundlePointerConflict = fmt.Errorf("bundle pointer compare-and-swap conflict")
+var ErrBundleLeaseLost = fmt.Errorf("bundle lease ownership was lost")

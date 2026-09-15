@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -56,5 +57,47 @@ func TestPublishExecutionRequiresCurrentLeaseOwner(t *testing.T) {
 	}
 	if err := registry.PublishExecution(context.Background(), "project\x00generation\x00recipe", "", execution); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type saveExecutionClient struct {
+	allowSave bool
+}
+
+func (c saveExecutionClient) InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error {
+	return nil
+}
+
+func (c saveExecutionClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+	for _, fragment := range []string{"LET lease = DOCUMENT(@@leases, @leaseKey)", "lease.ownerId == @owner", "lease.expiresAt >= @now", "UPSERT {_key: @executionKey}"} {
+		if !strings.Contains(query, fragment) {
+			return errors.New("fenced execution query is missing " + fragment)
+		}
+	}
+	if bindVars["leaseKey"] != "bundle-key" || bindVars["owner"] != "publisher-a" || bindVars["executionKey"] != "execution-a" {
+		return errors.New("fenced execution bindings are incorrect")
+	}
+	if c.allowSave {
+		return visit(map[string]any{"saved": true})
+	}
+	return nil
+}
+
+func TestSaveExecutionRejectsCheckpointAfterLeaseTakeover(t *testing.T) {
+	registry, err := New(saveExecutionClient{allowSave: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := publication.BundleExecution{ID: "execution-a", Key: "bundle-key", OwnerID: "publisher-a"}
+	if err := registry.SaveExecution(context.Background(), execution); err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err = New(saveExecutionClient{allowSave: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.SaveExecution(context.Background(), execution); !errors.Is(err, publication.ErrBundleLeaseLost) {
+		t.Fatalf("SaveExecution() error = %v, want lease loss", err)
 	}
 }

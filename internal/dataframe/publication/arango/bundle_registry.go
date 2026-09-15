@@ -18,6 +18,9 @@ const (
 )
 
 func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution) error {
+	if execution.ID == "" || execution.Key == "" || execution.OwnerID == "" {
+		return publication.ErrBundleLeaseLost
+	}
 	data, err := json.Marshal(execution)
 	if err != nil {
 		return err
@@ -31,7 +34,29 @@ func (r *Registry) SaveExecution(ctx context.Context, execution publication.Bund
 	if err != nil {
 		return err
 	}
-	return r.client.InsertBatchRaw(ctx, BundleExecutionsCollection, []json.RawMessage{data}, true, "document")
+	saved := false
+	err = r.client.QueryRows(ctx, `LET lease = DOCUMENT(@@leases, @leaseKey)
+FILTER lease != null
+  AND lease.ownerId == @owner
+  AND lease.expiresAt >= @now
+UPSERT {_key: @executionKey}
+INSERT @execution
+REPLACE @execution IN @@collection
+RETURN {saved: true}`, r.batchSize, map[string]interface{}{
+		"@collection": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
+		"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
+		"executionKey": execution.ID, "execution": doc,
+	}, func(map[string]any) error {
+		saved = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !saved {
+		return publication.ErrBundleLeaseLost
+	}
+	return nil
 }
 
 func (r *Registry) GetExecution(ctx context.Context, id string) (publication.BundleExecution, error) {

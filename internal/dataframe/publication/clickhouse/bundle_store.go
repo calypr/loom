@@ -19,7 +19,7 @@ import (
 
 var (
 	ErrBundleInFlight        = errors.New("identical bundle execution is already in flight")
-	ErrBundleLeaseLost       = errors.New("bundle lease ownership was lost")
+	ErrBundleLeaseLost       = publication.ErrBundleLeaseLost
 	ErrBundleCommitUncertain = errors.New("bundle publication commit outcome is uncertain")
 )
 
