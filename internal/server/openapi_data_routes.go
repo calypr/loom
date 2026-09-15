@@ -145,6 +145,13 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 
 func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.GetRecipeExecutionRequestObject) (loomapi.GetRecipeExecutionResponseObject, error) {
 	body, status := r.recipeExecution(ctx, request.Id)
+	if status == http.StatusServiceUnavailable {
+		response, ok := body.(loomapi.ServiceErrorResponse)
+		if !ok {
+			return nil, unexpectedResponseStatus("getRecipeExecution", status)
+		}
+		return loomapi.GetRecipeExecution503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(response)}, nil
+	}
 	value, err := rawJSON(body)
 	if err != nil {
 		return nil, err

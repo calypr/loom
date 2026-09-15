@@ -324,6 +324,7 @@ paths:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '403': {$ref: '#/components/responses/LegacyForbidden'}
         '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /graphql/graph:
     get:
       operationId: getGraphQLPlayground

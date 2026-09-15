@@ -13,7 +13,7 @@ import (
 
 // recipeExecution returns the legacy execution document consumed by ETL. A
 // denied execution remains indistinguishable from a missing catalog entry.
-func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string]any, int) {
+func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) {
 	if r.releases == nil {
 		return map[string]any{"error": "recipe execution not found"}, http.StatusNotFound
 	}
@@ -51,19 +51,13 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (map[string
 // The generated OpenAPI adapter owns the final 503 response type; this seam
 // keeps the semantic route behavior testable without hand-editing generated
 // code.
-func recipeExecutionAuthorizationResponse(ctx context.Context, err error) (map[string]any, int) {
+func recipeExecutionAuthorizationResponse(ctx context.Context, err error) (any, int) {
 	status := recipeExecutionAuthorizationStatus(err)
 	if status != http.StatusServiceUnavailable {
 		return map[string]any{"error": "recipe execution not found"}, status
 	}
 	_, response := mapServiceError(err, ctx)
-	body, conversionErr := rawJSON(response)
-	if conversionErr != nil {
-		return map[string]any{"error": map[string]any{
-			"code": "BACKEND_UNAVAILABLE", "message": "the backend is temporarily unavailable", "retryable": true,
-		}}, status
-	}
-	return map[string]any(body), status
+	return response, status
 }
 
 func recipeExecutionAuthorizationStatus(err error) int {

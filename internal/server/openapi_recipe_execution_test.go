@@ -6,10 +6,21 @@ import (
 	"net/http"
 	"testing"
 
+	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
+
+type recipeExecutionCatalog struct {
+	publication.BundleCatalog
+	execution publication.BundleExecution
+}
+
+func (c recipeExecutionCatalog) GetExecution(context.Context, string) (publication.BundleExecution, error) {
+	return c.execution, nil
+}
 
 func TestRecipeExecutionHTTPStatePreservesExplorerReadyContract(t *testing.T) {
 	if got := recipeExecutionHTTPState(publication.BundlePublished); got != "READY" {
@@ -54,7 +65,8 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 
 func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t *testing.T) {
 	denial, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
-	if status != http.StatusForbidden || denial["error"] != "recipe execution not found" {
+	denialBody, ok := denial.(map[string]any)
+	if status != http.StatusForbidden || !ok || denialBody["error"] != "recipe execution not found" {
 		t.Fatalf("denial response = %#v, %d; want concealed 403", denial, status)
 	}
 
@@ -62,8 +74,32 @@ func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("outage status = %d, want 503", status)
 	}
-	errorBody, ok := outage["error"].(map[string]interface{})
-	if !ok || errorBody["code"] != "BACKEND_UNAVAILABLE" || errorBody["retryable"] != true {
+	response, ok := outage.(loomapi.ServiceErrorResponse)
+	if !ok || response.Error.Code != "BACKEND_UNAVAILABLE" || response.Error.Retryable == nil || !*response.Error.Retryable {
 		t.Fatalf("outage response = %#v, want structured retryable service error", outage)
+	}
+}
+
+func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
+	routes := &HTTPRoutes{
+		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
+			ID: "execution-a", BundleIdentity: publication.BundleIdentity{
+				Project: "project-a", DatasetGeneration: "generation-a", AuthResourcePaths: []string{"path-a"},
+			},
+		}},
+		scopes: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+				return nil, authscope.ErrAuthorizationBackendUnavailable
+			},
+		}),
+	}
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"path-a"}})
+	response, err := routes.GetRecipeExecution(ctx, loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, ok := response.(loomapi.GetRecipeExecution503JSONResponse)
+	if !ok || typed.Error.Code != "BACKEND_UNAVAILABLE" || typed.Error.Retryable == nil || !*typed.Error.Retryable {
+		t.Fatalf("generated 503 response = %#v, want retryable BACKEND_UNAVAILABLE", response)
 	}
 }
