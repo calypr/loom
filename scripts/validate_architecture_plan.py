@@ -20,7 +20,8 @@ ISSUE_FIELDS = {
 WP_FIELDS = {
     "wp_id", "title", "objective", "depends_on", "wave", "owner", "status",
     "branch", "worker_paths", "integration_paths", "unit_gate", "live_gate",
-    "performance_gate", "migration_gate", "rollback", "base_sha",
+    "iteration_gate", "integration_gate", "performance_gate", "migration_gate",
+    "rollback", "base_sha",
 }
 
 

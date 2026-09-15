@@ -31,12 +31,43 @@ class PlanValidationTests(unittest.TestCase):
             writer.writeheader()
             writer.writerows(rows)
 
+    def remove_column(self, name, column):
+        path = self.plan_dir / name
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields = [field for field in reader.fieldnames or [] if field != column]
+            rows = [{field: row[field] for field in fields} for row in reader]
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+
     def test_current_plan_passes(self):
         self.assertIn("PLAN_VALID:", PLAN.validate(self.plan_dir, ROOT))
 
     def test_duplicate_issue_is_rejected(self):
         self.mutate("ISSUES.csv", lambda rows: rows.append(dict(rows[0])))
         with self.assertRaisesRegex(ValueError, "duplicate issue ID"):
+            PLAN.validate(self.plan_dir, ROOT)
+
+    def test_iteration_gate_column_is_required(self):
+        self.remove_column("WORK_PACKAGES.csv", "iteration_gate")
+        with self.assertRaisesRegex(ValueError, "missing columns.*iteration_gate"):
+            PLAN.validate(self.plan_dir, ROOT)
+
+    def test_iteration_gate_must_not_be_empty(self):
+        self.mutate("WORK_PACKAGES.csv", lambda rows: rows[0].update(iteration_gate=""))
+        with self.assertRaisesRegex(ValueError, "WORK_PACKAGES WP01: empty iteration_gate"):
+            PLAN.validate(self.plan_dir, ROOT)
+
+    def test_integration_gate_column_is_required(self):
+        self.remove_column("WORK_PACKAGES.csv", "integration_gate")
+        with self.assertRaisesRegex(ValueError, "missing columns.*integration_gate"):
+            PLAN.validate(self.plan_dir, ROOT)
+
+    def test_integration_gate_must_not_be_empty(self):
+        self.mutate("WORK_PACKAGES.csv", lambda rows: rows[0].update(integration_gate=""))
+        with self.assertRaisesRegex(ValueError, "WORK_PACKAGES WP01: empty integration_gate"):
             PLAN.validate(self.plan_dir, ROOT)
 
     def test_dependency_cycle_is_rejected(self):

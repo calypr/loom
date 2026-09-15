@@ -24,7 +24,7 @@ observable acceptance condition, verification command, independent review,
 counterevidence, migration requirements, and execution status.
 
 [WORK_PACKAGES.csv](WORK_PACKAGES.csv) is the execution sheet. It supplies file
-ownership, dependencies, branches, unit/live/performance gates, and rollback
+ownership, dependencies, branches, iteration/integration gates, and rollback
 constraints. Owners are unassigned. The issue and package statuses describe
 implementation progress, not whether the architecture review is complete.
 
@@ -81,8 +81,9 @@ migration need their own before/after fixtures; they are not labeled easy wins.
 
 1. Fetch the planning branch and record its exact current SHA as the launch
    commit. It contains this plan on top of the frozen source checkpoint.
-2. The integrator creates one integration branch from that launch commit. Start
-   wave-1 worktrees from it. Start later-wave worktrees from the verified
+2. The integrator creates `arch/integration` from that launch commit. Create
+   worker branches and worktrees only for concurrent work. Start wave-1 worktrees
+   from it. Start later-wave worktrees from the verified
    integration commit containing every listed prerequisite, not the old source
    checkpoint.
 3. Assign one owner per package. A worker changes only `worker_paths` after
@@ -95,15 +96,23 @@ migration need their own before/after fixtures; they are not labeled easy wins.
    changes in an integrator-owned contract patch, with old-format handling and
    the regeneration command. Do not leave temporary compatibility layers as the
    final architecture merely to keep intermediate branches green.
-6. Run focused tests for the changed package and direct importers. Perform its
-   live and performance gates. Submit the patch, exact commit, test commands and
-   evidence location to the integrator.
+6. For each issue, run its focused tests and affected-caller checks under its
+   package's `iteration_gate`. Before package integration, satisfy the relevant
+   `live_gate` and `performance_gate`. Submit the patch, exact commit, commands,
+   outcomes and evidence location to the integrator.
 7. Integrate one package boundary at a time. Run the full repository suite once
    after the integrated wave, plus the UI and real browser gates below. Resolve
    failures before starting dependents.
 8. Mark an issue `done` only with its implementation SHA and verification
-   evidence. A package is done only when all accepted issues and migration gates
-   are satisfied. Update the decision trail for accepted changes in scope.
+   evidence. A package is done only when its accepted issues, migration gates and
+   `integration_gate` are satisfied. Update the decision trail for accepted
+   changes in scope.
+
+Wave 1 can use four worker branches, `arch/wp01` through `arch/wp04`. Wave 2
+can use `arch/wp05` and `arch/wp06` after their prerequisites are integrated.
+WP07 runs serially on `arch/integration`; do not create an extra branch for it.
+Do not create branches per issue. The integrator applies shared contract and
+generated-file changes serially, even while independent workers run in parallel.
 
 The reservation includes `server.go`, `options.go`, OpenAPI's source document,
 generated code, Makefile, UI dependency manifests, and `scripts/loom-dev.mjs`.
@@ -152,6 +161,31 @@ name the exact owned project and retain the needed evidence first.
 
 ## Verification and evidence
 
+Every issue inherits the `iteration_gate` and `integration_gate` of its `wp_id`.
+Its `verification_command` remains a focused check, not a complete definition of
+done. Choose extra checks from the actual diff and acceptance criterion, not
+from whether the issue happens to live in the backend or frontend directory.
+
+| Change or checkpoint | Required verification |
+| --- | --- |
+| Each issue | Focused behavior tests and affected-caller checks. Add storage, concurrency, memory or failure-injection tests where the invariant needs them. |
+| Frontend or consumed API contract change | Targeted DOM or API checks against the warm isolated stack immediately. Use both when the change crosses that boundary. |
+| Package ready to integrate | Relevant package live, performance and migration gates. These need not be repeated after every small edit. |
+| Integrated wave, before dependents start | Full Go/UI suites, boundary checks and `make verify-fast` on the integrated branch. |
+| Final handoff | Repeat the integrated checks against the final commit after all packages are integrated. |
+| Watcher, build or dev-driver change | Also run `make verify-full` in the exclusively owned worktree. |
+
+Keep the local stack warm when live checks are needed. Frontend edits flow
+through Vite HMR; backend edits use Air rebuilds. Verify that the changed code is
+serving before testing it. Rebuild development images only for dependency,
+toolchain or image changes. Do not run watcher source-mutation probes or the full
+browser workflow after every backend-only edit.
+
+Record the tested commit, commands, outcomes and evidence paths. Include the
+target identity and report path for live checks. The table validator checks that
+gate descriptions and completion evidence are present; it does not execute the
+gates or authenticate a passing test report. The integrator reviews that evidence.
+
 The frozen baseline passed the full Go suite, 103 UI tests, UI builds, six
 verification-driver tests, and a real browser workflow with 20 assertions.
 The short browser run took 11.173 seconds including setup, with 6.790 seconds
@@ -170,7 +204,7 @@ python3 scripts/validate_architecture_plan.py
 python3 -m unittest discover -s scripts -p 'test_validate_architecture_plan.py'
 ```
 
-At the end of an implementation wave:
+At the end of each integrated implementation wave and again at final handoff:
 
 ```bash
 make test
