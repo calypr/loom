@@ -35,6 +35,7 @@ type ClickHouseBundleStore struct {
 	keyLocks           map[string]*bundleKeyLock
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
+	reconcilePageSize  int
 }
 
 type bundleKeyLock struct {
@@ -61,6 +62,7 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 		keyLocks:           make(map[string]*bundleKeyLock),
 		leaseTTL:           2 * time.Minute,
 		leaseRenewInterval: 30 * time.Second,
+		reconcilePageSize:  32,
 	}, nil
 }
 
@@ -853,64 +855,74 @@ func allOutputsQueryable(outputs []publication.BundleOutputRecord) bool {
 // commands that have not started are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
 	reconcilerID := "reconciler-" + uuid.NewString()
-	for _, state := range []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundlePreflight, publication.BundleLoading, publication.BundleFailed} {
+	process := func(executions []publication.BundleExecution) error {
+		for _, execution := range executions {
+			if err := s.reconcileExecution(ctx, execution, reconcilerID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}
+	if paged, ok := s.catalog.(publication.PagedBundleCatalog); ok {
+		for _, state := range states {
+			if err := paged.VisitExecutionPages(ctx, state, olderThan, s.reconcilePageSize, publication.BundleExecutionPageFunc(process)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, state := range states {
 		executions, err := s.catalog.ListExecutions(ctx, state, olderThan)
 		if err != nil {
 			return err
 		}
-		for _, execution := range executions {
-			expires := time.Now().UTC().Add(s.leaseTTL)
-			claimed, err := s.catalog.AcquireBundleLease(ctx, execution.Key, reconcilerID, expires)
-			if err != nil {
-				return err
-			}
-			if !claimed {
-				continue
-			}
-			execution.OwnerID = reconcilerID
-			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
-			pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())
-			if pointerErr != nil && !errors.Is(pointerErr, publication.ErrBundleNotFound) {
-				releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
-				cancel()
-				return errors.Join(pointerErr, releaseErr)
-			}
-			// A pointer is the visibility boundary. If this execution is already
-			// visible, its tables are live even when a stale lifecycle snapshot
-			// still reports a non-successful state; never clean those tables up.
-			if pointerErr == nil && pointer.ExecutionID == execution.ID {
-				releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
-				cancel()
-				if releaseErr != nil {
-					return releaseErr
-				}
-				continue
-			}
-			var first error
-			remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
-			for _, output := range execution.Outputs {
-				if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
-					first = errors.Join(first, err)
-					remaining = append(remaining, output)
-				}
-			}
-			execution.State = publication.BundleFailed
-			execution.Error = "stale execution reconciled"
-			execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
-			execution.FailureRetryable = true
-			execution.UpdatedAt = time.Now().UTC()
-			execution.Outputs = remaining
-			execution.OwnerID = ""
-			execution.LeaseExpiresAt = nil
-			if err := s.catalog.SaveExecution(cleanupCtx, execution, reconcilerID); err != nil {
-				first = errors.Join(first, err)
-			}
-			first = errors.Join(first, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
-			cancel()
-			if first != nil {
-				return first
-			}
+		if err := process(executions); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, execution publication.BundleExecution, reconcilerID string) error {
+	expires := time.Now().UTC().Add(s.leaseTTL)
+	claimed, err := s.catalog.AcquireBundleLease(ctx, execution.Key, reconcilerID, expires)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return nil
+	}
+	execution.OwnerID = reconcilerID
+	cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+	defer cancel()
+	pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())
+	if pointerErr != nil && !errors.Is(pointerErr, publication.ErrBundleNotFound) {
+		releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+		return errors.Join(pointerErr, releaseErr)
+	}
+	if pointerErr == nil && pointer.ExecutionID == execution.ID {
+		return s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+	}
+	var first error
+	remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
+	for _, output := range execution.Outputs {
+		if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+			first = errors.Join(first, err)
+			remaining = append(remaining, output)
+		}
+	}
+	execution.State = publication.BundleFailed
+	execution.Error = "stale execution reconciled"
+	execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
+	execution.FailureRetryable = true
+	execution.UpdatedAt = time.Now().UTC()
+	execution.Outputs = remaining
+	execution.OwnerID = ""
+	execution.LeaseExpiresAt = nil
+	if err := s.catalog.SaveExecution(cleanupCtx, execution, reconcilerID); err != nil {
+		first = errors.Join(first, err)
+	}
+	first = errors.Join(first, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+	return first
 }

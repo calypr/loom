@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -71,16 +72,7 @@ func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publicat
 
 func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
-	states := []publication.BundleState{state.Canonical()}
-	switch state.Canonical() {
-	case publication.BundleQueued:
-		states = append(states, publication.BundlePending)
-	case publication.BundleRunning:
-		states = append(states, publication.BundlePreflight, publication.BundleLoading)
-	case publication.BundlePublished:
-		states = append(states, publication.BundleReady)
-	}
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state IN @states AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "states": states, "before": before}, func(row map[string]any) error {
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state IN @states AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "states": executionStates(state), "before": before}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
 			return err
@@ -93,6 +85,81 @@ func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleS
 		return nil
 	})
 	return out, err
+}
+
+func (r *Registry) VisitExecutionPages(ctx context.Context, state publication.BundleState, before time.Time, pageSize int, visit publication.BundleExecutionPageFunc) error {
+	if pageSize <= 0 {
+		return fmt.Errorf("execution page size must be positive")
+	}
+	if visit == nil {
+		return fmt.Errorf("execution page visitor is required")
+	}
+	var afterUpdatedAt time.Time
+	afterKey := ""
+	for {
+		page := make([]publication.BundleExecution, 0, pageSize)
+		lastKey := ""
+		err := r.client.QueryRows(ctx, `FOR doc IN @@collection
+FILTER doc.state IN @states
+  AND doc.updatedAt < @before
+  AND (doc.updatedAt > @afterUpdatedAt OR (doc.updatedAt == @afterUpdatedAt AND doc._key > @afterKey))
+SORT doc.updatedAt ASC, doc._key ASC
+LIMIT @limit
+RETURN doc`, r.batchSize, map[string]interface{}{
+			"@collection":    BundleExecutionsCollection,
+			"states":         executionStates(state),
+			"before":         before,
+			"afterUpdatedAt": afterUpdatedAt,
+			"afterKey":       afterKey,
+			"limit":          pageSize,
+		}, func(row map[string]any) error {
+			data, err := json.Marshal(row)
+			if err != nil {
+				return err
+			}
+			var execution publication.BundleExecution
+			if err := json.Unmarshal(data, &execution); err != nil {
+				return err
+			}
+			page = append(page, execution.CanonicalizeLegacy())
+			if key, ok := row["_key"].(string); ok {
+				lastKey = key
+			} else {
+				lastKey = execution.ID
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			return nil
+		}
+		if err := visit(page); err != nil {
+			return err
+		}
+		if len(page) < pageSize {
+			return nil
+		}
+		if lastKey == "" || page[len(page)-1].UpdatedAt.IsZero() {
+			return fmt.Errorf("execution page has no stable continuation key")
+		}
+		afterUpdatedAt = page[len(page)-1].UpdatedAt
+		afterKey = lastKey
+	}
+}
+
+func executionStates(state publication.BundleState) []publication.BundleState {
+	states := []publication.BundleState{state.Canonical()}
+	switch state.Canonical() {
+	case publication.BundleQueued:
+		states = append(states, publication.BundlePending)
+	case publication.BundleRunning:
+		states = append(states, publication.BundlePreflight, publication.BundleLoading)
+	case publication.BundlePublished:
+		states = append(states, publication.BundleReady)
+	}
+	return states
 }
 
 func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
@@ -275,3 +342,4 @@ func pointerDocumentKey(name string) string {
 
 var _ publication.BundleCatalog = (*Registry)(nil)
 var _ publication.ExactExecutionCatalog = (*Registry)(nil)
+var _ publication.PagedBundleCatalog = (*Registry)(nil)

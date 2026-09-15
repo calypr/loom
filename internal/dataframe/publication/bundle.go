@@ -207,6 +207,15 @@ type BundleCatalog interface {
 	ReleaseBundleLease(context.Context, string, string) error
 }
 
+// BundleExecutionPageFunc consumes one bounded reconciliation page.
+type BundleExecutionPageFunc func([]BundleExecution) error
+
+// PagedBundleCatalog provides bounded, stable execution scans for repair jobs.
+// Implementations must call visit sequentially and stop when it returns an error.
+type PagedBundleCatalog interface {
+	VisitExecutionPages(context.Context, BundleState, time.Time, int, BundleExecutionPageFunc) error
+}
+
 // ExactExecutionCatalog is consumed by project release verification. It never
 // falls back to latest-by-output or a name-only recipe.
 type ExactExecutionCatalog interface {

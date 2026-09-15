@@ -150,3 +150,70 @@ func TestLegacyExecutionWithoutOwnerCanBeReadAndFencedForRecovery(t *testing.T) 
 		t.Fatalf("recovery fence owner = %q, want publisher-a", client.savedOwner)
 	}
 }
+
+type executionPageClient struct {
+	rows  [][]map[string]any
+	binds []map[string]interface{}
+}
+
+func (c *executionPageClient) InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error {
+	return nil
+}
+
+func (c *executionPageClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
+	if !strings.Contains(query, "SORT doc.updatedAt ASC, doc._key ASC") || !strings.Contains(query, "LIMIT @limit") {
+		return errors.New("execution page query is not stably ordered and bounded")
+	}
+	copied := make(map[string]interface{}, len(bindVars))
+	for key, value := range bindVars {
+		copied[key] = value
+	}
+	c.binds = append(c.binds, copied)
+	page := c.rows[0]
+	c.rows = c.rows[1:]
+	for _, row := range page {
+		if err := visit(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestVisitExecutionPagesUsesStableContinuation(t *testing.T) {
+	firstUpdated := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	secondUpdated := firstUpdated.Add(time.Second)
+	thirdUpdated := secondUpdated.Add(time.Second)
+	client := &executionPageClient{rows: [][]map[string]any{
+		{
+			{"_key": "execution-a", "id": "execution-a", "key": "bundle-a", "state": "RUNNING", "updatedAt": firstUpdated},
+			{"_key": "execution-b", "id": "execution-b", "key": "bundle-b", "state": "RUNNING", "updatedAt": secondUpdated},
+		},
+		{{"_key": "execution-c", "id": "execution-c", "key": "bundle-c", "state": "RUNNING", "updatedAt": thirdUpdated}},
+	}}
+	registry, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var executions []publication.BundleExecution
+	if err := registry.VisitExecutionPages(context.Background(), publication.BundleRunning, thirdUpdated.Add(time.Minute), 2, func(page []publication.BundleExecution) error {
+		if len(page) > 2 {
+			t.Fatalf("execution page length = %d, want at most 2", len(page))
+		}
+		executions = append(executions, page...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(executions) != 3 || executions[0].ID != "execution-a" || executions[1].ID != "execution-b" || executions[2].ID != "execution-c" {
+		t.Fatalf("paged executions = %#v", executions)
+	}
+	if len(client.binds) != 2 {
+		t.Fatalf("execution page query count = %d, want 2", len(client.binds))
+	}
+	if got := client.binds[0]["afterKey"]; got != "" {
+		t.Fatalf("first continuation key = %v, want empty", got)
+	}
+	if got := client.binds[1]["afterKey"]; got != "execution-b" {
+		t.Fatalf("second continuation key = %v, want execution-b", got)
+	}
+}

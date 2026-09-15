@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,8 @@ import (
 type bundleCatalogFixture struct {
 	executions map[string]publication.BundleExecution
 	pointers   map[string]publication.BundlePointer
+	pageCalls  int
+	pageSizes  []int
 }
 
 type leaseBundleCatalog struct {
@@ -162,6 +165,34 @@ func (c *bundleCatalogFixture) ListExecutions(_ context.Context, state publicati
 		}
 	}
 	return out, nil
+}
+func (c *bundleCatalogFixture) VisitExecutionPages(ctx context.Context, state publication.BundleState, before time.Time, pageSize int, visit publication.BundleExecutionPageFunc) error {
+	if pageSize <= 0 {
+		return errors.New("invalid execution page size")
+	}
+	executions, err := c.ListExecutions(ctx, state, before)
+	if err != nil {
+		return err
+	}
+	sort.Slice(executions, func(i, j int) bool {
+		if executions[i].UpdatedAt.Equal(executions[j].UpdatedAt) {
+			return executions[i].ID < executions[j].ID
+		}
+		return executions[i].UpdatedAt.Before(executions[j].UpdatedAt)
+	})
+	c.pageCalls++
+	for start := 0; start < len(executions); start += pageSize {
+		end := start + pageSize
+		if end > len(executions) {
+			end = len(executions)
+		}
+		page := executions[start:end]
+		c.pageSizes = append(c.pageSizes, len(page))
+		if err := visit(page); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (c *bundleCatalogFixture) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
 	return true, nil
@@ -392,6 +423,37 @@ func TestClickHouseBundleStoreReconcileFinishesClaimedCleanupAfterCancellation(t
 	}
 	if len(catalog.savedOwners) == 0 || catalog.savedOwners[len(catalog.savedOwners)-1] == "" {
 		t.Fatal("reconciled execution was not saved with a fence owner")
+	}
+}
+
+func TestClickHouseBundleStoreReconcileProcessesBoundedPages(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, _ := NewBundleStore(client, catalog)
+	store.reconcilePageSize = 2
+	olderThan := time.Now().Add(-time.Minute)
+	for index := 0; index < 5; index++ {
+		identity := publication.BundleIdentity{Name: "stale-" + string(rune('a'+index)), EngineVersion: "loom"}
+		catalog.executions["stale-"+string(rune('a'+index))] = publication.BundleExecution{
+			ID: "stale-" + string(rune('a'+index)), Key: identity.Key(), BundleIdentity: identity,
+			State: publication.BundleRunning, UpdatedAt: olderThan.Add(-time.Duration(index+1) * time.Second),
+		}
+	}
+	if err := store.Reconcile(context.Background(), olderThan); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.pageCalls == 0 {
+		t.Fatal("reconciliation did not use paged execution scans")
+	}
+	for _, size := range catalog.pageSizes {
+		if size > store.reconcilePageSize {
+			t.Fatalf("reconciliation page size = %d, want at most %d", size, store.reconcilePageSize)
+		}
+	}
+	for id, execution := range catalog.executions {
+		if execution.State != publication.BundleFailed {
+			t.Fatalf("execution %q state = %q, want failed", id, execution.State)
+		}
 	}
 }
 
