@@ -18,6 +18,13 @@ const ExplorerStatus = () => {
   return <span>{query.data?.length} explorers</span>;
 };
 
+const BuilderStatus = () => {
+  const query = useGetExplorerBuilderStateV2Query({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' });
+  if (query.isLoading) return <span>loading</span>;
+  if (query.error) return <span>error</span>;
+  return <span>{query.data?.draftDigest}</span>;
+};
+
 describe('Loom React queries', () => {
   it('reloads a resolved Builder cache entry when explicitly requested', async () => {
     const builder = (digest: string) => ({
@@ -56,6 +63,76 @@ describe('Loom React queries', () => {
 
     expect(refreshed?.data?.draftDigest).toBe('new');
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a shared transport alive when only its first consumer unmounts', async () => {
+    let resolveResponse: (response: Response) => void = () => undefined;
+    let requestSignal: AbortSignal | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) => new Promise<Response>((resolve, reject) => {
+      resolveResponse = resolve;
+      requestSignal = init?.signal ?? undefined;
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+    }));
+    const client = createLoomClient({ fetch });
+    const Harness = ({ first }: { readonly first: boolean }) => (
+      <>
+        {first ? <BuilderStatus /> : null}
+        <BuilderStatus />
+      </>
+    );
+    const view = render(
+      <LoomProvider client={client}>
+        <Harness first />
+      </LoomProvider>,
+    );
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <LoomProvider client={client}>
+        <Harness first={false} />
+      </LoomProvider>,
+    );
+    await Promise.resolve();
+    expect(requestSignal?.aborted).toBe(false);
+
+    resolveResponse(new Response(JSON.stringify({
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderState',
+      lifecycleState: 'NEW',
+      draftVersion: 1,
+      draftDigest: 'shared',
+      workspace: null,
+      catalog: { snapshotToken: 'snapshot-1', generation: 'generation-1', routePolicy: {}, nodes: [], edges: [], candidates: [] },
+    }), { status: 200 }));
+    expect(await screen.findByText('shared')).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('aborts shared transport and evicts it after the final consumer leaves', async () => {
+    let requestSignal: AbortSignal | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) => {
+      requestSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+      });
+    });
+    const client = createLoomClient({ fetch });
+    const view = render(
+      <LoomProvider client={client}>
+        <BuilderStatus />
+        <BuilderStatus />
+      </LoomProvider>,
+    );
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await waitFor(() => expect(requestSignal?.aborted).toBe(true));
+
+    render(
+      <LoomProvider client={client}>
+        <BuilderStatus />
+      </LoomProvider>,
+    );
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   });
 
   it('keeps the initial request alive through the Strict Mode subscription probe', async () => {
