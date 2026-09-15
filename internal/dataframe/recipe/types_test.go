@@ -164,6 +164,20 @@ func TestValidationRejectsUnsupportedRichFilterShapes(t *testing.T) {
 	}
 }
 
+func TestValidationAcceptsTypedExpressionOperationSet(t *testing.T) {
+	for _, call := range []string{"fallback", "not", "and", "or", "eq", "neq", "gt", "gte", "lt", "lte", "contains"} {
+		bundle := Bundle{RecipeSchemaVersion: 1, Name: "ops", TranslationVersion: "1"}
+		bundle.Outputs = []Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}
+		bundle.Outputs[0].Fields = []Field{{Name: "value", Expr: Expression{Call: call, Args: []Expression{{Literal: []byte(`true`)}, {Literal: []byte(`true`)}}}}}
+		if call == "not" {
+			bundle.Outputs[0].Fields[0].Expr.Args = bundle.Outputs[0].Fields[0].Expr.Args[:1]
+		}
+		if err := bundle.Validate(); err != nil {
+			t.Fatalf("call %q rejected by recipe operation registry: %v", call, err)
+		}
+	}
+}
+
 func TestTraversalColumnNamingValidation(t *testing.T) {
 	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversalColumnNaming":"ALIAS","traversals":[{"name":"edge_a","alias":"occ_a","toResourceType":"Condition"},{"name":"edge_b","alias":"occ_b","toResourceType":"Condition"}]}]}`
 	if _, err := Parse([]byte(valid)); err != nil {

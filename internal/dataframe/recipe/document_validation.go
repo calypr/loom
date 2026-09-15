@@ -250,12 +250,14 @@ func validateExpression(e Expression, path string) error {
 type arity struct{ min, max int }
 
 var callArities = map[string]arity{
-	"coalesce": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1}, "length": {1, 1},
+	"coalesce": {1, -1}, "fallback": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1}, "length": {1, 1},
 	"canonical_json": {1, 1},
 	"concat":         {1, -1}, "join": {2, 2}, "cast": {2, 2}, "reference_id": {1, 1},
 	"path_segment": {1, 1}, "basename": {1, 1}, "last_segment": {1, 1},
 	"sanitize_name": {1, 1}, "sanitize_graphql_name": {1, 1}, "uuid3": {3, 3}, "uuid5": {3, 3},
 	"if": {3, 3}, "case": {2, -1},
+	"not": {1, 1}, "and": {2, -1}, "or": {2, -1},
+	"eq": {2, 2}, "neq": {2, 2}, "gt": {2, 2}, "gte": {2, 2}, "lt": {2, 2}, "lte": {2, 2}, "contains": {2, 2},
 }
 
 func maxString(max int) string {
