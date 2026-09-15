@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -30,6 +31,18 @@ func TestMapDataframeErrorBackendIsRetryable(t *testing.T) {
 	}
 	if mapped.Body.Error.Message == "clickhouse tcp://secret" {
 		t.Fatal("backend cause leaked into response")
+	}
+}
+
+func TestMapDataframeErrorPreservesOrderedFieldPath(t *testing.T) {
+	err := dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath("input", "outputs", "0", "columns", "2"))
+	mapped := MapDataframeError(err, "req-path")
+	want := []string{"input", "outputs", "0", "columns", "2"}
+	if mapped.Status != http.StatusBadRequest || mapped.Body.Error.Code != "INVALID_REQUEST" {
+		t.Fatalf("mapped = %#v, want INVALID_REQUEST/400", mapped)
+	}
+	if !reflect.DeepEqual(mapped.Body.Error.FieldPath, want) {
+		t.Fatalf("field path = %#v, want %#v", mapped.Body.Error.FieldPath, want)
 	}
 }
 
