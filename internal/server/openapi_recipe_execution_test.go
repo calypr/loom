@@ -2,15 +2,18 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
+	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type recipeExecutionCatalog struct {
@@ -101,5 +104,45 @@ func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
 	typed, ok := response.(loomapi.GetRecipeExecution503JSONResponse)
 	if !ok || typed.Error.Code != "BACKEND_UNAVAILABLE" || typed.Error.Retryable == nil || !*typed.Error.Retryable {
 		t.Fatalf("generated 503 response = %#v, want retryable BACKEND_UNAVAILABLE", response)
+	}
+}
+
+func TestStableReadResponseFixtures(t *testing.T) {
+	status := generationStatusResponse(&loadapi.GenerationStatusResult{
+		Project: "project-a", Generation: "generation-a", State: dataset.StateStaged, Reusable: true,
+	})
+	assertJSONFixture(t, status, `{"generation":"generation-a","project":"project-a","reusable":true,"state":"STAGED"}`)
+
+	activation := generationActivationResponse(&loadapi.GenerationActivationResult{
+		Project: "project-a", Generation: "generation-a", DataframeExecutionID: "execution-a", Activated: true,
+	})
+	assertJSONFixture(t, activation, `{"activated":true,"dataframeExecutionId":"execution-a","generation":"generation-a","project":"project-a"}`)
+
+	routes := &HTTPRoutes{releases: recipeExecutionCatalog{execution: publication.BundleExecution{
+		ID: "execution-a",
+		BundleIdentity: publication.BundleIdentity{
+			Project: "project-a", DatasetGeneration: "generation-a", RecipeDigest: "recipe-digest", SchemaDigest: "schema-digest",
+		},
+		State: publication.BundlePublished,
+		Outputs: []publication.BundleOutputRecord{{
+			Name: "patients", State: publication.BundlePublished, RowCount: 2,
+			Columns: []publication.PhysicalColumn{{Name: "id", SemanticPath: "Patient.id", ClickHouse: "String"}},
+		}},
+	}}}
+	body, statusCode := routes.recipeExecution(context.Background(), "execution-a")
+	if statusCode != http.StatusOK {
+		t.Fatalf("recipe execution status = %d, want 200", statusCode)
+	}
+	assertJSONFixture(t, body, `{"datasetGeneration":"generation-a","id":"execution-a","outputs":[{"columns":[{"aggregatable":true,"clickhouseType":"String","filterable":true,"logicalType":"string","name":"id","nullable":false,"repeated":false,"semanticPath":"Patient.id","sortable":true}],"name":"patients","rowCount":2,"state":"READY"}],"projectId":"project-a","recipeDigest":"recipe-digest","resolvedSchemaDigest":"schema-digest","schemaDigest":"schema-digest","state":"READY"}`)
+}
+
+func assertJSONFixture(t *testing.T, value any, want string) {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != want {
+		t.Fatalf("response fixture = %s, want %s", payload, want)
 	}
 }

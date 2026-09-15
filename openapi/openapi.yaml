@@ -237,7 +237,7 @@ paths:
           description: The persisted generation state and whether it can be reused.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
+              schema: {$ref: '#/components/schemas/GenerationStatusResponse'}
         '400': {$ref: '#/components/responses/ServiceBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/ServiceForbidden'}
@@ -295,7 +295,7 @@ paths:
           description: Successful response.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
+              schema: {$ref: '#/components/schemas/GenerationActivationResponse'}
         '400': {$ref: '#/components/responses/ServiceBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/ServiceForbidden'}
@@ -316,7 +316,7 @@ paths:
           description: Successful response.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
+              schema: {$ref: '#/components/schemas/RecipeExecutionResponse'}
         '401':
           description: Authentication is missing, invalid, or cannot be resolved for the execution's dataset scope.
           content:
@@ -664,6 +664,64 @@ components:
       description: JSON whose existing shape is preserved losslessly during route cutover.
       type: object
       additionalProperties: true
+    GenerationStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [project, generation, state, reusable]
+      properties:
+        project: {type: string}
+        generation: {type: string}
+        state: {type: string}
+        reusable: {type: boolean}
+    GenerationActivationResponse:
+      type: object
+      additionalProperties: false
+      required: [project, generation, dataframeExecutionId, activated]
+      properties:
+        project: {type: string}
+        generation: {type: string}
+        dataframeExecutionId: {type: string}
+        activated: {type: boolean}
+    RecipeExecutionResponse:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, datasetGeneration, recipeDigest, schemaDigest, resolvedSchemaDigest, state, outputs]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        datasetGeneration: {type: string}
+        recipeDigest: {type: string}
+        schemaDigest: {type: string}
+        resolvedSchemaDigest: {type: string}
+        state: {type: string}
+        outputs:
+          type: array
+          items: {$ref: '#/components/schemas/RecipeExecutionOutput'}
+    RecipeExecutionOutput:
+      type: object
+      additionalProperties: false
+      required: [name, state, rowCount, columns]
+      properties:
+        name: {type: string}
+        state: {type: string}
+        rowCount: {type: integer, format: int64}
+        columns:
+          type: array
+          items: {$ref: '#/components/schemas/RecipeExecutionColumn'}
+    RecipeExecutionColumn:
+      type: object
+      additionalProperties: false
+      required: [name, semanticPath, clickhouseType, logicalType, nullable, repeated, filterable, sortable, aggregatable]
+      properties:
+        name: {type: string}
+        semanticPath: {type: string}
+        clickhouseType: {type: string}
+        logicalType: {type: string}
+        nullable: {type: boolean}
+        repeated: {type: boolean}
+        filterable: {type: boolean}
+        sortable: {type: boolean}
+        aggregatable: {type: boolean}
     ServiceErrorResponse:
       description: Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
       type: object

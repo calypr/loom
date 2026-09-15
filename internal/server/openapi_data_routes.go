@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
+	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 )
@@ -56,11 +57,7 @@ func (r *HTTPRoutes) GetDatasetGenerationStatus(ctx context.Context, request loo
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	result, err := r.load.GetDatasetGenerationStatus(ctx, request.Project, request.Generation, optionalString(request.Params.AuthResourcePath), principal)
 	if err == nil {
-		value, conversionErr := rawJSON(result)
-		if conversionErr != nil {
-			return nil, conversionErr
-		}
-		return loomapi.GetDatasetGenerationStatus200JSONResponse(value), nil
+		return loomapi.GetDatasetGenerationStatus200JSONResponse(generationStatusResponse(result)), nil
 	}
 	status, body := mapServiceError(err, ctx)
 	switch status {
@@ -118,11 +115,7 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	result, err := r.load.ActivateDatasetGeneration(ctx, request.Project, request.Generation, request.Params.DataframeExecutionId, optionalString(request.Params.AuthResourcePath), principal)
 	if err == nil {
-		value, conversionErr := rawJSON(result)
-		if conversionErr != nil {
-			return nil, conversionErr
-		}
-		return loomapi.ActivateDatasetGeneration200JSONResponse(value), nil
+		return loomapi.ActivateDatasetGeneration200JSONResponse(generationActivationResponse(result)), nil
 	}
 	status, body := mapServiceError(err, ctx)
 	switch status {
@@ -145,6 +138,13 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 
 func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.GetRecipeExecutionRequestObject) (loomapi.GetRecipeExecutionResponseObject, error) {
 	body, status := r.recipeExecution(ctx, request.Id)
+	if status == http.StatusOK {
+		response, ok := body.(loomapi.RecipeExecutionResponse)
+		if !ok {
+			return nil, unexpectedResponseStatus("getRecipeExecution", status)
+		}
+		return loomapi.GetRecipeExecution200JSONResponse(response), nil
+	}
 	if status == http.StatusServiceUnavailable {
 		response, ok := body.(loomapi.ServiceErrorResponse)
 		if !ok {
@@ -155,9 +155,6 @@ func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.Get
 	value, err := rawJSON(body)
 	if err != nil {
 		return nil, err
-	}
-	if status == http.StatusOK {
-		return loomapi.GetRecipeExecution200JSONResponse(value), nil
 	}
 	if status == http.StatusUnauthorized {
 		return loomapi.GetRecipeExecution401JSONResponse(value), nil
@@ -184,6 +181,24 @@ func optionalString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func generationStatusResponse(result *loadapi.GenerationStatusResult) loomapi.GenerationStatusResponse {
+	return loomapi.GenerationStatusResponse{
+		Project:    result.Project,
+		Generation: result.Generation,
+		State:      string(result.State),
+		Reusable:   result.Reusable,
+	}
+}
+
+func generationActivationResponse(result *loadapi.GenerationActivationResult) loomapi.GenerationActivationResponse {
+	return loomapi.GenerationActivationResponse{
+		Project:              result.Project,
+		Generation:           result.Generation,
+		DataframeExecutionId: result.DataframeExecutionID,
+		Activated:            result.Activated,
+	}
 }
 
 func mapServiceError(err error, ctx context.Context) (int, loomapi.ServiceErrorResponse) {

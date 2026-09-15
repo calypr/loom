@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/api/columncapabilities"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -28,9 +29,9 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 			return recipeExecutionAuthorizationResponse(ctx, scopeErr)
 		}
 	}
-	outputs := make([]map[string]any, 0, len(execution.Outputs))
+	outputs := make([]loomapi.RecipeExecutionOutput, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
-		columns := make([]map[string]any, 0, len(output.Columns))
+		columns := make([]loomapi.RecipeExecutionColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
 			capabilities := columncapabilities.FromClickHouse(column.ClickHouse)
 			logical, nullable, repeated := capabilities.Logical, capabilities.Nullable, capabilities.Repeated
@@ -39,11 +40,35 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 			}
 			nullable = nullable || column.Nullable
 			repeated = repeated || column.Repeated
-			columns = append(columns, map[string]any{"name": column.Name, "semanticPath": column.SemanticPath, "clickhouseType": column.ClickHouse, "logicalType": logical, "nullable": nullable, "repeated": repeated, "filterable": capabilities.Filterable, "sortable": !repeated, "aggregatable": !repeated && logical != "json"})
+			columns = append(columns, loomapi.RecipeExecutionColumn{
+				Name:           column.Name,
+				SemanticPath:   column.SemanticPath,
+				ClickhouseType: column.ClickHouse,
+				LogicalType:    logical,
+				Nullable:       nullable,
+				Repeated:       repeated,
+				Filterable:     capabilities.Filterable,
+				Sortable:       !repeated,
+				Aggregatable:   !repeated && logical != "json",
+			})
 		}
-		outputs = append(outputs, map[string]any{"name": output.Name, "state": recipeExecutionHTTPState(output.State), "rowCount": output.RowCount, "columns": columns})
+		outputs = append(outputs, loomapi.RecipeExecutionOutput{
+			Name:     output.Name,
+			State:    recipeExecutionHTTPState(output.State),
+			RowCount: output.RowCount,
+			Columns:  columns,
+		})
 	}
-	return map[string]any{"id": execution.ID, "projectId": execution.Project, "datasetGeneration": execution.DatasetGeneration, "recipeDigest": execution.RecipeDigest, "schemaDigest": execution.SchemaDigest, "resolvedSchemaDigest": execution.SchemaDigest, "state": recipeExecutionHTTPState(execution.State), "outputs": outputs}, http.StatusOK
+	return loomapi.RecipeExecutionResponse{
+		Id:                   execution.ID,
+		ProjectId:            execution.Project,
+		DatasetGeneration:    execution.DatasetGeneration,
+		RecipeDigest:         execution.RecipeDigest,
+		SchemaDigest:         execution.SchemaDigest,
+		ResolvedSchemaDigest: execution.SchemaDigest,
+		State:                recipeExecutionHTTPState(execution.State),
+		Outputs:              outputs,
+	}, http.StatusOK
 }
 
 // recipeExecutionAuthorizationResponse keeps concealment for denials while

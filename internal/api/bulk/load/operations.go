@@ -81,7 +81,7 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 	return result, normalizeError(err)
 }
 
-func (h *Handler) ActivateDatasetGeneration(ctx context.Context, project, generation, executionID, authResourcePath string, principal *authscope.Principal) (map[string]any, error) {
+func (h *Handler) ActivateDatasetGeneration(ctx context.Context, project, generation, executionID, authResourcePath string, principal *authscope.Principal) (*GenerationActivationResult, error) {
 	project, generation, executionID = strings.TrimSpace(project), strings.TrimSpace(generation), strings.TrimSpace(executionID)
 	if project == "" || generation == "" || executionID == "" {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
@@ -92,7 +92,7 @@ func (h *Handler) ActivateDatasetGeneration(ctx context.Context, project, genera
 	if err := h.service.activateGeneration(ctx, project, generation, executionID); err != nil {
 		return nil, normalizeError(err)
 	}
-	return map[string]any{"project": project, "generation": generation, "dataframeExecutionId": executionID, "activated": true}, nil
+	return &GenerationActivationResult{Project: project, Generation: generation, DataframeExecutionID: executionID, Activated: true}, nil
 }
 
 func firstFormValue(values map[string][]string, key string) string {
