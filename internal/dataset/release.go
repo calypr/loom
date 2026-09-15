@@ -47,7 +47,8 @@ type ContractVerification struct {
 }
 
 // ProjectRelease is immutable. Active visibility is represented only by the
-// release pointer revision stored alongside it.
+// release pointer revision stored alongside it. Inactive candidates remain
+// retained for audit; this package does not delete release history.
 type ProjectRelease struct {
 	ID                    string                 `json:"id"`
 	Project               string                 `json:"project"`
@@ -89,6 +90,8 @@ type ManifestReader interface {
 }
 
 type ReleaseRepository interface {
+	// SaveRelease retains the immutable candidate even when a later activation
+	// compare-and-swap loses a revision race.
 	SaveRelease(context.Context, ProjectRelease) (ProjectRelease, error)
 	ReadActiveRelease(context.Context, string) (ActiveRelease, error)
 	CompareAndSwapActivateRelease(context.Context, ProjectRelease, int64) (ActiveRelease, error)

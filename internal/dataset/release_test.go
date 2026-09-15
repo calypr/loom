@@ -3,6 +3,7 @@ package dataset
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -164,6 +165,27 @@ func TestReleaseActivationCarriesOptionalPublicationAsStale(t *testing.T) {
 	}
 	if !bySelector[optional.Key()].Stale || bySelector[optional.Key()].ExecutionID != "optional-a" || bySelector[required.Key()].Stale {
 		t.Fatalf("carried publications = %#v", second.Release.Publications)
+	}
+}
+
+func TestReleaseActivationConflictRetainsImmutableCandidate(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	release := ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "generation-a", Generation: "generation-a", CreatedAt: time.Now().UTC()}
+	if _, err := store.SaveRelease(ctx, release); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwapActivateRelease(ctx, release, 1); !errors.Is(err, ErrReleaseActivationConflict) {
+		t.Fatalf("activation conflict = %v, want %v", err, ErrReleaseActivationConflict)
+	}
+	if _, err := store.ReadActiveRelease(ctx, release.Project); !errors.Is(err, ErrNoActiveRelease) {
+		t.Fatalf("conflicting activation moved pointer: %v", err)
+	}
+	store.mu.RLock()
+	retained, ok := store.releaseRecords[release.Project+"\x00"+release.ID]
+	store.mu.RUnlock()
+	if !ok || !reflect.DeepEqual(retained, release) {
+		t.Fatalf("retained candidate = %#v, present = %v, want immutable release", retained, ok)
 	}
 }
 
