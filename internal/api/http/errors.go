@@ -109,59 +109,43 @@ func StatusForErrorCode(code string) int {
 func normalizeHTTPCode(code string) string {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	code = strings.ReplaceAll(code, "-", "_")
-	switch code {
-	case "PROJECT_REQUIRED", "ROOT_RESOURCE_TYPE_REQUIRED", "UNAUTHORIZED_PROJECT", "UNKNOWN_FIELD", "FIELD_NOT_POPULATED", "INVALID_TRAVERSAL", "UNSAFE_TRAVERSAL_ROUTE", "INVALID_FILTER", "UNBOUNDED_PIVOT", "INVALID_PIVOT_COLUMN", "INVALID_SLICE", "PLAN_TOO_EXPENSIVE", "INVALID_CURSOR", "STALE_CURSOR", "DATASET_GENERATION_CHANGED", "UNSUPPORTED_EXPORT_FORMAT", "CLIENT_CANCELED", "BACKEND_UNAVAILABLE", "RECEIPT_STORE_UNAVAILABLE", "PREVIEW_TIMEOUT", "PREVIEW_RESPONSE_TOO_LARGE", "QUERY_MEMORY_LIMIT_EXCEEDED", "QUERY_RESOURCE_LIMIT_EXCEEDED", "QUERY_BACKEND_OUT_OF_MEMORY", "DYNAMIC_SCHEMA_DRIFT", "RECIPE_CONTRACT_VIOLATION", "DATASET_NOT_FOUND", "SCHEMA_CONFLICT", "INVALID_RESOURCE_TYPE", "INVALID_LIMIT", "NO_ACTIVE_GENERATION", "RESOURCE_DECODE_FAILED", "REFERENCE_NOT_RESOLVED", "QUERY_DEPTH_EXCEEDED", "INVALID_REQUEST", "INVALID_DATA", "INVALID_SELECTOR", "UNAUTHENTICATED", "FORBIDDEN", "RECIPE_NOT_FOUND", "RECIPE_RESOLUTION_FAILED", "RECIPE_EXECUTION_NOT_FOUND", "EXPORT_LIMIT_EXCEEDED", "INGEST_PREFLIGHT_FAILED", "GENERATION_LOAD_INCOMPLETE", "GENERATION_ACTIVATION_UNKNOWN", "INVALID_GENERATION_FILE", "DUPLICATE_GENERATION_FILE", "PUBLICATION_IN_PROGRESS", "PUBLICATION_CONFLICT", "PUBLICATION_LEASE_LOST", "PUBLICATION_FAILED", "OUTPUT_ENCODING_FAILED", "NOT_FOUND", "METHOD_NOT_ALLOWED", "PAYLOAD_TOO_LARGE", "GRAPHQL_VALIDATION_FAILED":
+	if _, ok := httpCodePolicies[code]; ok {
 		return code
-	default:
-		return "INTERNAL_ERROR"
 	}
+	return "INTERNAL_ERROR"
 }
 
 func statusForCode(code string, fallback int) int {
-	switch code {
-	case "UNAUTHENTICATED":
-		return http.StatusUnauthorized
-	case "FORBIDDEN", "UNAUTHORIZED_PROJECT":
-		return http.StatusForbidden
-	case "DATASET_NOT_FOUND", "NO_ACTIVE_GENERATION", "RECIPE_NOT_FOUND", "RECIPE_EXECUTION_NOT_FOUND":
-		return http.StatusNotFound
-	case "SCHEMA_CONFLICT", "STALE_CURSOR", "DATASET_GENERATION_CHANGED", "DYNAMIC_SCHEMA_DRIFT", "RECIPE_CONTRACT_VIOLATION":
-		return http.StatusConflict
-	case "INVALID_DATA", "RECIPE_RESOLUTION_FAILED", "INGEST_PREFLIGHT_FAILED", "GENERATION_LOAD_INCOMPLETE":
-		return http.StatusUnprocessableEntity
-	case "INVALID_SELECTOR", "INVALID_REQUEST", "INVALID_LIMIT", "INVALID_RESOURCE_TYPE":
-		return http.StatusBadRequest
-	case "GENERATION_ACTIVATION_UNKNOWN":
-		return http.StatusConflict
-	case "PUBLICATION_IN_PROGRESS", "PUBLICATION_CONFLICT":
-		return http.StatusConflict
-	case "PUBLICATION_LEASE_LOST", "QUERY_MEMORY_LIMIT_EXCEEDED", "QUERY_RESOURCE_LIMIT_EXCEEDED", "QUERY_BACKEND_OUT_OF_MEMORY":
-		return http.StatusServiceUnavailable
-	case "PUBLICATION_FAILED":
-		return http.StatusServiceUnavailable
-	case "OUTPUT_ENCODING_FAILED":
-		return http.StatusInternalServerError
-	case "EXPORT_LIMIT_EXCEEDED":
-		return http.StatusRequestEntityTooLarge
-	case "PREVIEW_RESPONSE_TOO_LARGE":
-		return http.StatusRequestEntityTooLarge
-	case "PLAN_TOO_EXPENSIVE":
-		return http.StatusTooManyRequests
-	case "UNSUPPORTED_MEDIA_TYPE":
-		return http.StatusUnsupportedMediaType
-	case "BACKEND_UNAVAILABLE", "RECEIPT_STORE_UNAVAILABLE":
-		return http.StatusServiceUnavailable
-	case "PREVIEW_TIMEOUT":
-		return http.StatusGatewayTimeout
-	case "CLIENT_CANCELED":
-		return 499
-	case "INTERNAL_ERROR":
-		return http.StatusInternalServerError
+	if policy, ok := httpCodePolicies[code]; ok {
+		return policy.Status
 	}
 	if fallback >= 400 {
 		return fallback
 	}
 	return http.StatusBadRequest
+}
+
+type httpCodePolicy struct {
+	Status int
+}
+
+// httpCodePolicies is the transport registry. Domain ErrorCode declarations
+// are checked against this table by TestHTTPCodePolicyCoversEveryPublicError.
+// Entries with no special transport status intentionally use HTTP 400.
+var httpCodePolicies = map[string]httpCodePolicy{
+	"PROJECT_REQUIRED": {http.StatusBadRequest}, "ROOT_RESOURCE_TYPE_REQUIRED": {http.StatusBadRequest}, "UNAUTHORIZED_PROJECT": {http.StatusForbidden},
+	"UNKNOWN_FIELD": {http.StatusBadRequest}, "FIELD_NOT_POPULATED": {http.StatusBadRequest}, "INVALID_TRAVERSAL": {http.StatusBadRequest}, "UNSAFE_TRAVERSAL_ROUTE": {http.StatusBadRequest},
+	"INVALID_FILTER": {http.StatusBadRequest}, "UNBOUNDED_PIVOT": {http.StatusBadRequest}, "INVALID_PIVOT_COLUMN": {http.StatusBadRequest}, "INVALID_SLICE": {http.StatusBadRequest}, "PLAN_TOO_EXPENSIVE": {http.StatusTooManyRequests},
+	"INVALID_CURSOR": {http.StatusBadRequest}, "STALE_CURSOR": {http.StatusConflict}, "DATASET_GENERATION_CHANGED": {http.StatusConflict}, "UNSUPPORTED_EXPORT_FORMAT": {http.StatusBadRequest}, "CLIENT_CANCELED": {499},
+	"BACKEND_UNAVAILABLE": {http.StatusServiceUnavailable}, "DATASET_NOT_FOUND": {http.StatusNotFound}, "SCHEMA_CONFLICT": {http.StatusConflict}, "INTERNAL_ERROR": {http.StatusInternalServerError},
+	"INVALID_RESOURCE_TYPE": {http.StatusBadRequest}, "INVALID_LIMIT": {http.StatusBadRequest}, "NO_ACTIVE_GENERATION": {http.StatusNotFound}, "RESOURCE_DECODE_FAILED": {http.StatusBadRequest}, "REFERENCE_NOT_RESOLVED": {http.StatusBadRequest},
+	"QUERY_DEPTH_EXCEEDED": {http.StatusBadRequest}, "INVALID_REQUEST": {http.StatusBadRequest}, "INVALID_DATA": {http.StatusUnprocessableEntity}, "UNAUTHENTICATED": {http.StatusUnauthorized}, "FORBIDDEN": {http.StatusForbidden},
+	"RECIPE_NOT_FOUND": {http.StatusNotFound}, "RECIPE_RESOLUTION_FAILED": {http.StatusUnprocessableEntity}, "RECIPE_EXECUTION_NOT_FOUND": {http.StatusNotFound}, "EXPORT_LIMIT_EXCEEDED": {http.StatusRequestEntityTooLarge},
+	"INGEST_PREFLIGHT_FAILED": {http.StatusUnprocessableEntity}, "GENERATION_LOAD_INCOMPLETE": {http.StatusUnprocessableEntity}, "GENERATION_ACTIVATION_UNKNOWN": {http.StatusConflict}, "INVALID_GENERATION_FILE": {http.StatusBadRequest}, "DUPLICATE_GENERATION_FILE": {http.StatusBadRequest},
+	"PUBLICATION_IN_PROGRESS": {http.StatusConflict}, "PUBLICATION_CONFLICT": {http.StatusConflict}, "PUBLICATION_LEASE_LOST": {http.StatusServiceUnavailable}, "PUBLICATION_FAILED": {http.StatusServiceUnavailable}, "OUTPUT_ENCODING_FAILED": {http.StatusInternalServerError},
+	"DYNAMIC_SCHEMA_DRIFT": {http.StatusConflict}, "RECIPE_CONTRACT_VIOLATION": {http.StatusConflict}, "INVALID_SELECTOR": {http.StatusBadRequest}, "RECEIPT_STORE_UNAVAILABLE": {http.StatusServiceUnavailable}, "PREVIEW_TIMEOUT": {http.StatusGatewayTimeout},
+	"PREVIEW_RESPONSE_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "QUERY_MEMORY_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_RESOURCE_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_BACKEND_OUT_OF_MEMORY": {http.StatusServiceUnavailable},
+	"NOT_FOUND": {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType}, "GRAPHQL_VALIDATION_FAILED": {http.StatusBadRequest},
 }
 
 func messageForCode(code string) string {
