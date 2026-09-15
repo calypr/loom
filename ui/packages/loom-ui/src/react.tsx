@@ -37,7 +37,11 @@ interface QueryResult<T> {
   readonly error?: unknown;
   readonly isLoading: boolean;
   readonly isFetching: boolean;
-  readonly refetch: () => Promise<{ readonly data?: T; readonly error?: unknown }>;
+  readonly refetch: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
+}
+
+export interface QueryRefetchOptions {
+  readonly reload?: boolean;
 }
 
 interface ResourceSnapshot<T> {
@@ -49,17 +53,17 @@ interface ResourceSnapshot<T> {
 interface Resource<T> {
   readonly getSnapshot: () => ResourceSnapshot<T>;
   readonly subscribe: (listener: () => void) => () => void;
-  readonly refresh: () => Promise<{ readonly data?: T; readonly error?: unknown }>;
+  readonly refresh: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
 }
 
-export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Resource<T> => {
+export const resourceFor = <T,>(loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>): Resource<T> => {
   let snapshot: ResourceSnapshot<T> = { loading: true };
   let controller: AbortController | undefined;
   const listeners = new Set<() => void>();
   let started = false;
   let epoch = 0;
   const notify = () => listeners.forEach((listener) => listener());
-  const refresh = async () => {
+  const refresh = async (options?: QueryRefetchOptions) => {
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
@@ -68,7 +72,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
     snapshot = { ...snapshot, loading: true, error: undefined };
     notify();
     try {
-      const data = await loader(requestController.signal);
+      const data = await loader(requestController.signal, options);
       if (controller !== requestController || epoch !== requestEpoch) return { data };
       snapshot = { data, loading: false };
       notify();
@@ -105,13 +109,13 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal) => Promise<T>): Re
 };
 
 const useQuery = <T,>(
-  loader: (signal: AbortSignal) => Promise<T>,
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
   dependencies: ReadonlyArray<unknown>,
 ): QueryResult<T> => {
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
   const resource = useMemo(
-    () => resourceFor((signal) => loaderRef.current(signal)),
+    () => resourceFor((signal, options) => loaderRef.current(signal, options)),
     dependencies,
   );
   const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
@@ -156,7 +160,7 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
 
 export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getBuilder(args, { signal }), [client, args.project, args.explorerId]);
+  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath]);
 };
 
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {

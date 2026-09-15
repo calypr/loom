@@ -303,7 +303,7 @@ const BuilderWorkspaceContent = ({
             isDraftDesynchronized(apiError.code) ||
             isStaleSnapshot(apiError.code)
           ) {
-            const refreshed = await refetchBuilder();
+            const refreshed = await refetchBuilder({ reload: true });
             if (refreshed.data) {
               syncBuilderData(refreshed.data, 'hydrate');
               setMessage(undefined);
@@ -572,7 +572,7 @@ const BuilderWorkspaceContent = ({
         )
           return undefined;
         if (isDraftDesynchronized(apiError.code)) {
-          const refreshed = await refetchBuilder();
+          const refreshed = await refetchBuilder({ reload: true });
           if (refreshed.data) {
             syncBuilderData(refreshed.data, 'hydrate');
             setMessage(undefined);
@@ -585,7 +585,7 @@ const BuilderWorkspaceContent = ({
           return undefined;
         }
         if (isStaleSnapshot(apiError.code)) {
-          const refreshed = await refetchBuilder();
+          const refreshed = await refetchBuilder({ reload: true });
           if (!refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
@@ -681,7 +681,7 @@ const BuilderWorkspaceContent = ({
               limit,
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
-            const refreshed = await refetchBuilder();
+            const refreshed = await refetchBuilder({ reload: true });
             if (generation !== previewGeneration.current) return;
             if (!refreshed.data) return;
             latestState.current = builderAuthoringReducer(latestState.current, {
@@ -766,7 +766,7 @@ const BuilderWorkspaceContent = ({
           const apiError = error as ExplorerAuthoringApiError;
           if (isStaleSnapshot(apiError.code) && refreshes === 0) {
             refreshes += 1;
-            const refreshed = await refetchBuilder();
+            const refreshed = await refetchBuilder({ reload: true });
             if (!refreshed.data) return;
             latestState.current = builderAuthoringReducer(latestState.current, {
               type: 'catalogRefreshed',
