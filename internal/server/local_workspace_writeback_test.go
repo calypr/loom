@@ -54,3 +54,25 @@ func TestLocalWorkspaceWriterRejectsAnotherProject(t *testing.T) {
 		t.Fatal("another project updated the configured workspace")
 	}
 }
+
+func TestLocalWorkspaceWriterRejectsNonDefaultExplorerWithoutChangingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	original := []byte("original\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := localWorkspaceWriter(path, "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer(context.Background(), "project-a", "custom", []byte(`{"kind":"workspace"}`)); err == nil || err.Error() != "local workspace writeback only supports the default Explorer" {
+		t.Fatalf("non-default writeback error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("non-default writeback changed file to %q", got)
+	}
+}
