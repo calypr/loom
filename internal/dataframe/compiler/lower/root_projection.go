@@ -280,7 +280,7 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 			cardinality = ir.PhysicalArrayCardinality
 		case spec.ProjectionDistinctArray:
 			cardinality, distinct = ir.PhysicalArrayCardinality, true
-		case spec.ProjectionScalar, spec.ProjectionFirst:
+		case "", spec.ProjectionScalar, spec.ProjectionFirst:
 		default:
 			return ir.PhysicalExpression{}, fmt.Errorf("slice %q field %q has unsupported projection %q", slice.Name, selection.Name, selection.Projection)
 		}

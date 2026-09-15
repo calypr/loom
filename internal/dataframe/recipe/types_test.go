@@ -150,6 +150,20 @@ func TestValidationRejectsNonSelectorRichShapingExpressions(t *testing.T) {
 	}
 }
 
+func TestValidationRejectsAggregateValueModesBeyondAuto(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":"DISTINCT_VALUES","expr":{"select":"name[].family"},"valueMode":"ALL"}]}]}`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "aggregate valueMode must be AUTO") {
+		t.Fatalf("expected aggregate value mode rejection, got %v", err)
+	}
+}
+
+func TestValidationRejectsUnsupportedRichFilterShapes(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","slices":[{"name":"s","limit":1,"where":{"select":"gender","operator":"EQUALS","quantifier":"ANY","values":[{"kind":"STRING","string":"female"}]},"fields":[{"name":"id","expr":{"select":"id"}}]}]}]}`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "rich shaping predicates do not support quantifiers") {
+		t.Fatalf("expected rich filter quantifier rejection, got %v", err)
+	}
+}
+
 func TestTraversalColumnNamingValidation(t *testing.T) {
 	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversalColumnNaming":"ALIAS","traversals":[{"name":"edge_a","alias":"occ_a","toResourceType":"Condition"},{"name":"edge_b","alias":"occ_b","toResourceType":"Condition"}]}]}`
 	if _, err := Parse([]byte(valid)); err != nil {

@@ -827,6 +827,24 @@ func TestCompiledRecipeSliceFieldsHonorValueModes(t *testing.T) {
 	}
 }
 
+func TestCompileResolvedRecipePlanRejectsSanitizedPublicColumnCollision(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "collision", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{Name: "component", ColumnExpr: recipe.Expression{Select: "root.component[].code.coding[].display"}, ValueExpr: recipe.Expression{Select: "root.component[].valueString"}, ItemSource: recipe.Expression{Select: "root.component[]"}, ItemResourceType: "ObservationComponent", Columns: []string{"a-b", "a_b"}}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "colliding public column name") {
+		t.Fatalf("error = %v, want collision diagnostic", err)
+	}
+}
+
 func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T) {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: 1,
