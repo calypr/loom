@@ -599,7 +599,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
           throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned an invalid Explorer state.', retryable: false });
         }
         if (!state.runtime) throw new LoomRequestError({ status: 422, code: 'EXPLORER_RUNTIME_REQUIRED', message: 'The selected Explorer has no published runtime.', retryable: false });
-        return state.runtime;
+        const runtimeIdentity = state.runtime.publication?.revisionId
+          ?? state.runtime.publication?.generation
+          ?? state.runtime.generation
+          ?? state.runtime.schema?.digest;
+        if (runtimeIdentity) return state.runtime;
+        const responseIdentity = state.active.revisionId ?? state.updatedAt;
+        if (!responseIdentity) {
+          throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned a published runtime without a session identity.', retryable: false });
+        }
+        return { ...state.runtime, responseIdentity };
       },
       signal,
     );

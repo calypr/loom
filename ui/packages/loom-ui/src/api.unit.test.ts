@@ -319,6 +319,54 @@ describe('Loom project paths', () => {
       .resolves.toMatchObject({ generation: 'generation-1', outputs: [{ selector: state.runtime.outputs[0].selector }] });
   });
 
+  it('derives distinct session identities for legacy runtimes from response revisions', async () => {
+    const state = (revisionId: string) => ({
+      apiVersion: 'loom.calypr.org/explorer-state/v1',
+      kind: 'ExplorerState',
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      title: 'Cohort',
+      management: 'interactive',
+      active: { revisionId },
+      draft: { version: 1, digest: 'digest' },
+      generated: {},
+      activeUrl: '/viewer',
+      runtime: { outputs: [], sharedFilters: {}, diagnostics: [] },
+    });
+    const first = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state('revision-a')), { status: 200 })),
+    });
+    const second = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state('revision-b')), { status: 200 })),
+    });
+
+    await expect(first.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .resolves.toMatchObject({ responseIdentity: 'revision-a' });
+    await expect(second.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .resolves.toMatchObject({ responseIdentity: 'revision-b' });
+  });
+
+  it('rejects an identity-free legacy runtime instead of sharing Viewer state', async () => {
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+        apiVersion: 'loom.calypr.org/explorer-state/v1',
+        kind: 'ExplorerState',
+        project: 'NCPI_ACCEPTANCE',
+        explorerId: 'default',
+        title: 'Cohort',
+        management: 'interactive',
+        active: {},
+        draft: { version: 1, digest: 'digest' },
+        generated: {},
+        activeUrl: '/viewer',
+        runtime: { outputs: [], sharedFilters: {}, diagnostics: [] },
+      }), { status: 200 })),
+    });
+
+    await expect(client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .rejects.toMatchObject({ status: 502, code: 'INVALID_EXPLORER_STATE' });
+  });
+
   it('serializes server-side filters, sort, cursors, and requested facets', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: {

@@ -651,6 +651,8 @@ export interface ExplorerRuntimeOutputV1 {
   readonly materialization?: Readonly<Record<string, unknown>>;
 }
 export interface ExplorerRuntimeV1 {
+  /** Client-side identity derived from the enclosing response for legacy runtimes. */
+  readonly responseIdentity?: string;
   readonly status?: string;
   readonly generation?: string;
   readonly publication?: PublicationMetadata;

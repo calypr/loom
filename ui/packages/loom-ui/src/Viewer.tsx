@@ -47,7 +47,9 @@ const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChan
   if (runtimeQuery.isLoading && !runtimeQuery.data) return <Center mih="45vh"><Stack align="center" gap="sm"><Loader size="sm" /><Text size="sm">Loading published Explorer…</Text></Stack></Center>;
   if (runtimeQuery.error || !runtimeQuery.data) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable"><Stack gap="sm"><Text size="sm">The published Explorer could not be loaded.</Text><Button size="xs" onClick={() => { void runtimeQuery.refetch(); }}>Try again</Button></Stack></Alert></Center>;
   if (runtimeQuery.data.outputs.length === 0) return <Center mih="45vh"><Alert title="No published outputs">This Explorer has no published tables yet.</Alert></Center>;
-  return <ViewerSession key={runtimeSessionKey(runtimeQuery.data)} project={project} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />;
+  const sessionKey = runtimeSessionKey(runtimeQuery.data);
+  if (!sessionKey) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable">The published Explorer response is missing its revision identity.</Alert></Center>;
+  return <ViewerSession key={sessionKey} project={project} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />;
 };
 
 const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions }: { readonly project: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions'] }) => {
