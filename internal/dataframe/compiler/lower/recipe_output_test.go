@@ -845,6 +845,60 @@ func TestCompileResolvedRecipePlanRejectsSanitizedPublicColumnCollision(t *testi
 	}
 }
 
+func TestRecipeExpressionOperationMatrixChecksLowersAndRenders(t *testing.T) {
+	literal := func(value string) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.Quote(value))}
+	}
+	boolean := func(value bool) recipe.Expression {
+		return recipe.Expression{Literal: json.RawMessage(strconv.FormatBool(value))}
+	}
+	tests := []struct {
+		name string
+		call string
+		args []recipe.Expression
+		want string
+	}{
+		{"fallback", "fallback", []recipe.Expression{literal("a"), literal("b")}, "FIRST(FOR"},
+		{"not", "not", []recipe.Expression{boolean(true)}, "NOT ("},
+		{"and", "and", []recipe.Expression{boolean(true), boolean(false)}, " AND "},
+		{"or", "or", []recipe.Expression{boolean(true), boolean(false)}, " OR "},
+		{"eq", "eq", []recipe.Expression{literal("a"), literal("b")}, " == "},
+		{"neq", "neq", []recipe.Expression{literal("a"), literal("b")}, " != "},
+		{"gt", "gt", []recipe.Expression{literal("a"), literal("b")}, " > "},
+		{"gte", "gte", []recipe.Expression{literal("a"), literal("b")}, " >= "},
+		{"lt", "lt", []recipe.Expression{literal("a"), literal("b")}, " < "},
+		{"lte", "lte", []recipe.Expression{literal("a"), literal("b")}, " <= "},
+		{"contains", "contains", []recipe.Expression{literal("a"), literal("b")}, "CONTAINS("},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "operation-" + test.name, TranslationVersion: "1", Outputs: []recipe.Output{{
+				Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+				Fields: []recipe.Field{{Name: "value", Expr: recipe.Expression{Call: test.call, Args: test.args}}},
+			}}}
+			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(rendered.Query, test.want) {
+				t.Fatalf("rendered %s expression missing %q: %s", test.call, test.want, rendered.Query)
+			}
+		})
+	}
+}
+
 func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T) {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: 1,
