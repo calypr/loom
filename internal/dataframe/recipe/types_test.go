@@ -3,6 +3,7 @@ package recipe
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -78,6 +79,21 @@ func TestParseRejectsDuplicateUnknownAndStorageFields(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMalformedTrailingJSON(t *testing.T) {
+	for _, suffix := range []string{"{}", "{"} {
+		if _, err := Parse([]byte(validDocument + suffix)); err == nil || !strings.HasPrefix(err.Error(), "parse_error ") {
+			t.Fatalf("suffix %q: expected strict trailing parse error, got %v", suffix, err)
+		}
+	}
+}
+
+func TestExpressionRejectsMalformedTrailingJSON(t *testing.T) {
+	var expression Expression
+	if err := json.Unmarshal([]byte(`{"select":"root.id"}{`), &expression); err == nil {
+		t.Fatal("expected malformed trailing JSON error")
+	}
+}
+
 func TestParseAcceptsBuilderFieldMetadataWithoutPersistingIt(t *testing.T) {
 	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","fieldRef":"DocumentReference.status","expr":{"select":"root.status"},"logicalType":"scalar","repeated":false,"family":"field","selectionKey":"DocumentReference.status","valueSelector":"status","familyName":"Fields","familyKind":"FIELD"}]}]}`
 	bundle, err := Parse([]byte(input))
@@ -113,6 +129,24 @@ func TestValidationRejectsVersionNamesAndArity(t *testing.T) {
 		if _, err := Parse([]byte(input)); err == nil {
 			t.Fatalf("expected validation failure for %s", input)
 		}
+	}
+}
+
+func TestValidationRejectsNonSelectorRichShapingExpressions(t *testing.T) {
+	base := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient",%s}]}`
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"pivot", `"pivots":[{"name":"p","columnExpr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]},"valueExpr":{"select":"id"},"columns":["a"]}]`},
+		{"aggregate", `"aggregates":[{"name":"a","operation":"DISTINCT_VALUES","expr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]}}]`},
+		{"slice", `"slices":[{"name":"s","limit":1,"fields":[{"name":"f","expr":{"call":"concat","args":[{"literal":"a"},{"literal":"b"}]}}]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse([]byte(fmt.Sprintf(base, tc.body))); err == nil || !strings.Contains(err.Error(), "unsupported_expression") {
+				t.Fatalf("expected rich selector validation error, got %v", err)
+			}
+		})
 	}
 }
 

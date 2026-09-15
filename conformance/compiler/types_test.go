@@ -1,6 +1,7 @@
 package compilerfixture
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -24,6 +25,17 @@ func TestLoadFixtureCorpus(t *testing.T) {
 	}
 	if supported == 0 || unsupported == 0 {
 		t.Fatalf("corpus must contain supported and unsupported shapes; got %d and %d", supported, unsupported)
+	}
+}
+
+func TestLoadDirRejectsMalformedTrailingJSON(t *testing.T) {
+	dir := t.TempDir()
+	fixture := `{"schema":"loom.compiler-oracle/v1","id":"trailing","description":"trailing","limit":1,"project":"p","recipe":{"recipeSchemaVersion":1,"name":"r","translationVersion":"1","outputs":[{"name":"Patient","rootResourceType":"Patient","rowGrain":"patient"}]},"expected":{"supported":false,"errorContains":"x"}}{`
+	if err := os.WriteFile(filepath.Join(dir, "trailing.json"), []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDir(dir); err == nil {
+		t.Fatal("expected malformed trailing JSON error")
 	}
 }
 

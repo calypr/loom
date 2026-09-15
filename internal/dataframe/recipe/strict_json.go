@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -74,8 +75,11 @@ func detectDuplicateKeys(data []byte) error {
 		return err
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); err == nil {
-		return validationError("parse_error", "$", "multiple JSON values")
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return validationError("parse_error", "$", "multiple JSON values")
+		}
+		return validationError("parse_error", "$", "invalid trailing JSON: "+err.Error())
 	}
 	return nil
 }

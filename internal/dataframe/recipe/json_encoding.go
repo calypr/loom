@@ -103,8 +103,11 @@ func (e *Expression) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("expression must be an object: %w", err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return fmt.Errorf("expression contains trailing JSON")
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("expression contains trailing JSON")
+		}
+		return fmt.Errorf("expression contains invalid trailing JSON: %w", err)
 	}
 	if len(object) == 0 {
 		return fmt.Errorf("expression must contain an operator")
@@ -237,8 +240,11 @@ func Parse(data []byte) (Bundle, error) {
 		return Bundle{}, validationError("parse_error", "$", err.Error())
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); err == nil {
-		return Bundle{}, validationError("parse_error", "$", "multiple JSON values")
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return Bundle{}, validationError("parse_error", "$", "multiple JSON values")
+		}
+		return Bundle{}, validationError("parse_error", "$", "invalid trailing JSON: "+err.Error())
 	}
 	if err := b.Validate(); err != nil {
 		return Bundle{}, err
