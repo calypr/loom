@@ -5,6 +5,7 @@ import type {
   ExplorerBuilderPreviewResult,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import { displayValue, losslessText } from '../../../valueDisplay';
 import { useDismissibleLayer } from './useDismissibleLayer';
 import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
@@ -12,65 +13,11 @@ const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 42;
 const PREVIEW_COLUMN_WIDTH = 180;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const scalarText = (value: unknown): string | undefined => {
-  if (typeof value === 'string') return value.trim() || undefined;
-  if (
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    typeof value === 'bigint'
-  ) {
-    return String(value);
-  }
-  return undefined;
-};
-
-export const formatPreviewCell = (value: unknown, depth = 0): string => {
-  if (value === undefined || value === null) return '—';
-  const scalar = scalarText(value);
-  if (scalar !== undefined) return scalar;
-  if (Array.isArray(value)) {
-    const items = value
-      .map((item) => formatPreviewCell(item, depth + 1))
-      .filter((item) => item !== '—');
-    return items.length > 0 ? items.join('; ') : '—';
-  }
-  if (isRecord(value)) {
-    // Prefer the human-bearing fields used by common FHIR datatypes.
-    for (const key of ['text', 'display', 'value', 'code']) {
-      const preferred = scalarText(value[key]);
-      if (preferred !== undefined) return preferred;
-    }
-    if (value.reference !== undefined) {
-      return formatPreviewCell(value.reference, depth + 1);
-    }
-    if (value.coding !== undefined) {
-      return formatPreviewCell(value.coding, depth + 1);
-    }
-    if (depth < 3) {
-      const parts = Object.entries(value)
-        .map(([key, nested]) => {
-          const formatted = formatPreviewCell(nested, depth + 1);
-          return formatted === '—' ? undefined : `${key}: ${formatted}`;
-        })
-        .filter((part): part is string => part !== undefined);
-      if (parts.length > 0) return parts.join(' · ');
-    }
-  }
-  return previewCellTitle(value);
-};
+export const formatPreviewCell = (value: unknown, depth = 0): string =>
+  displayValue(value, { unknownRecord: 'parts', maxDepth: 3 }, depth);
 
 export const previewCellTitle = (value: unknown): string => {
-  if (value === undefined || value === null) return '—';
-  const scalar = scalarText(value);
-  if (scalar !== undefined) return scalar;
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
+  return losslessText(value);
 };
 
 export const PreviewTable = ({

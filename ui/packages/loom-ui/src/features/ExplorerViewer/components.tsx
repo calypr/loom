@@ -19,6 +19,7 @@ import { PAGE_SIZES, activeOutputState, isPageSize, type ViewerState } from './m
 import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType } from './serialization';
 import { BoundedFormatCache } from './formatCache';
+import { displayValue } from '../../valueDisplay';
 
 const LazyReactECharts = React.lazy(() =>
   import('echarts-for-react').then((module) => ({ default: module.default })),
@@ -26,21 +27,7 @@ const LazyReactECharts = React.lazy(() =>
 
 export type ViewerRow = Readonly<Record<string, unknown>>;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-export const textFor = (value: unknown): string => {
-  if (value === undefined || value === null || value === '') return '—';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
-  if (Array.isArray(value)) return value.map(textFor).filter((entry) => entry !== '—').join('; ') || '—';
-  if (isRecord(value)) {
-    for (const key of ['text', 'display', 'value', 'code', 'reference']) {
-      if (value[key] !== undefined) return textFor(value[key]);
-    }
-    return JSON.stringify(value);
-  }
-  return String(value);
-};
+export const textFor = (value: unknown): string => displayValue(value);
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

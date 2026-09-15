@@ -88,6 +88,14 @@ describe('formatPreviewCell', () => {
       '{"reference":"Patient/example"}',
     );
   });
+
+  it('shares scalar, FHIR, and array display policy with Viewer', () => {
+    expect(formatPreviewCell('  Tissue  ')).toBe('Tissue');
+    expect(formatPreviewCell({ text: 'Fixation' })).toBe('Fixation');
+    expect(formatPreviewCell({ coding: [{ code: 'fix' }] })).toBe('fix');
+    expect(formatPreviewCell([null, 'active', { display: 'Ready' }])).toBe('active; Ready');
+    expect(formatPreviewCell({ nested: { value: 'sample' } })).toBe('nested: sample');
+  });
 });
 
 describe('PreviewTable column controls', () => {
