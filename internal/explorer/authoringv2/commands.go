@@ -291,6 +291,13 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if parent == nil || !ok {
 			return result, fmt.Errorf("parent occurrence or edge was not found")
 		}
+		parentDepth, depthFound := routeDepth(&workspace.Documents[document].Route, command.ParentOccurrenceID)
+		if !depthFound {
+			return result, fmt.Errorf("parent occurrence or edge was not found")
+		}
+		if catalog.RoutePolicy.MaxHops != nil && parentDepth+1 > *catalog.RoutePolicy.MaxHops {
+			return result, fmt.Errorf("ROUTE_TOO_LONG: route exceeds capability route policy (maxHops=%d, hops=%d)", *catalog.RoutePolicy.MaxHops, parentDepth+1)
+		}
 		from, fromOK := catalogNode(catalog, edge.FromNodeID)
 		to, toOK := catalogNode(catalog, edge.ToNodeID)
 		if !fromOK || !toOK || from.ResourceType != parent.ResourceType {
@@ -534,6 +541,22 @@ func findRouteWithParent(route *RouteNode, occurrenceID string) (*RouteNode, *Ro
 		}
 	}
 	return nil, nil
+}
+
+func routeDepth(route *RouteNode, occurrenceID string) (int, bool) {
+	var walk func(*RouteNode, int) (int, bool)
+	walk = func(node *RouteNode, depth int) (int, bool) {
+		if node.OccurrenceID == occurrenceID {
+			return depth, true
+		}
+		for i := range node.Children {
+			if found, ok := walk(&node.Children[i], depth+1); ok {
+				return found, true
+			}
+		}
+		return 0, false
+	}
+	return walk(route, 0)
 }
 
 func routeUsesRelationship(route *RouteNode, fromResourceType, toResourceType, relationship, exceptOccurrenceID string) bool {

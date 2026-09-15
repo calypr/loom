@@ -118,6 +118,31 @@ func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing
 	}
 }
 
+func TestApplyCommandsRejectsRouteBeyondCatalogMaxHopsWithoutMutation(t *testing.T) {
+	catalog := commandCatalog()
+	maxHops := 0
+	catalog.RoutePolicy.MaxHops = &maxHops
+	catalog.RoutePolicy.Unbounded = false
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := create[0].OutputID
+	_, _, err = ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("over-depth route error = %v, want ROUTE_TOO_LONG", err)
+	}
+	if len(workspace.Documents[0].Route.Children) != 0 {
+		t.Fatalf("rejected route mutated input = %#v", workspace.Documents[0].Route)
+	}
+
+	maxHops = 1
+	allowed, _, err := ApplyCommands(workspace, catalog, "route-allowed", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil || len(allowed.Documents[0].Route.Children) != 1 {
+		t.Fatalf("bounded route = %#v, err=%v", allowed.Documents[0].Route, err)
+	}
+}
+
 func TestApplyCommandsAddsFilterAndChartWithoutMakingColumnTableVisible(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.Candidates[0].Filterable = true
