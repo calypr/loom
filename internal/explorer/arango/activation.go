@@ -28,7 +28,7 @@ FILTER manifest != null AND manifest.recordType == "manifest" AND manifest.datas
 FILTER active != null AND active.recordType == "active_generation" AND active.project == @project
 FILTER owner != null AND owner.project == @project AND owner.explorerId == "default" AND owner.managementMode == "REPOSITORY"
 FILTER candidate != null AND candidate.project == @project AND candidate.explorerId == "default" AND candidate.sourceGeneration == @generation
-FILTER candidate.status == "READY" OR (candidate.status == "ACTIVE" AND owner.activeRevisionId == @revisionKey)
+FILTER candidate.status IN ["READY", "FAILED"] OR (candidate.status == "ACTIVE" AND owner.activeRevisionId == @revisionKey)
 FILTER execution != null AND execution.project == @project AND execution.datasetGeneration == @generation AND execution.state == "PUBLISHED"
 LET prior = owner.activeRevisionId == null ? null : DOCUMENT(@@revisions, owner.activeRevisionId)
 RETURN {manifest: manifest, active: active, owner: owner, candidate: candidate, prior: prior}`

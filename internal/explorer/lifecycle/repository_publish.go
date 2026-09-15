@@ -76,6 +76,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), nil, err)
 	}
 	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
+		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
 		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate ExplorerConfigV2: %v", err), nil, err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()

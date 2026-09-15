@@ -24,16 +24,19 @@ import (
 
 type fakeStore struct {
 	explorer.Store
-	listValues []explorer.Explorer
-	state      explorer.ExplorerStateV1
-	created    *explorer.Explorer
-	applyErr   error
-	receipt    *explorer.CompilationReceipt
-	publishErr error
-	published  bool
-	release    dataset.ProjectRelease
-	revision   int64
-	order      *[]string
+	listValues         []explorer.Explorer
+	state              explorer.ExplorerStateV1
+	created            *explorer.Explorer
+	applyErr           error
+	receipt            *explorer.CompilationReceipt
+	publishErr         error
+	published          bool
+	repositoryOwner    *explorer.Explorer
+	repositoryRevision *explorer.Revision
+	activationErrors   []error
+	release            dataset.ProjectRelease
+	revision           int64
+	order              *[]string
 }
 
 func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
@@ -41,11 +44,20 @@ func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
 }
 
 func (f *fakeStore) Create(_ context.Context, value explorer.Explorer) (*explorer.Explorer, error) {
+	if value.ExplorerID == "default" {
+		f.repositoryOwner = &value
+	}
 	f.created = &value
 	return &value, nil
 }
 
-func (f *fakeStore) Get(context.Context, string, string) (*explorer.Explorer, error) {
+func (f *fakeStore) Get(_ context.Context, _, id string) (*explorer.Explorer, error) {
+	if f.repositoryOwner != nil && id == "default" {
+		return f.repositoryOwner, nil
+	}
+	if id == "default" {
+		return nil, explorer.ErrNotFound
+	}
 	if f.created != nil {
 		return f.created, nil
 	}
@@ -60,7 +72,26 @@ func (f *fakeStore) SaveDraft(_ context.Context, value explorer.Explorer, _ int6
 		return nil, f.applyErr
 	}
 	value.DraftVersion++
+	if value.ExplorerID == "default" {
+		f.repositoryOwner = &value
+	}
 	f.created = &value
+	return &value, nil
+}
+
+func (f *fakeStore) InsertCompilationReceipt(_ context.Context, value explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+	if f.receipt != nil {
+		return f.receipt, nil
+	}
+	f.receipt = &value
+	return &value, nil
+}
+
+func (f *fakeStore) InsertRevision(_ context.Context, value explorer.Revision) (*explorer.Revision, error) {
+	if f.repositoryRevision != nil {
+		return f.repositoryRevision, nil
+	}
+	f.repositoryRevision = &value
 	return &value, nil
 }
 
@@ -88,13 +119,31 @@ func (f *fakeStore) PublishAuthoring(_ context.Context, _ explorer.CompilationRe
 	return &revision, nil
 }
 
-func (f *fakeStore) FailRevision(context.Context, string, []explorer.Diagnostic) (*explorer.Revision, error) {
-	return nil, nil
+func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
+	if f.repositoryRevision == nil || f.repositoryRevision.ID != id {
+		return nil, explorer.ErrNotFound
+	}
+	f.repositoryRevision.Status = explorer.RevisionFailed
+	f.repositoryRevision.Diagnostics = append([]explorer.Diagnostic(nil), diagnostics...)
+	return f.repositoryRevision, nil
 }
 
-func (f *fakeStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
+func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisionID string) error {
 	if f.order != nil {
 		*f.order = append(*f.order, "activate-generation")
+	}
+	if len(f.activationErrors) > 0 {
+		err := f.activationErrors[0]
+		f.activationErrors = f.activationErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
+	if f.repositoryRevision != nil && f.repositoryRevision.ID == revisionID {
+		f.repositoryRevision.Status = explorer.RevisionActive
+	}
+	if f.repositoryOwner != nil {
+		f.repositoryOwner.ActiveRevisionID = revisionID
 	}
 	return nil
 }
@@ -260,6 +309,69 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 	compiled, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
 	if err != nil || compiled == nil || compiled.ID != base.ID {
 		t.Fatalf("persisted compile = %#v, err=%v", compiled, err)
+	}
+}
+
+func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	visible := true
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Default"},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}}}}},
+		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	base := nativeReceipt(snapshot)
+	base.ExplorerID = "default"
+	base.NormalizedBundle, _ = workspace.CanonicalJSON()
+	base.IntentDigest, _ = workspace.Digest()
+	base.CompilationKey, _ = explorer.CompilationKey(*base)
+	base.ID, _ = explorer.ReceiptID(*base)
+
+	for _, test := range []struct {
+		name             string
+		releaseErrors    []error
+		activationErrors []error
+		wantDiagnostic   string
+	}{
+		{name: "release activation", releaseErrors: []error{errors.New("release unavailable"), nil}, wantDiagnostic: "RELEASE_ACTIVATION_FAILED"},
+		{name: "generation activation", activationErrors: []error{errors.New("generation unavailable"), nil}, wantDiagnostic: "GENERATION_ACTIVATION_FAILED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeStore{activationErrors: append([]error(nil), test.activationErrors...)}
+			config := testConfig(snapshot)
+			config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
+			config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+				return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			}
+			config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
+			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+				return Execution{ID: "execution-a", Outputs: []ExecutionOutput{{Name: "patients", State: "PUBLISHED"}}}, nil
+			}
+			releaseErrors := append([]error(nil), test.releaseErrors...)
+			config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error {
+				if len(releaseErrors) == 0 {
+					return nil
+				}
+				err := releaseErrors[0]
+				releaseErrors = releaseErrors[1:]
+				return err
+			}
+			service := newTestService(t, store, config)
+			request := RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
+			if _, err := service.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), "RELEASE_ACTIVATION_FAILED") {
+				t.Fatalf("first publish error = %v, want RELEASE_ACTIVATION_FAILED", err)
+			}
+			if store.repositoryRevision == nil || store.repositoryRevision.Status != explorer.RevisionFailed || len(store.repositoryRevision.Diagnostics) != 1 || store.repositoryRevision.Diagnostics[0].Code != test.wantDiagnostic {
+				t.Fatalf("failed revision = %#v, want retryable diagnostic %s", store.repositoryRevision, test.wantDiagnostic)
+			}
+			result, err := service.PublishRepository(context.Background(), request)
+			if err != nil || result.Revision == nil || result.Revision.Status != explorer.RevisionActive {
+				t.Fatalf("retry result = %#v, err=%v", result, err)
+			}
+			if store.repositoryOwner == nil || store.repositoryOwner.ActiveRevisionID != store.repositoryRevision.ID {
+				t.Fatalf("retry did not converge owner pointer: owner=%#v revision=%#v", store.repositoryOwner, store.repositoryRevision)
+			}
+		})
 	}
 }
 

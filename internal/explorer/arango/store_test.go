@@ -132,6 +132,7 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	for _, required := range []string{
 		"@@lifecycle", "@@explorers", "@@revisions", "@@executions",
 		"manifest.state IN [\"STAGED\", \"READY\"]",
+		"candidate.status IN [\"READY\", \"FAILED\"]",
 		"candidate.status == \"ACTIVE\" AND owner.activeRevisionId == @revisionKey",
 		"execution.project == @project", "execution.datasetGeneration == @generation", "execution.state == \"PUBLISHED\"",
 	} {
