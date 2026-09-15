@@ -83,12 +83,9 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
+	stored, err := persistValidatedReceipt(ctx, recipeEngine, &receipt, bindings, explorerService.StoreCompilationReceipt)
 	if err != nil {
 		return nil, err
-	}
-	if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, stored, bindings); err != nil {
-		return nil, receiptCompilationConflict(stored.ID, err)
 	}
 	receiptBytes := 0
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
@@ -98,6 +95,20 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
 	}
 	return stored, nil
+}
+
+// persistValidatedReceipt proves that the execution engine can reproduce the
+// complete immutable receipt before the receipt store sees it. A receipt that
+// fails this check must never become an executable immutable artifact.
+func persistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error)) (*explorer.CompilationReceipt, error) {
+	if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings); err != nil {
+		id := ""
+		if receipt != nil {
+			id = receipt.ID
+		}
+		return nil, receiptCompilationConflict(id, err)
+	}
+	return persist(ctx, *receipt)
 }
 
 type receiptContractMismatch struct {

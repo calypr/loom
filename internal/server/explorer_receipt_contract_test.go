@@ -132,6 +132,47 @@ func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(
 	}
 }
 
+func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) {
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "pre-store-validation", TranslationVersion: explorercompilation.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}}}}}
+	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
+	resolved, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, provenance, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleDigest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := &explorer.CompilationReceipt{Bundle: bundle, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputFingerprints: fingerprints, OutputColumnProvenance: provenance, EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "patient_id"}}}
+	bad := *receipt
+	bad.OutputFingerprints = map[string]string{"patients": "runtime-drift"}
+	stores := 0
+	persist := func(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+		stores++
+		return receipt, nil
+	}
+	if _, err := persistValidatedReceipt(context.Background(), recipeEngine, &bad, bindings, persist); err == nil || !strings.Contains(err.Error(), "COMPILATION_CONTRACT_MISMATCH") {
+		t.Fatalf("runtime mismatch error = %v, want COMPILATION_CONTRACT_MISMATCH", err)
+	}
+	if stores != 0 {
+		t.Fatalf("runtime mismatch reached receipt store %d times", stores)
+	}
+	if _, err := persistValidatedReceipt(context.Background(), recipeEngine, receipt, bindings, persist); err != nil {
+		t.Fatalf("corrected receipt rejected: %v", err)
+	}
+	if stores != 1 {
+		t.Fatalf("corrected receipt store calls = %d, want 1", stores)
+	}
+}
+
 func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
