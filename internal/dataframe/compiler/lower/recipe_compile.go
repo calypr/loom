@@ -156,6 +156,9 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 		AuthScopeMode:     bindings.AuthScopeMode,
 	}
+	if err := validateSemanticOutputNames(output); err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	physical, err := buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
 	if err != nil {
 		return CompiledRecipeOutput{}, err
@@ -172,6 +175,9 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	if err := validatePublicProjectionNames(physical, output.Name); err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	if err := physical.Validate(); err != nil {
 		return CompiledRecipeOutput{}, fmt.Errorf("validate canonical physical plan: %w", err)
 	}
@@ -184,4 +190,81 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Plan: physical,
 	}, nil
+}
+
+func validateSemanticOutputNames(output semantic.OutputPlan) error {
+	seen := make(map[string]string)
+	var walk func(semantic.SemanticNode, string) error
+	walk = func(node semantic.SemanticNode, prefix string) error {
+		name := func(local string) string {
+			if prefix == "" {
+				return local
+			}
+			return prefix + "__" + local
+		}
+		check := func(local, kind string) error {
+			public := name(local)
+			if prior, exists := seen[public]; exists {
+				return fmt.Errorf("output %q has colliding public column name %q between %s and %s", output.Name, public, prior, kind)
+			}
+			seen[public] = kind
+			return nil
+		}
+		for _, field := range node.Fields {
+			if err := check(field.Name, "field"); err != nil {
+				return err
+			}
+		}
+		for _, aggregate := range node.Aggregates {
+			local := aggregate.Name
+			if aggregate.OutputName != "" {
+				local = aggregate.OutputName
+			}
+			if err := check(local, "aggregate"); err != nil {
+				return err
+			}
+		}
+		for _, slice := range node.Slices {
+			if err := check(slice.Name, "slice"); err != nil {
+				return err
+			}
+		}
+		for _, pivot := range node.Pivots {
+			for _, column := range pivot.Columns {
+				if err := check(pivot.Name+"__"+sanitizeColumnName(column), "pivot"); err != nil {
+					return err
+				}
+			}
+		}
+		for _, child := range node.Children {
+			childPrefix := child.Alias
+			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
+				childPrefix = prefix + "__" + child.Alias
+			}
+			if err := walk(child, childPrefix); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(output.Root, "")
+}
+
+func validatePublicProjectionNames(physical ir.PhysicalPlan, outputName string) error {
+	seen := make(map[string]struct{})
+	for _, operation := range physical.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "" || projection.Hidden {
+				continue
+			}
+			if _, exists := seen[projection.Name]; exists {
+				return fmt.Errorf("output %q has colliding public column name %q", outputName, projection.Name)
+			}
+			seen[projection.Name] = struct{}{}
+		}
+	}
+	return nil
 }
