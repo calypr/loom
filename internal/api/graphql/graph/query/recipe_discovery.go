@@ -9,15 +9,21 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-// recipeFieldDiscovery adapts the existing scoped field catalog to the
+// RecipeFieldDiscovery adapts the existing scoped field catalog to the
 // backend-neutral recipe schema resolver. The GraphQL one-shot path and the
 // stored-recipe server path therefore resolve catalog declarations with the
-// same project, generation, and authorization semantics.
-type recipeFieldDiscovery struct {
-	read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+// same metadata and authorization semantics.
+type RecipeFieldDiscovery struct {
+	Read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 }
 
-func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, resourceType string) ([]schema.FieldCandidate, error) {
+// NewRecipeFieldDiscovery returns the shared catalog adapter used by every
+// recipe-resolution entrypoint.
+func NewRecipeFieldDiscovery(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)) schema.Discovery {
+	return RecipeFieldDiscovery{Read: read}
+}
+
+func (d RecipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, resourceType string) ([]schema.FieldCandidate, error) {
 	var unrestricted *bool
 	switch authscope.ReadScopeMode(scope.AuthScopeMode) {
 	case authscope.ReadScopeUnrestricted:
@@ -27,7 +33,7 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 		value := false
 		unrestricted = &value
 	}
-	read := d.read
+	read := d.Read
 	if read == nil {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
@@ -41,11 +47,16 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 	}
 	result := make([]schema.FieldCandidate, 0, len(fields))
 	for _, field := range fields {
+		if isLoomMetadataField(field.Path) {
+			continue
+		}
 		result = append(result, schema.FieldCandidate{
 			ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind,
 			DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, PivotCandidate: field.PivotCandidate,
 			PivotFamily: field.PivotFamily, PivotColumns: append([]string(nil), field.PivotColumns...),
 			PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect,
+			PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType,
+			PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...),
 			ExtensionValues: func() []schema.ExtensionValueObservation {
 				values := make([]schema.ExtensionValueObservation, len(field.ExtensionValues))
 				for i, value := range field.ExtensionValues {
@@ -56,4 +67,13 @@ func (d recipeFieldDiscovery) Fields(ctx context.Context, scope schema.Scope, re
 		})
 	}
 	return result, nil
+}
+
+func isLoomMetadataField(path string) bool {
+	switch path {
+	case "project_id", "auth_resource_path", "dataset_generation":
+		return true
+	default:
+		return false
+	}
 }

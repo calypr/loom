@@ -2,81 +2,18 @@ package server
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/calypr/loom/internal/authscope"
+	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-type recipeCatalogDiscovery struct {
-	read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-}
-
-func (d recipeCatalogDiscovery) Fields(ctx context.Context, scope schema.Scope, resourceType string) ([]schema.FieldCandidate, error) {
-	var unrestricted *bool
-	switch authscope.ReadScopeMode(scope.AuthScopeMode) {
-	case authscope.ReadScopeUnrestricted:
-		value := true
-		unrestricted = &value
-	case authscope.ReadScopeRestricted:
-		value := false
-		unrestricted = &value
-	}
-	reader := d.read
-	if reader == nil {
-		return nil, fmt.Errorf("catalog field discovery is unavailable")
-	}
-	fields, err := reader(ctx, catalog.PopulatedFieldOptions{
-		Project:                       scope.Project,
-		DatasetGeneration:             scope.DatasetGeneration,
-		AuthResourcePaths:             append([]string(nil), scope.AuthResourcePaths...),
-		AuthResourcePathsUnrestricted: unrestricted,
-		ResourceType:                  resourceType,
-	})
-	if err != nil {
-		return nil, err
-	}
-	result := make([]schema.FieldCandidate, 0, len(fields))
-	for _, field := range fields {
-		if isLoomMetadataField(field.Path) {
-			continue
-		}
-		result = append(result, schema.FieldCandidate{
-			ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind,
-			DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated,
-			PivotCandidate: field.PivotCandidate, PivotFamily: field.PivotFamily,
-			PivotColumns:      append([]string(nil), field.PivotColumns...),
-			PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect,
-			PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType,
-			PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...),
-			ExtensionValues: func() []schema.ExtensionValueObservation {
-				values := make([]schema.ExtensionValueObservation, len(field.ExtensionValues))
-				for i, value := range field.ExtensionValues {
-					values[i] = schema.ExtensionValueObservation{URL: value.URL, SourcePath: value.SourcePath, ValuePath: value.ValuePath, ValueType: value.ValueType, URLPath: append([]string(nil), value.URLPath...)}
-				}
-				return values
-			}(),
-		})
-	}
-	return result, nil
-}
-
-func isLoomMetadataField(path string) bool {
-	switch path {
-	case "project_id", "auth_resource_path", "dataset_generation":
-		return true
-	default:
-		return false
-	}
-}
-
 func recipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error), cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 	if cache != nil {
 		read = cache.DiscoverFields(read)
 	}
-	discovery := recipeCatalogDiscovery{read: read}
+	discovery := queryapi.NewRecipeFieldDiscovery(read)
 	return func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipe.Bundle, error) {
 		resolved, err := schema.Resolve(ctx, bundle, schema.Scope{
 			Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
