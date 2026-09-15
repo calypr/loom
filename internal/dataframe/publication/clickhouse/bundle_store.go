@@ -95,6 +95,7 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 }
 
 func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity publication.BundleIdentity) (*clickHouseBundleTx, error) {
+	identity = identity.Canonical()
 	// ponytail: one process-wide begin lock; catalog leases handle cross-process races, per-key locks if throughput matters.
 	s.mu.Lock()
 	defer s.mu.Unlock()

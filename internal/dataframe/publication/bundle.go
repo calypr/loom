@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -62,6 +63,24 @@ type BundleIdentity struct {
 	AuthResourcePaths  []string `json:"authResourcePaths,omitempty"`
 }
 
+// Canonical returns an identity with its set-valued authorization paths in a
+// stable order without changing the persisted key shape.
+func (i BundleIdentity) Canonical() BundleIdentity {
+	if i.AuthResourcePaths == nil {
+		return i
+	}
+	paths := append([]string(nil), i.AuthResourcePaths...)
+	sort.Strings(paths)
+	unique := paths[:0]
+	for _, path := range paths {
+		if len(unique) == 0 || unique[len(unique)-1] != path {
+			unique = append(unique, path)
+		}
+	}
+	i.AuthResourcePaths = unique
+	return i
+}
+
 // PointerName is the visibility namespace for a published logical dataset.
 // Project and generation are part of the key so two tenants can publish the
 // same recipe/output name without racing a shared pointer.
@@ -77,6 +96,7 @@ func (i BundleIdentity) PointerName() string {
 }
 
 func (i BundleIdentity) Key() string {
+	i = i.Canonical()
 	b, _ := json.Marshal(struct {
 		Name, Project, DatasetGeneration string
 		TranslationVersion               string `json:"TranslationVersion,omitempty"`
