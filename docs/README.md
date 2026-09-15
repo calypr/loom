@@ -18,6 +18,8 @@ audits do not belong here.
   offline default conversion.
 - [Explorer compilation architecture](EXPLORER_COMPILATION_ARCHITECTURE.md) —
   the detailed intent-to-recipe-to-physical-plan-to-AQL path.
+- [ML-ready dataframe product tranche](product/ML_DATAFRAME_PRODUCT_PLAN.md) —
+  frontend-driven journey, artifact contract, work packages, and live acceptance gates.
 - [GraphQL API](GRAPHQL_API.md) — graph, FHIR dataframe, and published-data
   GraphQL contracts.
 
