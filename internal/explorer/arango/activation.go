@@ -177,7 +177,14 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			}
 		}
 	}
-	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{"status": explorer.RevisionActive, "activatedAt": now}); err != nil {
+	publication := activatedPublication(state.candidate, candidateKey)
+	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{
+		"status":      explorer.RevisionActive,
+		"activatedAt": now,
+		"failedAt":    nil,
+		"diagnostics": []any{},
+		"publication": publication,
+	}); err != nil {
 		return err
 	}
 	ownerKey, err := activationDocumentKey(state.owner)
@@ -185,6 +192,23 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 		return err
 	}
 	return updateActiveExplorerDocument(ctx, tx, ownerKey, candidateKey)
+}
+
+func activatedPublication(candidate map[string]any, revisionID string) map[string]any {
+	publication := map[string]any{}
+	if value, ok := candidate["publication"].(map[string]any); ok {
+		for key, item := range value {
+			publication[key] = item
+		}
+	}
+	publication["state"] = string(explorer.RevisionActive)
+	publication["revisionId"] = revisionID
+	if _, ok := publication["generation"]; !ok {
+		if generation, ok := candidate["sourceGeneration"].(string); ok && generation != "" {
+			publication["generation"] = generation
+		}
+	}
+	return publication
 }
 
 func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, ownerKey, revisionID string) error {

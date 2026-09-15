@@ -153,6 +153,17 @@ func TestActivateRepositoryGenerationUsesCompositeGuards(t *testing.T) {
 	if got := client.calls[0].binds["generation"]; got != "generation-a" {
 		t.Fatalf("generation bind=%v", got)
 	}
+	patch, ok := client.calls[2].binds["patch"].(map[string]any)
+	if !ok || patch["status"] != explorer.RevisionActive || patch["failedAt"] != nil {
+		t.Fatalf("revision activation patch=%#v", patch)
+	}
+	if diagnostics, ok := patch["diagnostics"].([]any); !ok || len(diagnostics) != 0 {
+		t.Fatalf("activation diagnostics=%#v, want cleared", patch["diagnostics"])
+	}
+	publication, ok := patch["publication"].(map[string]any)
+	if !ok || publication["state"] != string(explorer.RevisionActive) || publication["revisionId"] != "revision-a" || publication["generation"] != "generation-a" {
+		t.Fatalf("activation publication=%#v", patch["publication"])
+	}
 }
 
 func TestActivationUsesTransactionsAndSingleModificationQueries(t *testing.T) {

@@ -125,6 +125,9 @@ func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []exp
 	}
 	f.repositoryRevision.Status = explorer.RevisionFailed
 	f.repositoryRevision.Diagnostics = append([]explorer.Diagnostic(nil), diagnostics...)
+	failedAt := time.Now().UTC()
+	f.repositoryRevision.FailedAt = &failedAt
+	f.repositoryRevision.Publication.State = string(explorer.RevisionFailed)
 	return f.repositoryRevision, nil
 }
 
@@ -141,6 +144,10 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 	}
 	if f.repositoryRevision != nil && f.repositoryRevision.ID == revisionID {
 		f.repositoryRevision.Status = explorer.RevisionActive
+		f.repositoryRevision.Diagnostics = nil
+		f.repositoryRevision.FailedAt = nil
+		f.repositoryRevision.Publication.State = string(explorer.RevisionActive)
+		f.repositoryRevision.Publication.RevisionID = revisionID
 	}
 	if f.repositoryOwner != nil {
 		f.repositoryOwner.ActiveRevisionID = revisionID
