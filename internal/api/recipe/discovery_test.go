@@ -1,4 +1,4 @@
-package queryapi
+package recipeapi
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-func TestRecipeFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
+func TestFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
 	read := func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		return []catalog.PopulatedField{
 			{ResourceType: "Observation", Path: "project_id", Kind: "scalar"},
@@ -19,8 +19,7 @@ func TestRecipeFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
 			{ResourceType: "Observation", Path: "code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "code", PivotColumns: []string{"system"}, PivotColumnSelect: "code.coding.system", PivotValueSelect: "code.coding.code", PivotItemSource: "code.coding", PivotItemResourceType: "Coding", PivotValueSelectors: []string{"code.coding.code"}},
 		}, nil
 	}
-	discovery := NewRecipeFieldDiscovery(read)
-	got, err := discovery.Fields(context.Background(), schema.Scope{Project: "project", DatasetGeneration: "generation"}, "Observation")
+	got, err := NewFieldDiscovery(read).Fields(context.Background(), schema.Scope{Project: "project", DatasetGeneration: "generation"}, "Observation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +32,7 @@ func TestRecipeFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
 	}
 }
 
-func TestRecipeFieldDiscoveryUsesRetryableBackendErrorForBothFailureForms(t *testing.T) {
+func TestFieldDiscoveryUsesRetryableBackendErrorForBothFailureForms(t *testing.T) {
 	for name, read := range map[string]func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error){
 		"nil reader": nil,
 		"backend reader": func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
@@ -41,7 +40,7 @@ func TestRecipeFieldDiscoveryUsesRetryableBackendErrorForBothFailureForms(t *tes
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewRecipeFieldDiscovery(read).Fields(context.Background(), schema.Scope{}, "Observation")
+			_, err := NewFieldDiscovery(read).Fields(context.Background(), schema.Scope{}, "Observation")
 			userErr, ok := dataframeerrors.AsUserError(err)
 			if !ok || userErr.Code() != string(dataframeerrors.CodeBackendUnavailable) || !userErr.Retryable() {
 				t.Fatalf("error = %#v, want retryable BACKEND_UNAVAILABLE", err)

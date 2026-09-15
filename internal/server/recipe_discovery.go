@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
@@ -13,7 +13,7 @@ func recipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptio
 	if cache != nil {
 		read = cache.DiscoverFields(read)
 	}
-	discovery := queryapi.NewRecipeFieldDiscovery(read)
+	discovery := recipeapi.NewFieldDiscovery(read)
 	return func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipe.Bundle, error) {
 		resolved, err := schema.Resolve(ctx, bundle, schema.Scope{
 			Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,

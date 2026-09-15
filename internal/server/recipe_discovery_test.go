@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
 func TestRecipeFieldDiscoverySkipsLoomMetadata(t *testing.T) {
-	discovery := queryapi.NewRecipeFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	discovery := recipeapi.NewFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		return []catalog.PopulatedField{
 			{ResourceType: "DocumentReference", Path: "project_id", Kind: "scalar"},
 			{ResourceType: "DocumentReference", Path: "status", Kind: "scalar"},
@@ -27,7 +27,7 @@ func TestRecipeFieldDiscoverySkipsLoomMetadata(t *testing.T) {
 }
 
 func TestRecipeFieldDiscoveryCarriesExtensionObservations(t *testing.T) {
-	discovery := queryapi.NewRecipeFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	discovery := recipeapi.NewFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		return []catalog.PopulatedField{{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []catalog.ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}}}}, nil
 	})
 	fields, err := discovery.Fields(context.Background(), schema.Scope{}, "DocumentReference")
