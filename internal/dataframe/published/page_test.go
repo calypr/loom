@@ -2,16 +2,21 @@ package published
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-type pageQueryer struct{ queries []string }
+type pageQueryer struct {
+	queries []string
+	args    [][]any
+}
 
-func (q *pageQueryer) QueryRowsArgs(_ context.Context, query string, _ []string, _ ...any) ([]map[string]any, error) {
+func (q *pageQueryer) QueryRowsArgs(_ context.Context, query string, _ []string, args ...any) ([]map[string]any, error) {
 	q.queries = append(q.queries, query)
+	q.args = append(q.args, append([]any(nil), args...))
 	return []map[string]any{{"__loom_row_id": "2", "__loom_total": int64(2)}}, nil
 }
 
@@ -118,5 +123,44 @@ func TestPageRejectsCursorWhenPublicationBindingChanges(t *testing.T) {
 				t.Fatalf("query count = %d, want no backend call for mismatched cursor", len(queryer.queries))
 			}
 		})
+	}
+}
+
+func TestPageReusesCursorWithFreshNarrowedAuthorizationScope(t *testing.T) {
+	queryer := &pageQueryer{}
+	materialization := Materialization{
+		ID: "execution:Patient", Revision: "revision", Project: "project", DatasetGeneration: "generation",
+		PhysicalTable: "published_patient",
+		Columns: []Column{
+			{Name: "name", ClickHouse: "String"},
+			{Name: authResourcePathColumn, ClickHouse: "String"},
+		},
+	}
+	original := PageRequest{
+		Columns: []string{"name"}, First: 1, AuthResourcePaths: []string{"path-a", "path-b"},
+	}
+	binding, err := cursorFingerprint(materialization, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original.After = encodeBoundCursor("1", nil, binding)
+
+	narrowed := original
+	narrowed.AuthResourcePaths = []string{"path-a"}
+	page, err := (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, narrowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryer.queries) != 1 || len(queryer.args) != 1 {
+		t.Fatalf("backend calls = queries:%d args:%d, want one", len(queryer.queries), len(queryer.args))
+	}
+	if !strings.Contains(queryer.queries[0], "`auth_resource_path` IN ? AND `__loom_row_id` > ?") {
+		t.Fatalf("query omitted narrowed scope and cursor predicates: %s", queryer.queries[0])
+	}
+	if len(queryer.args[0]) != 2 || !reflect.DeepEqual(queryer.args[0][0], []string{"path-a"}) || queryer.args[0][1] != "1" {
+		t.Fatalf("query args = %#v, want narrowed paths then cursor row id", queryer.args[0])
+	}
+	if len(page.Rows) != 1 || page.Rows[0]["__loom_row_id"] != nil {
+		t.Fatalf("page rows = %#v, want one sanitized row", page.Rows)
 	}
 }
