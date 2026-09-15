@@ -268,6 +268,9 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		if !input.ValueMode.Valid() {
 			return nil, fmt.Errorf("%s.valueMode %q is unsupported", path, input.ValueMode)
 		}
+		if input.ValueMode != "" && input.ValueMode != recipe.ValueModeAuto {
+			return nil, fmt.Errorf("%s.valueMode %q is unsupported; aggregate valueMode must be AUTO", path, input.ValueMode)
+		}
 		semanticAggregate := SemanticAggregate{
 			Name:           input.Name,
 			OutputName:     input.OutputName,

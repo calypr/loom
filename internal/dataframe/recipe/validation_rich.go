@@ -131,6 +131,40 @@ func filterOperatorSupportsKind(op FilterOperator, kind FilterValueKind) bool {
 	}
 }
 
+func validateRichFilterAt(filter Filter, path string) error {
+	if err := filter.validateAt(path); err != nil {
+		return err
+	}
+	if filter.Quantifier != "" {
+		return validationError("unsupported_filter_quantifier", path+".quantifier", "rich shaping predicates do not support quantifiers")
+	}
+	switch filter.Operator {
+	case FilterExists:
+		return nil
+	case FilterEquals:
+		if len(filter.Values) != 1 || (filter.Values[0].Kind != FilterString && filter.Values[0].Kind != FilterCode) {
+			return validationError("unsupported_filter_value", path+".values", "rich shaping equality supports STRING and CODE values")
+		}
+		return nil
+	default:
+		return validationError("unsupported_filter_operator", path+".operator", "rich shaping predicates support only EXISTS and EQUALS")
+	}
+}
+
+func validateSelectorExpression(input Expression, path string) error {
+	if strings.HasPrefix(strings.TrimSpace(input.Call), "fragment:") {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(input.Call)) {
+	case "reference_id", "path_segment", "basename", "last_segment", "sanitize_name", "sanitize_graphql_name":
+		return nil
+	}
+	if input.Select == "" || input.Call != "" || input.Literal != nil || input.Document != nil || len(input.Args) != 0 {
+		return validationError("unsupported_expression", path, "rich shaping requires a selector expression")
+	}
+	return nil
+}
+
 func (p Pivot) validateAt(path string, budget *int) error {
 	if err := validateRecipeName(p.Name, path+".name"); err != nil {
 		return err
@@ -163,6 +197,12 @@ func (p Pivot) validateAt(path string, budget *int) error {
 	// from the catalog's validated pivot metadata before semantic compilation.
 	if p.Discovery != nil && p.ColumnExpr.Select == "" && p.ValueExpr.Select == "" && p.ColumnExpr.Call == "" && p.ValueExpr.Call == "" {
 		return nil
+	}
+	if err := validateSelectorExpression(p.ColumnExpr, path+".columnExpr"); err != nil {
+		return err
+	}
+	if err := validateSelectorExpression(p.ValueExpr, path+".valueExpr"); err != nil {
+		return err
 	}
 	if err := validateExpressionBudget(p.ColumnExpr, path+".columnExpr", budget); err != nil {
 		return err
@@ -235,6 +275,9 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if !a.ValueMode.Valid() {
 		return validationError("invalid_value_mode", path+".valueMode", fmt.Sprintf("unsupported value mode %q", a.ValueMode))
 	}
+	if a.ValueMode != "" && a.ValueMode != ValueModeAuto {
+		return validationError("unsupported_value_mode", path+".valueMode", "aggregate valueMode must be AUTO")
+	}
 	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
@@ -243,12 +286,15 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 		return validationError("invalid_expr", path+".expr", "COUNT and EXISTS do not accept expr")
 	}
 	if a.Expr != nil {
+		if err := validateSelectorExpression(*a.Expr, path+".expr"); err != nil {
+			return err
+		}
 		if err := validateExpressionBudget(*a.Expr, path+".expr", budget); err != nil {
 			return err
 		}
 	}
 	if a.Where != nil {
-		if err := a.Where.validateAt(path + ".where"); err != nil {
+		if err := validateRichFilterAt(*a.Where, path+".where"); err != nil {
 			return err
 		}
 	}
@@ -283,7 +329,13 @@ func (s RepresentativeSlice) validateAt(path string, budget *int) error {
 		return validationError("required", path+".fields", "at least one field is required")
 	}
 	if s.Where != nil {
-		if err := s.Where.validateAt(path + ".where"); err != nil {
+		if err := validateRichFilterAt(*s.Where, path+".where"); err != nil {
+			return err
+		}
+	}
+	for index, field := range s.Fields {
+		fieldPath := fmt.Sprintf("%s.fields[%d]", path, index)
+		if err := validateSelectorExpression(field.Expr, fieldPath+".expr"); err != nil {
 			return err
 		}
 	}
