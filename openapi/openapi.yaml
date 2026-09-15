@@ -678,6 +678,9 @@ components:
       properties:
         code: {type: string}
         message: {type: string}
+        fieldPath:
+          type: array
+          items: {type: string}
         details:
           type: object
           nullable: true

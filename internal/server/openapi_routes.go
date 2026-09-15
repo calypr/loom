@@ -24,6 +24,7 @@ var _ loomapi.StrictServerInterface = (*HTTPRoutes)(nil)
 
 func serviceErrorResponse(body httpapi.ErrorResponse) loomapi.ServiceErrorResponse {
 	details := body.Error.Details
+	fieldPath := append([]string(nil), body.Error.FieldPath...)
 	requestID := body.Error.RequestID
 	retryable := body.Error.Retryable
 	var detailsPtr *map[string]interface{}
@@ -35,7 +36,11 @@ func serviceErrorResponse(body httpapi.ErrorResponse) loomapi.ServiceErrorRespon
 	if requestID != "" {
 		requestIDPtr = &requestID
 	}
-	return loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: body.Error.Code, Message: body.Error.Message, Details: detailsPtr, RequestId: requestIDPtr, Retryable: &retryable}}
+	var fieldPathPtr *[]string
+	if len(fieldPath) != 0 {
+		fieldPathPtr = &fieldPath
+	}
+	return loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: body.Error.Code, Message: body.Error.Message, FieldPath: fieldPathPtr, Details: detailsPtr, RequestId: requestIDPtr, Retryable: &retryable}}
 }
 
 func legacyErrorFromMap(body loomapi.RawJSON) (loomapi.LegacyErrorResponse, error) {
