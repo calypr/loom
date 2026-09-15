@@ -31,6 +31,7 @@ type leaseBundleCatalog struct {
 	renewStarted         chan struct{}
 	saveErr              error
 	requireSaveContext   bool
+	savedSnapshots       []publication.BundleExecution
 	pointerErr           error
 	publishErr           error
 	publishCommitThenErr error
@@ -73,6 +74,7 @@ func (c *leaseBundleCatalog) SaveExecution(ctx context.Context, e publication.Bu
 	if c.saveErr != nil {
 		return c.saveErr
 	}
+	c.savedSnapshots = append(c.savedSnapshots, e)
 	return c.bundleCatalogFixture.SaveExecution(ctx, e)
 }
 func (c *leaseBundleCatalog) GetPointer(ctx context.Context, name string) (publication.BundlePointer, error) {
@@ -402,6 +404,29 @@ func TestClickHouseBundleStoreDoesNotSwallowPointerFailure(t *testing.T) {
 	if catalog.acquireCalls != 0 || catalog.releaseCalls != 0 {
 		t.Fatalf("lease calls = acquire %d release %d, want no lease on pointer failure", catalog.acquireCalls, catalog.releaseCalls)
 	}
+}
+
+func TestClickHouseBundleTransactionMetadataHonorsContext(t *testing.T) {
+	catalog := &leaseBundleCatalog{bundleCatalogFixture: newBundleCatalogFixture(), acquire: true, requireSaveContext: true}
+	store, _ := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	tx, err := store.beginBundle(context.Background(), publication.BundleIdentity{Name: "metadata-cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "one", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	savesBefore := len(catalog.savedSnapshots)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = tx.SetOutputMetadata(ctx, "one", []publication.LogicalColumn{{Name: "id", Kind: "string"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("SetOutputMetadata() error = %v, want context cancellation", err)
+	}
+	if got := len(catalog.savedSnapshots); got != savesBefore {
+		t.Fatalf("canceled metadata write saved %d snapshots, want %d", got, savesBefore)
+	}
+	_ = tx.Abort(context.Background(), err)
 }
 
 func TestClickHouseBundleStoreReleasesLeaseWhenInitialSaveFails(t *testing.T) {

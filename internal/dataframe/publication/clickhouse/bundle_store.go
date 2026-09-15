@@ -83,7 +83,7 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 			cancel()
 			return nil, errors.Join(cause, abortErr)
 		}
-		if err := tx.SetOutputMetadata(schema.Name, schema.Columns); err != nil {
+		if err := tx.SetOutputMetadata(ctx, schema.Name, schema.Columns); err != nil {
 			cause := fmt.Errorf("output %q metadata: %w", schema.Name, err)
 			cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
 			abortErr := tx.Abort(cleanupCtx, cause)
@@ -349,12 +349,15 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 
 // SetOutputMetadata persists semantic schema alongside the physical table
 // definition.
-func (t *clickHouseBundleTx) SetOutputMetadata(name string, columns []publication.LogicalColumn) error {
+func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string, columns []publication.LogicalColumn) error {
 	if t.idempotent {
 		return nil
 	}
 	if t.closed {
 		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
 	}
 	idx := t.outputIndex(name)
 	if idx < 0 {
@@ -379,7 +382,7 @@ func (t *clickHouseBundleTx) SetOutputMetadata(name string, columns []publicatio
 			column.LoomOwned = logical.LoomOwned || logical.IsIdentity || column.Name == "__loom_row_id" || column.Name == "auth_resource_path" || column.Name == "project_id"
 		}
 	}
-	return t.save(context.Background())
+	return t.save(ctx)
 }
 
 // FinalizeSchema removes discovered columns that were never populated and
