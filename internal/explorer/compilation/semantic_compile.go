@@ -77,9 +77,16 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			if !found {
 				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.fieldPath", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": column.Source.FieldPath}, nil)
 			}
+			capabilityMode, supported := capabilityProjectionMode(projectionMode)
+			if !supported || !containsProjectionMode(candidate.ProjectionModes, capabilityMode) {
+				return Result{}, fail("capability", "UNSUPPORTED_PROJECTION_MODE", fmt.Sprintf("$.columns[%d].source.projectionMode", index), "projection mode is not advertised by the resolved capability candidate", map[string]any{"candidateId": candidate.ID, "projectionMode": projectionMode, "advertisedModes": candidate.ProjectionModes}, nil)
+			}
+			if authoredType := strings.TrimSpace(column.LogicalType); authoredType != "" && authoredType != strings.TrimSpace(candidate.LogicalType) {
+				return Result{}, fail("capability", "CAPABILITY_LOGICAL_TYPE_MISMATCH", fmt.Sprintf("$.columns[%d].logicalType", index), "logical type does not match the resolved capability candidate", map[string]any{"candidateId": candidate.ID, "expected": candidate.LogicalType, "actual": authoredType}, nil)
+			}
 			candidateID = candidate.ID
 			sourceRepeated = len(candidate.RepeatedBoundaries) > 0
-			logicalType = firstNonEmpty(column.LogicalType, candidate.LogicalType, "string")
+			logicalType = firstNonEmpty(candidate.LogicalType, "string")
 			filterable = filterable && supportsOperation(candidate.SupportedOperations, capability.OperationFilter)
 			chartable = chartable && supportsOperation(candidate.SupportedOperations, capability.OperationChart)
 			path := strings.TrimPrefix(strings.TrimSpace(column.Source.FieldPath), "root.")
@@ -393,6 +400,32 @@ func semanticFieldCandidate(snapshot capability.Snapshot, nodeID, fieldPath stri
 		}
 	}
 	return capability.Candidate{}, false
+}
+
+func capabilityProjectionMode(mode string) (capability.ProjectionMode, bool) {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "VALUE":
+		return capability.ProjectionScalar, true
+	case "INDEXED":
+		return capability.ProjectionIndexed, true
+	case "FIRST":
+		return capability.ProjectionFirst, true
+	case "ALL":
+		return capability.ProjectionArray, true
+	case "DISTINCT":
+		return capability.ProjectionDistinctArray, true
+	default:
+		return "", false
+	}
+}
+
+func containsProjectionMode(values []capability.ProjectionMode, want capability.ProjectionMode) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {

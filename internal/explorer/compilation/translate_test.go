@@ -81,6 +81,51 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T) {
+	base := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}}},
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*authoringv2.Document)
+		code   string
+	}{
+		{name: "logical type", mutate: func(document *authoringv2.Document) { document.Columns[0].LogicalType = "integer" }, code: "CAPABILITY_LOGICAL_TYPE_MISMATCH"},
+		{name: "projection mode", mutate: func(document *authoringv2.Document) { document.Columns[0].Source.ProjectionMode = "FIRST" }, code: "UNSUPPORTED_PROJECTION_MODE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := base
+			test.mutate(&document)
+			_, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+			var compileErr *Error
+			if !errors.As(err, &compileErr) || compileErr.Code != test.code {
+				t.Fatalf("compile error = %v, want %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}}
+	var created []authoringv2.CommandResult
+	var err error
+	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "c_patient_id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot); err != nil {
+		t.Fatalf("command-generated workspace rejected: %v", err)
+	}
+}
+
 func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 	visible := true
 	document := authoringv2.Document{
