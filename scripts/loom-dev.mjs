@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,6 +20,81 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const OWNED_SERVICES = new Set(['arangodb', 'clickhouse', 'loom-api', 'loom-ui']);
 
 const requiredFixtureFiles = ['Patient.ndjson', 'Observation.ndjson', 'recipe.json'];
+const DEFAULT_PORT_REGISTRY = join(tmpdir(), 'loom-dev-port-registry.json');
+const PORT_SLOT_COUNT = 8000;
+const API_PORT_BASE = 8180;
+const UI_PORT_BASE = 30000;
+const PORT_LOCK_TIMEOUT_MS = 30000;
+
+const waitSync = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+
+const withPortRegistryLock = (registryPath, operation) => {
+  const lockPath = `${registryPath}.lock`;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      const descriptor = openSync(lockPath, 'wx');
+      try {
+        return operation();
+      } finally {
+        closeSync(descriptor);
+        unlinkSync(lockPath);
+      }
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let stale = false;
+      try { stale = Date.now() - statSync(lockPath).mtimeMs > PORT_LOCK_TIMEOUT_MS; } catch { stale = true; }
+      if (stale) {
+        try { unlinkSync(lockPath); } catch (unlinkError) {
+          if (unlinkError.code !== 'ENOENT') throw unlinkError;
+        }
+        continue;
+      }
+      waitSync(10);
+    }
+  }
+  throw new Error(`timed out waiting for development port registry lock: ${registryPath}`);
+};
+
+const allocatePortSlot = (registryPath, sourceRoot, identity) => withPortRegistryLock(registryPath, () => {
+  let registry = { version: 1, assignments: {} };
+  if (existsSync(registryPath)) registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+  if (registry.version !== 1 || typeof registry.assignments !== 'object') throw new Error(`invalid development port registry: ${registryPath}`);
+  for (const [key, assignment] of Object.entries(registry.assignments)) {
+    if (!existsSync(assignment.sourceRoot)) delete registry.assignments[key];
+  }
+  const existing = registry.assignments[identity];
+  if (existing) {
+    if (existing.sourceRoot !== sourceRoot) throw new Error(`development source identity collision: ${sourceRoot}`);
+    return existing.slot;
+  }
+  const usedSlots = new Set(Object.values(registry.assignments).map((assignment) => assignment.slot));
+  const slot = Array.from({ length: PORT_SLOT_COUNT }, (_, index) => index).find((candidate) => !usedSlots.has(candidate));
+  if (slot === undefined) throw new Error('development port registry is full; remove unused worktrees and retry');
+  registry.assignments[identity] = { sourceRoot, slot };
+  const temporaryPath = `${registryPath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporaryPath, registryPath);
+  return slot;
+});
+
+const defaultSessionValues = (sourceRoot, env) => {
+  const identity = createHash('sha256').update(sourceRoot).digest('hex').slice(0, 12);
+  const names = {
+    composeProject: `loom-dev-${identity}`,
+    project: `loom_dev_${identity}`,
+    artifacts: join(sourceRoot, '.artifacts/loom-dev', identity),
+  };
+  const explicitAPIPort = envValue(env, 'LOOM_DEV_API_PORT', '');
+  const explicitUIPort = envValue(env, 'LOOM_DEV_UI_PORT', '');
+  if (explicitAPIPort && explicitUIPort) return { ...names, apiPort: explicitAPIPort, uiPort: explicitUIPort };
+  const registryPath = envValue(env, 'LOOM_DEV_PORT_REGISTRY', DEFAULT_PORT_REGISTRY);
+  const portSlot = allocatePortSlot(registryPath, sourceRoot, identity);
+  return {
+    ...names,
+    apiPort: String(API_PORT_BASE + portSlot * 2),
+    uiPort: String(UI_PORT_BASE + portSlot * 2),
+  };
+};
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
@@ -59,13 +135,14 @@ export const sourceMountMatches = (mountedPath, expectedPath) =>
  */
 export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
   const sourceRoot = resolve(envValue(env, 'LOOM_DEV_SOURCE_ROOT', cwd));
-  const composeProject = safeName(envValue(env, 'LOOM_DEV_COMPOSE_PROJECT', 'loom-dev'), 'LOOM_DEV_COMPOSE_PROJECT');
-  const project = safeIdentifier(envValue(env, 'LOOM_DEV_PROJECT', 'loom_dev_fixture'), 'LOOM_DEV_PROJECT');
+  const defaults = defaultSessionValues(sourceRoot, env);
+  const composeProject = safeName(envValue(env, 'LOOM_DEV_COMPOSE_PROJECT', defaults.composeProject), 'LOOM_DEV_COMPOSE_PROJECT');
+  const project = safeIdentifier(envValue(env, 'LOOM_DEV_PROJECT', defaults.project), 'LOOM_DEV_PROJECT');
   const generation = safeName(envValue(env, 'LOOM_DEV_GENERATION', 'fixture-v1'), 'LOOM_DEV_GENERATION');
   const host = envValue(env, 'LOOM_DEV_HOST', '127.0.0.1');
-  const apiPort = portValue(env, 'LOOM_DEV_API_PORT', '8180');
-  const uiPort = portValue(env, 'LOOM_DEV_UI_PORT', '3180');
-  const artifacts = resolve(envValue(env, 'LOOM_DEV_ARTIFACTS', ARTIFACT_ROOT));
+  const apiPort = portValue(env, 'LOOM_DEV_API_PORT', defaults.apiPort);
+  const uiPort = portValue(env, 'LOOM_DEV_UI_PORT', defaults.uiPort);
+  const artifacts = resolve(envValue(env, 'LOOM_DEV_ARTIFACTS', defaults.artifacts));
   const fixtureDir = join(sourceRoot, 'testdata/devloop-fixture');
 
   if (composeProject === CANONICAL_PROJECT) {

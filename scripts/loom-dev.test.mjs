@@ -1,16 +1,76 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDevSession, createVerificationReport, sourceMountMatches } from './loom-dev.mjs';
 
 test('development session defaults to isolated names, ports, and fixture', () => {
-  const target = createDevSession({}, process.cwd());
-  assert.equal(target.composeProject, 'loom-dev');
-  assert.equal(target.fixtureProject, 'loom_dev_fixture');
-  assert.equal(target.fixtureGeneration, 'fixture-v1');
-  assert.equal(target.apiPort, 8180);
-  assert.equal(target.uiPort, 3180);
-  assert.match(target.fixtureDir, /testdata\/devloop-fixture$/);
-  assert.notEqual(target.composeProject, 'loom-demo');
+  const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));
+  try {
+    const target = createDevSession({ LOOM_DEV_PORT_REGISTRY: join(registryRoot, 'ports.json') }, process.cwd());
+    assert.match(target.composeProject, /^loom-dev-[a-f0-9]{12}$/);
+    assert.match(target.fixtureProject, /^loom_dev_[a-f0-9]{12}$/);
+    assert.equal(target.fixtureGeneration, 'fixture-v1');
+    assert.ok(target.apiPort >= 8180 && target.apiPort < 30000);
+    assert.ok(target.uiPort >= 30000);
+    assert.match(target.fixtureDir, /testdata\/devloop-fixture$/);
+    assert.notEqual(target.composeProject, 'loom-demo');
+  } finally {
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
+});
+
+test('default development sessions separate worktree identities and ports', () => {
+  const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));
+  const registry = join(registryRoot, 'ports.json');
+  const roots = [mkdtempSync(join(tmpdir(), 'loom-dev-session-a-')), mkdtempSync(join(tmpdir(), 'loom-dev-session-b-'))];
+  try {
+    for (const root of roots) {
+      mkdirSync(join(root, 'testdata/devloop-fixture'), { recursive: true });
+      writeFileSync(join(root, 'go.mod'), 'module example.test\n');
+      for (const file of ['Patient.ndjson', 'Observation.ndjson', 'recipe.json']) {
+        writeFileSync(join(root, 'testdata/devloop-fixture', file), '{}\n');
+      }
+    }
+    const env = { LOOM_DEV_PORT_REGISTRY: registry };
+    const first = createDevSession(env, roots[0]);
+    const second = createDevSession(env, roots[1]);
+    assert.notEqual(first.composeProject, second.composeProject);
+    assert.notEqual(first.fixtureProject, second.fixtureProject);
+    assert.notEqual(first.apiPort, second.apiPort);
+    assert.notEqual(first.uiPort, second.uiPort);
+    assert.notEqual(first.artifacts, second.artifacts);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
+});
+
+test('explicit ports bypass an unusable port registry', () => {
+  const target = createDevSession({
+    LOOM_DEV_API_PORT: '8281',
+    LOOM_DEV_UI_PORT: '3281',
+    LOOM_DEV_PORT_REGISTRY: '/private/tmp/loom-dev-unusable-registry/ports.json',
+  }, process.cwd());
+  assert.equal(target.apiPort, 8281);
+  assert.equal(target.uiPort, 3281);
+});
+
+test('stale port registry locks are recoverable', () => {
+  const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));
+  const registry = join(registryRoot, 'ports.json');
+  const lock = `${registry}.lock`;
+  try {
+    writeFileSync(lock, 'stale');
+    const staleTime = new Date(Date.now() - 60000);
+    utimesSync(lock, staleTime, staleTime);
+    const target = createDevSession({ LOOM_DEV_PORT_REGISTRY: registry }, process.cwd());
+    assert.match(target.composeProject, /^loom-dev-[a-f0-9]{12}$/);
+    assert.equal(target.apiPort, 8180);
+  } finally {
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
 });
 
 test('development session rejects canonical Compose and data targets', () => {
