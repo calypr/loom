@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
-      - name: Run authenticated browser acceptance
+      - name: Run isolated browser acceptance
         env:
           LOOM_DEV_COMPOSE_PROJECT: loom-dev-ci-${{ github.run_id }}
           LOOM_DEV_PROJECT: loom_dev_ci_${{ github.run_id }}

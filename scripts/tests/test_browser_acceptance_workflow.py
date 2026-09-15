@@ -30,6 +30,7 @@ class BrowserAcceptanceWorkflowTest(unittest.TestCase):
         self.assertIn("LOOM_DEV_API_PORT: 8280", browser)
         self.assertIn("LOOM_DEV_UI_PORT: 3280", browser)
         self.assertIn("LOOM_DEV_ARTIFACTS: .artifacts/browser/${{ github.run_id }}", browser)
+        self.assertIn("name: Run isolated browser acceptance", browser)
         self.assertIn("run: node scripts/loom-dev.mjs verify-fast", browser)
         self.assertIn("run: node scripts/loom-dev.mjs dev-down --purge", browser)
         self.assertIn("if: always()", browser)
