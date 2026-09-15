@@ -1,0 +1,89 @@
+name: ${LOOM_DEV_COMPOSE_PROJECT:-loom-dev}
+
+services:
+  arangodb:
+    image: arangodb:3.12
+    environment:
+      ARANGO_NO_AUTH: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    volumes:
+      - loom_dev_arangodb_data:/var/lib/arangodb3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_DB: loom_dev
+      CLICKHOUSE_USER: loom_dev
+      CLICKHOUSE_PASSWORD: loom_dev_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider --user=loom_dev --password=loom_dev_password http://127.0.0.1:8123/ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    volumes:
+      - loom_dev_clickhouse_data:/var/lib/clickhouse
+
+  loom-api:
+    build:
+      context: ${LOOM_DEV_SOURCE_ROOT:-.}
+      dockerfile: Dockerfile.dev
+    depends_on:
+      arangodb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/readyz"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+    ports:
+      - target: 8080
+        published: ${LOOM_DEV_API_PORT:-8180}
+        host_ip: ${LOOM_DEV_HOST:-127.0.0.1}
+    volumes:
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/cmd:/workspace/cmd:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/internal:/workspace/internal:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/generated:/workspace/generated:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/schemas:/workspace/schemas:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/openapi:/workspace/openapi:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/go.mod:/workspace/go.mod:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/go.sum:/workspace/go.sum:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/testdata/devloop-fixture:/workspace/testdata/devloop-fixture:ro
+      - loom_dev_go_module_cache:/go/pkg/mod
+      - loom_dev_go_build_cache:/root/.cache/go-build
+
+  loom-ui:
+    build:
+      context: ${LOOM_DEV_SOURCE_ROOT:-.}/ui
+      dockerfile: apps/demo/Dockerfile.dev
+    environment:
+      LOOM_API_URL: http://loom-api:8080
+      VITE_LOOM_PROJECT: ${LOOM_DEV_PROJECT:-loom_dev_fixture}
+      VITE_LOOM_EXPLORER: ${LOOM_DEV_EXPLORER:-loom-dev-bootstrap}
+    command: ["npm", "run", "dev", "--workspace", "@calypr/loom-demo"]
+    depends_on:
+      loom-api:
+        condition: service_healthy
+    ports:
+      - target: 8080
+        published: ${LOOM_DEV_UI_PORT:-3180}
+        host_ip: ${LOOM_DEV_HOST:-127.0.0.1}
+    volumes:
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/apps/demo/src:/workspace/apps/demo/src:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/apps/demo/index.html:/workspace/apps/demo/index.html:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/apps/demo/vite.config.ts:/workspace/apps/demo/vite.config.ts:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/apps/demo/postcss.config.cjs:/workspace/apps/demo/postcss.config.cjs:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/apps/demo/tailwind.config.cjs:/workspace/apps/demo/tailwind.config.cjs:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/ui/packages/loom-ui/src:/workspace/packages/loom-ui/src:ro
+
+volumes:
+  loom_dev_arangodb_data:
+  loom_dev_clickhouse_data:
+  loom_dev_go_module_cache:
+  loom_dev_go_build_cache:

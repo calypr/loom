@@ -29,22 +29,38 @@ const LoomExplorerViewer = React.lazy(() =>
 );
 
 const App = () => {
+  const [selectedExplorerId, setSelectedExplorerId] = React.useState(explorerId);
   const [currentMode, setMode] = React.useState(mode === 'viewer' ? 'viewer' : 'builder');
+  const setCurrentMode = React.useCallback((nextMode: 'builder' | 'viewer') => {
+    setMode(nextMode);
+    const nextURL = new URL(window.location.href);
+    nextURL.searchParams.set('project', project);
+    nextURL.searchParams.set('explorer', selectedExplorerId);
+    nextURL.searchParams.set('mode', nextMode);
+    window.history.replaceState({}, '', nextURL);
+  }, [selectedExplorerId]);
+  const onExplorerChange = React.useCallback((nextExplorerId: string) => {
+    setSelectedExplorerId(nextExplorerId);
+    const nextURL = new URL(window.location.href);
+    nextURL.searchParams.set('project', project);
+    nextURL.searchParams.set('explorer', nextExplorerId);
+    window.history.replaceState({}, '', nextURL);
+  }, []);
   return (
     <div className="demo-shell">
       <header className="demo-header">
         <div><span className="demo-mark">LOOM</span><strong>FHIR Explorer Studio</strong></div>
         <div className="demo-controls">
-          <span>{project} / {explorerId}</span>
-          <button type="button" className={currentMode === 'builder' ? 'active' : ''} onClick={() => setMode('builder')}>Builder</button>
-          <button type="button" className={currentMode === 'viewer' ? 'active' : ''} onClick={() => setMode('viewer')}>Viewer</button>
+          <span>{project} / {selectedExplorerId}</span>
+          <button type="button" className={currentMode === 'builder' ? 'active' : ''} onClick={() => setCurrentMode('builder')}>Builder</button>
+          <button type="button" className={currentMode === 'viewer' ? 'active' : ''} onClick={() => setCurrentMode('viewer')}>Viewer</button>
         </div>
       </header>
       <div className="demo-content">
         <React.Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Explorer…</div>}>
           {currentMode === 'builder'
-            ? <LoomExplorerBuilder project={project} explorerId={explorerId} />
-            : <LoomExplorerViewer project={project} explorerId={explorerId} />}
+            ? <LoomExplorerBuilder project={project} explorerId={selectedExplorerId} onExplorerChange={onExplorerChange} />
+            : <LoomExplorerViewer project={project} explorerId={selectedExplorerId} />}
         </React.Suspense>
       </div>
     </div>

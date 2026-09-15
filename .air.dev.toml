@@ -1,0 +1,26 @@
+root = "/workspace"
+tmp_dir = "tmp"
+
+[build]
+  cmd = "/workspace/loom-dev-build.sh"
+  bin = "./tmp/arango-fhir-server"
+  full_bin = "./tmp/arango-fhir-server --listen :8080 --no-auth --url http://arangodb:8529 --database loom_dev --schema /workspace/schemas/graph-fhir.json --clickhouse-url clickhouse://clickhouse:9000 --clickhouse-database loom_dev --clickhouse-username loom_dev --clickhouse-password loom_dev_password --dataframer-recipe /workspace/testdata/devloop-fixture/recipe.json --recipe-query-page-rows 25"
+  include_ext = ["go", "mod", "sum", "json", "yaml", "graphqls"]
+  include_dir = ["cmd", "internal", "generated", "schemas"]
+  exclude_dir = ["tmp", "node_modules", "META", "META_SMALL", "CDA-FHIR", "graphify-out", ".git", ".audit"]
+  exclude_regex = ["_test\\.go$", "(^|/)testdata(/|$)"]
+  delay = 500
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+
+[log]
+  time = true
+  main_only = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
+
+[misc]
+  clean_on_exit = true

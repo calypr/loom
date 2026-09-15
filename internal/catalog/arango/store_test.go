@@ -267,3 +267,17 @@ func TestCapabilityEvidenceFieldSuggestionTruncationIsPerField(t *testing.T) {
 		t.Fatalf("per-field truncation = %#v err=%v", result, err)
 	}
 }
+
+func TestCapabilityEvidenceFieldEnrichmentDecodesMaxItems(t *testing.T) {
+	client := &evidenceClient{rows: map[string][]map[string]any{fieldEnrichmentAQL: {{
+		"project": "p", "resource_type": "Patient", "path": "name", "kind": "array", "doc_count": int64(1), "max_items": int64(8), "sample_count": int64(1),
+	}}}}
+	adapter, _ := New(client)
+	result, err := adapter.DiscoverFieldEnrichment(context.Background(), catalog.FieldEnrichmentOptions{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Values) != 1 || result.Values[0].MaxItems != 8 {
+		t.Fatalf("max items = %#v", result.Values)
+	}
+}

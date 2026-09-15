@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-fast verify-full dev-down
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -77,6 +77,10 @@ gqlgen-check: graphql-check
 test:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./... -count=1
+	node --test scripts/loom-dev.test.mjs
+
+dev-test:
+	node --test scripts/loom-dev.test.mjs
 
 compiler-bench:
 	mkdir -p $(GOCACHE_DIR)
@@ -134,6 +138,26 @@ demo-browser-smoke:
 
 repository-up:
 	./scripts/loom-repo-up.sh --repository "$(if $(REPOSITORY),$(REPOSITORY),$(CURDIR))"
+
+# Development-only Compose target. It has its own project, volumes, ports, and
+# fixture. Use dev-rebuild after dependency or toolchain changes.
+dev:
+	node scripts/loom-dev.mjs dev
+
+dev-rebuild:
+	node scripts/loom-dev.mjs dev-rebuild
+
+dev-doctor:
+	node scripts/loom-dev.mjs dev-doctor
+
+verify-fast:
+	node scripts/loom-dev.mjs verify-fast
+
+verify-full:
+	node scripts/loom-dev.mjs verify-full
+
+dev-down:
+	node scripts/loom-dev.mjs dev-down
 
 clean:
 	rm -rf bin

@@ -2,6 +2,14 @@
 .gocache/
 .cache/
 .artifacts/
+.gitnexus/
+.codex/config.toml
+.audit/
+/CDA-FHIR/
+/META_SMALL/
+/compiler.test
+/loom
+/loom-DocumentReference.csv
 bin/
 data/
 META/

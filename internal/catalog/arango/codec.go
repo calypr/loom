@@ -120,6 +120,11 @@ func decode(row map[string]any, out *catalog.PopulatedField) error {
 	if out.DocCount, err = decodeInt64(row["doc_count"]); err != nil {
 		return fmt.Errorf("decode field row %s/%s doc_count: %w", out.ResourceType, out.Path, err)
 	}
+	var maxItems int64
+	if maxItems, err = decodeInt64(row["max_items"]); err != nil {
+		return fmt.Errorf("decode field row %s/%s max_items: %w", out.ResourceType, out.Path, err)
+	}
+	out.MaxItems = int(maxItems)
 	var sampleCount int64
 	if sampleCount, err = decodeInt64(row["sample_count"]); err != nil {
 		return fmt.Errorf("decode field row %s/%s sample_count: %w", out.ResourceType, out.Path, err)

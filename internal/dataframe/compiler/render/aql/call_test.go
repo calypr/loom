@@ -56,7 +56,7 @@ func TestRenderGenericPhysicalCallsParameterizeLiterals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "LENGTH([@left])" {
+	if got != "LENGTH(FLATTEN([@left]))" {
 		t.Fatalf("length = %q", got)
 	}
 }
@@ -83,6 +83,34 @@ func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
 	}
 	if strings.Contains(got, "IN child_set_1.payload") || !strings.Contains(got, "IN child_set_1") {
 		t.Fatalf("set selector iterated the collection payload instead of each item: %q", got)
+	}
+}
+
+func TestRenderLengthCountsTerminalRepeatedSelectorItems(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{},
+		collectionKeys: map[string]struct{}{},
+		setVariables:   map[string]string{},
+		reservedVars:   map[string]struct{}{},
+	}
+	repeated := ir.PhysicalExpression{
+		Kind:        ir.PhysicalExtractExpression,
+		Cardinality: ir.PhysicalArrayCardinality,
+		Extract: &ir.PhysicalExtract{
+			Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
+			Selector: spec.Selector{Steps: []spec.SelectorStep{
+				{Field: "structure"},
+				{Field: "representation", Iterate: true},
+			}},
+			ExecutionMode: ir.PhysicalSelectorGeneric,
+		},
+	}
+	got, err := renderer.renderExpression(callExpression("length", repeated))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "LENGTH(FLATTEN(") {
+		t.Fatalf("length did not flatten the terminal repeated selector: %q", got)
 	}
 }
 

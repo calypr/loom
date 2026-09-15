@@ -191,7 +191,7 @@ func launch(ctx context.Context, loomRoot string, manifest repositoryseed.Manife
 		return fmt.Errorf("start infrastructure: %w", err)
 	}
 	fmt.Println("[2/6] waiting for Loom API")
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{}
 	apiURL := options.apiURL()
 	uiURL := options.uiURL()
 	if err := waitHTTP(ctx, client, apiURL+"/readyz", 3*time.Minute); err != nil {

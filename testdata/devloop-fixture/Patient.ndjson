@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"dev-patient-001","identifier":[{"system":"https://example.test/mrn","value":"DEV-001"},{"system":"https://example.test/secondary","value":"SECONDARY-001"}],"name":[{"use":"official","family":"Example","given":["Ada","Augusta"]},{"use":"nickname","family":"Example-Smith","given":["Addie"]}],"gender":"female","birthDate":"1980-01-02"}
+{"resourceType":"Patient","id":"dev-patient-002","identifier":[{"system":"https://example.test/mrn","value":"DEV-002"}],"name":[{"use":"official","family":"Builder","given":["Grace"]}],"birthDate":"1985-03-04"}
