@@ -1,0 +1,6 @@
+{
+  "source_baseline_sha": "2bef8fd09af4587c44e886789455e8f941234dce",
+  "source_branch": "arch/integration",
+  "planned_at": "2026-09-15T23:20:00Z",
+  "reconcile_after": "WP07 final integration"
+}
