@@ -55,9 +55,10 @@ type PhysicalTraversalSubset struct {
 // future sharing rewrite. PrefixKey is stable across generated local variable
 // and target-type bind names, but differs for any scoped physical behavior.
 type PhysicalTraversalPrefixDecomposition struct {
-	Prefix    PhysicalTraversalPrefix
-	Subset    PhysicalTraversalSubset
-	PrefixKey string
+	Prefix           PhysicalTraversalPrefix
+	PrefixOperations []PhysicalOperation
+	Subset           PhysicalTraversalSubset
+	PrefixKey        string
 }
 
 type PhysicalTraversalPrefixRejectionReason string
@@ -172,7 +173,8 @@ func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setInd
 		return PhysicalTraversalPrefixDecomposition{}, err
 	}
 	return PhysicalTraversalPrefixDecomposition{
-		Prefix: prefix,
+		Prefix:           prefix,
+		PrefixOperations: clonePhysicalOperations(set.Subplan.Operations[:1+len(scope)]),
 		Subset: PhysicalTraversalSubset{
 			TargetTypeBindKey:  traversal.TargetTypeBindKey,
 			TargetVariable:     traversal.TargetVariable,
