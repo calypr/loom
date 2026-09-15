@@ -89,3 +89,29 @@ jobs:
           name: acceptance-${{ github.run_id }}
           path: .artifacts/acceptance
           if-no-files-found: warn
+
+  browser:
+    name: Builder-to-Viewer browser acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Run authenticated browser acceptance
+        env:
+          LOOM_DEV_COMPOSE_PROJECT: loom-dev-ci-${{ github.run_id }}
+          LOOM_DEV_PROJECT: loom_dev_ci_${{ github.run_id }}
+          LOOM_DEV_API_PORT: 8280
+          LOOM_DEV_UI_PORT: 3280
+          LOOM_DEV_ARTIFACTS: .artifacts/browser/${{ github.run_id }}
+        run: node scripts/loom-dev.mjs verify-fast
+      - name: Clean up browser acceptance stack
+        if: always()
+        env:
+          LOOM_DEV_COMPOSE_PROJECT: loom-dev-ci-${{ github.run_id }}
+          LOOM_DEV_PROJECT: loom_dev_ci_${{ github.run_id }}
+          LOOM_DEV_API_PORT: 8280
+          LOOM_DEV_UI_PORT: 3280
+          LOOM_DEV_ARTIFACTS: .artifacts/browser/${{ github.run_id }}
+        run: node scripts/loom-dev.mjs dev-down --purge
