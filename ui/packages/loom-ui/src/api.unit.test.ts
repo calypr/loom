@@ -230,6 +230,95 @@ describe('Loom project paths', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it('rejects a runtime output that omits its selector at the API boundary', async () => {
+    const state = {
+      apiVersion: 'loom.calypr.org/explorer-state/v1',
+      kind: 'ExplorerState',
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      title: 'Cohort',
+      management: 'interactive',
+      active: {},
+      draft: { version: 1, digest: 'digest' },
+      generated: {},
+      activeUrl: '/viewer',
+      runtime: {
+        outputs: [{
+          outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient',
+          columns: [], table: { columns: [] }, filters: [], charts: [], fixedFilters: {},
+        }],
+        sharedFilters: {}, diagnostics: [],
+      },
+    };
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state), { status: 200 })),
+    });
+
+    await expect(client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .rejects.toMatchObject({ status: 502, code: 'INVALID_EXPLORER_STATE' });
+  });
+
+  it('rejects a runtime output with a non-string column binding', async () => {
+    const state = {
+      apiVersion: 'loom.calypr.org/explorer-state/v1',
+      kind: 'ExplorerState',
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      title: 'Cohort',
+      management: 'interactive',
+      active: {},
+      draft: { version: 1, digest: 'digest' },
+      generated: {},
+      activeUrl: '/viewer',
+      runtime: {
+        outputs: [{
+          outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient',
+          selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' },
+          columns: [{ column: 7, label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }],
+          table: { columns: [] }, filters: [], charts: [], fixedFilters: {},
+        }],
+        sharedFilters: {}, diagnostics: [],
+      },
+    };
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state), { status: 200 })),
+    });
+
+    await expect(client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .rejects.toMatchObject({ status: 502, code: 'INVALID_EXPLORER_STATE' });
+  });
+
+  it('parses a canonical runtime fixture without changing its typed output', async () => {
+    const state = {
+      apiVersion: 'loom.calypr.org/explorer-state/v1',
+      kind: 'ExplorerState',
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      title: 'Cohort',
+      management: 'interactive',
+      active: {},
+      draft: { version: 1, digest: 'digest' },
+      generated: {},
+      activeUrl: '/viewer',
+      runtime: {
+        generation: 'generation-1',
+        outputs: [{
+          outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient',
+          selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' },
+          columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }],
+          table: { columns: [{ column: 'patient_id', visible: true }] }, filters: [], charts: [], fixedFilters: {},
+        }],
+        sharedFilters: {}, diagnostics: [],
+      },
+    };
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state), { status: 200 })),
+    });
+
+    await expect(client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .resolves.toMatchObject({ generation: 'generation-1', outputs: [{ selector: state.runtime.outputs[0].selector }] });
+  });
+
   it('serializes server-side filters, sort, cursors, and requested facets', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: {

@@ -651,6 +651,7 @@ export interface ExplorerRuntimeOutputV1 {
   readonly materialization?: Readonly<Record<string, unknown>>;
 }
 export interface ExplorerRuntimeV1 {
+  readonly status?: string;
   readonly generation?: string;
   readonly publication?: PublicationMetadata;
   readonly schema?: { readonly digest?: string; readonly version?: string };
@@ -662,26 +663,22 @@ export interface ExplorerRuntimeV1 {
     readonly extensions?: Readonly<Record<string, ReadonlyArray<string>>>;
     readonly actions?: Readonly<Record<string, string>>;
   };
-  readonly diagnostics: ReadonlyArray<ExplorerAuthoringDiagnostic>;
+  readonly diagnostics: ReadonlyArray<ExplorerRuntimeDiagnostic>;
+}
+
+export interface ExplorerRuntimeDiagnostic {
+  readonly severity: string;
+  readonly stage?: string;
+  readonly code: string;
+  readonly fieldPath?: string | null;
+  readonly message: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+  readonly retryable?: boolean;
+  readonly requestId?: string;
 }
 
 /** Opaque generated metadata retained only for the runtime compatibility adapter. */
-export interface ExplorerStateAuthoringBundleV1 {
-  readonly apiVersion: 'loom.calypr.org/explorer-authoring/v1';
-  readonly kind: 'ExplorerAuthoringBundle';
-  readonly project: string;
-  readonly explorerId: string;
-  readonly title?: string;
-  readonly document?: Readonly<Record<string, unknown>>;
-  readonly documents?: ReadonlyArray<Readonly<Record<string, unknown>>>;
-  readonly tabs?: ReadonlyArray<{
-    readonly id: string;
-    readonly title: string;
-    readonly outputId: string;
-    readonly order: number;
-    readonly visible?: boolean;
-  }>;
-}
+export type ExplorerStateAuthoringBundleV1 = Readonly<Record<string, unknown>>;
 export interface ExplorerStateEmittedColumnV1 {
   readonly emissionId: string;
   readonly outputId: string;
@@ -756,7 +753,7 @@ export interface ExplorerStateV1 {
       readonly outputs: ReadonlyArray<ExplorerStateDatasetOutputV1>;
     };
     readonly publication?: PublicationMetadata;
-    readonly diagnostics?: ReadonlyArray<ExplorerAuthoringDiagnostic>;
+    readonly diagnostics?: ReadonlyArray<ExplorerRuntimeDiagnostic>;
   };
   readonly activeUrl: string;
   readonly updatedBy?: string;
@@ -765,58 +762,206 @@ export interface ExplorerStateV1 {
   readonly runtime?: ExplorerRuntimeV1 | null;
 }
 
-const allowedKeys = new Set([
-  'apiVersion',
-  'kind',
-  'project',
-  'explorerId',
-  'title',
-  'management',
-  'active',
-  'generated',
-  'activeUrl',
-  'updatedBy',
-  'updatedAt',
-  'runtime',
-  'draft',
-]);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const legacyExplorerStateKeys = new Set(['draftConfig', 'activeConfig']);
-export const isExplorerStateV1 = (value: unknown): value is ExplorerStateV1 => {
-  if (
-    !isRecord(value) ||
-    !Object.keys(value).every((key) => allowedKeys.has(key))
-  )
-    return false;
-  if (
-    value.apiVersion !== 'loom.calypr.org/explorer-state/v1' ||
-    value.kind !== 'ExplorerState' ||
-    typeof value.project !== 'string' ||
-    typeof value.explorerId !== 'string' ||
-    typeof value.title !== 'string' ||
-    typeof value.management !== 'string'
-  )
-    return false;
-  if (value.runtime === undefined || value.runtime === null) return true;
-  if (!isRecord(value.runtime)) return false;
-  const runtime = value.runtime;
-  return (
-    Array.isArray(runtime.outputs) &&
-    isRecord(runtime.sharedFilters) &&
-    Array.isArray(runtime.diagnostics) &&
-    runtime.outputs.every(
-      (output) =>
-        isRecord(output) &&
-        Array.isArray(output.columns) &&
-        isRecord(output.table) &&
-        Array.isArray(output.table.columns) &&
-        Array.isArray(output.filters) &&
-        Array.isArray(output.charts) &&
-        isRecord(output.fixedFilters),
-    )
-  );
-};
+
+const dataframeSelectorSchema = z
+  .object({
+    recipe: opaqueIdSchema,
+    translationVersion: opaqueIdSchema,
+    output: opaqueIdSchema,
+  })
+  .strict();
+const publicationMetadataSchema = z
+  .object({
+    state: z.string(),
+    generation: z.string().optional(),
+    executionId: z.string().optional(),
+    revisionId: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+const runtimeBindingSchema = z
+  .object({
+    column: opaqueIdSchema,
+    outputId: z.string().optional(),
+    label: z.string().optional(),
+    type: z.string().optional(),
+    title: z.string().optional(),
+  })
+  .strict();
+const runtimeColumnSchema = z
+  .object({
+    column: opaqueIdSchema,
+    label: z.string(),
+    logicalType: z.string(),
+    visible: z.boolean(),
+    order: z.number().int().nonnegative(),
+    repeated: z.boolean().optional(),
+    filterable: z.boolean(),
+    sortable: z.boolean().optional(),
+    chartable: z.boolean(),
+    aggregatable: z.boolean().optional(),
+  })
+  .strict();
+const runtimeTableColumnSchema = z
+  .object({
+    column: opaqueIdSchema,
+    visible: z.boolean(),
+    pinned: z.boolean().optional(),
+    cellRenderer: z.literal('fileActions').optional(),
+  })
+  .passthrough();
+const runtimeActionSchema = z
+  .object({
+    type: opaqueIdSchema,
+    title: z.string(),
+    fileName: z.string().optional(),
+    output: z.string().optional(),
+    columns: z.array(z.string()).optional(),
+    exportHeaders: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+const runtimeOutputSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    name: z.string(),
+    title: z.string(),
+    rowLabel: z.string(),
+    selector: dataframeSelectorSchema,
+    columns: z.array(runtimeColumnSchema),
+    table: z.object({ columns: z.array(runtimeTableColumnSchema) }).strict(),
+    filters: z.array(runtimeBindingSchema),
+    charts: z.array(runtimeBindingSchema),
+    fixedFilters: z.record(z.string(), z.array(z.string())),
+    actions: z.array(runtimeActionSchema).optional(),
+    query: unknownRecordSchema.optional(),
+    materialization: unknownRecordSchema.optional(),
+  })
+  .strict();
+const runtimeDiagnosticSchema = z
+  .object({
+    severity: z.string(),
+    stage: z.string().optional(),
+    code: opaqueIdSchema,
+    fieldPath: z.string().nullable().optional(),
+    message: z.string(),
+    details: unknownRecordSchema.optional(),
+    retryable: z.boolean().optional(),
+    requestId: z.string().optional(),
+  })
+  .strict();
+const runtimeSchema = z
+  .object({
+    status: z.string().optional(),
+    generation: z.string().optional(),
+    publication: publicationMetadataSchema.optional(),
+    schema: z.object({ digest: z.string().optional(), version: z.string().optional() }).strict().optional(),
+    outputs: z.array(runtimeOutputSchema),
+    sharedFilters: z.record(z.string(), z.array(runtimeBindingSchema)),
+    fileActions: z.object({
+      extensions: z.record(z.string(), z.array(z.string())).optional(),
+      actions: z.record(z.string(), z.string()).optional(),
+    }).strict().optional(),
+    diagnostics: z.array(runtimeDiagnosticSchema),
+  })
+  .strict();
+const physicalColumnSchema = z
+  .object({
+    name: opaqueIdSchema,
+    semanticPath: z.string().optional(),
+    clickhouseType: z.string().optional(),
+    logicalType: z.string().optional(),
+    nullable: z.boolean().optional(),
+    repeated: z.boolean().optional(),
+    provenance: z.string().optional(),
+    loomOwned: z.boolean().optional(),
+  })
+  .passthrough();
+const selectorMetadataSchema = dataframeSelectorSchema.optional();
+const datasetOutputSchema = z
+  .object({
+    name: opaqueIdSchema,
+    state: z.string(),
+    queryable: z.boolean(),
+    fingerprint: z.string().optional(),
+    selector: selectorMetadataSchema,
+    columns: z.array(physicalColumnSchema).optional(),
+  })
+  .strict();
+const emittedColumnSchema = z
+  .object({
+    emissionId: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    nodeId: z.string().optional(),
+    selectionId: z.string().optional(),
+    candidateId: z.string().optional(),
+    occurrenceId: z.string().optional(),
+    publicColumn: opaqueIdSchema,
+    logicalType: z.string(),
+    filterable: z.boolean(),
+    chartable: z.boolean(),
+  })
+  .passthrough();
+const materializationSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    output: opaqueIdSchema,
+    materializationId: opaqueIdSchema,
+    fingerprint: z.string().optional(),
+    selector: selectorMetadataSchema,
+    columns: z.array(physicalColumnSchema),
+  })
+  .passthrough();
+const generatedSchema = z
+  .object({
+    recipeDigest: z.string().optional(),
+    sourceGeneration: z.string().optional(),
+    resolvedSchemaDigest: z.string().optional(),
+    emittedColumns: z.array(emittedColumnSchema).optional(),
+    materializations: z.array(materializationSchema).optional(),
+    dataset: z.object({
+      generation: z.string().optional(),
+      schemaDigest: z.string().optional(),
+      outputs: z.array(datasetOutputSchema),
+    }).strict().optional(),
+    publication: publicationMetadataSchema.optional(),
+    diagnostics: z.array(runtimeDiagnosticSchema).optional(),
+  })
+  .strict();
+const bundleSchema = unknownRecordSchema;
+const explorerStateV1Schema = z
+  .object({
+    apiVersion: z.literal('loom.calypr.org/explorer-state/v1'),
+    kind: z.literal('ExplorerState'),
+    project: opaqueIdSchema,
+    explorerId: opaqueIdSchema,
+    title: z.string(),
+    management: z.enum(['repository', 'interactive', 'REPOSITORY', 'INTERACTIVE']),
+    active: z.object({
+      bundle: bundleSchema.optional(),
+      revisionId: z.string().optional(),
+      intentDigest: z.string().optional(),
+      status: z.string().optional(),
+    }).strict(),
+    generated: generatedSchema,
+    activeUrl: z.string(),
+    updatedBy: z.string().optional(),
+    updatedAt: z.string().optional(),
+    runtime: runtimeSchema.nullable().optional(),
+    draft: z.object({
+      bundle: bundleSchema.optional(),
+      receiptId: z.string().optional(),
+      version: z.number().int().nonnegative(),
+      digest: z.string(),
+      intentDigest: z.string().optional(),
+    }).strict(),
+  })
+  .strict();
+
+export const isExplorerStateV1 = (value: unknown): value is ExplorerStateV1 =>
+  explorerStateV1Schema.safeParse(normalizeExplorerStateV1(value)).success;
 
 const normalizeExplorerStateV1 = (value: unknown): unknown => {
   if (!isRecord(value) || !isRecord(value.runtime)) return value;
@@ -835,7 +980,8 @@ const normalizeExplorerStateV1 = (value: unknown): unknown => {
 
 export const assertExplorerStateV1 = (value: unknown): ExplorerStateV1 => {
   const normalized = normalizeExplorerStateV1(value);
-  if (isExplorerStateV1(normalized)) return normalized;
+  const parsed = explorerStateV1Schema.safeParse(normalized);
+  if (parsed.success) return parsed.data;
   const hasLegacyConfiguration =
     isRecord(value) &&
     Object.keys(value).some((key) => legacyExplorerStateKeys.has(key));
