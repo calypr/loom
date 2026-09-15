@@ -246,7 +246,7 @@ export interface LoomClient {
   readonly invalidate: (scope?: 'explorers' | 'builder' | 'all') => void;
 }
 
-const canonicalProject = (project: string): string => {
+export const canonicalProject = (project: string): string => {
   let value = project.trim();
   try {
     value = decodeURIComponent(value);

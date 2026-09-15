@@ -119,6 +119,27 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('separates cached Builder reads by authorization scope', async () => {
+    const builder = JSON.stringify({
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderState',
+      lifecycleState: 'NEW',
+      draftVersion: 1,
+      draftDigest: 'digest',
+      workspace: null,
+      catalog: { snapshotToken: 'snapshot-1', generation: 'generation-1', routePolicy: {}, nodes: [], edges: [], candidates: [] },
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => new Response(builder, { status: 200 }));
+    const client = createLoomClient({ fetch });
+    const base = { project: 'HTAN_INT/BForePC', explorerId: 'default' };
+
+    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/BForePC' });
+    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/OtherPC' });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('scopes dataframe row queries to the selected project', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(

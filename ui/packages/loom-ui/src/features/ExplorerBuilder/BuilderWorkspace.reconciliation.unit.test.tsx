@@ -521,6 +521,21 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
   });
 
+  it('resets publish status when switching projects with the same Explorer ID', async () => {
+    const view = render(
+      <BuilderWorkspace project="project-a" explorerId="test" />,
+    );
+    const publishButton = await screen.findByRole('button', { name: 'Publish' });
+    expect(publishButton).toBeEnabled();
+    fireEvent.click(publishButton);
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled());
+
+    view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled());
+  });
+
   it('shows publication progress until the publish response settles', async () => {
     const pending = deferredRequest<Record<string, never>>();
     publish.mockReturnValue(pending.request);

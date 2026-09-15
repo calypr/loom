@@ -12,7 +12,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
-import type { ExplorerAuthoringApiError } from '../../api';
+import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
@@ -102,7 +102,7 @@ type PreviewRequest = {
 };
 
 const builderDataKeyFor = (
-  explorerId: string,
+  ownerKey: string,
   value: {
     readonly catalog: ExplorerBuilderCatalog;
     readonly workspace: unknown;
@@ -110,7 +110,17 @@ const builderDataKeyFor = (
     readonly draftDigest: string;
   },
 ) =>
-  `${explorerId}:${value.catalog.snapshotToken}:${value.draftVersion}:${value.draftDigest}:${JSON.stringify(value.workspace)}`;
+  `${ownerKey}:${value.catalog.snapshotToken}:${value.draftVersion}:${value.draftDigest}:${JSON.stringify(value.workspace)}`;
+
+const builderOwnerKeyFor = (
+  project: string,
+  authResourcePath: string | undefined,
+  explorerId: string,
+): string => JSON.stringify([
+  canonicalProject(project),
+  authResourcePath?.trim() ?? '',
+  explorerId,
+]);
 
 const BuilderWorkspaceContent = ({
   organization,
@@ -130,6 +140,7 @@ const BuilderWorkspaceContent = ({
   const requestedExplorerId = explorerId || 'default';
   const [selectedExplorerId, setSelectedExplorerId] =
     useState(requestedExplorerId);
+  const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId);
   const explorers = useGetExplorerAuthoringExplorersQuery({
     project: projectId,
     authResourcePath,
@@ -156,7 +167,7 @@ const BuilderWorkspaceContent = ({
     usePreviewExplorerAuthoringV2Mutation();
   const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
   const builderDataKey = builder.data
-    ? builderDataKeyFor(selectedExplorerId, builder.data)
+    ? builderDataKeyFor(builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId), builder.data)
     : '';
   const builderDataRef = useRef(builder.data);
   builderDataRef.current = builder.data;
@@ -191,11 +202,11 @@ const BuilderWorkspaceContent = ({
         };
       });
     },
-    [builderDataKey, projectId, selectedExplorerId],
+    [authResourcePath, builderDataKey, projectId, selectedExplorerId],
   );
   const [message, setMessage] = useState<string>();
   const [lastPublished, setLastPublished] = useState<{
-    readonly explorerId: string;
+    readonly ownerKey: string;
     readonly draftDigest: string;
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
@@ -239,7 +250,7 @@ const BuilderWorkspaceContent = ({
 
   const syncBuilderData = useCallback(
     (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => {
-      const nextKey = builderDataKeyFor(selectedExplorerId, value);
+      const nextKey = builderDataKeyFor(builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId), value);
       serverDraft.current = {
         version: value.draftVersion,
         digest: value.draftDigest,
@@ -421,7 +432,7 @@ const BuilderWorkspaceContent = ({
     !hasVisibleSelectedColumn ||
     blockingDiagnostics;
   const publishDisabled =
-    (lastPublished?.explorerId === state.explorerId &&
+    (lastPublished?.ownerKey === ownerKey &&
       lastPublished.draftDigest === state.draftDigest) ||
     incomplete ||
     blockingDiagnostics ||
@@ -756,7 +767,7 @@ const BuilderWorkspaceContent = ({
             receiptId: activeReceiptId,
           }).unwrap();
           setLastPublished({
-            explorerId: latestState.current.explorerId,
+            ownerKey,
             draftDigest: latestState.current.draftDigest,
           });
           dispatch({ type: 'published' });
@@ -789,6 +800,7 @@ const BuilderWorkspaceContent = ({
     [
       authResourcePath,
       dispatch,
+      ownerKey,
       projectId,
       publishBuilder,
       reconcileCurrent,
@@ -1174,6 +1186,19 @@ const BuilderWorkspaceContent = ({
 
 const BuilderWorkspace = (
   props: React.ComponentProps<typeof BuilderWorkspaceContent>,
-) => <BuilderWorkspaceContent key={props.explorerId || 'default'} {...props} />;
+) => {
+  const projectId = props.organization
+    ? `${props.organization}/${props.project}`
+    : props.project;
+  const authResourcePath = props.organization
+    ? `/programs/${props.organization}/projects/${props.project}`
+    : undefined;
+  const ownerKey = builderOwnerKeyFor(
+    projectId,
+    authResourcePath,
+    props.explorerId || 'default',
+  );
+  return <BuilderWorkspaceContent key={ownerKey} {...props} />;
+};
 
 export default BuilderWorkspace;
