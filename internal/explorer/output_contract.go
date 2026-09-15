@@ -198,6 +198,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		return invalidOutputContract("column count %d does not match emitted column count %d", len(c.Columns), len(emitted))
 	}
 	seenPublic := make(map[string]struct{}, len(emitted))
+	expectedLossless, expectedMLReady := true, true
 	for i, column := range emitted {
 		if strings.TrimSpace(column.OutputID) != c.OutputID {
 			return invalidOutputContract("emittedColumns[%d] belongs to output %q, want %q", i, column.OutputID, c.OutputID)
@@ -209,10 +210,15 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 			return invalidOutputContract("duplicate publicColumn %q", column.PublicColumn)
 		}
 		seenPublic[column.PublicColumn] = struct{}{}
+		expectedLossless = expectedLossless && column.Lossless
+		expectedMLReady = expectedMLReady && column.MLReady
 		actual := c.Columns[i]
 		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
+	}
+	if c.Lossless != expectedLossless || c.MLReady != expectedMLReady {
+		return invalidOutputContract("aggregate lossless/mlReady flags do not match emitted columns: got (%t, %t), want (%t, %t)", c.Lossless, c.MLReady, expectedLossless, expectedMLReady)
 	}
 	return nil
 }

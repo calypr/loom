@@ -95,6 +95,18 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 	}
 }
 
+func TestPublicOutputContractRejectsForgedAggregateQualityFlags(t *testing.T) {
+	bundle, emitted, contract := contractFixture()
+	contract.Outputs[0].Lossless = true
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged lossless aggregate accepted: %v", err)
+	}
+	contract.Outputs[0].Lossless = false
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatalf("matching lossless aggregate rejected: %v", err)
+	}
+}
+
 func TestCompilationReceiptValidateRejectsMismatchedPublicContract(t *testing.T) {
 	r := testReceipt()
 	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"out","columns":[{"column":"c_bad","label":"Bad","logicalType":"string","filterable":false,"chartable":false}]}]}`)
