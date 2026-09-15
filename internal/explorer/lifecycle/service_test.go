@@ -208,6 +208,61 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}},
+		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	base := nativeReceipt(snapshot)
+	tests := []struct {
+		name   string
+		mutate func(*explorer.CompilationReceipt)
+		code   string
+	}{
+		{name: "wrong project", mutate: func(receipt *explorer.CompilationReceipt) { receipt.Project = "other-project" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong explorer", mutate: func(receipt *explorer.CompilationReceipt) { receipt.ExplorerID = "other" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong snapshot token", mutate: func(receipt *explorer.CompilationReceipt) { receipt.SnapshotToken = "other-token" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "wrong scope digest", mutate: func(receipt *explorer.CompilationReceipt) { receipt.AuthorizationScopeDigest = "other-scope" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "invalid compilation key", mutate: func(receipt *explorer.CompilationReceipt) { receipt.CompilationKey = "key_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
+		{name: "invalid receipt id", mutate: func(receipt *explorer.CompilationReceipt) { receipt.ID = "receipt_invalid" }, code: "INVALID_COMPILATION_RECEIPT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := *base
+			test.mutate(&receipt)
+			store := &fakeStore{}
+			config := testConfig(snapshot)
+			config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+				return &receipt, nil
+			}
+			service := newTestService(t, store, config)
+			_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+			var lifecycleErr *Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != test.code {
+				t.Fatalf("compile error = %v, want %s", err, test.code)
+			}
+		})
+	}
+
+	store := &fakeStore{}
+	config := testConfig(snapshot)
+	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
+	service := newTestService(t, store, config)
+	_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "COMPILATION_RECEIPT_NOT_PERSISTED" {
+		t.Fatalf("unpersisted compile error = %v, want COMPILATION_RECEIPT_NOT_PERSISTED", err)
+	}
+
+	store.receipt = base
+	compiled, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
+	if err != nil || compiled == nil || compiled.ID != base.ID {
+		t.Fatalf("persisted compile = %#v, err=%v", compiled, err)
+	}
+}
+
 func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 	receipt := nativeReceipt(readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
 	for _, test := range []struct {

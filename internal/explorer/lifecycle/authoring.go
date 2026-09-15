@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
@@ -58,7 +59,54 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
 		return nil, unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted", nil)
 	}
+	if err := s.validateCompiledReceipt(ctx, request, authorized, receipt); err != nil {
+		return nil, err
+	}
 	return receipt, nil
+}
+
+func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRequest, authorized AuthorizedCapability, receipt *explorer.CompilationReceipt) error {
+	if receipt == nil {
+		return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt is required", nil)
+	}
+	snapshot := authorized.Snapshot
+	identityChecks := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"project", projectid.Canonical(receipt.Project), projectid.Canonical(request.Project)},
+		{"explorerId", receipt.ExplorerID, request.ExplorerID},
+		{"snapshotToken", receipt.SnapshotToken, request.SnapshotToken},
+		{"sourceGeneration", receipt.SourceGeneration, snapshot.Identity.Generation},
+		{"authorizationScopeDigest", receipt.AuthorizationScopeDigest, snapshot.Identity.AuthorizationScopeDigest},
+		{"capabilitySchemaDigest", receipt.CapabilitySchemaDigest, snapshot.Identity.SchemaDigest},
+		{"shapeDigest", receipt.ShapeDigest, snapshot.Identity.ShapeDigest},
+	}
+	for _, check := range identityChecks {
+		if check.got != check.want {
+			return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
+		}
+	}
+	if authorized.Scope.Mode != "" {
+		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
+		}
+	}
+	if err := receipt.Validate(); err != nil {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
+	}
+	persisted, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, receipt.ID)
+	if err != nil {
+		return unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not found after persistence", err)
+	}
+	if persisted == nil || persisted.ID != receipt.ID {
+		return unavailable("compile", "COMPILATION_RECEIPT_NOT_PERSISTED", "compiled authoring receipt was not returned from persistence", nil)
+	}
+	if err := persisted.Validate(); err != nil {
+		return unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "persisted compilation receipt failed integrity validation", err)
+	}
+	return nil
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*explorer.CompilationReceipt, error) {
