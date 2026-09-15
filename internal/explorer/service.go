@@ -76,7 +76,10 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]Diagnostic(nil), revision.Diagnostics...)
-	state.Runtime = BuildViewerProjection(revision)
+	state.Runtime, err = BuildViewerProjection(revision)
+	if err != nil {
+		return ExplorerStateV1{}, fmt.Errorf("active Explorer revision projection is invalid: %w", err)
+	}
 	if state.Runtime == nil || len(state.Runtime.Outputs) == 0 {
 		state.Generated.Publication.State = ExplorerRuntimeV1NotPublished
 		if state.Runtime != nil {

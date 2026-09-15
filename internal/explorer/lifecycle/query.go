@@ -29,6 +29,9 @@ func (s *Service) Get(ctx context.Context, project, id string) (explorer.Explore
 	if errors.Is(err, explorer.ErrNotFound) {
 		return explorer.ExplorerStateV1{}, notFound("get", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
+	if errors.Is(err, explorer.ErrViewerProjectionIntegrity) {
+		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
+	}
 	if err != nil {
 		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_READ_FAILED", err.Error(), err)
 	}

@@ -2,6 +2,9 @@ package explorer
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -10,28 +13,67 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
+var ErrViewerProjectionIntegrity = errors.New("viewer projection integrity failure")
+
+type ViewerProjectionIntegrityError struct {
+	Component string
+	Cause     error
+}
+
+func (e *ViewerProjectionIntegrityError) Error() string {
+	if e == nil {
+		return ErrViewerProjectionIntegrity.Error()
+	}
+	if e.Cause == nil {
+		return fmt.Sprintf("%s: %s", ErrViewerProjectionIntegrity, e.Component)
+	}
+	return fmt.Sprintf("%s: %s: %v", ErrViewerProjectionIntegrity, e.Component, e.Cause)
+}
+
+func (e *ViewerProjectionIntegrityError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *ViewerProjectionIntegrityError) Is(target error) bool {
+	return target == ErrViewerProjectionIntegrity
+}
+
+func viewerProjectionIntegrity(component string, cause error) error {
+	return &ViewerProjectionIntegrityError{Component: component, Cause: cause}
+}
+
 // buildViewerProjection is the single translation from immutable Explorer
 // publication state to the renderer-facing contract. It intentionally does
 // not require an authored ConfigView: a valid recipe is enough to produce a
 // default table that a client can extend with presentation choices.
 // BuildViewerProjection is the pure immutable-revision to Viewer wire
 // projection. It performs no persistence lookup and has no service state.
-func BuildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
+func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	if revision == nil {
-		return nil
+		return nil, nil
 	}
 
-	config, hasConfig := decodeProjectionConfig(revision.Config)
+	config, hasConfig, err := decodeProjectionConfig(revision.Config)
+	if err != nil {
+		return nil, err
+	}
 	bundle := revision.Recipe
-	if len(bundle.Outputs) == 0 && hasConfig {
-		if parsed, err := recipe.Parse(config.Recipe); err == nil {
+	if hasConfig && len(config.Recipe) > 0 {
+		parsed, parseErr := recipe.Parse(config.Recipe)
+		if parseErr != nil {
+			return nil, viewerProjectionIntegrity("config.recipe", parseErr)
+		}
+		if len(bundle.Outputs) == 0 {
 			bundle = parsed
 		}
 	}
 	if len(bundle.Outputs) == 0 {
 		// A revision without a recipe is not an executable query. The caller
 		// still returns a valid ExplorerState response with runtime: null.
-		return nil
+		return nil, nil
 	}
 
 	datasetOutputs := make(map[string]DatasetOutput, len(revision.Dataset.Outputs))
@@ -92,7 +134,14 @@ func BuildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
 	// Labels are frozen by the public output contract. They are indexed by the
 	// authored physical column, never reconstructed from compiler identities.
 	contractLabels := map[string]map[string]string{}
-	if contracts, err := DecodePublicOutputContracts(revision.PublicOutputContract); err == nil {
+	if len(revision.PublicOutputContract) > 0 {
+		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
+		if contractErr != nil {
+			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
+		}
+		if contractErr := contracts.ValidateAgainst(bundle, revision.EmittedColumns); contractErr != nil {
+			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
+		}
 		for _, output := range contracts.Outputs {
 			contractLabels[output.OutputID] = map[string]string{}
 			for _, column := range output.Columns {
@@ -263,18 +312,29 @@ func BuildViewerProjection(revision *Revision) *ExplorerRuntimeV1 {
 		}
 	}
 
-	return runtime
+	return runtime, nil
 }
 
-func decodeProjectionConfig(raw json.RawMessage) (ConfigV2, bool) {
-	if len(raw) == 0 {
-		return ConfigV2{}, false
+func decodeProjectionConfig(raw json.RawMessage) (ConfigV2, bool, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
+		return ConfigV2{}, false, nil
 	}
 	var config ConfigV2
-	if json.Unmarshal(raw, &config) != nil {
-		return ConfigV2{}, false
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
+		return ConfigV2{}, true, viewerProjectionIntegrity("config", err)
 	}
-	return config, true
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		return ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("trailing JSON value"))
+	} else if !errors.Is(err, io.EOF) {
+		return ConfigV2{}, true, viewerProjectionIntegrity("config", err)
+	}
+	if config.APIVersion != ConfigV2APIVersion || config.Kind != "ExplorerConfig" {
+		return ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("unsupported apiVersion/kind %q/%q", config.APIVersion, config.Kind))
+	}
+	return config, true, nil
 }
 
 func defaultProjectionViews(bundle recipe.Bundle) []ConfigView {

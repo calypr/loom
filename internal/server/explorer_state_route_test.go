@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -90,7 +91,10 @@ func TestViewerProjectionDoesNotInventColumnsWithoutPublishedSchema(t *testing.T
 		}},
 	}
 
-	runtime := explorer.BuildViewerProjection(&revision)
+	runtime, err := explorer.BuildViewerProjection(&revision)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if runtime == nil || len(runtime.Outputs) != 1 {
 		t.Fatalf("runtime = %#v", runtime)
 	}
@@ -121,12 +125,79 @@ func TestViewerProjectionRejectsAliasedPhysicalColumns(t *testing.T) {
 		}},
 	}
 
-	runtime := explorer.BuildViewerProjection(&revision)
+	runtime, err := explorer.BuildViewerProjection(&revision)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if runtime == nil || len(runtime.Outputs) != 1 {
 		t.Fatalf("runtime = %#v", runtime)
 	}
 	if len(runtime.Outputs[0].Columns) != 0 {
 		t.Fatalf("aliased columns leaked = %#v", runtime.Outputs[0].Columns)
+	}
+}
+
+func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "patients-query", TranslationVersion: "v1", Output: "patients"}
+	baseRevision := explorer.Revision{
+		ID: "revision-integrity", Project: "project-a", ExplorerID: "patients",
+		Recipe: recipe.Bundle{
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: selector.Recipe, TranslationVersion: selector.TranslationVersion,
+			Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "patient_id", FieldRef: "Patient.id"}}}},
+		},
+		Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{
+			Name: "patients", State: "ACTIVE", Queryable: true, Selector: &selector,
+			Columns: []publication.PhysicalColumn{{Name: "patient_id", LogicalType: "string", ClickHouse: "String"}},
+		}}},
+		EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"}},
+		Status:         explorer.RevisionActive,
+	}
+	for _, test := range []struct {
+		name     string
+		config   json.RawMessage
+		contract json.RawMessage
+	}{
+		{name: "malformed current config", config: json.RawMessage(`{"apiVersion":"` + explorer.ConfigV2APIVersion + `","kind":"ExplorerConfig","unknown":true}`)},
+		{name: "malformed current public contract", contract: json.RawMessage(`{"outputs":`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newTestExplorerStore()
+			service, err := explorer.NewService(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "patients", "Patients", "", "test"); err != nil {
+				t.Fatal(err)
+			}
+			revision := baseRevision
+			revision.Config = test.config
+			revision.PublicOutputContract = test.contract
+			store.mu.Lock()
+			store.revisions[revision.ID] = revision
+			owner := store.explorers[testExplorerKey("project-a", "patients")]
+			owner.ActiveRevisionID = revision.ID
+			store.explorers[testExplorerKey("project-a", "patients")] = owner
+			store.mu.Unlock()
+
+			app := fiber.New()
+			registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
+			response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/patients", "")
+			if response.StatusCode != http.StatusInternalServerError || !strings.Contains(response.Body, `"code":"EXPLORER_INTEGRITY_FAILURE"`) {
+				t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
+			}
+		})
+	}
+}
+
+func TestViewerProjectionKeepsRecipeOnlyLegacyFallback(t *testing.T) {
+	selector := dataset.DataframeSelector{Recipe: "legacy-query", TranslationVersion: "v1", Output: "patients"}
+	revision := explorer.Revision{
+		Recipe:  recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: selector.Recipe, TranslationVersion: selector.TranslationVersion, Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}},
+		Dataset: explorer.DatasetMetadata{Outputs: []explorer.DatasetOutput{{Name: "patients", Selector: &selector}}}, Status: explorer.RevisionActive,
+	}
+	runtime, err := explorer.BuildViewerProjection(&revision)
+	if err != nil || runtime == nil || len(runtime.Outputs) != 1 || runtime.Outputs[0].OutputID != "patients" {
+		t.Fatalf("legacy runtime=%#v, err=%v", runtime, err)
 	}
 }
 
