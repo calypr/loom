@@ -151,6 +151,32 @@ func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {
 	}
 }
 
+func TestScopeResolverSharesCanonicalAndLegacyProjectCacheKeys(t *testing.T) {
+	var calls []catalog.AuthResourcePathOptions
+	resolver := NewScopeResolver(ScopeResolverConfig{
+		ResourceAccess: fakeResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/BForePC"}},
+		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+			calls = append(calls, opts)
+			return []string{"HTAN_INT-BForePC"}, nil
+		},
+	})
+	principal := &Principal{AuthorizationHeader: "Bearer header.payload.signature"}
+	canonical, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, "HTAN_INT/BForePC", "generation", nil)
+	if err != nil {
+		t.Fatalf("canonical scope = %v", err)
+	}
+	legacy, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, "HTAN_INT-BForePC", "generation", nil)
+	if err != nil {
+		t.Fatalf("legacy scope = %v", err)
+	}
+	if len(calls) != 1 || calls[0].Project != "HTAN_INT-BForePC" {
+		t.Fatalf("scope catalog calls = %#v, want one legacy storage lookup", calls)
+	}
+	if !reflect.DeepEqual(canonical, legacy) {
+		t.Fatalf("canonical scope = %#v, legacy scope = %#v, want equal", canonical, legacy)
+	}
+}
+
 func TestScopeResolverKeepsRestrictedEmptyScopeWithinGeneration(t *testing.T) {
 	called := false
 	resolver := NewScopeResolver(ScopeResolverConfig{

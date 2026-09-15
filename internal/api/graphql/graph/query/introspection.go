@@ -6,9 +6,11 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*IntrospectionResponse, error) {
+	req.Project = projectid.Canonical(req.Project)
 	if req.Project == "" {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
