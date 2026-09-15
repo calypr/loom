@@ -157,6 +157,39 @@ func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 	}
 }
 
+func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *testing.T) {
+	visible := true
+	for _, semanticsVersion := range []int{0, CurrentSemanticsVersion} {
+		t.Run(fmt.Sprintf("semantics-%d", semanticsVersion), func(t *testing.T) {
+			workspace := Workspace{
+				APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: semanticsVersion,
+				Explorer: ExplorerMetadata{Title: "Projection modes"},
+				Documents: []Document{{
+					Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+					Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
+					Columns: []Column{
+						{Column: "all_names", Label: "All names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "name[]", ProjectionMode: "ALL"}, Table: &TablePresentation{Visible: &visible}},
+						{Column: "distinct_names", Label: "Distinct names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "name[]", ProjectionMode: "DISTINCT"}, Table: &TablePresentation{Visible: &visible}},
+					},
+				}},
+				Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+			}
+			raw, err := json.Marshal(workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := DecodeWorkspace(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			columns := decoded.Documents[0].Columns
+			if columns[0].Source.ProjectionMode != "ALL" || columns[1].Source.ProjectionMode != "DISTINCT" {
+				t.Fatalf("projection modes after persisted round trip = %#v, want ALL and DISTINCT", columns)
+			}
+		})
+	}
+}
+
 func TestDecodeWorkspaceAcceptsOnlyFirstProjectionForPersistedProjectID(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
