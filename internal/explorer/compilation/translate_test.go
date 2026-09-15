@@ -3,6 +3,7 @@ package compilation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -35,6 +36,48 @@ func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
 	}
 	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
 		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	}
+}
+
+func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.Policy.Route.MaxHops = 1
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	workspace, created, err := authoringv2.ApplyCommands(
+		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}},
+		catalog,
+		"create",
+		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", []authoringv2.Command{{
+		Type: authoringv2.CommandAddRoute, OutputID: outputID, ParentOccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "e_encounter",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentOccurrenceID := workspace.Documents[0].Route.Children[0].OccurrenceID
+	_, _, err = authoringv2.ApplyCommands(workspace, catalog, "over-depth", []authoringv2.Command{{
+		Type: authoringv2.CommandAddRoute, OutputID: outputID, ParentOccurrenceID: parentOccurrenceID, EdgeID: "e_self",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("command over-depth route error = %v, want ROUTE_TOO_LONG", err)
+	}
+
+	_, err = Compile(context.Background(), "project-a", "explorer-a", authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", Children: []authoringv2.RouteNode{{
+				OccurrenceID: "repeat-encounter", ResourceType: "Encounter", Relationship: "revisits",
+			}},
+		}}},
+	}, snapshot)
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "ROUTE_TOO_LONG" {
+		t.Fatalf("compile over-depth route error = %v, want ROUTE_TOO_LONG", err)
 	}
 }
 
