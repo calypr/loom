@@ -375,7 +375,20 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	if conflict.StatusCode != http.StatusConflict || !strings.Contains(conflict.Body, `"code":"COMMAND_ID_CONFLICT"`) {
 		t.Fatalf("command ID conflict status=%d body=%s", conflict.StatusCode, conflict.Body)
 	}
-	reconcileBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q}`, snapshot.Token, response.DraftVersion, response.DraftDigest)
+	secondBody := `{"commandId":"browser-command-2","snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":1,"commands":[{"type":"CREATE_TABLE","title":"Visits","rootNodeId":"n_patient"}]}`
+	second := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", secondBody)
+	if second.StatusCode != http.StatusOK || !strings.Contains(second.Body, `"draftVersion":2`) {
+		t.Fatalf("second command status=%d body=%s", second.StatusCode, second.Body)
+	}
+	var secondResponse authoringv2.ApplyCommandsResponse
+	if err := json.Unmarshal([]byte(second.Body), &secondResponse); err != nil {
+		t.Fatal(err)
+	}
+	oldRetry := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
+	if oldRetry.StatusCode != http.StatusConflict || !strings.Contains(oldRetry.Body, `"code":"DRAFT_CONFLICT"`) {
+		t.Fatalf("older command retry status=%d body=%s", oldRetry.StatusCode, oldRetry.Body)
+	}
+	reconcileBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q}`, snapshot.Token, secondResponse.DraftVersion, secondResponse.DraftDigest)
 	reconciled := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/reconcile", reconcileBody)
 	if reconciled.StatusCode != http.StatusOK || !strings.Contains(reconciled.Body, `"kind":"ExplorerBuilderReceipt"`) {
 		t.Fatalf("reconcile status=%d body=%s", reconciled.StatusCode, reconciled.Body)

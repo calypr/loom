@@ -171,7 +171,8 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 
 // ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
 // resolves backend-owned identities, applies a command batch atomically, and
-// persists both the new draft and the replay record in one compare-and-swap.
+// persists both the new draft and the bounded last-command replay record in
+// one compare-and-swap. Older command IDs are rejected by draft CAS.
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err

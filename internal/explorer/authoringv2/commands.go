@@ -32,7 +32,9 @@ const (
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
-// idempotency token, never a durable authoring identity.
+// idempotency token retained only for the last successfully applied command,
+// never a durable authoring identity; retrying an older command is a draft
+// conflict after a later command advances the draft.
 type ApplyCommandsRequest struct {
 	CommandID            string    `json:"commandId"`
 	SnapshotToken        string    `json:"snapshotToken"`
