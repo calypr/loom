@@ -114,6 +114,10 @@ func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// DecodeStrictJSON decodes one JSON value with unknown and duplicate object
+// fields rejected. Domain packages use it at their JSON boundary.
+func DecodeStrictJSON(raw []byte, target any) error { return strictDecode(raw, target) }
+
 func (s ColumnSource) fieldPath() string {
 	if s.Field != nil {
 		return s.Field.Path

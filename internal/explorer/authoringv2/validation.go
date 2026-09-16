@@ -19,6 +19,9 @@ func (d Document) Validate() error {
 }
 
 func (w Workspace) Validate() error {
+	if err := validateDatasetDesignMetadata(w.DatasetDesign, w.DatasetDesignDigest); err != nil {
+		return err
+	}
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
