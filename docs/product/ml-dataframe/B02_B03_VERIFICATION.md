@@ -17,7 +17,11 @@ TestExecutionReadPinArbitrationAgainstArango: PASS (0.234s)
 
 Evidence is retained locally at `.artifacts/loom-dev/selections-1789584932868.json`. Explicit creation took 33.3ms for this small fixture. This is not a large-population performance claim.
 
-The production storage scale test verified exact final counts and digests using 1,000-member batches. It measured 100 members in 56ms, 10,000 in 4.376s, and 100,000 in 58.824s. These are backend persistence measurements, not end-to-end HTTP timings or a speedup over a prior implementation. The largest selection is not a sub-30-second operation.
+The production storage scale test verifies exact final counts and digests using 1,000-member batches. The initial implementation measured 100 members in 56ms, 10,000 in 4.376s, and 100,000 in 58.824s.
+
+Reading batched insert results in batches instead of one row per cursor request reduced the 100,000-member run to 31.656s. Arango's query plan then exposed repeated sorting during digest pagination. Binding the header's generation and resource type lets the existing compound index supply ordered ID ranges. Canonical member keys already enforce one member per resource ID within the homogeneous selection.
+
+The combined changes measured 100 members in 28ms, 10,000 in 1.542s, and 100,000 in 15.636s. The real storage correctness suite also passed in 0.83s. These are single-run backend persistence measurements, not end-to-end HTTP timings. They do not establish that a 100,000-member HTTP request fits the lifecycle deadline.
 
 After restarting `loom-dev-arch-integration-loom-api-1`, the script's `--check-saved` mode verified the same membership, counts, and digests for explicit, matching, and empty selections.
 

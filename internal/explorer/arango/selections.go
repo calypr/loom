@@ -154,7 +154,7 @@ UPSERT {_key: doc._key}
 INSERT doc
 UPDATE {}
 IN @@c
-RETURN {key: NEW._key, inserted: OLD == null}`, 1, map[string]any{"@c": SelectionMembersCollection, "docs": docs}, func(row map[string]any) error {
+RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": SelectionMembersCollection, "docs": docs}, func(row map[string]any) error {
 			key, _ := row["key"].(string)
 			value, _ := row["inserted"].(bool)
 			// A duplicate key can occur within one parameter batch. Arango
@@ -197,10 +197,11 @@ func (s *Store) DigestSelectionMembers(ctx context.Context, project, selectionID
 	for {
 		pageCount := 0
 		err := s.client.QueryRows(ctx, `FOR m IN @@c
-	FILTER m.selectionId == @selectionId AND m.project == @project AND m.id > @afterID
-	SORT m.id ASC, m._key ASC
+	FILTER m.selectionId == @selectionId AND m.project == @project
+	AND m.generation == @generation AND m.resourceType == @resourceType AND m.id > @afterID
+	SORT m.id ASC
 	LIMIT @limit
-	RETURN m`, 1000, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": project, "afterID": afterID, "limit": 1000}, func(row map[string]any) error {
+	RETURN m`, 1000, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": project, "generation": header.Generation, "resourceType": header.ResourceType, "afterID": afterID, "limit": 1000}, func(row map[string]any) error {
 			member, decodeErr := decode[explorer.SelectionMember](row)
 			if decodeErr != nil {
 				return decodeErr
