@@ -926,7 +926,7 @@ const generatedSchema = z
     dataset: z.object({
       generation: z.string().optional(),
       schemaDigest: z.string().optional(),
-      outputs: z.array(datasetOutputSchema),
+      outputs: z.array(datasetOutputSchema).nullable().transform((value) => value ?? []),
     }).strict().optional(),
     publication: publicationMetadataSchema.optional(),
     diagnostics: z.array(runtimeDiagnosticSchema).optional(),
