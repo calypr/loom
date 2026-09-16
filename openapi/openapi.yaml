@@ -5,6 +5,64 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/projects/{project}/explorers/{explorerId}/selections:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: createExplorerSelection
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SelectionCreateRequest'}
+      responses:
+        '201':
+          description: Complete immutable selection. Partial scans never return a usable revision.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SelectionRevision'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+      - name: selectionRevision
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    get:
+      operationId: getExplorerSelection
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      responses:
+        '200':
+          description: Authorized header and bounded membership page under the original effective scope.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SelectionPage'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -670,6 +728,129 @@ components:
         text/html:
           schema: {type: string}
   schemas:
+    SelectionResourceRef:
+      type: object
+      additionalProperties: false
+      required: [project, generation, resourceType, id]
+      properties:
+        project: {type: string, minLength: 1}
+        generation: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        id: {type: string, minLength: 1}
+    SelectionFilter:
+      type: object
+      additionalProperties: false
+      required: [column, op]
+      properties:
+        column: {type: string, minLength: 1}
+        op: {type: string, minLength: 1}
+        value: {}
+    SelectionExplicitResources:
+      type: object
+      additionalProperties: false
+      required: [refs]
+      properties:
+        resourceType:
+          type: string
+          minLength: 1
+          description: Required for empty refs; otherwise must match every reference.
+        refs:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionResourceRef'}
+    SelectionPublishedOutput:
+      type: object
+      additionalProperties: false
+      required: [revisionId, outputId]
+      properties:
+        revisionId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        filters:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionFilter'}
+    SelectionRequestSource:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: Exactly one payload matching kind is required. Published identities are resolved by the server.
+      properties:
+        kind: {type: string, enum: [resources, publishedOutput]}
+        resources: {$ref: '#/components/schemas/SelectionExplicitResources'}
+        publishedOutput: {$ref: '#/components/schemas/SelectionPublishedOutput'}
+    SelectionCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, snapshotToken, source]
+      properties:
+        idempotencyKey: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/SelectionRequestSource'}
+        exclusions:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionResourceRef'}
+    SelectionRule:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [EXPLICIT, ALL_MATCHING]}
+        filters:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionFilter'}
+    SelectionSource:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [EXPLICIT_REFS, PUBLISHED_OUTPUT]}
+        generation: {type: string}
+        revisionId: {type: string}
+        receiptId: {type: string}
+        executionId: {type: string}
+        outputId: {type: string}
+        schemaDigest: {type: string}
+        resourceType: {type: string}
+        sourceIdColumn: {type: string}
+    SelectionRevision:
+      type: object
+      additionalProperties: false
+      required: [id, project, generation, resourceType, rule, source, scopeDigest, ruleDigest, membershipDigest, memberCount, memberBytes, complete, createdAt]
+      properties:
+        id: {type: string}
+        project: {type: string}
+        generation: {type: string}
+        resourceType: {type: string}
+        rule: {$ref: '#/components/schemas/SelectionRule'}
+        source: {$ref: '#/components/schemas/SelectionSource'}
+        exclusions:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionResourceRef'}
+        scopeDigest: {type: string}
+        ruleDigest: {type: string}
+        membershipDigest: {type: string}
+        memberCount: {type: integer, format: int64, minimum: 0}
+        memberBytes: {type: integer, format: int64, minimum: 0}
+        complete: {type: boolean}
+        idempotencyKey: {type: string}
+        createdAt: {type: string, format: date-time}
+        completedAt: {type: string, format: date-time}
+    SelectionMember:
+      type: object
+      additionalProperties: false
+      required: [ref]
+      properties:
+        ref: {$ref: '#/components/schemas/SelectionResourceRef'}
+        ordinal: {type: integer, format: int64}
+        memberKey: {type: string}
+    SelectionPage:
+      type: object
+      additionalProperties: false
+      required: [revision, members]
+      properties:
+        revision: {$ref: '#/components/schemas/SelectionRevision'}
+        members:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionMember'}
+        nextCursor: {type: string}
     RawJSON:
       description: JSON whose existing shape is preserved losslessly during route cutover.
       type: object
@@ -925,11 +1106,38 @@ components:
     LookupSource:
       type: object
       additionalProperties: false
-      required: [match]
+      description: Either legacy match/path or a correlated binding/key is required. Mixed payloads are rejected.
       properties:
         match: {type: string, minLength: 1}
         path: {type: string}
         projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        binding: {$ref: '#/components/schemas/CorrelatedBinding'}
+        key: {$ref: '#/components/schemas/TerminologyKey'}
+    TerminologyKey:
+      type: object
+      additionalProperties: false
+      required: [system, code]
+      properties:
+        system: {type: string, minLength: 1}
+        code: {type: string, minLength: 1}
+    CorrelatedBinding:
+      type: object
+      additionalProperties: false
+      required: [keyPath, systemPath, codePath, valuePath, logicalType]
+      properties:
+        ownerPath: {type: string}
+        keyPath: {type: string, minLength: 1}
+        systemPath: {type: string, minLength: 1}
+        codePath: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        valueFallback:
+          type: array
+          items: {type: string, minLength: 1}
+        choiceArms:
+          type: array
+          items: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        unitPath: {type: string}
     RelatedSelection:
       type: object
       additionalProperties: false
@@ -1167,6 +1375,41 @@ components:
         repeatedBoundaries:
           type: array
           items: {$ref: '#/components/schemas/RepeatedBoundary'}
+        conceptCandidates:
+          type: array
+          items: {$ref: '#/components/schemas/ConceptCandidate'}
+    ConceptCandidate:
+      type: object
+      additionalProperties: false
+      required: [sourceResourceType, completeness, status, population]
+      properties:
+        sourceResourceType: {type: string}
+        sourceCanonical: {type: string}
+        sourceProfile: {type: string}
+        sourcePath: {type: string}
+        owningScope: {type: string}
+        extensionUrlPath:
+          type: array
+          items: {type: string}
+        keySelector: {type: string}
+        system: {type: string}
+        code: {type: string}
+        display: {type: string}
+        valueSelector: {type: string}
+        choiceArm: {type: string}
+        logicalType: {type: string}
+        observedUnits:
+          type: array
+          items: {type: string}
+        completeness: {type: string}
+        status: {type: string}
+        population: {type: integer, format: int64, minimum: 0}
+        examples:
+          type: array
+          items: {type: string}
+        examplesTruncated: {type: boolean}
+        ruleHint: {type: string}
+        ruleVersion: {type: string}
     RepeatedBoundary:
       type: object
       additionalProperties: false

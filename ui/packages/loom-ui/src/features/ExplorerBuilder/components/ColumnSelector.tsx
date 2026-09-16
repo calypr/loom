@@ -72,6 +72,9 @@ const sourceSummary = ({ source }: ExplorerBuilderColumn): string => {
     case 'extensionByUrl':
     case 'codingBySystem':
     case 'observationComponentByCode':
+      if ('binding' in source.lookup) {
+        return [source.lookup.key.system, source.lookup.key.code, source.lookup.binding.valuePath].join(' · ');
+      }
       return [source.kind, source.lookup.path, source.lookup.match].filter(Boolean).join(' · ');
     case 'projectId':
       return 'Project identifier';

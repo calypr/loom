@@ -20,6 +20,42 @@ const projectionModeSchema = z.enum([
 ]);
 const unknownRecordSchema = z.record(z.string(), z.unknown());
 
+export const correlatedBindingSchema = z.object({
+  ownerPath: z.string().optional(),
+  keyPath: opaqueIdSchema,
+  systemPath: opaqueIdSchema,
+  codePath: opaqueIdSchema,
+  valuePath: opaqueIdSchema,
+  valueFallback: z.array(opaqueIdSchema).optional(),
+  choiceArms: z.array(opaqueIdSchema).optional(),
+  logicalType: opaqueIdSchema,
+  unitPath: z.string().optional(),
+}).strict();
+
+export const conceptCandidateSchema = z.object({
+  sourceResourceType: opaqueIdSchema,
+  sourceCanonical: z.string().optional(),
+  sourceProfile: z.string().optional(),
+  sourcePath: z.string().optional(),
+  owningScope: z.string().optional(),
+  extensionUrlPath: z.array(z.string()).optional(),
+  keySelector: z.string().optional(),
+  system: z.string().optional(),
+  code: z.string().optional(),
+  display: z.string().optional(),
+  valueSelector: z.string().optional(),
+  choiceArm: z.string().optional(),
+  logicalType: z.string().optional(),
+  observedUnits: z.array(z.string()).optional(),
+  completeness: opaqueIdSchema,
+  status: opaqueIdSchema,
+  population: z.number().int().nonnegative().safe(),
+  examples: z.array(z.string()).optional(),
+  examplesTruncated: z.boolean().optional(),
+  ruleHint: z.string().optional(),
+  ruleVersion: z.string().optional(),
+}).strict();
+
 export const explorerAuthoringDiagnosticSchema = z
   .object({
     severity: z.enum(['error', 'warning', 'info']),
@@ -69,8 +105,8 @@ const fieldColumnSourceSchema = z
       }).strict().optional(),
     }).strict(),
   }).strict();
-const lookupColumnSourceSchema = z
-  .object({
+const lookupColumnSourceSchema = z.union([
+  z.object({
     kind: z.enum([
       'identifierBySystem',
       'extensionByUrl',
@@ -82,8 +118,16 @@ const lookupColumnSourceSchema = z
       path: opaqueIdSchema.optional(),
       projectionMode: projectionModeSchema.optional(),
     }).strict(),
-  })
-  .strict();
+  }).strict(),
+  z.object({
+    kind: z.enum(['codingBySystem', 'observationComponentByCode']),
+    lookup: z.object({
+      binding: correlatedBindingSchema,
+      key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
+]);
 const aggregateColumnSourceSchema = z
   .object({
     kind: z.literal('aggregate'),
@@ -305,6 +349,7 @@ export const explorerBuilderCandidateSchema = z
     chartable: z.boolean(),
     projectionModes: z.array(projectionModeSchema).min(1),
     defaultProjectionMode: projectionModeSchema,
+    conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(
         z

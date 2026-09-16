@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
 )
 
@@ -30,7 +31,7 @@ func (a SelectionSourceAdapter) ResolveSelectionSource(ctx context.Context, proj
 	if err != nil {
 		return Materialization{}, err
 	}
-	if materialization.Project != strings.TrimSpace(project) {
+	if projectid.Canonical(materialization.Project) != projectid.Canonical(project) {
 		return Materialization{}, fmt.Errorf("%w: published source project changed", publication.ErrSelectionSourceIdentityChanged)
 	}
 	_ = explorerID

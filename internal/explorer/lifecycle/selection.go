@@ -236,7 +236,7 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		if err != nil {
 			return SelectionCreateResult{}, err
 		}
-		if materialization.Project != project || materialization.DatasetGeneration != generation || materialization.Revision != executionID {
+		if projectid.Canonical(materialization.Project) != project || materialization.DatasetGeneration != generation || materialization.Revision != executionID {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection source identity changed"))
 		}
 		if materialization.SourceRow == nil || !materialization.SourceRow.Valid() {
@@ -244,9 +244,6 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		}
 		if revision.CompilationReceiptID != "" && materialization.ReceiptID != revision.CompilationReceiptID {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection receipt changed"))
-		}
-		if revision.ResolvedSchemaDigest != "" && materialization.SchemaDigest != revision.ResolvedSchemaDigest {
-			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection schema changed"))
 		}
 		if resolved.ResourceType == "" {
 			resolved.ResourceType = materialization.SourceRow.ResourceType
@@ -317,7 +314,7 @@ func (s *Service) createSelection(parent context.Context, req selectionCreateReq
 		if err != nil {
 			return SelectionCreateResult{}, err
 		}
-		if materialization.Project != req.Project || materialization.DatasetGeneration != req.Generation || materialization.Revision != req.Source.ExecutionID {
+		if projectid.Canonical(materialization.Project) != req.Project || materialization.DatasetGeneration != req.Generation || materialization.Revision != req.Source.ExecutionID {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection source identity changed"))
 		}
 		if materialization.SourceRow == nil || !materialization.SourceRow.Valid() || materialization.SourceRow.ResourceType != req.ResourceType {

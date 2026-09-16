@@ -10,6 +10,8 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
@@ -24,14 +26,29 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		if target == nil {
 			return lifecycle.Execution{}, fmt.Errorf("Explorer publication is unavailable: %w", degradation)
 		}
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return lifecycle.Execution{}, fmt.Errorf("publication workspace: %w", err)
+		}
+		contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+		if err != nil {
+			return lifecycle.Execution{}, fmt.Errorf("publication contracts: %w", err)
+		}
+		sourceRows := make(map[string]*publication.SourceRowMetadata)
+		for _, contract := range contracts.Outputs {
+			descriptor, proofErr := compilation.ResolveAddressableSourceRow(workspace, contract, receipt.EmittedColumns)
+			if proofErr == nil {
+				sourceRows[contract.OutputID] = &publication.SourceRowMetadata{ResourceType: descriptor.ResourceType, IDColumn: descriptor.PhysicalColumn}
+			}
+		}
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
-		_, err := recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full dataframeexecution.Resolved) error {
+		_, err = recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full dataframeexecution.Resolved) error {
 			if validationErr := validateReceiptResolution(receipt, &full); validationErr != nil {
 				return validationErr
 			}
 			var publishErr error
-			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, batchRows, batchBytes)
+			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, receipt.ID, sourceRows, batchRows, batchBytes)
 			return publishErr
 		})
 		if err != nil {

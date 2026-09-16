@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -399,5 +398,3 @@ func (s *Store) CleanupSelectionStaging(ctx context.Context, before time.Time, l
   REMOVE d IN @@c
   RETURN {removed: true}`, limit, map[string]any{"@c": SelectionsCollection, "@members": SelectionMembersCollection, "state": selectionStagingState, "before": before, "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
 }
-
-var _ json.Marshaler

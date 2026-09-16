@@ -20,6 +20,14 @@ import {
 import type { ExplorerAuthoringDiagnostic } from './types';
 import { z } from 'zod';
 import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
+import {
+  selectionPageSchema,
+  selectionRevisionSchema,
+  type ResourceRef,
+  type SelectionPage,
+  type SelectionRevision,
+  type SelectionSourceIntent,
+} from './selection';
 
 export interface ExplorerSummary {
   readonly project: string;
@@ -95,6 +103,20 @@ export interface CreateExplorerArgs extends ExplorerAuthoringProjectArgs {
 
 export interface DeleteExplorerArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
+}
+
+export interface CreateSelectionArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly idempotencyKey: string;
+  readonly source: SelectionSourceIntent;
+  readonly exclusions?: ReadonlyArray<ResourceRef>;
+  readonly requestId?: string;
+}
+
+export interface GetSelectionArgs extends ExplorerAuthoringStateArgs {
+  readonly selectionRevision: string;
+  readonly cursor?: string;
+  readonly limit?: number;
 }
 
 export interface LoomClientOptions {
@@ -183,6 +205,8 @@ export interface LoomOutputResult {
 }
 
 export interface LoomClient {
+  readonly createSelection: (args: CreateSelectionArgs, signal?: AbortSignal) => Promise<SelectionRevision>;
+  readonly getSelection: (args: GetSelectionArgs, signal?: AbortSignal) => Promise<SelectionPage>;
   readonly listExplorers: (
     args: ExplorerAuthoringProjectArgs,
     signal?: AbortSignal,
@@ -693,6 +717,21 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     evictCached(`explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`);
     return value as ExplorerSummary;
   };
+  const createSelection = (args: CreateSelectionArgs, signal?: AbortSignal) =>
+    request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}/selections${authResourcePathQuery(args.authResourcePath)}`, withJson({
+      snapshotToken: args.snapshotToken,
+      idempotencyKey: args.idempotencyKey,
+      source: args.source,
+      ...(args.exclusions ? { exclusions: args.exclusions } : {}),
+    }, signal, args.requestId)).then((value) => selectionRevisionSchema.parse(value));
+  const getSelection = (args: GetSelectionArgs, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (args.cursor !== undefined) params.set('cursor', args.cursor);
+    if (args.limit !== undefined) params.set('limit', String(args.limit));
+    const query = params.size > 0 ? `?${params}` : '';
+    return request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}/selections/${encodeURIComponent(args.selectionRevision)}${query}`, { signal })
+      .then((value) => selectionPageSchema.parse(value));
+  };
   const deleteExplorer = async (args: DeleteExplorerArgs, signal?: AbortSignal) => {
     await request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}`, { method: 'DELETE', signal, headers: args.requestId ? { 'X-Request-ID': args.requestId } : undefined });
     evictCached(`explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`);
@@ -786,6 +825,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   };
   return {
     listExplorers,
+    createSelection,
+    getSelection,
     getBuilder,
     getCapability,
     getExplorer,

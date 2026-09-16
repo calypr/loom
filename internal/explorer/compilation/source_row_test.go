@@ -41,3 +41,25 @@ func TestResolveAddressableSourceRowUsesValidatedPhysicalProvenance(t *testing.T
 		t.Fatal("internal row id was accepted as source identity")
 	}
 }
+
+func TestAddressableSourceRowAcceptsNamedResourceGrains(t *testing.T) {
+	for _, fixture := range []struct{ resource, grain string }{
+		{"DocumentReference", "file"}, {"Patient", "patient"}, {"Specimen", "specimen"}, {"Observation", "observation"},
+	} {
+		t.Run(fixture.grain, func(t *testing.T) {
+			document := addressableDocument()
+			document.RootResourceType, document.Route.ResourceType = fixture.resource, fixture.resource
+			contract := explorer.PublicOutputContract{OutputID: "out", RootResourceType: fixture.resource, RowGrain: fixture.grain}
+			emitted := []explorer.EmittedColumn{{OutputID: "out", OccurrenceID: "base", ProjectionMode: "VALUE", SourceResourceType: fixture.resource, SourcePath: "id", PublicColumn: "subject_id"}}
+			if got, err := resolveAddressableDocumentSourceRow(document, contract, emitted); err != nil || got.ResourceType != fixture.resource || got.PhysicalColumn != "subject_id" {
+				t.Fatalf("source row = %#v, err=%v", got, err)
+			}
+			for _, invalid := range []string{"expanded", "invalid", "diagnosis"} {
+				contract.RowGrain = invalid
+				if _, err := resolveAddressableDocumentSourceRow(document, contract, emitted); err == nil {
+					t.Fatalf("accepted incompatible grain %q", invalid)
+				}
+			}
+		})
+	}
+}

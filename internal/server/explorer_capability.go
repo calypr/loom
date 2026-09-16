@@ -18,15 +18,16 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 	"golang.org/x/sync/singleflight"
 )
 
 const (
-	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v3"
+	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
 	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
-	explorerProjectionPolicyVersion   = "compiler-probed-v1"
+	explorerProjectionPolicyVersion   = "compiler-probed-v2"
 )
 
 func explorerScopeDigest(scope authscope.ReadScope) string {
@@ -303,6 +304,8 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		maxItems    int
 	}
 	fields := map[string]*fieldAggregate{}
+	pendingConcepts := map[string][]capability.ConceptCandidate{}
+	semanticOwnerFields := map[string]struct{}{}
 	for _, item := range value.FieldEnrichment.Values {
 		key := item.ResourceType + "\x00" + item.Path
 		aggregate := fields[key]
@@ -320,6 +323,67 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		for _, suggestion := range item.DistinctValues {
 			aggregate.values[suggestion] = struct{}{}
 		}
+		for _, observation := range item.SemanticObservations {
+			if semanticConceptOwnerPath(item.Path, observation) {
+				semanticOwnerFields[key] = struct{}{}
+			}
+			concept := capability.ConceptCandidate{
+				SourceResourceType: observation.Source.Type,
+				SourceCanonical:    observation.Source.Canonical,
+				SourceProfile:      observation.Source.Profile,
+				SourcePath:         observation.Source.Path,
+				OwningScope:        observation.OwningScope,
+				ExtensionURLPath:   append([]string(nil), observation.ExtensionURLPath...),
+				KeySelector:        observation.Key.Selector,
+				System:             observation.Key.System, Code: observation.Key.Code, Display: observation.Key.Display,
+				ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
+				LogicalType:   observation.LogicalType,
+				ObservedUnits: append([]string(nil), observation.ObservedUnits...),
+				Completeness:  string(observation.Completeness), Status: observation.Status,
+				Population: observation.Population, Examples: append([]string(nil), observation.Examples...),
+				ExamplesTruncated: observation.ExamplesTruncated,
+				RuleHint:          observation.RuleHint, RuleVersion: observation.RuleVersion,
+			}
+			targetPath := semanticConceptValuePath(observation)
+			if targetPath == "" {
+				continue
+			}
+			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(item.ResourceType, targetPath)
+			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
+				continue
+			}
+			targetKey := item.ResourceType + "\x00" + targetPath
+			pendingConcepts[targetKey] = append(pendingConcepts[targetKey], concept)
+		}
+	}
+	for key, concepts := range pendingConcepts {
+		aggregate := fields[key]
+		if aggregate == nil {
+			resourceType, targetPath, ok := strings.Cut(key, "\x00")
+			if !ok {
+				continue
+			}
+			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(resourceType, targetPath)
+			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
+				// A semantic observation with no generated scalar value path is
+				// retained only in the source catalog. Never turn an object or
+				// unresolved structural path into a projectable capability.
+				continue
+			}
+			maxPopulation := int64(0)
+			for _, concept := range concepts {
+				if concept.Population > maxPopulation {
+					maxPopulation = concept.Population
+				}
+			}
+			aggregate = &fieldAggregate{observation: capability.FieldObservation{
+				ResourceType: resourceType, Path: targetPath, Label: targetPath, LogicalType: string(metadata.Primitive),
+				Observed: true, ObservedDocumentCount: maxPopulation, Populated: maxPopulation > 0,
+				SuggestionsComplete: true,
+			}, values: map[string]struct{}{}}
+			fields[key] = aggregate
+		}
+		aggregate.observation.ConceptCandidates = append(aggregate.observation.ConceptCandidates, concepts...)
 	}
 	for _, aggregate := range fields {
 		parts := strings.Split(aggregate.observation.Path, ".")
@@ -337,6 +401,13 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		}
 	}
 	for _, aggregate := range fields {
+		key := aggregate.observation.ResourceType + "\x00" + aggregate.observation.Path
+		if _, semanticOwner := semanticOwnerFields[key]; semanticOwner {
+			// The repeated object is an evidence owner, not a scalar Builder
+			// candidate. Its concepts are attached to the checked value path;
+			// its maxItems remains available to boundary derivation above.
+			continue
+		}
 		for suggestion := range aggregate.values {
 			aggregate.observation.SuggestedValues = append(aggregate.observation.SuggestedValues, suggestion)
 		}
@@ -347,6 +418,31 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		return out.Fields[i].ResourceType+"\x00"+out.Fields[i].Path < out.Fields[j].ResourceType+"\x00"+out.Fields[j].Path
 	})
 	return out
+}
+
+// semanticConceptValuePath returns the generated scalar field that carries a
+// concept's value. Concept evidence is often discovered on an object owner
+// such as Observation.component[]; that owner is not itself a projectable
+// capability candidate. The owning scope and value selector preserve the
+// original pairing without advertising the object as scalar.
+func semanticConceptValuePath(observation catalog.SemanticObservation) string {
+	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
+	selector = strings.TrimPrefix(selector, "root.")
+	if selector == "" {
+		return ""
+	}
+	scope := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
+	scope = strings.TrimPrefix(scope, "root.")
+	if scope == "" || selector == scope || strings.HasPrefix(selector, scope+".") {
+		return selector
+	}
+	return scope + "." + selector
+}
+
+func semanticConceptOwnerPath(fieldPath string, observation catalog.SemanticObservation) bool {
+	fieldPath = strings.TrimPrefix(strings.Trim(strings.TrimSpace(fieldPath), "."), "root.")
+	ownerPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(observation.OwningScope), "."), "root.")
+	return fieldPath != "" && ownerPath != "" && fieldPath == ownerPath
 }
 
 type explorerCapabilityCompiler struct{ scope compilerprobe.Scope }
@@ -438,6 +534,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 			SuggestionsComplete:  candidate.SuggestionsComplete,
 			SuggestionsTruncated: candidate.SuggestionsTruncated,
 			SuggestionCount:      len(candidate.SuggestedValues),
+			ConceptCandidates:    authoringConceptCandidates(candidate.ConceptCandidates),
 		}
 		result.Candidates = append(result.Candidates, wire)
 	}
@@ -449,6 +546,39 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		result.Diagnostics = append(result.Diagnostics, authoringv2.CatalogDiagnostic{Severity: severity, Code: diagnostic.Code, Message: diagnostic.Message})
 	}
 	return result
+}
+
+func authoringConceptCandidates(values []capability.ConceptCandidate) []authoringv2.ConceptCandidate {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]authoringv2.ConceptCandidate, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.ConceptCandidate{
+			SourceResourceType: value.SourceResourceType,
+			SourcePath:         value.SourcePath,
+			SourceCanonical:    value.SourceCanonical,
+			SourceProfile:      value.SourceProfile,
+			OwningScope:        value.OwningScope,
+			ExtensionURLPath:   append([]string(nil), value.ExtensionURLPath...),
+			KeySelector:        value.KeySelector,
+			System:             value.System,
+			Code:               value.Code,
+			Display:            value.Display,
+			ValueSelector:      value.ValueSelector,
+			ChoiceArm:          value.ChoiceArm,
+			LogicalType:        value.LogicalType,
+			ObservedUnits:      append([]string(nil), value.ObservedUnits...),
+			Completeness:       value.Completeness,
+			Status:             value.Status,
+			Population:         value.Population,
+			Examples:           append([]string(nil), value.Examples...),
+			ExamplesTruncated:  value.ExamplesTruncated,
+			RuleHint:           value.RuleHint,
+			RuleVersion:        value.RuleVersion,
+		}
+	}
+	return out
 }
 
 func stringProjectionModes(values []capability.ProjectionMode) []string {

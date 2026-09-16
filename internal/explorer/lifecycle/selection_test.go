@@ -257,7 +257,7 @@ func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: explorer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "files"}}}}}
 	persistence, _ := explorer.NewService(store)
-	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: published.DataframeSelector{Recipe: "recipe", Output: "files"}}}
+	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "final-physical-schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: published.DataframeSelector{Recipe: "recipe", Output: "files"}}}
 	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}, SelectionSourceResolver: resolver})
@@ -267,6 +267,9 @@ func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing
 	}
 	if resolver.executionID != "execution-a" || created.Header.Source.RevisionID != "revision-request" || created.Header.Source.ExecutionID != "execution-a" {
 		t.Fatalf("source binding = %#v, resolver execution=%q", created.Header.Source, resolver.executionID)
+	}
+	if created.Header.Source.SchemaDigest != "final-physical-schema" {
+		t.Fatalf("source schema = %q, want final physical schema, not compilation schema", created.Header.Source.SchemaDigest)
 	}
 }
 

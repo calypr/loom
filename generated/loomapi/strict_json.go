@@ -92,6 +92,13 @@ func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	if err := strictDecodeGenerated(raw, &decoded); err != nil {
 		return err
 	}
+	if decoded.Binding != nil || decoded.Key != nil {
+		if decoded.Binding == nil || decoded.Key == nil || decoded.Match != nil || decoded.Path != nil {
+			return errors.New("correlated lookup requires only binding and key")
+		}
+	} else if decoded.Match == nil {
+		return errors.New("legacy lookup requires match")
+	}
 	*value = LookupSource(decoded)
 	return nil
 }
@@ -113,5 +120,27 @@ func (value *RelatedSelection) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	*value = RelatedSelection(decoded)
+	return nil
+}
+
+func (value *SelectionCreateRequest) UnmarshalJSON(raw []byte) error {
+	type wire SelectionCreateRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	switch decoded.Source.Kind {
+	case "resources":
+		if decoded.Source.Resources == nil || decoded.Source.PublishedOutput != nil {
+			return errors.New("resources selection requires only the resources payload")
+		}
+	case "publishedOutput":
+		if decoded.Source.PublishedOutput == nil || decoded.Source.Resources != nil {
+			return errors.New("publishedOutput selection requires only the publishedOutput payload")
+		}
+	default:
+		return errors.New("unsupported selection source kind")
+	}
+	*value = SelectionCreateRequest(decoded)
 	return nil
 }

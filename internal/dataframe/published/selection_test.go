@@ -39,4 +39,18 @@ func TestSourceResourceRefRequiresStringIdentity(t *testing.T) {
 	}
 }
 
+func TestSelectionSourceAdapterAcceptsOnlyEquivalentProjectIdentity(t *testing.T) {
+	reader := &Reader{Catalog: selectionCatalog{execution: publication.BundleExecution{
+		ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "Study-project", DatasetGeneration: "generation", ReceiptID: "receipt", SchemaDigest: "schema"}, State: publication.BundlePublished,
+		Outputs: []publication.BundleOutputRecord{{Name: "files", PhysicalTable: "files_table", State: publication.BundlePublished, VerifiedAt: timePtr(time.Now()), SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}}},
+	}}}
+	adapter := SelectionSourceAdapter{Reader: reader}
+	if _, err := adapter.ResolveSelectionSource(context.Background(), "Study/project", "explorer", "execution-a", "files"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.ResolveSelectionSource(context.Background(), "Other/project", "explorer", "execution-a", "files"); !errors.Is(err, publication.ErrSelectionSourceIdentityChanged) {
+		t.Fatalf("foreign project error = %v", err)
+	}
+}
+
 func timePtr(value time.Time) *time.Time { return &value }

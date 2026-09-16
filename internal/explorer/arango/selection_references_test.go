@@ -76,3 +76,17 @@ func TestValidateSelectionReferencesFailsClosedForScopeAndMissingIDs(t *testing.
 		t.Fatalf("physical key was accepted as logical ID: %v", err)
 	}
 }
+
+func TestValidateSelectionReferencesUsesResourceStorageProjectIdentity(t *testing.T) {
+	client := &selectionReferenceClient{rows: []map[string]any{{"id": "file001"}}}
+	persistence := &Store{client: client}
+	err := persistence.ValidateSelectionReferences(context.Background(), "study/project", "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, []explorer.ResourceRef{{
+		Project: "study/project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "file001",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.binds["project"]; got != "study-project" {
+		t.Fatalf("resource storage project = %v, want study-project", got)
+	}
+}

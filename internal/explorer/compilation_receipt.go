@@ -23,9 +23,10 @@ const (
 	CompilationReceiptFormatVersion = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion       = "loom.explorer.compiler/v12"
-	legacyCompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v11"
-	legacyCompilationReceiptOlderContractVersion    = "loom.explorer.compiler/v10"
+	CompilationReceiptCompilerContractVersion       = "loom.explorer.compiler/v13"
+	legacyCompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v12"
+	legacyCompilationReceiptOlderContractVersion    = "loom.explorer.compiler/v11"
+	legacyCompilationReceiptV10ContractVersion      = "loom.explorer.compiler/v10"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -220,7 +221,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {

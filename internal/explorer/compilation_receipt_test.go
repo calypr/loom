@@ -143,23 +143,27 @@ func TestCompilationReceiptValidateID(t *testing.T) {
 	}
 }
 
-func TestCompilationReceiptKeepsV10ReceiptsExecutableWithoutShapeDigest(t *testing.T) {
-	r := testReceipt()
-	r.CompilerContractVersion = legacyCompilationReceiptOlderContractVersion
-	r.ShapeDigest = ""
-	r.CompilationKey, _ = CompilationKey(r)
-	r.ID, _ = ReceiptID(r)
-	if err := r.Validate(); err != nil {
-		t.Fatal(err)
+func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
+	for _, version := range []string{"loom.explorer.compiler/v10", "loom.explorer.compiler/v11", "loom.explorer.compiler/v12"} {
+		t.Run(version, func(t *testing.T) {
+			r := testReceipt()
+			r.CompilerContractVersion = version
+			r.ShapeDigest = ""
+			r.CompilationKey, _ = CompilationKey(r)
+			r.ID, _ = ReceiptID(r)
+			if err := r.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
-func TestCompilationReceiptV11RequiresShapeDigest(t *testing.T) {
+func TestCompilationReceiptCurrentContractRequiresShapeDigest(t *testing.T) {
 	r := testReceipt()
 	r.ShapeDigest = ""
 	r.CompilationKey, _ = CompilationKey(r)
 	if err := r.Validate(); err == nil {
-		t.Fatal("accepted a v11 receipt without a generation shape digest")
+		t.Fatal("accepted a current receipt without a generation shape digest")
 	}
 }
 

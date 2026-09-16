@@ -340,7 +340,9 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("configure local workspace writeback: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
-		CompileReceipt: compileReceipt,
+		SelectionSourceResolver:     published.SelectionSourceAdapter{Reader: materializationReader},
+		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
+		CompileReceipt:              compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)

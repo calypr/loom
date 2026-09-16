@@ -5,6 +5,22 @@ import {
 } from './types';
 
 describe('explorerColumnSourceSchema', () => {
+  it('preserves the selected terminology pair and rejects competing legacy fields', () => {
+    const binding = {
+      ownerPath: 'component[]', keyPath: 'component[].code.coding[]',
+      systemPath: 'system', codePath: 'code', valuePath: 'valueQuantity.value', logicalType: 'decimal',
+    };
+    const source = {
+      kind: 'observationComponentByCode',
+      lookup: { binding, key: { system: 'urn:system:B', code: 'shared' }, projectionMode: 'ALL' },
+    };
+    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    expect(explorerColumnSourceSchema.safeParse({ ...source, kind: 'identifierBySystem' }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({ ...source, lookup: { ...source.lookup, match: 'shared' } }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({ ...source, lookup: { binding } }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({ ...source, lookup: { binding, key: { code: 'shared' } } }).success).toBe(false);
+  });
+
   it('rejects legacy flat payloads and fields belonging to another source kind', () => {
     for (const source of [
       { kind: 'field', fieldPath: 'gender', projectionMode: 'VALUE' },

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	authoringv2 "github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -522,6 +523,60 @@ func (e RelatedSelectionKind) Valid() bool {
 	}
 }
 
+// Defines values for SelectionRequestSourceKind.
+const (
+	PublishedOutput SelectionRequestSourceKind = "publishedOutput"
+	Resources       SelectionRequestSourceKind = "resources"
+)
+
+// Valid indicates whether the value is a known member of the SelectionRequestSourceKind enum.
+func (e SelectionRequestSourceKind) Valid() bool {
+	switch e {
+	case PublishedOutput:
+		return true
+	case Resources:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SelectionRuleKind.
+const (
+	ALLMATCHING SelectionRuleKind = "ALL_MATCHING"
+	EXPLICIT    SelectionRuleKind = "EXPLICIT"
+)
+
+// Valid indicates whether the value is a known member of the SelectionRuleKind enum.
+func (e SelectionRuleKind) Valid() bool {
+	switch e {
+	case ALLMATCHING:
+		return true
+	case EXPLICIT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SelectionSourceKind.
+const (
+	EXPLICITREFS    SelectionSourceKind = "EXPLICIT_REFS"
+	PUBLISHEDOUTPUT SelectionSourceKind = "PUBLISHED_OUTPUT"
+)
+
+// Valid indicates whether the value is a known member of the SelectionSourceKind enum.
+func (e SelectionSourceKind) Valid() bool {
+	switch e {
+	case EXPLICITREFS:
+		return true
+	case PUBLISHEDOUTPUT:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TablePresentationCellRenderer.
 const (
 	TablePresentationCellRendererFileActions TablePresentationCellRenderer = "fileActions"
@@ -689,6 +744,7 @@ type Catalog struct {
 type CatalogCandidate struct {
 	CandidateId           string              `json:"candidateId"`
 	Chartable             bool                `json:"chartable"`
+	ConceptCandidates     *[]ConceptCandidate `json:"conceptCandidates,omitempty"`
 	DefaultProjectionMode ProjectionMode      `json:"defaultProjectionMode"`
 	FieldPath             string              `json:"fieldPath"`
 	Filterable            bool                `json:"filterable"`
@@ -743,7 +799,9 @@ type ColumnSource struct {
 	Aggregate *AggregateSource `json:"aggregate,omitempty"`
 	Field     *FieldSource     `json:"field,omitempty"`
 	Kind      ColumnSourceKind `json:"kind"`
-	Lookup    *LookupSource    `json:"lookup,omitempty"`
+
+	// Lookup Either legacy match/path or a correlated binding/key is required. Mixed payloads are rejected.
+	Lookup *LookupSource `json:"lookup,omitempty"`
 }
 
 // ColumnSourceKind defines model for ColumnSource.Kind.
@@ -785,6 +843,31 @@ type CompileResponse struct {
 // CompileResponseKind defines model for CompileResponse.Kind.
 type CompileResponseKind string
 
+// ConceptCandidate defines model for ConceptCandidate.
+type ConceptCandidate struct {
+	ChoiceArm          *string   `json:"choiceArm,omitempty"`
+	Code               *string   `json:"code,omitempty"`
+	Completeness       string    `json:"completeness"`
+	Display            *string   `json:"display,omitempty"`
+	Examples           *[]string `json:"examples,omitempty"`
+	ExamplesTruncated  *bool     `json:"examplesTruncated,omitempty"`
+	ExtensionUrlPath   *[]string `json:"extensionUrlPath,omitempty"`
+	KeySelector        *string   `json:"keySelector,omitempty"`
+	LogicalType        *string   `json:"logicalType,omitempty"`
+	ObservedUnits      *[]string `json:"observedUnits,omitempty"`
+	OwningScope        *string   `json:"owningScope,omitempty"`
+	Population         int64     `json:"population"`
+	RuleHint           *string   `json:"ruleHint,omitempty"`
+	RuleVersion        *string   `json:"ruleVersion,omitempty"`
+	SourceCanonical    *string   `json:"sourceCanonical,omitempty"`
+	SourcePath         *string   `json:"sourcePath,omitempty"`
+	SourceProfile      *string   `json:"sourceProfile,omitempty"`
+	SourceResourceType string    `json:"sourceResourceType"`
+	Status             string    `json:"status"`
+	System             *string   `json:"system,omitempty"`
+	ValueSelector      *string   `json:"valueSelector,omitempty"`
+}
+
 // ContractColumn defines model for ContractColumn.
 type ContractColumn struct {
 	AuthoredColumns       *[]string                            `json:"authoredColumns,omitempty"`
@@ -807,6 +890,19 @@ type ContractColumn struct {
 
 // ContractColumnStructuralSuitability defines model for ContractColumn.StructuralSuitability.
 type ContractColumnStructuralSuitability string
+
+// CorrelatedBinding defines model for CorrelatedBinding.
+type CorrelatedBinding struct {
+	ChoiceArms    *[]string `json:"choiceArms,omitempty"`
+	CodePath      string    `json:"codePath"`
+	KeyPath       string    `json:"keyPath"`
+	LogicalType   string    `json:"logicalType"`
+	OwnerPath     *string   `json:"ownerPath,omitempty"`
+	SystemPath    string    `json:"systemPath"`
+	UnitPath      *string   `json:"unitPath,omitempty"`
+	ValueFallback *[]string `json:"valueFallback,omitempty"`
+	ValuePath     string    `json:"valuePath"`
+}
 
 // Diagnostic defines model for Diagnostic.
 type Diagnostic struct {
@@ -920,9 +1016,11 @@ type LegacyErrorResponse_Error struct {
 	union json.RawMessage
 }
 
-// LookupSource defines model for LookupSource.
+// LookupSource Either legacy match/path or a correlated binding/key is required. Mixed payloads are rejected.
 type LookupSource struct {
-	Match          string                      `json:"match"`
+	Binding        *CorrelatedBinding          `json:"binding,omitempty"`
+	Key            *TerminologyKey             `json:"key,omitempty"`
+	Match          *string                     `json:"match,omitempty"`
 	Path           *string                     `json:"path,omitempty"`
 	ProjectionMode *LookupSourceProjectionMode `json:"projectionMode,omitempty"`
 }
@@ -1088,6 +1186,115 @@ type RoutePolicy struct {
 	MaxSteps           *int `json:"maxSteps,omitempty"`
 }
 
+// SelectionCreateRequest defines model for SelectionCreateRequest.
+type SelectionCreateRequest struct {
+	Exclusions     *[]SelectionResourceRef `json:"exclusions,omitempty"`
+	IdempotencyKey string                  `json:"idempotencyKey"`
+	SnapshotToken  string                  `json:"snapshotToken"`
+
+	// Source Exactly one payload matching kind is required. Published identities are resolved by the server.
+	Source SelectionRequestSource `json:"source"`
+}
+
+// SelectionExplicitResources defines model for SelectionExplicitResources.
+type SelectionExplicitResources struct {
+	Refs []SelectionResourceRef `json:"refs"`
+
+	// ResourceType Required for empty refs; otherwise must match every reference.
+	ResourceType *string `json:"resourceType,omitempty"`
+}
+
+// SelectionFilter defines model for SelectionFilter.
+type SelectionFilter struct {
+	Column string      `json:"column"`
+	Op     string      `json:"op"`
+	Value  interface{} `json:"value,omitempty"`
+}
+
+// SelectionMember defines model for SelectionMember.
+type SelectionMember struct {
+	MemberKey *string              `json:"memberKey,omitempty"`
+	Ordinal   *int64               `json:"ordinal,omitempty"`
+	Ref       SelectionResourceRef `json:"ref"`
+}
+
+// SelectionPage defines model for SelectionPage.
+type SelectionPage struct {
+	Members    []SelectionMember `json:"members"`
+	NextCursor *string           `json:"nextCursor,omitempty"`
+	Revision   SelectionRevision `json:"revision"`
+}
+
+// SelectionPublishedOutput defines model for SelectionPublishedOutput.
+type SelectionPublishedOutput struct {
+	Filters    *[]SelectionFilter `json:"filters,omitempty"`
+	OutputId   string             `json:"outputId"`
+	RevisionId string             `json:"revisionId"`
+}
+
+// SelectionRequestSource Exactly one payload matching kind is required. Published identities are resolved by the server.
+type SelectionRequestSource struct {
+	Kind            SelectionRequestSourceKind  `json:"kind"`
+	PublishedOutput *SelectionPublishedOutput   `json:"publishedOutput,omitempty"`
+	Resources       *SelectionExplicitResources `json:"resources,omitempty"`
+}
+
+// SelectionRequestSourceKind defines model for SelectionRequestSource.Kind.
+type SelectionRequestSourceKind string
+
+// SelectionResourceRef defines model for SelectionResourceRef.
+type SelectionResourceRef struct {
+	Generation   string `json:"generation"`
+	Id           string `json:"id"`
+	Project      string `json:"project"`
+	ResourceType string `json:"resourceType"`
+}
+
+// SelectionRevision defines model for SelectionRevision.
+type SelectionRevision struct {
+	Complete         bool                    `json:"complete"`
+	CompletedAt      *time.Time              `json:"completedAt,omitempty"`
+	CreatedAt        time.Time               `json:"createdAt"`
+	Exclusions       *[]SelectionResourceRef `json:"exclusions,omitempty"`
+	Generation       string                  `json:"generation"`
+	Id               string                  `json:"id"`
+	IdempotencyKey   *string                 `json:"idempotencyKey,omitempty"`
+	MemberBytes      int64                   `json:"memberBytes"`
+	MemberCount      int64                   `json:"memberCount"`
+	MembershipDigest string                  `json:"membershipDigest"`
+	Project          string                  `json:"project"`
+	ResourceType     string                  `json:"resourceType"`
+	Rule             SelectionRule           `json:"rule"`
+	RuleDigest       string                  `json:"ruleDigest"`
+	ScopeDigest      string                  `json:"scopeDigest"`
+	Source           SelectionSource         `json:"source"`
+}
+
+// SelectionRule defines model for SelectionRule.
+type SelectionRule struct {
+	Filters *[]SelectionFilter `json:"filters,omitempty"`
+	Kind    SelectionRuleKind  `json:"kind"`
+}
+
+// SelectionRuleKind defines model for SelectionRule.Kind.
+type SelectionRuleKind string
+
+// SelectionSource defines model for SelectionSource.
+type SelectionSource struct {
+	ExecutionId    *string             `json:"executionId,omitempty"`
+	Generation     *string             `json:"generation,omitempty"`
+	Kind           SelectionSourceKind `json:"kind"`
+	OutputId       *string             `json:"outputId,omitempty"`
+	ReceiptId      *string             `json:"receiptId,omitempty"`
+	ResourceType   *string             `json:"resourceType,omitempty"`
+	RevisionId     *string             `json:"revisionId,omitempty"`
+	SchemaDigest   *string             `json:"schemaDigest,omitempty"`
+	SourceIdColumn *string             `json:"sourceIdColumn,omitempty"`
+}
+
+// SelectionSourceKind defines model for SelectionSource.Kind.
+type SelectionSourceKind string
+
 // ServiceErrorBody defines model for ServiceErrorBody.
 type ServiceErrorBody struct {
 	Code      string                  `json:"code"`
@@ -1134,6 +1341,12 @@ type TablePresentation struct {
 
 // TablePresentationCellRenderer defines model for TablePresentation.CellRenderer.
 type TablePresentationCellRenderer string
+
+// TerminologyKey defines model for TerminologyKey.
+type TerminologyKey struct {
+	Code   string `json:"code"`
+	System string `json:"system"`
+}
 
 // Workspace defines model for Workspace.
 type Workspace = authoringv2.Workspace
@@ -1285,6 +1498,18 @@ type ReconcileExplorerBuilderParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// CreateExplorerSelectionParams defines parameters for CreateExplorerSelection.
+type CreateExplorerSelectionParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// GetExplorerSelectionParams defines parameters for GetExplorerSelection.
+type GetExplorerSelectionParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // PublishRepositoryExplorerConfigParams defines parameters for PublishRepositoryExplorerConfig.
 type PublishRepositoryExplorerConfigParams struct {
 	AuthResourcePath  *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
@@ -1311,6 +1536,9 @@ type ReconcileExplorerBuilderJSONRequestBody = ReconcileRequest
 
 // SearchExplorerCandidatesJSONRequestBody defines body for SearchExplorerCandidates for application/json ContentType.
 type SearchExplorerCandidatesJSONRequestBody = CandidateSearchRequest
+
+// CreateExplorerSelectionJSONRequestBody defines body for CreateExplorerSelection for application/json ContentType.
+type CreateExplorerSelectionJSONRequestBody = SelectionCreateRequest
 
 // PublishRepositoryExplorerConfigJSONRequestBody defines body for PublishRepositoryExplorerConfig for application/json ContentType.
 type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
@@ -1681,6 +1909,12 @@ type ServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
+	CreateExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision})
+	GetExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params GetExplorerSelectionParams) error
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(c fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error
@@ -2313,6 +2547,127 @@ func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// CreateExplorerSelection operation middleware
+func (siw *ServerInterfaceWrapper) CreateExplorerSelection(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateExplorerSelectionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateExplorerSelection(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerSelection operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerSelection(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// ------------- Path parameter "selectionRevision" -------------
+	var selectionRevision string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "selectionRevision", c.Params("selectionRevision"), &selectionRevision, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter selectionRevision: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetExplorerSelectionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", query, &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter cursor: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", query, &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter limit: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerSelection(c, project, explorerId, selectionRevision, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // PublishRepositoryExplorerConfig operation middleware
 func (siw *ServerInterfaceWrapper) PublishRepositoryExplorerConfig(c fiber.Ctx) error {
 
@@ -2535,6 +2890,10 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	for _, m := range options.Middlewares {
 		router.Use(fiber.Handler(m))
 	}
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections", wrapper.CreateExplorerSelection)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections/:selectionRevision", wrapper.GetExplorerSelection)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/capability", wrapper.GetExplorerAuthoringCapability)
 
@@ -3789,6 +4148,210 @@ func (response SearchExplorerCandidates503JSONResponse) VisitSearchExplorerCandi
 	return ctx.JSON(&response)
 }
 
+type CreateExplorerSelectionRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     CreateExplorerSelectionParams
+	Body       *CreateExplorerSelectionJSONRequestBody
+}
+
+type CreateExplorerSelectionResponseObject interface {
+	VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error
+}
+
+type CreateExplorerSelection201JSONResponse SelectionRevision
+
+func (response CreateExplorerSelection201JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateExplorerSelection400JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateExplorerSelection401JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateExplorerSelection403JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateExplorerSelection404JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateExplorerSelection409JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateExplorerSelection422JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateExplorerSelection500JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorerSelection503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateExplorerSelection503JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelectionRequestObject struct {
+	Project           Project    `json:"project"`
+	ExplorerId        ExplorerId `json:"explorerId"`
+	SelectionRevision string     `json:"selectionRevision"`
+	Params            GetExplorerSelectionParams
+}
+
+type GetExplorerSelectionResponseObject interface {
+	VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerSelection200JSONResponse SelectionPage
+
+func (response GetExplorerSelection200JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerSelection400JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerSelection401JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerSelection403JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerSelection404JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerSelection409JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerSelection422JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerSelection500JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerSelection503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerSelection503JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type PublishRepositoryExplorerConfigRequestObject struct {
 	Project    Project    `json:"project"`
 	Generation Generation `json:"generation"`
@@ -4210,6 +4773,12 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(ctx context.Context, request SearchExplorerCandidatesRequestObject) (SearchExplorerCandidatesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
+	CreateExplorerSelection(ctx context.Context, request CreateExplorerSelectionRequestObject) (CreateExplorerSelectionResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision})
+	GetExplorerSelection(ctx context.Context, request GetExplorerSelectionRequestObject) (GetExplorerSelectionResponseObject, error)
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(ctx context.Context, request PublishRepositoryExplorerConfigRequestObject) (PublishRepositoryExplorerConfigResponseObject, error)
@@ -4682,6 +5251,71 @@ func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project
 	return nil
 }
 
+// CreateExplorerSelection operation middleware
+func (sh *strictHandler) CreateExplorerSelection(ctx fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error {
+	var request CreateExplorerSelectionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body CreateExplorerSelectionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExplorerSelection(ctx.Context(), request.(CreateExplorerSelectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExplorerSelection")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateExplorerSelectionResponseObject); ok {
+		if err := validResponse.VisitCreateExplorerSelectionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerSelection operation middleware
+func (sh *strictHandler) GetExplorerSelection(ctx fiber.Ctx, project Project, explorerId ExplorerId, selectionRevision string, params GetExplorerSelectionParams) error {
+	var request GetExplorerSelectionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.SelectionRevision = selectionRevision
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerSelection(ctx.Context(), request.(GetExplorerSelectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerSelection")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerSelectionResponseObject); ok {
+		if err := validResponse.VisitGetExplorerSelectionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // PublishRepositoryExplorerConfig operation middleware
 func (sh *strictHandler) PublishRepositoryExplorerConfig(ctx fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error {
 	var request PublishRepositoryExplorerConfigRequestObject
@@ -4909,119 +5543,137 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

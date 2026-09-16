@@ -8,4 +8,6 @@ export type { LoomExplorerBuilderProps } from './Builder';
 export { LoomExplorerViewer } from './Viewer';
 export type { LoomExplorerViewerProps, LoomViewerActionContext, LoomViewerActionHandler } from './Viewer';
 export * from './types';
+export type { CreateSelectionArgs, GetSelectionArgs } from './api';
+export type { ResourceRef, SelectionSourceIntent, SelectionRevision, SelectionPage } from './selection';
 export * from './features/ExplorerBuilder';

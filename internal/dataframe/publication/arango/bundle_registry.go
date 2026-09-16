@@ -378,7 +378,7 @@ UPDATE state WITH {pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expires
 }
 
 func (r *Registry) ReleaseExecutionReadPin(ctx context.Context, executionID, owner string) error {
-	return r.removeReadPin(ctx, pinDocumentKey(executionID, owner), executionID, owner, "PIN")
+	return r.removeReadPin(ctx, executionID, owner, "PIN")
 }
 
 func (r *Registry) ClaimExecutionCleanup(ctx context.Context, executionID, owner string) (bool, error) {
@@ -417,12 +417,11 @@ UPDATE state WITH {cleanup: {ownerId: @owner, expiresAt: @expiresAt}, updatedAt:
 }
 
 func (r *Registry) ReleaseExecutionCleanup(ctx context.Context, executionID, owner string) error {
-	return r.removeReadPin(ctx, cleanupDocumentKey(executionID), executionID, owner, "CLEANUP")
+	return r.removeReadPin(ctx, executionID, owner, "CLEANUP")
 }
 
-func (r *Registry) removeReadPin(ctx context.Context, key, executionID, owner, kind string) error {
+func (r *Registry) removeReadPin(ctx context.Context, executionID, owner, kind string) error {
 	now := time.Now().UTC()
-	_ = key
 	if kind == "PIN" {
 		return r.client.QueryRows(ctx, `FOR state IN @@collection
 FILTER state._key == @stateKey
@@ -437,16 +436,6 @@ LET cleanup = state.cleanup
 FILTER cleanup != null AND cleanup.ownerId == @owner
 UPDATE state WITH {cleanup: null, updatedAt: @now} IN @@collection
 RETURN {released: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "owner": owner, "now": now}, func(map[string]any) error { return nil })
-}
-
-func pinDocumentKey(executionID, owner string) string {
-	sum := sha256.Sum256([]byte(executionID + "\x00" + owner))
-	return "pin_" + hex.EncodeToString(sum[:])
-}
-
-func cleanupDocumentKey(executionID string) string {
-	sum := sha256.Sum256([]byte(executionID))
-	return "cleanup_" + hex.EncodeToString(sum[:])
 }
 
 func executionStateKey(executionID string) string {

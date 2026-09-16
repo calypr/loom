@@ -88,13 +88,14 @@ func recipeOutputUsesExactRootColumns(plan dataframeexecution.Resolved, outputNa
 	return false
 }
 
-func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, batchRows, batchBytes int) (publication.BundleIdentity, error) {
+func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int) (publication.BundleIdentity, error) {
 	streams, err := recipeEngine.Streams(ctx, full)
 	if err != nil {
 		return publication.BundleIdentity{}, err
 	}
 	identity := publication.BundleIdentity{
-		Name: name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion,
+		ReceiptID: receiptID,
+		Name:      name, TranslationVersion: full.Semantic.SemanticPlan.TranslationVersion,
 		OutputName: incrementalPublicationOutput(bindings, streams),
 		Project:    bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest,
@@ -110,6 +111,7 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		exactRootColumns := recipeOutputUsesExactRootColumns(full, stream.Name)
 		streamInputs = append(streamInputs, publication.OutputStream{
 			Name: stream.Name, Columns: columns,
+			SourceRow: sourceRows[stream.Name],
 			Stream: func(streamCtx context.Context, visit func(map[string]any) error) error {
 				_, err := stream.Stream(streamCtx, func(row map[string]any) error {
 					if exactRootColumns {
@@ -126,7 +128,8 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		})
 	}
 	publicationIdentity := publication.PublicationIdentity{
-		Name: identity.Name, TranslationVersion: identity.TranslationVersion,
+		ReceiptID: receiptID,
+		Name:      identity.Name, TranslationVersion: identity.TranslationVersion,
 		OutputName: identity.OutputName,
 		Project:    identity.Project, DatasetGeneration: identity.DatasetGeneration,
 		RecipeDigest: identity.RecipeDigest, SchemaDigest: identity.SchemaDigest,

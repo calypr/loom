@@ -60,7 +60,7 @@ func (s *Store) ValidateSelectionReferences(ctx context.Context, project, genera
 			}
 			binds := map[string]any{
 				"@resource_collection": group.resourceType,
-				"project":              project,
+				"project":              projectid.Legacy(project),
 				"generation":           generation,
 				"ids":                  group.ids[start:end],
 				"auth_unrestricted":    scope.Unrestricted(),
