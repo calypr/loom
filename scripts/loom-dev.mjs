@@ -382,7 +382,7 @@ const seedFixture = async (target, { requireFresh = false } = {}) => {
   if (!reused) {
     if (status.status !== 404) throw new Error(`fixture generation preflight returned HTTP ${status.status}`);
     const form = new FormData();
-    for (const name of ['Patient.ndjson', 'Observation.ndjson']) {
+    for (const name of readdirSync(target.fixtureDir).filter((name) => name.endsWith('.ndjson')).sort()) {
       const path = join(target.fixtureDir, name);
       form.append('file', new Blob([readFileSync(path)]), name);
     }
@@ -793,6 +793,8 @@ const verifyBrowserScenario = async (target, report, full) => {
 
     await browserEval(cdp, `clickContains('.react-flow__node', 'Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Observation columns')`);
+    await browserEval(cdp, `setInput('Search columns', 'valueQuantity.value')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add valueQuantity.value to table"]'))`);
     await browserEval(cdp, `clickCandidate('valueQuantity.value', 'to table')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured valueQuantity.value"]'))`);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
