@@ -41,18 +41,81 @@ func TestCreateSelectionRejectsChangedExplicitRefsForSameIdempotencyKey(t *testi
 	store := &selectionLifecycleStore{}
 	persistence, _ := explorer.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+	var resolvedToken string
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (AuthorizedCapability, error) {
+		if project != "project" {
+			t.Fatalf("execution project = %q", project)
+		}
+		resolvedToken = token
 		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}, SelectionReferenceValidator: func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error { return nil }})
 	first := SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "same-key", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorer.ResourceRef{{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}}
 	if _, err := service.CreateSelection(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
+	if resolvedToken != "token" {
+		t.Fatalf("execution resolver token = %q, want submitted snapshot token", resolvedToken)
+	}
 	first.Source.Resources[0].ID = "files002"
 	_, err := service.CreateSelection(context.Background(), first)
 	var typed *Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_IDEMPOTENCY_CONFLICT" {
 		t.Fatalf("changed explicit refs error = %v", err)
+	}
+}
+
+func TestCreateSelectionRejectsRetainedOldGenerationSnapshot(t *testing.T) {
+	persistence, _ := explorer.NewService(&selectionLifecycleStore{})
+	service, _ := New(persistence, Config{
+		Capability: CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (AuthorizedCapability, error) {
+			if project != "project" || token != "old-token" {
+				t.Fatalf("compilation resolver args = %q/%q", project, token)
+			}
+			return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		}},
+		SelectionReferenceValidator: func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error { return nil },
+	})
+	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+		Project: "project", ExplorerID: "explorer", SnapshotToken: "old-token", IdempotencyKey: "old-generation",
+		Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorer.ResourceRef{{Project: "project", Generation: "old-generation", ResourceType: "DocumentReference", ID: "files001"}}},
+	})
+	if !errors.Is(err, capability.ErrStaleSnapshot) {
+		t.Fatalf("old-generation selection error = %v", err)
+	}
+}
+
+func TestReadSelectionResolvesCurrentSnapshotThenExecutionToken(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	digest := scopeDigest(scope)
+	completedAt := time.Now().UTC()
+	store := &selectionLifecycleStore{header: explorer.SelectionRevision{
+		ID: "selection-current-token", Project: "project", Generation: "generation-a", ResourceType: "DocumentReference",
+		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		ScopeDigest: digest, RuleDigest: "rule", MembershipDigest: explorer.MembershipDigest(nil), Complete: true, CompletedAt: &completedAt,
+	}}
+	persistence, _ := explorer.NewService(store)
+	var currentProject, currentExplorer, currentGeneration, executionProject, executionToken string
+	service, err := New(persistence, Config{Capability: CapabilityResolver{
+		Current: func(_ context.Context, project, explorerID, generation string) (capability.Snapshot, error) {
+			currentProject, currentExplorer, currentGeneration = project, explorerID, generation
+			return capabilitySnapshot("current-token", "generation-a", digest), nil
+		},
+		ForExecution: func(_ context.Context, project, token string) (AuthorizedCapability, error) {
+			executionProject, executionToken = project, token
+			return AuthorizedCapability{Snapshot: capabilitySnapshot(token, "generation-a", digest), Scope: scope}, nil
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if currentProject != "project" || currentExplorer != "explorer" || currentGeneration != "" {
+		t.Fatalf("current capability args = %q/%q/%q", currentProject, currentExplorer, currentGeneration)
+	}
+	if executionProject != "project" || executionToken != "current-token" {
+		t.Fatalf("execution capability args = %q/%q", executionProject, executionToken)
 	}
 }
 
@@ -166,7 +229,7 @@ func TestCreateSelectionRejectsForeignReferencesWithoutRewritingThem(t *testing.
 	store := &selectionLifecycleStore{}
 	persistence, _ := explorer.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
 	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "foreign", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorer.ResourceRef{{Project: "other", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}}}})
@@ -180,7 +243,7 @@ func TestCreateSelectionRejectsBothSourceVariants(t *testing.T) {
 	store := &selectionLifecycleStore{}
 	persistence, _ := explorer.NewService(store)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}})
 	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "both", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: []explorer.ResourceRef{}, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}}})
@@ -195,7 +258,7 @@ func TestCreateSelectionBindsRequestedRevisionSeparatelyFromExecution(t *testing
 	store := &selectionLifecycleStore{revision: &explorer.Revision{Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema", Publication: explorer.PublicationMetadata{ExecutionID: "execution-a"}, Dataset: explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "files"}}}}}
 	persistence, _ := explorer.NewService(store)
 	resolver := &selectionResolverFixture{materialization: published.Materialization{Revision: "execution-a", ReceiptID: "receipt", SchemaDigest: "schema", Project: "project", DatasetGeneration: "generation-a", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Selector: published.DataframeSelector{Recipe: "recipe", Output: "files"}}}
-	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
 	}}, SelectionSourceResolver: resolver})
 	created, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "revision-binding", Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision-request", OutputID: "files"}}})

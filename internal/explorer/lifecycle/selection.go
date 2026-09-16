@@ -157,15 +157,19 @@ func (s *Service) CreateSelection(ctx context.Context, req SelectionIntentCreate
 }
 
 func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntentCreateRequest) (SelectionCreateResult, error) {
-	if s == nil || s.config.Capability.ForExecution == nil {
+	if s == nil || s.config.Capability.ForCompilation == nil {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("selection authorization resolver is required"))
 	}
 	resolver := s.config.SelectionSourceResolver
-	authorized, err := s.config.Capability.ForExecution(ctx, req.Project, req.ExplorerID)
+	snapshotToken := strings.TrimSpace(req.SnapshotToken)
+	// Creation is bound to the active immutable dataset generation. Execution
+	// authorization intentionally supports retained generations, so using it
+	// here would allow a stale snapshot to create a new selection.
+	authorized, err := s.config.Capability.ForCompilation(ctx, req.Project, snapshotToken)
 	if err != nil {
 		return SelectionCreateResult{}, err
 	}
-	if strings.TrimSpace(req.SnapshotToken) == "" || authorized.Snapshot.Token != req.SnapshotToken {
+	if snapshotToken == "" || authorized.Snapshot.Token != snapshotToken {
 		return SelectionCreateResult{}, selectionStale(fmt.Errorf("selection snapshot is stale"))
 	}
 	project := projectid.Canonical(req.Project)
@@ -531,14 +535,23 @@ func (s *Service) ReadSelection(ctx context.Context, req SelectionReadIntentRequ
 }
 
 func (s *Service) readSelectionIntent(ctx context.Context, req SelectionReadIntentRequest) (SelectionReadResult, error) {
-	if s == nil || s.config.Capability.ForExecution == nil {
+	if s == nil || s.config.Capability.Current == nil || s.config.Capability.ForExecution == nil {
 		return SelectionReadResult{}, fmt.Errorf("selection authorization resolver is required")
 	}
-	authorized, err := s.config.Capability.ForExecution(ctx, req.Project, req.ExplorerID)
+	project := projectid.Canonical(req.Project)
+	current, err := s.config.Capability.Current(ctx, project, req.ExplorerID, "")
 	if err != nil {
 		return SelectionReadResult{}, err
 	}
-	return s.readSelectionResolved(ctx, selectionReadRequest{Project: projectid.Canonical(req.Project), ExplorerID: req.ExplorerID, RevisionID: req.RevisionID, Generation: authorized.Snapshot.Identity.Generation, Cursor: req.Cursor, Limit: req.Limit, Scope: authorized.Scope, ScopeDigest: authorized.Snapshot.Identity.AuthorizationScopeDigest})
+	currentToken := strings.TrimSpace(current.Token)
+	if currentToken == "" {
+		return SelectionReadResult{}, selectionStale(fmt.Errorf("current capability snapshot is unavailable"))
+	}
+	authorized, err := s.config.Capability.ForExecution(ctx, project, currentToken)
+	if err != nil {
+		return SelectionReadResult{}, err
+	}
+	return s.readSelectionResolved(ctx, selectionReadRequest{Project: project, ExplorerID: req.ExplorerID, RevisionID: req.RevisionID, Generation: authorized.Snapshot.Identity.Generation, Cursor: req.Cursor, Limit: req.Limit, Scope: authorized.Scope, ScopeDigest: authorized.Snapshot.Identity.AuthorizationScopeDigest})
 }
 
 func normalizeSelectionError(err error) error {
