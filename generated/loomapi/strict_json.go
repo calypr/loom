@@ -92,7 +92,11 @@ func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	if err := strictDecodeGenerated(raw, &decoded); err != nil {
 		return err
 	}
-	if decoded.Binding != nil || decoded.Key != nil {
+	if decoded.Extension != nil {
+		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil {
+			return errors.New("extension lookup requires only extension binding")
+		}
+	} else if decoded.Binding != nil || decoded.Key != nil {
 		if decoded.Binding == nil || decoded.Key == nil || decoded.Match != nil || decoded.Path != nil {
 			return errors.New("correlated lookup requires only binding and key")
 		}

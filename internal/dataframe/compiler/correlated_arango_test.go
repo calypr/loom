@@ -18,6 +18,66 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+	project := "loom_extension_" + uuid.NewString()
+	leaf := func(value string) map[string]any { return map[string]any{"url": "urn:leaf", "valueString": value} }
+	payload := map[string]any{"id": project, "resourceType": "Observation", "extension": []any{
+		map[string]any{"url": "urn:left", "extension": []any{leaf("left-one"), leaf("left-two")}},
+		map[string]any{"url": "urn:right", "extension": []any{leaf("right-only")}},
+	}}
+	raw, err := json.Marshal(map[string]any{"_key": project, "id": project, "project": project, "project_id": project, "resourceType": "Observation", "payload": payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, parent, mode, path, kind string
+		want                           any
+	}{
+		{"all retains both owners", "urn:left", "ALL", "valueString", "string", []any{"left-one", "left-two"}},
+		{"value rejects both owners", "urn:left", "VALUE", "valueString", "string", map[string]any{"status": "INVALID_MULTIPLE_VALUES", "raw": []any{"left-one", "left-two"}}},
+		{"right parent stays separate", "urn:right", "ALL", "valueString", "string", []any{"right-only"}},
+		{"missing parent stays null", "urn:absent", "ALL", "valueString", "string", nil},
+		{"omitted choice arms expose mismatch", "urn:right", "ALL", "valueQuantity.value", "decimal", map[string]any{"status": "INVALID_CHOICE_ARM", "raw": []any{"right-only"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{tc.parent, "urn:leaf"}, ValuePath: tc.path, LogicalType: tc.kind}
+			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension", Columns: []string{"feature"}, ColumnAliases: map[string]string{"feature": "feature"}, ProjectionMode: tc.mode, ExtensionCorrelation: binding}}}
+			physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, err := aql.RenderPhysicalPlan(physical)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rows []map[string]any
+			if err := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error { rows = append(rows, row); return nil }); err != nil {
+				t.Fatalf("execute: %v\n%s", err, rendered.Query)
+			}
+			if len(rows) != 1 || !reflect.DeepEqual(rows[0]["feature"], tc.want) {
+				t.Fatalf("rows=%#v; want feature=%#v\n%s", rows, tc.want, rendered.Query)
+			}
+		})
+	}
+}
+
 func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {

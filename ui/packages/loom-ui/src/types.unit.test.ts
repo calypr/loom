@@ -78,6 +78,23 @@ describe('explorerColumnSourceSchema', () => {
 });
 
 describe('explorerBuilderCommandSchema', () => {
+  it('preserves the full extension ancestry as a closed source payload', () => {
+    const source = {
+      kind: 'extensionByUrl',
+      lookup: {
+        extension: {
+          ownerPath: 'extension[].extension[]', urlPath: ['urn:parent:left', 'urn:leaf'],
+          valuePath: 'valueString', logicalType: 'string',
+        },
+        projectionMode: 'ALL',
+      },
+    };
+    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    expect(() => explorerColumnSourceSchema.parse({ ...source, lookup: { ...source.lookup, match: 'urn:leaf' } })).toThrow();
+    expect(() => explorerColumnSourceSchema.parse({ ...source, lookup: { ...source.lookup, extension: { ...source.lookup.extension, urlPath: [] } } })).toThrow();
+    expect(() => explorerColumnSourceSchema.parse({ ...source, kind: 'codingBySystem' })).toThrow();
+  });
+
   it('accepts an in-place route relationship update', () => {
     expect(
       explorerBuilderCommandSchema.parse({

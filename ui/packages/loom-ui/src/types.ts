@@ -56,6 +56,16 @@ export const conceptCandidateSchema = z.object({
   ruleVersion: z.string().optional(),
 }).strict();
 
+const extensionBindingSchema = z.object({
+  ownerPath: opaqueIdSchema,
+  urlPath: z.array(opaqueIdSchema).min(1),
+  valuePath: opaqueIdSchema,
+  logicalType: opaqueIdSchema,
+  valueFallback: z.array(opaqueIdSchema).optional(),
+  choiceArms: z.array(opaqueIdSchema).optional(),
+  unitPath: z.string().optional(),
+}).strict();
+
 export const explorerAuthoringDiagnosticSchema = z
   .object({
     severity: z.enum(['error', 'warning', 'info']),
@@ -106,6 +116,13 @@ const fieldColumnSourceSchema = z
     }).strict(),
   }).strict();
 const lookupColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('extensionByUrl'),
+    lookup: z.object({
+      extension: extensionBindingSchema,
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
   z.object({
     kind: z.enum([
       'identifierBySystem',

@@ -72,6 +72,9 @@ const sourceSummary = ({ source }: ExplorerBuilderColumn): string => {
     case 'extensionByUrl':
     case 'codingBySystem':
     case 'observationComponentByCode':
+      if ('extension' in source.lookup) {
+        return [...source.lookup.extension.urlPath, source.lookup.extension.valuePath].join(' · ');
+      }
       if ('binding' in source.lookup) {
         return [source.lookup.key.system, source.lookup.key.code, source.lookup.binding.valuePath].join(' · ');
       }

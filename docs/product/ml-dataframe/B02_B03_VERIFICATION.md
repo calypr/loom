@@ -48,12 +48,20 @@ The public concept-evidence and receipt Preview probe passes. It verifies distin
 
 Concept evidence is attached to the generated scalar value path, not advertised as a projectable object. The production public catalog mapper preserves it. Capability compiler/projection policy versions were bumped so retained old snapshots cannot mask the changed construction policy.
 
-B03 remains open for nested extension parent identity and removal of new legacy lossy lookup writes.
+Nested extension ancestry and new-write validation now pass the production chain. The closed extension binding carries one URL per extension boundary. Schema validation, semantic lowering, and the existing physical correlation renderer preserve that ancestry. New ambiguous extension, Coding, and Observation lookup commands are rejected; historical legacy artifacts remain readable.
+
+Review caught a candidate renderer that merged repeated terminal matches into the same output key. The corrected renderer collects all matched owners before applying the shared reduction. `TestExtensionCompilerLiteralValuesAgainstArango` proves two same-parent values survive `ALL`, `VALUE` reports `INVALID_MULTIPLE_VALUES`, the other parent remains separate, a missing parent returns null, and omitted choice-arm metadata still exposes a mismatched value as `INVALID_CHOICE_ARM`. All five cases passed in 0.09s. The existing nine Coding cases passed again in 2.15s.
+
+The extended public commands and receipt Preview probe passed 13 assertions, including legacy-write rejection and exact left/right nested values. Evidence is `.artifacts/loom-dev/correlated-concepts-1789586775612.json`; Preview took 1.691s. This closes the B03 ancestry verification gap. These backend capabilities do not yet provide the B04 guided frontend workflow.
 
 ## Existing journey
 
 The integrated browser journey passed 25 assertions in 13.737s, including Builder, Preview, Publish, Viewer, filtering, CSV export, and reload. Evidence is at `.artifacts/loom-dev/6d7df93d6a37/mu4g56q1-8d2ee267/report.json`.
 
 The UI suite passed 131 tests across 22 files, including type and package-boundary checks. Integrated Explorer, server, publication, and published-reader package suites passed after the identity corrections.
+
+After extension integration, the browser journey passed all 25 assertions in 12.352s. Evidence is `.artifacts/loom-dev/6d7df93d6a37/mu4hrsbx-9f75d55c/report.json`. The UI suite passed 132 tests across 22 files. `go test ./... -count=1`, OpenAPI ownership, and dataframe package-boundary checks passed. The full Go run used local listener permissions, resolving the worker's sandbox-only acceptance failures.
+
+B02 still needs selection attachment to feed the membership digest into compilation identity alongside B04's typed population constraint. Storage/API verification alone does not prove that remaining compiler integration.
 
 No remote branch, production service, or canonical demo was changed.

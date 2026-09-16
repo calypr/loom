@@ -36,6 +36,18 @@ const observation = builder.catalog.nodes.find((node) => node.resourceType === '
 assert.ok(observation, 'Observation fixture catalog is required');
 const created = await command([{ type: 'CREATE_TABLE', title: 'Paired concepts', rootNodeId: observation.nodeId }]);
 const outputId = created.results.find((result) => result.type === 'TABLE_CREATED').outputId;
+for (const [kind, path, match] of [
+  ['extensionByUrl', 'extension[].extension[]', 'urn:leaf'],
+  ['observationComponentByCode', 'component[]', 'shared'],
+  ['codingBySystem', 'code.coding[]', 'urn:study:A'],
+]) {
+  const rejected = await json(`${authoring}/commands`, {
+    commandId: randomUUID(), semanticsVersion: 3, snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest,
+    commands: [{ type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Legacy ambiguous lookup', source: { kind, lookup: { path, match } } }],
+  }, 422);
+  assert.equal(rejected.error.code, 'INVALID_AUTHORING_COMMAND');
+}
 const binding = {
   ownerPath: 'component[]', keyPath: 'component[].code.coding[]', systemPath: 'system', codePath: 'code',
   valuePath: 'valueQuantity.value', logicalType: 'decimal', choiceArms: ['valueQuantity'], unitPath: 'valueQuantity.unit',
@@ -46,10 +58,23 @@ await command([
     type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title,
     source: { kind: 'observationComponentByCode', lookup: { binding, key: { system, code }, projectionMode: 'ALL' } },
   })),
+  ...[['Left extension', 'urn:parent:left'], ['Right extension', 'urn:parent:right'], ['Missing parent', 'urn:parent:missing']].map(([title, parent]) => ({
+    type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title,
+    source: { kind: 'extensionByUrl', lookup: {
+      extension: { ownerPath: 'extension[].extension[]', urlPath: [parent, 'urn:leaf'], valuePath: 'valueString', logicalType: 'string' },
+      projectionMode: 'ALL',
+    } },
+  })),
+  { type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Wrong extension choice', source: {
+    kind: 'extensionByUrl', lookup: {
+      extension: { ownerPath: 'extension[].extension[]', urlPath: ['urn:parent:left', 'urn:leaf'], valuePath: 'valueQuantity.value', logicalType: 'decimal' },
+      projectionMode: 'ALL',
+    },
+  } },
 ]);
 const document = builder.workspace.documents.find((item) => item.output.id === outputId);
-assert.equal(document.columns.length, 4);
-const [id, systemA, systemB, cross] = document.columns.map((column) => column.column);
+assert.equal(document.columns.length, 8);
+const [id, systemA, systemB, cross, left, right, missing, wrong] = document.columns.map((column) => column.column);
 const compiled = await json(`${authoring}/reconcile`, {
   snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
 });
@@ -63,7 +88,11 @@ assert.deepEqual(rows.get('dev-pair-001')[systemB], [222]);
 assert.equal(rows.get('dev-pair-001')[cross], null);
 assert.deepEqual(rows.get('dev-pair-002')[systemA], { status: 'INVALID_CHOICE_ARM', raw: ['not-numeric'] });
 assert.equal(rows.get('dev-pair-003')[systemA], null);
+assert.deepEqual(rows.get('dev-pair-001')[left], ['left-only']);
+assert.deepEqual(rows.get('dev-pair-001')[right], ['right-only']);
+assert.equal(rows.get('dev-pair-001')[missing], null);
+assert.deepEqual(rows.get('dev-pair-001')[wrong], { status: 'INVALID_CHOICE_ARM', raw: ['left-only'] });
 const path = join(process.cwd(), '.artifacts/loom-dev', `correlated-concepts-${Date.now()}.json`);
 mkdirSync(dirname(path), { recursive: true });
 writeFileSync(path, JSON.stringify({ target, explorerId: owner.explorerId, receiptId: compiled.receiptId, outputId, previewMs, preview }, null, 2));
-console.log(JSON.stringify({ evidence: path, assertions: 6, previewMs }, null, 2));
+console.log(JSON.stringify({ evidence: path, assertions: 13, previewMs }, null, 2));

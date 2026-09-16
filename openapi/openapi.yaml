@@ -1106,13 +1106,33 @@ components:
     LookupSource:
       type: object
       additionalProperties: false
-      description: Either legacy match/path or a correlated binding/key is required. Mixed payloads are rejected.
+      description: Exactly one legacy match/path, correlated binding/key, or ancestor-aware extension payload is required. Legacy payloads remain readable; new concept lookup commands require typed bindings.
       properties:
         match: {type: string, minLength: 1}
         path: {type: string}
         projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
         binding: {$ref: '#/components/schemas/CorrelatedBinding'}
         key: {$ref: '#/components/schemas/TerminologyKey'}
+        extension: {$ref: '#/components/schemas/ExtensionBinding'}
+    ExtensionBinding:
+      type: object
+      additionalProperties: false
+      required: [ownerPath, urlPath, valuePath, logicalType]
+      properties:
+        ownerPath: {type: string, minLength: 1}
+        urlPath:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        valueFallback:
+          type: array
+          items: {type: string, minLength: 1}
+        choiceArms:
+          type: array
+          items: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        unitPath: {type: string}
     TerminologyKey:
       type: object
       additionalProperties: false
