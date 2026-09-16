@@ -1,0 +1,56 @@
+# B04 population-to-row vertical slice verification
+
+## Implemented boundary
+
+Builder accepts an immutable selection revision without forcing that resource type to become the table row grain. The workspace stores the selection revision and a checked semantic route. Reconcile resolves the exact membership digest into receipt identity. Preview and publication enforce the selection through a typed Arango semijoin before the row window.
+
+The first UI slice shows the selection size, chooses a supported route, attaches or clears the population, and preserves the attachment after reload. A table without an attached population still uses every authorized row resource.
+
+`SET_TABLE_ROOT` no longer deletes configured routes, columns, filters, actions, or population state. A same-root command is a no-op. A nontrivial root change returns `ROOT_REBASE_REQUIRED` before the draft compare-and-swap.
+
+## Executable evidence
+
+The full Go suite passed:
+
+```text
+GOTOOLCHAIN=auto go test ./... -count=1
+```
+
+The UI passed 134 tests, the boundary check, TypeScript compilation, and the production build:
+
+```text
+npm test -- --run
+npm run build --workspace @calypr/loom-ui
+```
+
+The isolated Docker stack passed `dev-doctor` and the existing Builder-to-Viewer browser scenario. The population API probe then proved these literal results:
+
+- selected `dev-file-001` and `dev-file-002` produce one `dev-specimen-001` row;
+- clearing the population produces both fixture Specimen rows;
+- a complete empty selection produces zero rows;
+- each population state has a different receipt ID.
+
+The retained API evidence is `.artifacts/loom-dev/population-row-1789594521955.json`.
+
+The population browser probe proved these user-visible results:
+
+- Builder loads the immutable selection handoff;
+- **Use selected resources** submits the population command;
+- Preview contains `dev-file-001` and `dev-file-002`, but not `dev-file-003`;
+- the attached population remains visible after a full reload.
+
+The retained DOM evidence is `.artifacts/loom-dev/population-row-ui-1789594635734.html`.
+
+## Live defect found and fixed
+
+The first live Preview returned zero rows. Stored FHIR documents used the legacy hyphenated project ID, while selection members used the canonical slash form. The physical semijoin had reused the FHIR project bind for selection members. Runtime bindings now carry separate FHIR-storage and selection-storage project identities. The same live probe passed after the fix.
+
+## Remaining B04 work
+
+B04 remains in progress. This slice does not yet provide:
+
+- exact matched-member provenance such as `__loom_population_members`;
+- unmapped selected-resource counts and repair controls;
+- independent contributor-scoped relationship occurrences;
+- a checked nontrivial root rebase that preserves compatible features;
+- a density benchmark that compares target scans with membership-driven traversal.
