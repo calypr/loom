@@ -99,7 +99,9 @@ class PlanValidationTests(unittest.TestCase):
             PLAN.validate(self.plan_dir, ROOT)
 
     def test_done_requires_recorded_execution_evidence(self):
-        self.mutate("ISSUES.csv", lambda rows: rows[0].update(status="done"))
+        self.mutate("ISSUES.csv", lambda rows: rows[0].update(
+            status="done", implementation_sha="", verification_evidence="",
+        ))
         with self.assertRaisesRegex(ValueError, "done requires implementation SHA"):
             PLAN.validate(self.plan_dir, ROOT)
 
@@ -109,7 +111,10 @@ class PlanValidationTests(unittest.TestCase):
             PLAN.validate(self.plan_dir, ROOT)
 
     def test_package_cannot_finish_with_open_issues(self):
-        self.mutate("WORK_PACKAGES.csv", lambda rows: rows[0].update(status="done", implementation_sha="1" * 40, verification_evidence="example evidence"))
+        self.mutate("WORK_PACKAGES.csv", lambda rows: rows[1].update(
+            status="done", implementation_sha="1" * 40,
+            verification_evidence="example evidence",
+        ))
         with self.assertRaisesRegex(ValueError, "done work package has unfinished issues"):
             PLAN.validate(self.plan_dir, ROOT)
 
