@@ -27,14 +27,147 @@ type RouteNode struct {
 }
 
 type ColumnSource struct {
-	Kind           string   `json:"kind"`
-	FieldPath      string   `json:"fieldPath,omitempty"`
-	Match          string   `json:"match,omitempty"`
-	ProjectionMode string   `json:"projectionMode,omitempty"`
-	Operation      string   `json:"operation,omitempty"`
-	WherePath      string   `json:"wherePath,omitempty"`
-	WhereEquals    string   `json:"whereEquals,omitempty"`
-	RequiredValues []string `json:"requiredValues,omitempty"`
+	Kind      string           `json:"kind"`
+	Field     *FieldSource     `json:"field,omitempty"`
+	Aggregate *AggregateSource `json:"aggregate,omitempty"`
+	Lookup    *LookupSource    `json:"lookup,omitempty"`
+}
+
+// FieldSource is the closed payload for a direct field projection. The
+// related-selection annotation is intentionally nested in the field variant.
+// It cannot accidentally be attached to a project, lookup, or aggregate.
+type FieldSource struct {
+	Path             string            `json:"path"`
+	ProjectionMode   string            `json:"projectionMode,omitempty"`
+	RelatedSelection *RelatedSelection `json:"relatedSelection,omitempty"`
+}
+
+type AggregateSource struct {
+	Operation      string       `json:"operation"`
+	Path           string       `json:"path,omitempty"`
+	Where          *SourceWhere `json:"where,omitempty"`
+	RequiredValues []string     `json:"requiredValues,omitempty"`
+}
+
+type SourceWhere struct {
+	Path   string `json:"path"`
+	Equals string `json:"equals"`
+}
+
+type LookupSource struct {
+	Match          string `json:"match"`
+	Path           string `json:"path,omitempty"`
+	ProjectionMode string `json:"projectionMode,omitempty"`
+}
+
+type RelatedSelection struct {
+	Kind         string `json:"kind"`
+	Acknowledged bool   `json:"acknowledged"`
+}
+
+// UnmarshalJSON keeps the writable source contract closed. Legacy flat source
+// payloads are decoded only by DecodeWorkspace's persisted-draft migration.
+func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Kind      string           `json:"kind"`
+		Field     *FieldSource     `json:"field,omitempty"`
+		Aggregate *AggregateSource `json:"aggregate,omitempty"`
+		Lookup    *LookupSource    `json:"lookup,omitempty"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return err
+	}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup}
+	switch wire.Kind {
+	case SourceField:
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil {
+			return fmt.Errorf("field source requires exactly the field payload")
+		}
+	case SourceAggregate:
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil {
+			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
+		}
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil {
+			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
+		}
+	case SourceProjectID:
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+			return fmt.Errorf("projectId source does not accept a payload")
+		}
+	default:
+		return fmt.Errorf("unsupported source kind %q", wire.Kind)
+	}
+	*s = value
+	return nil
+}
+
+func (s ColumnSource) fieldPath() string {
+	if s.Field != nil {
+		return s.Field.Path
+	}
+	if s.Lookup != nil {
+		return s.Lookup.Path
+	}
+	if s.Aggregate != nil {
+		return s.Aggregate.Path
+	}
+	return ""
+}
+
+func (s ColumnSource) FieldPath() string { return s.fieldPath() }
+
+func (s ColumnSource) projectionMode() string {
+	if s.Field != nil {
+		return s.Field.ProjectionMode
+	}
+	if s.Lookup != nil {
+		return s.Lookup.ProjectionMode
+	}
+	return ""
+}
+
+func (s ColumnSource) ProjectionMode() string { return s.projectionMode() }
+
+func (s ColumnSource) lookupMatch() string {
+	if s.Lookup != nil {
+		return s.Lookup.Match
+	}
+	return ""
+}
+
+func (s ColumnSource) LookupMatch() string { return s.lookupMatch() }
+
+func (s ColumnSource) Normalized() ColumnSource {
+	n := s
+	if n.Field != nil {
+		field := *n.Field
+		if strings.TrimSpace(field.ProjectionMode) == "" {
+			field.ProjectionMode = "FIRST"
+		}
+		if field.RelatedSelection != nil {
+			related := *field.RelatedSelection
+			field.RelatedSelection = &related
+		}
+		n.Field = &field
+	}
+	if n.Lookup != nil {
+		lookup := *n.Lookup
+		if strings.TrimSpace(lookup.ProjectionMode) == "" {
+			lookup.ProjectionMode = "FIRST"
+		}
+		n.Lookup = &lookup
+	}
+	if n.Aggregate != nil {
+		aggregate := *n.Aggregate
+		aggregate.RequiredValues = append([]string(nil), n.Aggregate.RequiredValues...)
+		if n.Aggregate.Where != nil {
+			where := *n.Aggregate.Where
+			aggregate.Where = &where
+		}
+		n.Aggregate = &aggregate
+	}
+	return n
 }
 
 const (
@@ -121,62 +254,90 @@ func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
 }
 
 func (s ColumnSource) validate(path string) error {
-	mode := strings.ToUpper(strings.TrimSpace(s.ProjectionMode))
+	if strings.TrimSpace(s.Kind) == "" {
+		return fmt.Errorf("%s.kind is required", path)
+	}
+	variants := 0
+	if s.Field != nil {
+		variants++
+	}
+	if s.Aggregate != nil {
+		variants++
+	}
+	if s.Lookup != nil {
+		variants++
+	}
+	if s.Kind == SourceProjectID {
+		if variants != 0 {
+			return fmt.Errorf("%s projectId source does not accept a payload", path)
+		}
+		return nil
+	}
+	if variants != 1 {
+		return fmt.Errorf("%s must contain exactly one matching variant payload", path)
+	}
+	mode := ""
+	if s.Field != nil {
+		mode = s.Field.ProjectionMode
+	}
+	if s.Lookup != nil {
+		mode = s.Lookup.ProjectionMode
+	}
+	mode = strings.ToUpper(strings.TrimSpace(mode))
 	if mode == "" {
 		mode = "FIRST"
 	}
 	if mode != "VALUE" && mode != "INDEXED" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
-		return fmt.Errorf("%s.projectionMode %q is unsupported", path, s.ProjectionMode)
+		return fmt.Errorf("%s projectionMode %q is unsupported", path, mode)
 	}
 	switch s.Kind {
 	case SourceField:
-		if strings.TrimSpace(s.FieldPath) == "" || strings.TrimSpace(s.Match) != "" {
-			return fmt.Errorf("%s field source requires fieldPath and forbids match", path)
+		if s.Field == nil || strings.TrimSpace(s.Field.Path) == "" {
+			return fmt.Errorf("%s field source requires field.path", path)
+		}
+		if s.Field.RelatedSelection != nil && s.Field.RelatedSelection.Kind != "first-by-resource-key" {
+			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if strings.TrimSpace(s.Match) == "" {
-			return fmt.Errorf("%s %s source requires match", path, s.Kind)
-		}
-	case SourceProjectID:
-		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.Operation) != "" || strings.TrimSpace(s.WherePath) != "" || strings.TrimSpace(s.WhereEquals) != "" || len(s.RequiredValues) != 0 || mode != "FIRST" {
-			return fmt.Errorf("%s projectId source only supports FIRST projectionMode and no other parameters", path)
+		if s.Lookup == nil || strings.TrimSpace(s.Lookup.Match) == "" {
+			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
 		}
 	case SourceAggregate:
-		if strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.ProjectionMode) != "" {
-			return fmt.Errorf("%s aggregate source forbids match and projectionMode", path)
+		if s.Aggregate == nil {
+			return fmt.Errorf("%s aggregate source requires aggregate payload", path)
 		}
-		op := strings.ToUpper(strings.TrimSpace(s.Operation))
+		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {
 		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL":
 		default:
-			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Operation)
+			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Aggregate.Operation)
 		}
 		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL"
-		if requiresField && strings.TrimSpace(s.FieldPath) == "" {
-			return fmt.Errorf("%s aggregate operation %s requires fieldPath", path, op)
+		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
+			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}
-		if !requiresField && strings.TrimSpace(s.FieldPath) != "" {
-			return fmt.Errorf("%s aggregate operation %s forbids fieldPath", path, op)
+		if !requiresField && strings.TrimSpace(s.Aggregate.Path) != "" {
+			return fmt.Errorf("%s aggregate operation %s forbids path", path, op)
 		}
-		if strings.TrimSpace(s.WhereEquals) != "" && strings.TrimSpace(s.WherePath) == "" {
-			return fmt.Errorf("%s.whereEquals requires wherePath", path)
+		if s.Aggregate.Where != nil && strings.TrimSpace(s.Aggregate.Where.Path) == "" {
+			return fmt.Errorf("%s.aggregate.where requires path", path)
 		}
 		if op == "CONTAINS_ALL" {
-			if len(s.RequiredValues) == 0 {
-				return fmt.Errorf("%s.requiredValues is required for CONTAINS_ALL", path)
+			if len(s.Aggregate.RequiredValues) == 0 {
+				return fmt.Errorf("%s.aggregate.requiredValues is required for CONTAINS_ALL", path)
 			}
 			seen := map[string]bool{}
-			for i, value := range s.RequiredValues {
+			for i, value := range s.Aggregate.RequiredValues {
 				if strings.TrimSpace(value) == "" {
-					return fmt.Errorf("%s.requiredValues[%d] must be non-empty", path, i)
+					return fmt.Errorf("%s.aggregate.requiredValues[%d] must be non-empty", path, i)
 				}
 				if seen[value] {
-					return fmt.Errorf("%s.requiredValues[%d] is duplicated", path, i)
+					return fmt.Errorf("%s.aggregate.requiredValues[%d] is duplicated", path, i)
 				}
 				seen[value] = true
 			}
-		} else if len(s.RequiredValues) != 0 {
-			return fmt.Errorf("%s.requiredValues is only valid for CONTAINS_ALL", path)
+		} else if len(s.Aggregate.RequiredValues) != 0 {
+			return fmt.Errorf("%s.aggregate.requiredValues is only valid for CONTAINS_ALL", path)
 		}
 	default:
 		return fmt.Errorf("%s source kind %q is unsupported", path, s.Kind)

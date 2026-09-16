@@ -892,10 +892,51 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, identifierBySystem, extensionByUrl, codingBySystem, observationComponentByCode, projectId]
-        fieldPath: {type: string}
-        match: {type: string}
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codingBySystem, observationComponentByCode, projectId]
+        field: {$ref: '#/components/schemas/FieldSource'}
+        aggregate: {$ref: '#/components/schemas/AggregateSource'}
+        lookup: {$ref: '#/components/schemas/LookupSource'}
+    FieldSource:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1}
         projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        relatedSelection: {$ref: '#/components/schemas/RelatedSelection'}
+    AggregateSource:
+      type: object
+      additionalProperties: false
+      required: [operation]
+      properties:
+        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, EXISTS, CONTAINS_ALL]}
+        path: {type: string}
+        where: {$ref: '#/components/schemas/SourceWhere'}
+        requiredValues:
+          type: array
+          items: {type: string}
+    SourceWhere:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1}
+        equals: {type: string}
+    LookupSource:
+      type: object
+      additionalProperties: false
+      required: [match]
+      properties:
+        match: {type: string, minLength: 1}
+        path: {type: string}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+    RelatedSelection:
+      type: object
+      additionalProperties: false
+      required: [kind, acknowledged]
+      properties:
+        kind: {type: string, enum: [first-by-resource-key]}
+        acknowledged: {type: boolean}
     Column:
       type: object
       additionalProperties: false
@@ -982,9 +1023,10 @@ components:
     ApplyCommandsRequest:
       type: object
       additionalProperties: false
-      required: [commandId, snapshotToken, expectedDraftVersion, commands]
+      required: [commandId, semanticsVersion, snapshotToken, expectedDraftVersion, commands]
       properties:
         commandId: {type: string, minLength: 1}
+        semanticsVersion: {type: integer, minimum: 1}
         snapshotToken: {type: string, minLength: 1}
         expectedDraftVersion: {type: integer, format: int64, minimum: 0}
         expectedDraftDigest: {type: string}
@@ -999,7 +1041,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, UPDATE_COLUMN, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1012,6 +1054,7 @@ components:
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
         columnValue: {$ref: '#/components/schemas/Column'}
+        source: {$ref: '#/components/schemas/ColumnSource'}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
@@ -1194,6 +1237,10 @@ components:
           items: {$ref: '#/components/schemas/RepeatedCoordinate'}
         lossless: {type: boolean}
         mlReady: {type: boolean}
+        structuralSuitability: {type: string, enum: [scalar, array, requires-review]}
+        lossReasons:
+          type: array
+          items: {type: string}
     ReceiptOutput:
       type: object
       additionalProperties: false
@@ -1206,6 +1253,10 @@ components:
         rowMultiplication: {type: string, enum: [none, expand]}
         lossless: {type: boolean}
         mlReady: {type: boolean}
+        structuralSuitability: {type: string, enum: [scalar, array, requires-review]}
+        lossReasons:
+          type: array
+          items: {type: string}
         columns:
           type: array
           items: {$ref: '#/components/schemas/ContractColumn'}

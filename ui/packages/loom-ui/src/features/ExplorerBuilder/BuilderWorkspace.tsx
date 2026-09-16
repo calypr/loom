@@ -1138,6 +1138,17 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
+                onSourceChange={(column, source) =>
+                  table &&
+                  void applyCommands([
+                    {
+                      type: 'UPDATE_COLUMN_SOURCE',
+                      outputId: table.outputId,
+                      column,
+                      source,
+                    },
+                  ])
+                }
               />
             </div>
             {state.receipt && state.reconciliation === 'resolved' && table ? (

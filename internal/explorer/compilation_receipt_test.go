@@ -104,6 +104,22 @@ func TestCompilationKeyChangesWithScopeAndCompilerContract(t *testing.T) {
 	}
 }
 
+func TestCompilationKeyIncludesResolvedInputsIdentity(t *testing.T) {
+	base := testReceipt()
+	first, err := CompilationKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.ResolvedInputsDigest = "sha256:resolved-inputs"
+	second, err := CompilationKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("resolved input identity did not change compilation key")
+	}
+}
+
 func TestCompilationReceiptValidateRejectsArtifactlessLegacyReceipt(t *testing.T) {
 	r := CompilationReceipt{Project: "project-a", ExplorerID: "explorer-a", ID: "receipt_legacy"}
 	if err := r.Validate(); !errors.Is(err, ErrReceiptRecompileRequired) {
@@ -129,7 +145,7 @@ func TestCompilationReceiptValidateID(t *testing.T) {
 
 func TestCompilationReceiptKeepsV10ReceiptsExecutableWithoutShapeDigest(t *testing.T) {
 	r := testReceipt()
-	r.CompilerContractVersion = legacyCompilationReceiptCompilerContractVersion
+	r.CompilerContractVersion = legacyCompilationReceiptOlderContractVersion
 	r.ShapeDigest = ""
 	r.CompilationKey, _ = CompilationKey(r)
 	r.ID, _ = ReceiptID(r)

@@ -13,10 +13,10 @@ func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
 	visible := true
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("output_%d", i)
-		workspace.Documents = append(workspace.Documents, authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}}}})
+		workspace.Documents = append(workspace.Documents, authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: id, Title: id}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}})
 		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: fmt.Sprintf("tab-%d", i), Title: id, OutputID: id, Order: i, Visible: true})
 	}
-	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot())
+	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,13 +55,13 @@ func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) 
 	}
 	snapshot := fixtureSnapshotForProject("HTAN_INT/BForePC")
 
-	canonical, err := CompileWorkspace(context.Background(), "HTAN_INT/BForePC", "default", workspace, snapshot)
+	canonical, err := CompileWorkspace(context.Background(), "HTAN_INT/BForePC", "default", workspace, snapshot, ResolvedInputs{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, project := range []string{"HTAN_INT%2FBForePC", "HTAN_INT-BForePC"} {
 		t.Run(project, func(t *testing.T) {
-			result, compileErr := CompileWorkspace(context.Background(), project, "default", workspace, snapshot)
+			result, compileErr := CompileWorkspace(context.Background(), project, "default", workspace, snapshot, ResolvedInputs{})
 			if compileErr != nil {
 				t.Fatalf("CompileWorkspace(%q): %v", project, compileErr)
 			}

@@ -9,7 +9,7 @@ import (
 
 func workspaceDocument(id string) Document {
 	visible := true
-	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &TablePresentation{Visible: &visible}}}}
+	return Document{Kind: Kind, Output: Output{ID: id, Title: id}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible}}}}
 }
 
 func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *testing.T) {
@@ -168,8 +168,8 @@ func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *
 					Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
 					Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
 					Columns: []Column{
-						{Column: "all_names", Label: "All names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "name[]", ProjectionMode: "ALL"}, Table: &TablePresentation{Visible: &visible}},
-						{Column: "distinct_names", Label: "Distinct names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: "name[]", ProjectionMode: "DISTINCT"}, Table: &TablePresentation{Visible: &visible}},
+						{Column: "all_names", Label: "All names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[]", ProjectionMode: "ALL"}}, Table: &TablePresentation{Visible: &visible}},
+						{Column: "distinct_names", Label: "Distinct names", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "name[]", ProjectionMode: "DISTINCT"}}, Table: &TablePresentation{Visible: &visible}},
 					},
 				}},
 				Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
@@ -183,47 +183,61 @@ func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *
 				t.Fatal(err)
 			}
 			columns := decoded.Documents[0].Columns
-			if columns[0].Source.ProjectionMode != "ALL" || columns[1].Source.ProjectionMode != "DISTINCT" {
+			if columns[0].Source.ProjectionMode() != "ALL" || columns[1].Source.ProjectionMode() != "DISTINCT" {
 				t.Fatalf("projection modes after persisted round trip = %#v, want ALL and DISTINCT", columns)
 			}
 		})
 	}
 }
 
-func TestDecodeWorkspaceAcceptsOnlyFirstProjectionForPersistedProjectID(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		mode    string
-		wantErr bool
-	}{
-		{name: "omitted"},
-		{name: "explicit first", mode: "FIRST"},
-		{name: "value", mode: "VALUE", wantErr: true},
-		{name: "all", mode: "ALL", wantErr: true},
-		{name: "distinct", mode: "DISTINCT", wantErr: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			workspace := Workspace{
-				APIVersion: APIVersion,
-				Kind:       WorkspaceKind,
-				Explorer:   ExplorerMetadata{Title: "Persisted"},
-				Documents:  []Document{workspaceDocument("patients")},
-				Tabs:       []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
-			}
-			workspace.Documents[0].Columns[0].Column = "project_id"
-			workspace.Documents[0].Columns[0].Source = ColumnSource{Kind: SourceProjectID, ProjectionMode: tt.mode}
-			raw, err := json.Marshal(workspace)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = DecodeWorkspace(raw)
-			if tt.wantErr && err == nil {
-				t.Fatalf("projectionMode %q was accepted", tt.mode)
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("projectionMode %q was rejected: %v", tt.mode, err)
-			}
-		})
+func TestDecodeWorkspaceRejectsProjectIDPayload(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"project_id","label":"Project","occurrenceId":"base","source":{"kind":"projectId","field":{"path":"id"}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil {
+		t.Fatal("projectId payload was accepted")
+	}
+}
+
+func TestDecodeWorkspaceRejectsUnknownNestedSourceFields(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_id","label":"Patient","occurrenceId":"base","source":{"kind":"field","field":{"path":"id","projectionMode":"VALUE","unknown":true}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("error=%v, want unknown nested source field", err)
+	}
+}
+
+func TestDecodeWorkspaceRejectsUnsupportedFutureSemanticsVersion(t *testing.T) {
+	w := workspaceDocument("patients")
+	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion + 1, Explorer: ExplorerMetadata{Title: "Future"}, Documents: []Document{w}, Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}
+	raw, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeWorkspace(raw); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
+		t.Fatalf("error=%v, want unsupported semantics version", err)
+	}
+}
+
+func TestDecodeLegacySourceMigratesIdempotentlyAndAddsRelatedDecision(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":0,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	decoded, err := DecodeWorkspace([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Documents[0].Columns[0].Source.Field == nil || decoded.Documents[0].Columns[0].Source.Field.Path != "name[].family" {
+		t.Fatalf("legacy source=%#v", decoded.Documents[0].Columns[0].Source)
+	}
+	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient"}}, Candidates: []CatalogCandidate{{ID: "names", NodeID: "patient", FieldPath: "name[].family", ProjectionModes: []string{"INDEXED", "FIRST"}, DefaultProjectionMode: "INDEXED", RepeatedBoundaries: []RepeatedBoundary{{Path: "name[]", MaxItems: 2}}}}}
+	first := MigrateLosslessDefaults(decoded, catalog)
+	second := MigrateLosslessDefaults(first, catalog)
+	firstJSON, err := first.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := second.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstJSON) != string(secondJSON) || len(second.MigrationDecisions) != 1 {
+		t.Fatalf("migration was not idempotent:\nfirst=%s\nsecond=%s", firstJSON, secondJSON)
 	}
 }
 
@@ -233,14 +247,14 @@ func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
 	document.Route.Children = []RouteNode{{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "subject_Patient"}}
 	document.Columns = append(document.Columns, Column{
 		Column: "condition_count", Label: "Condition count", OccurrenceID: "condition",
-		Source: ColumnSource{Kind: SourceAggregate, Operation: "COUNT", WherePath: "code.coding[].code", WhereEquals: "C50"},
+		Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT", Where: &SourceWhere{Path: "code.coding[].code", Equals: "C50"}}},
 		Table:  &TablePresentation{Visible: &visible},
 	})
 	if err := document.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
-	document.Columns[1].Source.Operation = "NOT_AN_AGGREGATE"
+	document.Columns[1].Source.Aggregate.Operation = "NOT_AN_AGGREGATE"
 	if err := document.Validate(); err == nil {
 		t.Fatal("unsupported aggregate operation was accepted")
 	}

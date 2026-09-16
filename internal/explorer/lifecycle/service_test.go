@@ -245,7 +245,7 @@ func TestListGetCreateUseApplicationStore(t *testing.T) {
 
 func TestApplyCommandsMapsCASFailures(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
-	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "node"}}}
+	request := authoringv2.ApplyCommandsRequest{CommandID: "command-a", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: "token", Commands: []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "node"}}}
 	for _, test := range []struct {
 		name string
 		err  error
@@ -263,6 +263,79 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 				t.Fatalf("err=%v, want conflict %s", err, test.code)
 			}
 		})
+	}
+}
+
+func TestApplyCommandsPersistsLegacyMigrationIdempotentlyWithoutReceiptMutation(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	legacyDraft := []byte(`{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderWorkspace","semanticsVersion":2,"explorer":{"title":"Patients"},"documents":[{"kind":"ExplorerBuilderDocument","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"encounter","resourceType":"Encounter","relationship":"encounters"}]},"columns":[{"column":"encounter__code","label":"Encounter code","occurrenceId":"encounter","source":{"kind":"field","fieldPath":"code","projectionMode":"VALUE"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`)
+	oldReceipt := nativeReceipt(snapshot)
+	oldReceiptJSON, err := json.Marshal(oldReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{
+		created: &explorer.Explorer{
+			Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive,
+			DraftConfig: legacyDraft, DraftVersion: 4, DraftDigest: "legacy-digest",
+		},
+		receipt: oldReceipt,
+	}
+	service := newTestService(t, store, testConfig(snapshot))
+	request := authoringv2.ApplyCommandsRequest{
+		CommandID: "migrate-legacy", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 4, ExpectedDraftDigest: "legacy-digest",
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Renamed"}},
+	}
+	first, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Workspace.SemanticsVersion != authoringv2.CurrentSemanticsVersion || first.Workspace.Documents[0].Columns[0].Source.Field == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection == nil || first.Workspace.Documents[0].Columns[0].Source.Field.RelatedSelection.Acknowledged {
+		t.Fatalf("migrated workspace = %#v", first.Workspace)
+	}
+	if store.created.DraftVersion != 5 || store.created.LastAuthoringCommandID != request.CommandID {
+		t.Fatalf("persisted draft metadata = %#v", store.created)
+	}
+	persistedDraft := append([]byte(nil), store.created.DraftConfig...)
+
+	replay, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedDraft, err := replay.Workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalFirst, err := first.Workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonicalFirst) != string(replayedDraft) || string(store.created.DraftConfig) != string(persistedDraft) || store.created.DraftVersion != 5 {
+		t.Fatalf("replay changed migration result or draft: first=%s replay=%s stored=%s", canonicalFirst, replayedDraft, store.created.DraftConfig)
+	}
+
+	stale := request
+	stale.CommandID = "stale-command"
+	stale.Commands = []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Stale"}}
+	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", stale, "alice")
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_CONFLICT" {
+		t.Fatalf("stale draft error = %v, want DRAFT_CONFLICT", err)
+	}
+	unsupported := request
+	unsupported.CommandID = "unsupported-semantics"
+	unsupported.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 1
+	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", unsupported, "alice")
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "UNSUPPORTED_SEMANTICS_VERSION" {
+		t.Fatalf("unsupported semantics error = %v, want conflict UNSUPPORTED_SEMANTICS_VERSION", err)
+	}
+	newReceiptJSON, err := json.Marshal(store.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(oldReceiptJSON) != string(newReceiptJSON) {
+		t.Fatal("legacy compilation receipt changed during draft migration")
 	}
 }
 
@@ -326,7 +399,7 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 	visible := true
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Default"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}}}}},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}}},
 		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
 	base := nativeReceipt(snapshot)

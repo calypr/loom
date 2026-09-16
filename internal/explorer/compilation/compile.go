@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -87,16 +88,17 @@ type Result struct {
 // WorkspaceResult combines independently compiled table documents into one
 // recipe and one public Explorer configuration.
 type WorkspaceResult struct {
-	Bundle           recipe.Bundle
-	RecipeDigest     string
-	EmittedColumns   []explorer.EmittedColumn
-	IdentityMappings []explorer.IdentityMapping
-	Presentations    []PresentationConfig
-	OutputContracts  []explorer.PublicOutputContract
-	Workspace        authoringv2.Workspace
+	Bundle               recipe.Bundle
+	RecipeDigest         string
+	ResolvedInputsDigest string
+	EmittedColumns       []explorer.EmittedColumn
+	IdentityMappings     []explorer.IdentityMapping
+	Presentations        []PresentationConfig
+	OutputContracts      []explorer.PublicOutputContract
+	Workspace            authoringv2.Workspace
 }
 
-func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (WorkspaceResult, error) {
+func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
 	workspace = authoringv2.MigrateLosslessDefaults(workspace, wire)
@@ -104,8 +106,13 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
 	workspace = workspace.NormalizePresentationOrders()
+	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
+	if err != nil {
+		return WorkspaceResult{}, fail("intent", "RESOLVED_INPUTS_DIGEST_FAILED", "$.workspace", "resolved input identity could not be calculated", nil, err)
+	}
 	result := WorkspaceResult{
-		Workspace: workspace,
+		Workspace:            workspace,
+		ResolvedInputsDigest: resolvedInputsDigest,
 		Bundle: recipe.Bundle{
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 			Name:                "explorer_" + safeName(project) + "_" + safeName(explorerID),
@@ -136,6 +143,39 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	}
 	result.RecipeDigest = digest
 	return result, nil
+}
+
+// ResolvedInputs is the explicit compile-only seam for resolved external
+// values. B01 has no external values, so callers pass the zero value. The
+// normalized workspace meaning is supplied separately to the digest function;
+// it is not duplicated inside this seam.
+type ResolvedInputs struct{}
+
+// ResolvedInputsDigest returns a stable digest for normalized authoring
+// meaning plus the capability identity used to resolve it.
+func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (string, error) {
+	normalized, err := workspace.CanonicalJSON()
+	if err != nil {
+		return "", err
+	}
+	identity := struct {
+		Workspace                json.RawMessage `json:"workspace"`
+		ResolvedInputs           ResolvedInputs  `json:"resolvedInputs"`
+		SourceGeneration         string          `json:"sourceGeneration"`
+		CapabilitySchemaDigest   string          `json:"capabilitySchemaDigest"`
+		CapabilityShapeDigest    string          `json:"capabilityShapeDigest"`
+		AuthorizationScopeDigest string          `json:"authorizationScopeDigest"`
+	}{
+		Workspace: normalized, ResolvedInputs: resolvedInputs, SourceGeneration: snapshot.Identity.Generation,
+		CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, CapabilityShapeDigest: snapshot.Identity.ShapeDigest,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+	}
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // Compile translates one semantic V2 document against the exact capability

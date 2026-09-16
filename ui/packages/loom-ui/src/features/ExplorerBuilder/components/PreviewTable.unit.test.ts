@@ -21,7 +21,7 @@ const column = (
   column: name,
   label,
   occurrenceId: 'base',
-  source: { kind: 'field', fieldPath: name, projectionMode: 'FIRST' },
+  source: { kind: 'field', field: { path: name, projectionMode: 'FIRST' } },
   table: { visible: true, order },
 });
 
@@ -234,8 +234,10 @@ describe('PreviewTable column controls', () => {
       ...column('given', 'Given names', 0),
       source: {
         kind: 'field',
-        fieldPath: 'name[].given[]',
-        projectionMode: 'INDEXED',
+        field: {
+          path: 'name[].given[]',
+          projectionMode: 'INDEXED',
+        },
       },
     };
     const indexedPreview: ExplorerBuilderPreviewResult = {

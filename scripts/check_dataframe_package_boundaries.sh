@@ -43,4 +43,8 @@ fail_if_matches "publication targets import dataframe execution orchestration" \
   'internal/dataframe/execution|internal/dataframe/published|internal/dataframe/materialization' \
   "$root"/internal/dataframe/publication
 
+fail_if_matches "authoring intent imports orchestration or storage" \
+  'internal/(server|store|explorer/(arango|lifecycle|compilation))|internal/dataframe/(execution|materialization|publication|published)' \
+  "$root/internal/explorer/authoringv2"
+
 echo "dataframe package boundaries: ok"

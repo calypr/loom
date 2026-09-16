@@ -67,6 +67,13 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 				Nullable: pointerTo(column.Nullable), Shape: pointerTo(column.Shape),
 				Lossless: pointerTo(column.Lossless), MlReady: pointerTo(column.MLReady),
 			}
+			if column.StructuralSuitability != "" {
+				wire.StructuralSuitability = pointerTo(loomapi.ContractColumnStructuralSuitability(column.StructuralSuitability))
+			}
+			if len(column.LossReasons) > 0 {
+				reasons := append([]string(nil), column.LossReasons...)
+				wire.LossReasons = &reasons
+			}
 			if len(column.AuthoredColumns) > 0 {
 				authoredColumns := append([]string(nil), column.AuthoredColumns...)
 				wire.AuthoredColumns = &authoredColumns
@@ -88,13 +95,41 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 		rootResourceType := document.RootResourceType
 		multiplication := loomapi.None
 		lossless, mlReady := true, true
+		structuralSuitability := ""
+		var lossReasons []string
 		for _, column := range receipt.EmittedColumns {
 			if column.OutputID == document.Output.ID {
 				lossless = lossless && column.Lossless
 				mlReady = mlReady && column.MLReady
+				if column.StructuralSuitability == "requires-review" {
+					structuralSuitability = "requires-review"
+				} else if structuralSuitability == "" && column.StructuralSuitability != "" {
+					structuralSuitability = column.StructuralSuitability
+				} else if structuralSuitability == "scalar" && column.StructuralSuitability == "array" {
+					structuralSuitability = "array"
+				}
+				for _, reason := range column.LossReasons {
+					found := false
+					for _, existing := range lossReasons {
+						if existing == reason {
+							found = true
+							break
+						}
+					}
+					if !found {
+						lossReasons = append(lossReasons, reason)
+					}
+				}
 			}
 		}
-		outputs = append(outputs, loomapi.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, RootResourceType: &rootResourceType, RowMultiplication: &multiplication, Lossless: &lossless, MlReady: &mlReady, Columns: columns})
+		output := loomapi.ReceiptOutput{OutputId: document.Output.ID, Title: document.Output.Title, RowGrain: rowGrain, RootResourceType: &rootResourceType, RowMultiplication: &multiplication, Lossless: &lossless, MlReady: &mlReady, Columns: columns}
+		if structuralSuitability != "" {
+			output.StructuralSuitability = pointerTo(loomapi.ReceiptOutputStructuralSuitability(structuralSuitability))
+		}
+		if len(lossReasons) > 0 {
+			output.LossReasons = &lossReasons
+		}
+		outputs = append(outputs, output)
 	}
 	return loomapi.CompileResponse{
 		ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderReceipt,

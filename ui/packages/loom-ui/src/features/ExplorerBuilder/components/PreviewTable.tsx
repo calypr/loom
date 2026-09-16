@@ -83,9 +83,11 @@ export const PreviewTable = ({
         candidateId: column.column,
         occurrenceId: authored?.occurrenceId ?? 'base',
         projectionMode:
-          authored?.source.kind !== 'aggregate'
-            ? (authored?.source.projectionMode ?? 'FIRST')
-            : 'FIRST',
+          authored?.source.kind === 'field'
+            ? (authored.source.field.projectionMode ?? 'FIRST')
+            : authored && 'lookup' in authored.source
+              ? (authored.source.lookup.projectionMode ?? 'FIRST')
+              : 'VALUE',
         emissionId: column.column,
         publicColumn: column.column,
       };

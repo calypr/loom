@@ -3,11 +3,12 @@ import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
+  ExplorerColumnSource,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
-const CANDIDATE_ROW_HEIGHT = 74;
+const CANDIDATE_ROW_HEIGHT = 110;
 
 const titleForResource = (value: string): string =>
   value
@@ -61,14 +62,25 @@ const candidateColumnName = (
   return value;
 };
 
-const sourceSummary = (column: ExplorerBuilderColumn): string =>
-  [
-    column.source.kind,
-    column.source.fieldPath,
-    'match' in column.source ? column.source.match : undefined,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+const sourceSummary = ({ source }: ExplorerBuilderColumn): string => {
+  switch (source.kind) {
+    case 'field':
+      return source.field.path;
+    case 'aggregate':
+      return [source.aggregate.operation, source.aggregate.path].filter(Boolean).join(' · ');
+    case 'identifierBySystem':
+    case 'extensionByUrl':
+    case 'codingBySystem':
+    case 'observationComponentByCode':
+      return [source.kind, source.lookup.path, source.lookup.match].filter(Boolean).join(' · ');
+    case 'projectId':
+      return 'Project identifier';
+    default: {
+      const exhaustive: never = source;
+      return exhaustive;
+    }
+  }
+};
 
 const ConfiguredColumnRow = ({
   column,
@@ -77,6 +89,7 @@ const ConfiguredColumnRow = ({
   filterable,
   chartable,
   onChange,
+  onSourceChange,
   onRemove,
 }: {
   readonly column: ExplorerBuilderColumn;
@@ -85,6 +98,7 @@ const ConfiguredColumnRow = ({
   readonly filterable: boolean;
   readonly chartable: boolean;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
+  readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onRemove: () => void;
 }) => {
   const [label, setLabel] = useState(column.label);
@@ -198,6 +212,30 @@ const ConfiguredColumnRow = ({
       >
         ×
       </button>
+      {column.source.kind === 'field' && column.source.field.relatedSelection ? (
+        <label className="col-span-full flex items-start gap-1 text-xs text-amber-800">
+          <input
+            type="checkbox"
+            aria-label={`Allow first related value for ${column.label}`}
+            checked={column.source.field.relatedSelection.acknowledged}
+            disabled={disabled}
+            onChange={(event) => {
+              if (column.source.kind !== 'field') return;
+              onSourceChange(column.column, {
+                ...column.source,
+                field: {
+                  ...column.source.field,
+                  relatedSelection: {
+                    kind: 'first-by-resource-key',
+                    acknowledged: event.currentTarget.checked,
+                  },
+                },
+              });
+            }}
+          />
+          Keep only the first related record by resource key. Other records are omitted.
+        </label>
+      ) : null}
     </div>
   );
 };
@@ -301,6 +339,7 @@ export const ColumnSelector = ({
   onAdd,
   onAddAll,
   onChange,
+  onSourceChange,
   onRemove,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
@@ -317,6 +356,7 @@ export const ColumnSelector = ({
     candidates: ReadonlyArray<ExplorerBuilderCandidate>,
   ) => void;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
+  readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onRemove: (column: string) => void;
 }) => {
   const [query, setQuery] = useState('');
@@ -340,8 +380,8 @@ export const ColumnSelector = ({
     () =>
       new Set(
         configured.flatMap((column) =>
-          column.source.kind === 'field' && column.source.fieldPath
-            ? [column.source.fieldPath.replace(/^root\./, '')]
+          column.source.kind === 'field'
+            ? [column.source.field.path.replace(/^root\./, '')]
             : [],
         ),
       ),
@@ -350,14 +390,14 @@ export const ColumnSelector = ({
   const configuredCapabilities = useMemo(
     () =>
       new Map(
-        configured.map((column) => [
-          column.column,
-          column.source.kind === 'field'
+        configured.map(({ column, source }) => [
+          column,
+          source.kind === 'field'
             ? (catalog.candidates ?? []).find(
                 (candidate) =>
                   candidate.nodeId === occurrence?.nodeId &&
                   candidate.fieldPath.replace(/^root\./, '') ===
-                    column.source.fieldPath?.replace(/^root\./, ''),
+                    source.field.path.replace(/^root\./, ''),
               )
             : undefined,
         ]),
@@ -398,11 +438,11 @@ export const ColumnSelector = ({
         .sort((left, right) => {
           const leftLabel =
             left.kind === 'configured'
-              ? configuredCapabilities.get(left.column.column)?.label ?? left.column.source.fieldPath ?? left.column.column
+              ? configuredCapabilities.get(left.column.column)?.label ?? sourceSummary(left.column)
               : left.candidate.label;
           const rightLabel =
             right.kind === 'configured'
-              ? configuredCapabilities.get(right.column.column)?.label ?? right.column.source.fieldPath ?? right.column.column
+              ? configuredCapabilities.get(right.column.column)?.label ?? sourceSummary(right.column)
               : right.candidate.label;
           return leftLabel.localeCompare(rightLabel);
         }),
@@ -536,6 +576,7 @@ export const ColumnSelector = ({
                               ?.chartable ?? true
                           }
                           onChange={onChange}
+                          onSourceChange={onSourceChange}
                           onRemove={() => onRemove(row.column.column)}
                         />
                       ) : (
@@ -595,8 +636,10 @@ export const columnFromCandidate = (
     occurrenceId,
     source: {
       kind: 'field',
-      fieldPath: candidate.fieldPath,
-      projectionMode: candidate.defaultProjectionMode,
+      field: {
+        path: candidate.fieldPath,
+        projectionMode: candidate.defaultProjectionMode,
+      },
     },
     table: { visible: true, order },
   };

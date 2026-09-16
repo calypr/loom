@@ -10,7 +10,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 2
+	CurrentSemanticsVersion = 3
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a

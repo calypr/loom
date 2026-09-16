@@ -8,6 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 3;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -56,42 +57,57 @@ export const explorerChartPresentationSchema = z
     order: z.number().int().nonnegative().optional(),
   })
   .strict();
-const scalarColumnSourceSchema = z
+const fieldColumnSourceSchema = z
+  .object({
+    kind: z.literal('field'),
+    field: z.object({
+      path: opaqueIdSchema,
+      projectionMode: projectionModeSchema.optional(),
+      relatedSelection: z.object({
+        kind: z.literal('first-by-resource-key'),
+        acknowledged: z.boolean(),
+      }).strict().optional(),
+    }).strict(),
+  }).strict();
+const lookupColumnSourceSchema = z
   .object({
     kind: z.enum([
-      'field',
       'identifierBySystem',
       'extensionByUrl',
       'codingBySystem',
       'observationComponentByCode',
-      'projectId',
     ]),
-    fieldPath: z.string().optional(),
-    match: z.string().optional(),
-    projectionMode: projectionModeSchema.optional(),
+    lookup: z.object({
+      match: opaqueIdSchema,
+      path: opaqueIdSchema.optional(),
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
   })
   .strict();
 const aggregateColumnSourceSchema = z
   .object({
     kind: z.literal('aggregate'),
-    operation: z.enum([
-      'COUNT',
-      'COUNT_DISTINCT',
-      'DISTINCT_VALUES',
-      'MIN',
-      'MAX',
-      'EXISTS',
-      'CONTAINS_ALL',
-    ]),
-    fieldPath: z.string().optional(),
-    wherePath: z.string().optional(),
-    whereEquals: z.string().optional(),
-    requiredValues: z.array(z.string()).optional(),
+    aggregate: z.object({
+      operation: z.enum([
+        'COUNT',
+        'COUNT_DISTINCT',
+        'DISTINCT_VALUES',
+        'MIN',
+        'MAX',
+        'EXISTS',
+        'CONTAINS_ALL',
+      ]),
+      path: opaqueIdSchema.optional(),
+      where: z.object({ path: opaqueIdSchema, equals: z.string() }).strict().optional(),
+      requiredValues: z.array(z.string()).optional(),
+    }).strict(),
   })
   .strict();
 export const explorerColumnSourceSchema = z.union([
-  scalarColumnSourceSchema,
+  fieldColumnSourceSchema,
+  lookupColumnSourceSchema,
   aggregateColumnSourceSchema,
+  z.object({ kind: z.literal('projectId') }).strict(),
 ]);
 export type ExplorerColumnSource = z.infer<typeof explorerColumnSourceSchema>;
 export type ExplorerBuilderRouteNode = {
@@ -188,6 +204,7 @@ export const explorerBuilderWorkspaceSchema = z
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
     kind: z.literal('ExplorerBuilderWorkspace'),
     semanticsVersion: z.number().int().positive().optional(),
+    migrationDecisions: z.array(z.string()).optional(),
     explorer: z
       .object({ title: z.string().min(1), description: z.string().optional() })
       .strict(),
@@ -355,6 +372,8 @@ export const explorerBuilderCommandSchema = z
       'UPDATE_ROUTE_EDGE',
       'REMOVE_ROUTE',
       'ADD_COLUMN',
+      'ADD_COLUMN_SOURCE',
+      'UPDATE_COLUMN_SOURCE',
       'UPDATE_COLUMN',
       'REMOVE_COLUMN',
     ]),
@@ -370,6 +389,7 @@ export const explorerBuilderCommandSchema = z
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
     column: opaqueIdSchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
+    source: explorerColumnSourceSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
   })
   .strict();
@@ -430,6 +450,8 @@ export const explorerBuilderContractColumnSchema = z
       .optional(),
     lossless: z.boolean().optional(),
     mlReady: z.boolean().optional(),
+    structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
+    lossReasons: z.array(z.string()).optional(),
   })
   .strict();
 export type ExplorerBuilderContractColumn = z.infer<
@@ -466,6 +488,8 @@ export const explorerBuilderReceiptOutputSchema = z
     rowMultiplication: z.enum(['none', 'expand']).optional(),
     lossless: z.boolean().optional(),
     mlReady: z.boolean().optional(),
+    structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
+    lossReasons: z.array(z.string()).optional(),
     columns: z.array(explorerBuilderContractColumnSchema),
   })
   .strict();
@@ -477,6 +501,7 @@ export const explorerBuilderCompileResultSchema = z
     snapshotToken: opaqueIdSchema,
     generation: z.string().optional(),
     intentDigest: z.string().optional(),
+    resolvedInputsDigest: z.string().optional(),
     compilerVersion: z.string().optional(),
     shapeDigest: z.string().optional(),
     recipeDigest: z.string().optional(),

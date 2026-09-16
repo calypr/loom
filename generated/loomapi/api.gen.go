@@ -39,6 +39,39 @@ func (e APIVersion) Valid() bool {
 	}
 }
 
+// Defines values for AggregateSourceOperation.
+const (
+	CONTAINSALL    AggregateSourceOperation = "CONTAINS_ALL"
+	COUNT          AggregateSourceOperation = "COUNT"
+	COUNTDISTINCT  AggregateSourceOperation = "COUNT_DISTINCT"
+	DISTINCTVALUES AggregateSourceOperation = "DISTINCT_VALUES"
+	EXISTS         AggregateSourceOperation = "EXISTS"
+	MAX            AggregateSourceOperation = "MAX"
+	MIN            AggregateSourceOperation = "MIN"
+)
+
+// Valid indicates whether the value is a known member of the AggregateSourceOperation enum.
+func (e AggregateSourceOperation) Valid() bool {
+	switch e {
+	case CONTAINSALL:
+		return true
+	case COUNT:
+		return true
+	case COUNTDISTINCT:
+		return true
+	case DISTINCTVALUES:
+		return true
+	case EXISTS:
+		return true
+	case MAX:
+		return true
+	case MIN:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuthoringCapabilityKind.
 const (
 	ExplorerAuthoringCapabilities AuthoringCapabilityKind = "ExplorerAuthoringCapabilities"
@@ -107,24 +140,28 @@ func (e AuthoringCommandInitialPresentation) Valid() bool {
 
 // Defines values for AuthoringCommandType.
 const (
-	ADDCOLUMN       AuthoringCommandType = "ADD_COLUMN"
-	ADDROUTE        AuthoringCommandType = "ADD_ROUTE"
-	CREATETABLE     AuthoringCommandType = "CREATE_TABLE"
-	DELETETABLE     AuthoringCommandType = "DELETE_TABLE"
-	DUPLICATETABLE  AuthoringCommandType = "DUPLICATE_TABLE"
-	REMOVECOLUMN    AuthoringCommandType = "REMOVE_COLUMN"
-	REMOVEROUTE     AuthoringCommandType = "REMOVE_ROUTE"
-	RENAMETABLE     AuthoringCommandType = "RENAME_TABLE"
-	REORDERTABLES   AuthoringCommandType = "REORDER_TABLES"
-	SETTABLEROOT    AuthoringCommandType = "SET_TABLE_ROOT"
-	UPDATECOLUMN    AuthoringCommandType = "UPDATE_COLUMN"
-	UPDATEROUTEEDGE AuthoringCommandType = "UPDATE_ROUTE_EDGE"
+	ADDCOLUMN          AuthoringCommandType = "ADD_COLUMN"
+	ADDCOLUMNSOURCE    AuthoringCommandType = "ADD_COLUMN_SOURCE"
+	ADDROUTE           AuthoringCommandType = "ADD_ROUTE"
+	CREATETABLE        AuthoringCommandType = "CREATE_TABLE"
+	DELETETABLE        AuthoringCommandType = "DELETE_TABLE"
+	DUPLICATETABLE     AuthoringCommandType = "DUPLICATE_TABLE"
+	REMOVECOLUMN       AuthoringCommandType = "REMOVE_COLUMN"
+	REMOVEROUTE        AuthoringCommandType = "REMOVE_ROUTE"
+	RENAMETABLE        AuthoringCommandType = "RENAME_TABLE"
+	REORDERTABLES      AuthoringCommandType = "REORDER_TABLES"
+	SETTABLEROOT       AuthoringCommandType = "SET_TABLE_ROOT"
+	UPDATECOLUMN       AuthoringCommandType = "UPDATE_COLUMN"
+	UPDATECOLUMNSOURCE AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
+	UPDATEROUTEEDGE    AuthoringCommandType = "UPDATE_ROUTE_EDGE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandType enum.
 func (e AuthoringCommandType) Valid() bool {
 	switch e {
 	case ADDCOLUMN:
+		return true
+	case ADDCOLUMNSOURCE:
 		return true
 	case ADDROUTE:
 		return true
@@ -145,6 +182,8 @@ func (e AuthoringCommandType) Valid() bool {
 	case SETTABLEROOT:
 		return true
 	case UPDATECOLUMN:
+		return true
+	case UPDATECOLUMNSOURCE:
 		return true
 	case UPDATEROUTEEDGE:
 		return true
@@ -203,6 +242,7 @@ func (e CandidateSearchResponseKind) Valid() bool {
 
 // Defines values for ColumnSourceKind.
 const (
+	Aggregate                  ColumnSourceKind = "aggregate"
 	CodingBySystem             ColumnSourceKind = "codingBySystem"
 	ExtensionByUrl             ColumnSourceKind = "extensionByUrl"
 	Field                      ColumnSourceKind = "field"
@@ -214,6 +254,8 @@ const (
 // Valid indicates whether the value is a known member of the ColumnSourceKind enum.
 func (e ColumnSourceKind) Valid() bool {
 	switch e {
+	case Aggregate:
+		return true
 	case CodingBySystem:
 		return true
 	case ExtensionByUrl:
@@ -225,33 +267,6 @@ func (e ColumnSourceKind) Valid() bool {
 	case ObservationComponentByCode:
 		return true
 	case ProjectId:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ColumnSourceProjectionMode.
-const (
-	ColumnSourceProjectionModeALL      ColumnSourceProjectionMode = "ALL"
-	ColumnSourceProjectionModeDISTINCT ColumnSourceProjectionMode = "DISTINCT"
-	ColumnSourceProjectionModeFIRST    ColumnSourceProjectionMode = "FIRST"
-	ColumnSourceProjectionModeINDEXED  ColumnSourceProjectionMode = "INDEXED"
-	ColumnSourceProjectionModeVALUE    ColumnSourceProjectionMode = "VALUE"
-)
-
-// Valid indicates whether the value is a known member of the ColumnSourceProjectionMode enum.
-func (e ColumnSourceProjectionMode) Valid() bool {
-	switch e {
-	case ColumnSourceProjectionModeALL:
-		return true
-	case ColumnSourceProjectionModeDISTINCT:
-		return true
-	case ColumnSourceProjectionModeFIRST:
-		return true
-	case ColumnSourceProjectionModeINDEXED:
-		return true
-	case ColumnSourceProjectionModeVALUE:
 		return true
 	default:
 		return false
@@ -297,6 +312,27 @@ func (e CompileResponseKind) Valid() bool {
 	}
 }
 
+// Defines values for ContractColumnStructuralSuitability.
+const (
+	ContractColumnStructuralSuitabilityArray          ContractColumnStructuralSuitability = "array"
+	ContractColumnStructuralSuitabilityRequiresReview ContractColumnStructuralSuitability = "requires-review"
+	ContractColumnStructuralSuitabilityScalar         ContractColumnStructuralSuitability = "scalar"
+)
+
+// Valid indicates whether the value is a known member of the ContractColumnStructuralSuitability enum.
+func (e ContractColumnStructuralSuitability) Valid() bool {
+	switch e {
+	case ContractColumnStructuralSuitabilityArray:
+		return true
+	case ContractColumnStructuralSuitabilityRequiresReview:
+		return true
+	case ContractColumnStructuralSuitabilityScalar:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DocumentKind.
 const (
 	ExplorerBuilderDocument DocumentKind = "ExplorerBuilderDocument"
@@ -306,6 +342,60 @@ const (
 func (e DocumentKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderDocument:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldSourceProjectionMode.
+const (
+	FieldSourceProjectionModeALL      FieldSourceProjectionMode = "ALL"
+	FieldSourceProjectionModeDISTINCT FieldSourceProjectionMode = "DISTINCT"
+	FieldSourceProjectionModeFIRST    FieldSourceProjectionMode = "FIRST"
+	FieldSourceProjectionModeINDEXED  FieldSourceProjectionMode = "INDEXED"
+	FieldSourceProjectionModeVALUE    FieldSourceProjectionMode = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the FieldSourceProjectionMode enum.
+func (e FieldSourceProjectionMode) Valid() bool {
+	switch e {
+	case FieldSourceProjectionModeALL:
+		return true
+	case FieldSourceProjectionModeDISTINCT:
+		return true
+	case FieldSourceProjectionModeFIRST:
+		return true
+	case FieldSourceProjectionModeINDEXED:
+		return true
+	case FieldSourceProjectionModeVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LookupSourceProjectionMode.
+const (
+	LookupSourceProjectionModeALL      LookupSourceProjectionMode = "ALL"
+	LookupSourceProjectionModeDISTINCT LookupSourceProjectionMode = "DISTINCT"
+	LookupSourceProjectionModeFIRST    LookupSourceProjectionMode = "FIRST"
+	LookupSourceProjectionModeINDEXED  LookupSourceProjectionMode = "INDEXED"
+	LookupSourceProjectionModeVALUE    LookupSourceProjectionMode = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the LookupSourceProjectionMode enum.
+func (e LookupSourceProjectionMode) Valid() bool {
+	switch e {
+	case LookupSourceProjectionModeALL:
+		return true
+	case LookupSourceProjectionModeDISTINCT:
+		return true
+	case LookupSourceProjectionModeFIRST:
+		return true
+	case LookupSourceProjectionModeINDEXED:
+		return true
+	case LookupSourceProjectionModeVALUE:
 		return true
 	default:
 		return false
@@ -396,6 +486,42 @@ func (e ReceiptOutputRowMultiplication) Valid() bool {
 	}
 }
 
+// Defines values for ReceiptOutputStructuralSuitability.
+const (
+	ReceiptOutputStructuralSuitabilityArray          ReceiptOutputStructuralSuitability = "array"
+	ReceiptOutputStructuralSuitabilityRequiresReview ReceiptOutputStructuralSuitability = "requires-review"
+	ReceiptOutputStructuralSuitabilityScalar         ReceiptOutputStructuralSuitability = "scalar"
+)
+
+// Valid indicates whether the value is a known member of the ReceiptOutputStructuralSuitability enum.
+func (e ReceiptOutputStructuralSuitability) Valid() bool {
+	switch e {
+	case ReceiptOutputStructuralSuitabilityArray:
+		return true
+	case ReceiptOutputStructuralSuitabilityRequiresReview:
+		return true
+	case ReceiptOutputStructuralSuitabilityScalar:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelatedSelectionKind.
+const (
+	FirstByResourceKey RelatedSelectionKind = "first-by-resource-key"
+)
+
+// Valid indicates whether the value is a known member of the RelatedSelectionKind enum.
+func (e RelatedSelectionKind) Valid() bool {
+	switch e {
+	case FirstByResourceKey:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TablePresentationCellRenderer.
 const (
 	TablePresentationCellRendererFileActions TablePresentationCellRenderer = "fileActions"
@@ -428,12 +554,24 @@ type ActionColumn struct {
 	ExportHeader *string `json:"exportHeader,omitempty"`
 }
 
+// AggregateSource defines model for AggregateSource.
+type AggregateSource struct {
+	Operation      AggregateSourceOperation `json:"operation"`
+	Path           *string                  `json:"path,omitempty"`
+	RequiredValues *[]string                `json:"requiredValues,omitempty"`
+	Where          *SourceWhere             `json:"where,omitempty"`
+}
+
+// AggregateSourceOperation defines model for AggregateSource.Operation.
+type AggregateSourceOperation string
+
 // ApplyCommandsRequest defines model for ApplyCommandsRequest.
 type ApplyCommandsRequest struct {
 	CommandId            string             `json:"commandId"`
 	Commands             []AuthoringCommand `json:"commands"`
 	ExpectedDraftDigest  *string            `json:"expectedDraftDigest,omitempty"`
 	ExpectedDraftVersion int64              `json:"expectedDraftVersion"`
+	SemanticsVersion     int                `json:"semanticsVersion"`
 	SnapshotToken        string             `json:"snapshotToken"`
 }
 
@@ -475,6 +613,7 @@ type AuthoringCommand struct {
 	ParentOccurrenceId  *string                              `json:"parentOccurrenceId,omitempty"`
 	ProjectionMode      *ProjectionMode                      `json:"projectionMode,omitempty"`
 	RootNodeId          *string                              `json:"rootNodeId,omitempty"`
+	Source              *ColumnSource                        `json:"source,omitempty"`
 	SourceOutputId      *string                              `json:"sourceOutputId,omitempty"`
 	Title               *string                              `json:"title,omitempty"`
 	Type                AuthoringCommandType                 `json:"type"`
@@ -601,17 +740,14 @@ type Column struct {
 
 // ColumnSource defines model for ColumnSource.
 type ColumnSource struct {
-	FieldPath      *string                     `json:"fieldPath,omitempty"`
-	Kind           ColumnSourceKind            `json:"kind"`
-	Match          *string                     `json:"match,omitempty"`
-	ProjectionMode *ColumnSourceProjectionMode `json:"projectionMode,omitempty"`
+	Aggregate *AggregateSource `json:"aggregate,omitempty"`
+	Field     *FieldSource     `json:"field,omitempty"`
+	Kind      ColumnSourceKind `json:"kind"`
+	Lookup    *LookupSource    `json:"lookup,omitempty"`
 }
 
 // ColumnSourceKind defines model for ColumnSource.Kind.
 type ColumnSourceKind string
-
-// ColumnSourceProjectionMode defines model for ColumnSource.ProjectionMode.
-type ColumnSourceProjectionMode string
 
 // CommandResult defines model for CommandResult.
 type CommandResult struct {
@@ -651,21 +787,26 @@ type CompileResponseKind string
 
 // ContractColumn defines model for ContractColumn.
 type ContractColumn struct {
-	AuthoredColumns    *[]string             `json:"authoredColumns,omitempty"`
-	Chartable          bool                  `json:"chartable"`
-	ChoiceArm          *string               `json:"choiceArm,omitempty"`
-	Column             string                `json:"column"`
-	Coordinates        *[]RepeatedCoordinate `json:"coordinates,omitempty"`
-	Filterable         bool                  `json:"filterable"`
-	Label              string                `json:"label"`
-	LogicalType        string                `json:"logicalType"`
-	Lossless           *bool                 `json:"lossless,omitempty"`
-	MlReady            *bool                 `json:"mlReady,omitempty"`
-	Nullable           *bool                 `json:"nullable,omitempty"`
-	Shape              *string               `json:"shape,omitempty"`
-	SourcePath         *string               `json:"sourcePath,omitempty"`
-	SourceResourceType *string               `json:"sourceResourceType,omitempty"`
+	AuthoredColumns       *[]string                            `json:"authoredColumns,omitempty"`
+	Chartable             bool                                 `json:"chartable"`
+	ChoiceArm             *string                              `json:"choiceArm,omitempty"`
+	Column                string                               `json:"column"`
+	Coordinates           *[]RepeatedCoordinate                `json:"coordinates,omitempty"`
+	Filterable            bool                                 `json:"filterable"`
+	Label                 string                               `json:"label"`
+	LogicalType           string                               `json:"logicalType"`
+	LossReasons           *[]string                            `json:"lossReasons,omitempty"`
+	Lossless              *bool                                `json:"lossless,omitempty"`
+	MlReady               *bool                                `json:"mlReady,omitempty"`
+	Nullable              *bool                                `json:"nullable,omitempty"`
+	Shape                 *string                              `json:"shape,omitempty"`
+	SourcePath            *string                              `json:"sourcePath,omitempty"`
+	SourceResourceType    *string                              `json:"sourceResourceType,omitempty"`
+	StructuralSuitability *ContractColumnStructuralSuitability `json:"structuralSuitability,omitempty"`
 }
+
+// ContractColumnStructuralSuitability defines model for ContractColumn.StructuralSuitability.
+type ContractColumnStructuralSuitability string
 
 // Diagnostic defines model for Diagnostic.
 type Diagnostic struct {
@@ -712,6 +853,16 @@ type ExplorerMetadata struct {
 	Description *string `json:"description,omitempty"`
 	Title       string  `json:"title"`
 }
+
+// FieldSource defines model for FieldSource.
+type FieldSource struct {
+	Path             string                     `json:"path"`
+	ProjectionMode   *FieldSourceProjectionMode `json:"projectionMode,omitempty"`
+	RelatedSelection *RelatedSelection          `json:"relatedSelection,omitempty"`
+}
+
+// FieldSourceProjectionMode defines model for FieldSource.ProjectionMode.
+type FieldSourceProjectionMode string
 
 // FileActions defines model for FileActions.
 type FileActions struct {
@@ -768,6 +919,16 @@ type LegacyErrorResponseError0 = string
 type LegacyErrorResponse_Error struct {
 	union json.RawMessage
 }
+
+// LookupSource defines model for LookupSource.
+type LookupSource struct {
+	Match          string                      `json:"match"`
+	Path           *string                     `json:"path,omitempty"`
+	ProjectionMode *LookupSourceProjectionMode `json:"projectionMode,omitempty"`
+}
+
+// LookupSourceProjectionMode defines model for LookupSource.ProjectionMode.
+type LookupSourceProjectionMode string
 
 // Output defines model for Output.
 type Output struct {
@@ -832,18 +993,23 @@ type RawJSON map[string]interface{}
 
 // ReceiptOutput defines model for ReceiptOutput.
 type ReceiptOutput struct {
-	Columns           []ContractColumn                `json:"columns"`
-	Lossless          *bool                           `json:"lossless,omitempty"`
-	MlReady           *bool                           `json:"mlReady,omitempty"`
-	OutputId          string                          `json:"outputId"`
-	RootResourceType  *string                         `json:"rootResourceType,omitempty"`
-	RowGrain          string                          `json:"rowGrain"`
-	RowMultiplication *ReceiptOutputRowMultiplication `json:"rowMultiplication,omitempty"`
-	Title             string                          `json:"title"`
+	Columns               []ContractColumn                    `json:"columns"`
+	LossReasons           *[]string                           `json:"lossReasons,omitempty"`
+	Lossless              *bool                               `json:"lossless,omitempty"`
+	MlReady               *bool                               `json:"mlReady,omitempty"`
+	OutputId              string                              `json:"outputId"`
+	RootResourceType      *string                             `json:"rootResourceType,omitempty"`
+	RowGrain              string                              `json:"rowGrain"`
+	RowMultiplication     *ReceiptOutputRowMultiplication     `json:"rowMultiplication,omitempty"`
+	StructuralSuitability *ReceiptOutputStructuralSuitability `json:"structuralSuitability,omitempty"`
+	Title                 string                              `json:"title"`
 }
 
 // ReceiptOutputRowMultiplication defines model for ReceiptOutput.RowMultiplication.
 type ReceiptOutputRowMultiplication string
+
+// ReceiptOutputStructuralSuitability defines model for ReceiptOutput.StructuralSuitability.
+type ReceiptOutputStructuralSuitability string
 
 // RecipeExecutionColumn defines model for RecipeExecutionColumn.
 type RecipeExecutionColumn struct {
@@ -884,6 +1050,15 @@ type ReconcileRequest struct {
 	DraftVersion  int64  `json:"draftVersion"`
 	SnapshotToken string `json:"snapshotToken"`
 }
+
+// RelatedSelection defines model for RelatedSelection.
+type RelatedSelection struct {
+	Acknowledged bool                 `json:"acknowledged"`
+	Kind         RelatedSelectionKind `json:"kind"`
+}
+
+// RelatedSelectionKind defines model for RelatedSelection.Kind.
+type RelatedSelectionKind string
 
 // RepeatedBoundary defines model for RepeatedBoundary.
 type RepeatedBoundary struct {
@@ -932,6 +1107,12 @@ type ServiceErrorResponse struct {
 type SharedFilterBinding struct {
 	Column   string `json:"column"`
 	OutputId string `json:"outputId"`
+}
+
+// SourceWhere defines model for SourceWhere.
+type SourceWhere struct {
+	Equals *string `json:"equals,omitempty"`
+	Path   string  `json:"path"`
 }
 
 // Tab defines model for Tab.
@@ -4728,115 +4909,119 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"8Pjp8X8DAAD//w==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

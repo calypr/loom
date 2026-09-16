@@ -97,8 +97,10 @@ vi.mock('./components/ColumnSelector', () => ({
           occurrenceId: 'base',
           source: {
             kind: 'field',
-            fieldPath: 'identifier[].value',
-            projectionMode: 'FIRST',
+            field: {
+              path: 'identifier[].value',
+              projectionMode: 'FIRST',
+            },
           },
           table: { visible: true, order: 0 },
         })
@@ -120,8 +122,10 @@ const column = {
   occurrenceId: 'base',
   source: {
     kind: 'field' as const,
-    fieldPath: 'identifier[].value',
-    projectionMode: 'FIRST',
+    field: {
+      path: 'identifier[].value',
+      projectionMode: 'FIRST',
+    },
   },
   table: { visible: true, order: 0 },
 };

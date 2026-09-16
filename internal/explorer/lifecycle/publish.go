@@ -44,7 +44,12 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 			return PublishResult{}, conflict("publish", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains invalid authoring intent", nil, decodeErr)
 		}
 		if err := workspace.ValidateForPublication(); err != nil {
-			return PublishResult{}, unprocessable("publish", "NO_SELECTED_COLUMNS", "select at least one visible output column for every visible table before publishing", err)
+			code := workspaceValidationCode(err)
+			message := "select at least one visible output column for every visible table before publishing"
+			if code == "UNACKNOWLEDGED_RELATED_FIRST" {
+				message = "acknowledge the related-resource FIRST selection before publishing"
+			}
+			return PublishResult{}, unprocessable("publish", code, message, err)
 		}
 	}
 	if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {

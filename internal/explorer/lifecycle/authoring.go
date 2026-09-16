@@ -14,6 +14,9 @@ import (
 
 func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
+		if strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
+			return nil, conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
+		}
 		return nil, malformed("commands", err.Error(), err)
 	}
 	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {

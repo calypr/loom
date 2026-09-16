@@ -351,7 +351,7 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
-	commandBody := `{"commandId":"browser-command-1","snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`
+	commandBody := `{"commandId":"browser-command-1","semanticsVersion":3,"snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":0,"commands":[{"type":"CREATE_TABLE","title":"Patients","rootNodeId":"n_patient"}]}`
 	created := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", commandBody)
 	if created.StatusCode != http.StatusOK {
 		t.Fatalf("command status=%d body=%s", created.StatusCode, created.Body)
@@ -375,7 +375,7 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	if conflict.StatusCode != http.StatusConflict || !strings.Contains(conflict.Body, `"code":"COMMAND_ID_CONFLICT"`) {
 		t.Fatalf("command ID conflict status=%d body=%s", conflict.StatusCode, conflict.Body)
 	}
-	secondBody := `{"commandId":"browser-command-2","snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":1,"commands":[{"type":"CREATE_TABLE","title":"Visits","rootNodeId":"n_patient"}]}`
+	secondBody := `{"commandId":"browser-command-2","semanticsVersion":3,"snapshotToken":"` + snapshot.Token + `","expectedDraftVersion":1,"commands":[{"type":"CREATE_TABLE","title":"Visits","rootNodeId":"n_patient"}]}`
 	second := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/commands", secondBody)
 	if second.StatusCode != http.StatusOK || !strings.Contains(second.Body, `"draftVersion":2`) {
 		t.Fatalf("second command status=%d body=%s", second.StatusCode, second.Body)

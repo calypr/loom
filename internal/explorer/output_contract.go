@@ -22,30 +22,34 @@ type PublicOutputContracts struct {
 
 // PublicOutputContract describes one compiled workspace output.
 type PublicOutputContract struct {
-	OutputID          string               `json:"outputId"`
-	RootResourceType  string               `json:"rootResourceType,omitempty"`
-	RowGrain          string               `json:"rowGrain,omitempty"`
-	RowMultiplication string               `json:"rowMultiplication,omitempty"`
-	Lossless          bool                 `json:"lossless"`
-	MLReady           bool                 `json:"mlReady"`
-	Columns           []PublicOutputColumn `json:"columns"`
+	OutputID              string               `json:"outputId"`
+	RootResourceType      string               `json:"rootResourceType,omitempty"`
+	RowGrain              string               `json:"rowGrain,omitempty"`
+	RowMultiplication     string               `json:"rowMultiplication,omitempty"`
+	Lossless              bool                 `json:"lossless"`
+	MLReady               bool                 `json:"mlReady"`
+	StructuralSuitability string               `json:"structuralSuitability,omitempty"`
+	LossReasons           []string             `json:"lossReasons,omitempty"`
+	Columns               []PublicOutputColumn `json:"columns"`
 }
 
 type PublicOutputColumn struct {
-	Column             string                          `json:"column"`
-	AuthoredColumns    []string                        `json:"authoredColumns,omitempty"`
-	Label              string                          `json:"label"`
-	LogicalType        string                          `json:"logicalType"`
-	Nullable           bool                            `json:"nullable"`
-	Shape              string                          `json:"shape,omitempty"`
-	SourceResourceType string                          `json:"sourceResourceType,omitempty"`
-	SourcePath         string                          `json:"sourcePath,omitempty"`
-	ChoiceArm          string                          `json:"choiceArm,omitempty"`
-	Coordinates        []capability.RepeatedCoordinate `json:"coordinates,omitempty"`
-	Lossless           bool                            `json:"lossless"`
-	MLReady            bool                            `json:"mlReady"`
-	Filterable         bool                            `json:"filterable"`
-	Chartable          bool                            `json:"chartable"`
+	Column                string                          `json:"column"`
+	AuthoredColumns       []string                        `json:"authoredColumns,omitempty"`
+	Label                 string                          `json:"label"`
+	LogicalType           string                          `json:"logicalType"`
+	Nullable              bool                            `json:"nullable"`
+	Shape                 string                          `json:"shape,omitempty"`
+	SourceResourceType    string                          `json:"sourceResourceType,omitempty"`
+	SourcePath            string                          `json:"sourcePath,omitempty"`
+	ChoiceArm             string                          `json:"choiceArm,omitempty"`
+	Coordinates           []capability.RepeatedCoordinate `json:"coordinates,omitempty"`
+	Lossless              bool                            `json:"lossless"`
+	MLReady               bool                            `json:"mlReady"`
+	StructuralSuitability string                          `json:"structuralSuitability,omitempty"`
+	LossReasons           []string                        `json:"lossReasons,omitempty"`
+	Filterable            bool                            `json:"filterable"`
+	Chartable             bool                            `json:"chartable"`
 
 	// Compiler identities remain available to internal legacy tests only. They
 	// are deliberately absent from the V2 public contract.
@@ -199,6 +203,8 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 	}
 	seenPublic := make(map[string]struct{}, len(emitted))
 	expectedLossless, expectedMLReady := true, true
+	expectedSuitability := ""
+	var expectedLossReasons []string
 	for i, column := range emitted {
 		if strings.TrimSpace(column.OutputID) != c.OutputID {
 			return invalidOutputContract("emittedColumns[%d] belongs to output %q, want %q", i, column.OutputID, c.OutputID)
@@ -212,15 +218,36 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		seenPublic[column.PublicColumn] = struct{}{}
 		expectedLossless = expectedLossless && column.Lossless
 		expectedMLReady = expectedMLReady && column.MLReady
+		if column.StructuralSuitability == "requires-review" {
+			expectedSuitability = "requires-review"
+		} else if expectedSuitability == "" && column.StructuralSuitability != "" {
+			expectedSuitability = column.StructuralSuitability
+		} else if expectedSuitability == "scalar" && column.StructuralSuitability == "array" {
+			expectedSuitability = "array"
+		}
+		for _, reason := range column.LossReasons {
+			if !containsString(expectedLossReasons, reason) {
+				expectedLossReasons = append(expectedLossReasons, reason)
+			}
+		}
 		actual := c.Columns[i]
-		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}
-	if c.Lossless != expectedLossless || c.MLReady != expectedMLReady {
+	if c.Lossless != expectedLossless || c.MLReady != expectedMLReady || c.StructuralSuitability != expectedSuitability || !reflect.DeepEqual(c.LossReasons, expectedLossReasons) {
 		return invalidOutputContract("aggregate lossless/mlReady flags do not match emitted columns: got (%t, %t), want (%t, %t)", c.Lossless, c.MLReady, expectedLossless, expectedMLReady)
 	}
 	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidOutputContract(format string, args ...any) error {

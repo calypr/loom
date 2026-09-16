@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 func (w Workspace) CanonicalJSON() ([]byte, error) {
@@ -20,6 +21,9 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		n.Documents[i].APIVersion = ""
 		if n.Documents[i].Columns == nil {
 			n.Documents[i].Columns = []Column{}
+		}
+		for j := range n.Documents[i].Columns {
+			n.Documents[i].Columns[j].Source = n.Documents[i].Columns[j].Source.Normalized()
 		}
 	}
 	n.Tabs = append([]Tab(nil), w.Tabs...)
@@ -231,8 +235,30 @@ func (s BuilderState) Digest() (string, error) {
 
 func DecodeWorkspace(raw []byte) (Workspace, error) {
 	var out Workspace
-	if err := strictDecode(raw, &out); err != nil {
-		return out, err
+	if err := strictDecode(raw, &out); err == nil {
+		if err := out.Validate(); err != nil {
+			return out, err
+		}
+		for i := range out.Documents {
+			if out.Documents[i].Columns == nil {
+				out.Documents[i].Columns = []Column{}
+			}
+		}
+		return out, nil
+	} else {
+		// A legacy flat source is accepted only while decoding a persisted
+		// pre-v3 workspace. New mutation requests never use this path.
+		var version struct {
+			SemanticsVersion int `json:"semanticsVersion"`
+		}
+		if json.Unmarshal(raw, &version) != nil || version.SemanticsVersion >= CurrentSemanticsVersion {
+			return out, err
+		}
+		migrated, migrationErr := decodePersistedLegacyWorkspace(raw)
+		if migrationErr != nil {
+			return out, err
+		}
+		out = migrated
 	}
 	if err := out.Validate(); err != nil {
 		return out, err
@@ -243,6 +269,106 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 	}
 	return out, nil
+}
+
+type persistedWorkspaceWire struct {
+	APIVersion         string                           `json:"apiVersion"`
+	Kind               string                           `json:"kind"`
+	SemanticsVersion   int                              `json:"semanticsVersion,omitempty"`
+	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
+	Explorer           ExplorerMetadata                 `json:"explorer"`
+	Documents          []persistedDocumentWire          `json:"documents"`
+	Tabs               []Tab                            `json:"tabs"`
+	SharedFilters      map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions        *FileActions                     `json:"fileActions,omitempty"`
+}
+
+type persistedDocumentWire struct {
+	Kind             string                `json:"kind"`
+	Output           Output                `json:"output"`
+	RootResourceType string                `json:"rootResourceType,omitempty"`
+	Route            RouteNode             `json:"route,omitempty"`
+	Columns          []persistedColumnWire `json:"columns"`
+	FixedFilters     []FixedFilter         `json:"fixedFilters,omitempty"`
+	Actions          []Action              `json:"actions,omitempty"`
+}
+
+type persistedColumnWire struct {
+	Column       string              `json:"column"`
+	Label        string              `json:"label"`
+	LogicalType  string              `json:"logicalType,omitempty"`
+	OccurrenceID string              `json:"occurrenceId"`
+	Source       json.RawMessage     `json:"source"`
+	Table        *TablePresentation  `json:"table,omitempty"`
+	Filter       *FilterPresentation `json:"filter,omitempty"`
+	Chart        *ChartPresentation  `json:"chart,omitempty"`
+}
+
+type legacyColumnSource struct {
+	Kind           string   `json:"kind"`
+	FieldPath      string   `json:"fieldPath,omitempty"`
+	Match          string   `json:"match,omitempty"`
+	ProjectionMode string   `json:"projectionMode,omitempty"`
+	Operation      string   `json:"operation,omitempty"`
+	WherePath      string   `json:"wherePath,omitempty"`
+	WhereEquals    string   `json:"whereEquals,omitempty"`
+	RequiredValues []string `json:"requiredValues,omitempty"`
+}
+
+func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
+	var wire persistedWorkspaceWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return Workspace{}, err
+	}
+	out := Workspace{
+		APIVersion: wire.APIVersion, Kind: wire.Kind, SemanticsVersion: wire.SemanticsVersion,
+		MigrationDecisions: append([]string(nil), wire.MigrationDecisions...), Explorer: wire.Explorer,
+		Tabs: append([]Tab(nil), wire.Tabs...), SharedFilters: wire.SharedFilters, FileActions: wire.FileActions,
+		Documents: make([]Document, 0, len(wire.Documents)),
+	}
+	for documentIndex, document := range wire.Documents {
+		converted := Document{Kind: document.Kind, Output: document.Output, RootResourceType: document.RootResourceType, Route: document.Route, FixedFilters: document.FixedFilters, Actions: document.Actions, Columns: make([]Column, 0, len(document.Columns))}
+		for columnIndex, column := range document.Columns {
+			source, err := decodePersistedSource(column.Source)
+			if err != nil {
+				return Workspace{}, fmt.Errorf("documents[%d].columns[%d].source: %w", documentIndex, columnIndex, err)
+			}
+			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
+		}
+		out.Documents = append(out.Documents, converted)
+	}
+	return out, nil
+}
+
+func decodePersistedSource(raw json.RawMessage) (ColumnSource, error) {
+	var current ColumnSource
+	if err := strictDecode(raw, &current); err == nil {
+		return current, nil
+	}
+	var legacy legacyColumnSource
+	if err := strictDecode(raw, &legacy); err != nil {
+		return ColumnSource{}, err
+	}
+	mode := strings.ToUpper(strings.TrimSpace(legacy.ProjectionMode))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	switch legacy.Kind {
+	case SourceField:
+		return ColumnSource{Kind: SourceField, Field: &FieldSource{Path: legacy.FieldPath, ProjectionMode: mode}}, nil
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
+		return ColumnSource{Kind: legacy.Kind, Lookup: &LookupSource{Match: legacy.Match, Path: legacy.FieldPath, ProjectionMode: mode}}, nil
+	case SourceAggregate:
+		aggregate := &AggregateSource{Operation: strings.ToUpper(strings.TrimSpace(legacy.Operation)), Path: legacy.FieldPath, RequiredValues: append([]string(nil), legacy.RequiredValues...)}
+		if strings.TrimSpace(legacy.WherePath) != "" || strings.TrimSpace(legacy.WhereEquals) != "" {
+			aggregate.Where = &SourceWhere{Path: legacy.WherePath, Equals: legacy.WhereEquals}
+		}
+		return ColumnSource{Kind: SourceAggregate, Aggregate: aggregate}, nil
+	case SourceProjectID:
+		return ColumnSource{Kind: SourceProjectID}, nil
+	default:
+		return ColumnSource{}, fmt.Errorf("unsupported source kind %q", legacy.Kind)
+	}
 }
 
 func strictDecode(raw []byte, target any) error {

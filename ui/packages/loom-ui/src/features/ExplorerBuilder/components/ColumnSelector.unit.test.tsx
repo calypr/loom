@@ -42,8 +42,10 @@ const table: DraftTable = {
         occurrenceId: 'base',
         source: {
           kind: 'field',
-          fieldPath: 'identifier[].value',
-          projectionMode: 'FIRST',
+          field: {
+            path: 'identifier[].value',
+            projectionMode: 'FIRST',
+          },
         },
         table: { visible: true, order: 0 },
       },
@@ -52,6 +54,47 @@ const table: DraftTable = {
 };
 
 describe('configured V2 columns', () => {
+  it('requires a separate source edit to acknowledge omitting related records', () => {
+    const onSourceChange = vi.fn();
+    const onChange = vi.fn();
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'base',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+    render(<ColumnSelector catalog={catalog} table={relatedTable} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={onChange}
+      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+    const acknowledgment = screen.getByRole('checkbox', { name: 'Allow first related value for Observation value' });
+    expect(acknowledgment).toHaveProperty('checked', false);
+    expect(screen.getByText(/Other records are omitted/)).toBeInTheDocument();
+    fireEvent.click(acknowledgment);
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'field',
+      field: {
+        path: 'valueQuantity.value',
+        projectionMode: 'VALUE',
+        relatedSelection: { kind: 'first-by-resource-key', acknowledged: true },
+      },
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('renders document columns even when the catalog has no candidates', () => {
     const onChange = vi.fn();
     render(
@@ -63,6 +106,7 @@ describe('configured V2 columns', () => {
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={onChange}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -122,7 +166,7 @@ describe('configured V2 columns', () => {
           column: 'alpha',
           label: 'Alpha',
           occurrenceId: 'base',
-          source: { kind: 'field', fieldPath: 'alpha', projectionMode: 'FIRST' },
+          source: { kind: 'field', field: { path: 'alpha', projectionMode: 'FIRST' } },
           table: { visible: true, order: 0 },
         }],
       },
@@ -137,6 +181,7 @@ describe('configured V2 columns', () => {
           disabled={false}
           onAdd={vi.fn()}
           onAddAll={vi.fn()}
+          onSourceChange={vi.fn()}
           onChange={(next) => setCurrentTable((current) => ({
             ...current,
             document: {
@@ -194,6 +239,7 @@ describe('configured V2 columns', () => {
         onAdd={onAdd}
         onAddAll={onAddAll}
         onChange={vi.fn()}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -258,6 +304,7 @@ describe('configured V2 columns', () => {
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={vi.fn()}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -291,6 +338,7 @@ describe('configured V2 columns', () => {
         onAdd={vi.fn()}
         onAddAll={vi.fn()}
         onChange={onChange}
+        onSourceChange={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -333,8 +381,10 @@ describe('configured V2 columns', () => {
       occurrenceId: 'patient-step',
       source: {
         kind: 'field',
-        fieldPath: 'birthDate',
-        projectionMode: 'FIRST',
+        field: {
+          path: 'birthDate',
+          projectionMode: 'FIRST',
+        },
       },
       table: { visible: true, order: 1 },
     });
@@ -361,6 +411,6 @@ describe('configured V2 columns', () => {
     );
 
     expect(column.column).toBe('research_subject_identifier');
-    expect(column.source.fieldPath).toBe('identifier[].value');
+    expect(column.source).toMatchObject({ kind: 'field', field: { path: 'identifier[].value' } });
   });
 });

@@ -1,4 +1,5 @@
 import {
+  EXPLORER_AUTHORING_SEMANTICS_VERSION,
   assertExplorerBuilderCompileResult,
   assertExplorerBuilderPreviewResult,
   assertExplorerBuilderPublishResult,
@@ -662,6 +663,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const applyCommands = async (args: ApplyExplorerBuilderCommandsArgs, signal?: AbortSignal) => {
     const value = explorerBuilderCommandsResultSchema.parse(await request(durableAuthoringPath(args, '/commands'), withJson({
       commandId: args.commandId,
+      semanticsVersion: EXPLORER_AUTHORING_SEMANTICS_VERSION,
       snapshotToken: args.snapshotToken,
       expectedDraftVersion: args.expectedDraftVersion,
       ...(args.expectedDraftDigest ? { expectedDraftDigest: args.expectedDraftDigest } : {}),

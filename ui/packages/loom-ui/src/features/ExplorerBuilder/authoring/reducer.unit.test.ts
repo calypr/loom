@@ -30,8 +30,10 @@ const ready: ExplorerBuilderState = {
             occurrenceId: 'base',
             source: {
               kind: 'identifierBySystem',
-              match: 'https://aced-idp.org/project',
-              projectionMode: 'FIRST',
+              lookup: {
+                match: 'https://aced-idp.org/project',
+                projectionMode: 'FIRST',
+              },
             },
             table: { visible: true, order: 0 },
           },
@@ -228,8 +230,10 @@ describe('semantic Builder hydration', () => {
         occurrenceId: 'base',
         source: {
           kind: 'field',
-          fieldPath: 'birthDate',
-          projectionMode: 'FIRST',
+          field: {
+            path: 'birthDate',
+            projectionMode: 'FIRST',
+          },
         },
         table: { visible: true, order: 1 },
       },
@@ -237,7 +241,7 @@ describe('semantic Builder hydration', () => {
 
     expect(workspaceFromState(edited).documents[0].columns[1]).toMatchObject({
       column: 'birth_date',
-      source: { kind: 'field', fieldPath: 'birthDate' },
+      source: { kind: 'field', field: { path: 'birthDate' } },
     });
   });
 
@@ -376,8 +380,10 @@ describe('semantic Builder hydration', () => {
                 occurrenceId: 'observation',
                 source: {
                   kind: 'field',
-                  fieldPath: 'status',
-                  projectionMode: 'FIRST',
+                  field: {
+                    path: 'status',
+                    projectionMode: 'FIRST',
+                  },
                 },
                 table: { visible: true, order: 1 },
               },
@@ -387,8 +393,10 @@ describe('semantic Builder hydration', () => {
                 occurrenceId: 'patient',
                 source: {
                   kind: 'field',
-                  fieldPath: 'identifier[].value',
-                  projectionMode: 'FIRST',
+                  field: {
+                    path: 'identifier[].value',
+                    projectionMode: 'FIRST',
+                  },
                 },
                 table: { visible: true, order: 2 },
               },

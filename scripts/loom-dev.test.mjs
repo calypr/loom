@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commandEnvironment, createDevSession, createVerificationReport, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+
+test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
+  assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);
+  assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4d6n33-4abffd57', 'fixture-v1'), 180);
+});
 
 test('development session defaults to isolated names, ports, and fixture', () => {
   const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));

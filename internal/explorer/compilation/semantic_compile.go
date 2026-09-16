@@ -49,7 +49,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
 	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
-	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: "none", Lossless: true, MLReady: true, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: "none", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
 	countEmissions := map[string]int{}
 	presentationOrder := 0
 
@@ -66,16 +66,22 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 		logicalType := firstNonEmpty(column.LogicalType, "string")
 		filterable, chartable := column.Filter != nil, column.Chart != nil
-		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+column.Source.Kind+"\x00"+column.Source.FieldPath+"\x00"+column.Source.Match+"\x00"+column.Source.Operation+"\x00"+column.Source.WherePath+"\x00"+column.Source.WhereEquals+"\x00"+column.Column)
-		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode), "FIRST")
+		sourceJSON, _ := json.Marshal(column.Source.Normalized())
+		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+string(sourceJSON)+"\x00"+column.Column)
+		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode()), "FIRST")
+		sourcePath := column.Source.FieldPath()
 		sourceRepeated := false
 		choiceArm := ""
+		structuralSuitability := "scalar"
+		var lossReasons []string
+		lossless := true
+		mlReady := false
 
 		switch column.Source.Kind {
 		case authoringv2.SourceField:
-			candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, column.Source.FieldPath)
+			candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, sourcePath)
 			if !found {
-				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.fieldPath", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": column.Source.FieldPath}, nil)
+				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": sourcePath}, nil)
 			}
 			capabilityMode, supported := capabilityProjectionMode(projectionMode)
 			if !supported || !containsProjectionMode(candidate.ProjectionModes, capabilityMode) {
@@ -89,7 +95,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			logicalType = firstNonEmpty(candidate.LogicalType, "string")
 			filterable = filterable && supportsOperation(candidate.SupportedOperations, capability.OperationFilter)
 			chartable = chartable && supportsOperation(candidate.SupportedOperations, capability.OperationChart)
-			path := strings.TrimPrefix(strings.TrimSpace(column.Source.FieldPath), "root.")
+			path := strings.TrimPrefix(strings.TrimSpace(sourcePath), "root.")
 			choiceArm = choiceArmForPath(path)
 			if projectionMode == "INDEXED" {
 				indexed, counts, expandErr := expandIndexedProjection(leaf, path, candidate.RepeatedBoundaries)
@@ -107,10 +113,19 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				}
 				emissionIDs := make([]string, 0, len(indexed)+len(counts))
 				for _, item := range indexed {
-					nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: item.Leaf, FieldRef: column.Source.FieldPath, Expr: recipe.Expression{Select: alias + "." + item.Selector}, ValueMode: recipe.ValueModeFirst})
+					nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: item.Leaf, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + item.Selector}, ValueMode: recipe.ValueModeFirst})
 					publicColumn := indexedLeaf(column.Column, item.Coordinates)
-					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: indexedLabel(column.Label, item.Coordinates), LogicalType: logicalType, Nullable: true, Shape: "indexed_scalar", SourceResourceType: occurrence.graph.ResourceType, SourcePath: path, ChoiceArm: choiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), item.Coordinates...), Lossless: true, MLReady: true, Filterable: filterable, Chartable: chartable}
+					var lossReasons []string
+					structuralSuitability := "scalar"
+					lossless := true
+					if column.OccurrenceID != authoringv2.RootOccurrenceID {
+						lossless = false
+						lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
+						structuralSuitability = "requires-review"
+					}
+					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: indexedLabel(column.Label, item.Coordinates), LogicalType: logicalType, Nullable: true, Shape: "indexed_scalar", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: path, ChoiceArm: choiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), item.Coordinates...), Lossless: lossless, MLReady: false, Filterable: filterable, Chartable: chartable}
 					emitted = append(emitted, emission)
+					mergeContractQuality(&contract, emission)
 					contract.Columns = append(contract.Columns, publicColumnContract(emission))
 					presentation.Columns = append(presentation.Columns, presentationColumn(column, index, presentationOrder, emission))
 					presentationOrder++
@@ -129,8 +144,16 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 						continue
 					}
 					nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: count.Leaf, FieldRef: count.Selector, Expr: recipe.Expression{Call: "length", Args: []recipe.Expression{{Select: alias + "." + count.Selector}}}, ValueMode: recipe.ValueModeAuto})
-					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: "boundary_" + shortHash(key), CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: "COUNT", AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: count.Leaf, LogicalType: "integer", Nullable: false, Shape: "repeated_count", SourceResourceType: occurrence.graph.ResourceType, SourcePath: count.Selector, Coordinates: append([]capability.RepeatedCoordinate(nil), count.Coordinates...), Lossless: true, MLReady: true}
+					lossReasons := []string(nil)
+					structuralSuitability := "scalar"
+					lossless := column.OccurrenceID == authoringv2.RootOccurrenceID
+					if column.OccurrenceID != authoringv2.RootOccurrenceID {
+						lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
+						structuralSuitability = "requires-review"
+					}
+					emission := explorer.EmittedColumn{EmissionID: publicColumn, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: "boundary_" + shortHash(key), CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: "COUNT", AuthoredColumns: []string{column.Column}, PublicColumn: publicColumn, Label: count.Leaf, LogicalType: "integer", Nullable: false, Shape: "repeated_count", StructuralSuitability: structuralSuitability, LossReasons: lossReasons, SourceResourceType: occurrence.graph.ResourceType, SourcePath: count.Selector, Coordinates: append([]capability.RepeatedCoordinate(nil), count.Coordinates...), Lossless: lossless, MLReady: false}
 					emitted = append(emitted, emission)
+					mergeContractQuality(&contract, emission)
 					contract.Columns = append(contract.Columns, publicColumnContract(emission))
 					presentation.Columns = append(presentation.Columns, presentationColumn(column, index, presentationOrder, emission))
 					presentationOrder++
@@ -140,7 +163,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
 				continue
 			}
-			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: column.Source.FieldPath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
+			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
 		case authoringv2.SourceProjectID:
 			literal, _ := json.Marshal(project)
 			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
@@ -151,6 +174,19 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
+			if column.Source.Aggregate != nil {
+				if path := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root."); path != "" {
+					if _, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path); !found {
+						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": path}, nil)
+					}
+				}
+				if column.Source.Aggregate.Where != nil {
+					wherePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Where.Path), "root.")
+					if _, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, wherePath); !found {
+						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.where.path", index), "aggregate predicate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": wherePath}, nil)
+					}
+				}
+			}
 			aggregate, aggregateType, aggregateErr := semanticAggregate(column, alias, occurrence.graph.ResourceType)
 			if aggregateErr != nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), aggregateErr.Error(), nil, aggregateErr)
@@ -181,22 +217,47 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			visible = false
 		}
 		emissionID := column.Column
-		lossless := true
-		mlReady := true
-		if column.Source.Kind == authoringv2.SourceField && sourceRepeated {
-			lossless = projectionMode == "ALL"
-			mlReady = projectionMode != "ALL"
-		} else if column.Source.Kind != authoringv2.SourceField && column.Source.Kind != authoringv2.SourceProjectID {
-			lossless = false
-		}
 		shape := "scalar"
-		if projectionMode == "ALL" {
+		if column.Source.Kind == authoringv2.SourceField && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
 			shape = "array"
+			structuralSuitability = "array"
 		}
-		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: column.Source.FieldPath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, Filterable: filterable, Chartable: chartable}
+		if column.Source.Kind == authoringv2.SourceField {
+			if column.OccurrenceID != authoringv2.RootOccurrenceID && column.Source.Field != nil && (projectionMode == "VALUE" || projectionMode == "FIRST" || projectionMode == "INDEXED") {
+				lossless = false
+				lossReasons = append(lossReasons, "RELATED_RESOURCE_FIRST_LOSSY")
+				structuralSuitability = "requires-review"
+			}
+			if column.OccurrenceID != authoringv2.RootOccurrenceID && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
+				lossless = false
+				lossReasons = append(lossReasons, "RELATED_RESOURCE_ALL_LOSSY")
+				structuralSuitability = "requires-review"
+			}
+			if sourceRepeated && projectionMode == "DISTINCT" {
+				lossless = false
+				lossReasons = append(lossReasons, "DISTINCT_VALUES_REDUCTION")
+			}
+			if sourceRepeated && projectionMode == "FIRST" {
+				lossless = false
+				lossReasons = append(lossReasons, "FIELD_FIRST_REDUCTION")
+				structuralSuitability = "requires-review"
+			}
+		} else if column.Source.Kind == authoringv2.SourceAggregate {
+			lossless = false
+			lossReasons = append(lossReasons, "AGGREGATE_REDUCTION")
+			if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "DISTINCT_VALUES") {
+				shape = "array"
+				structuralSuitability = "array"
+				lossReasons = append(lossReasons, "DISTINCT_VALUES_REDUCTION")
+			}
+		} else if column.Source.Kind != authoringv2.SourceProjectID {
+			lossless = false
+			lossReasons = append(lossReasons, "RELATED_LOOKUP_REDUCTION")
+			structuralSuitability = "requires-review"
+		}
+		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: sourcePath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, StructuralSuitability: structuralSuitability, LossReasons: append([]string(nil), lossReasons...), Filterable: filterable, Chartable: chartable}
 		emitted = append(emitted, emission)
-		contract.Lossless = contract.Lossless && lossless
-		contract.MLReady = contract.MLReady && mlReady
+		mergeContractQuality(&contract, emission)
 		mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
 		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, Pinned: pinned}
 		if column.Filter != nil {
@@ -232,6 +293,30 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	return Result{Bundle: bundle, RecipeDigest: digest, EmittedColumns: emitted, IdentityMappings: mappings, Presentation: presentation, OutputContract: contract}, nil
 }
 
+func mergeContractQuality(contract *explorer.PublicOutputContract, emission explorer.EmittedColumn) {
+	contract.Lossless = contract.Lossless && emission.Lossless
+	contract.MLReady = contract.MLReady && emission.MLReady
+	if emission.StructuralSuitability == "requires-review" {
+		contract.StructuralSuitability = "requires-review"
+	} else if contract.StructuralSuitability == "scalar" && emission.StructuralSuitability == "array" {
+		contract.StructuralSuitability = "array"
+	}
+	for _, reason := range emission.LossReasons {
+		if !containsSemanticString(contract.LossReasons, reason) {
+			contract.LossReasons = append(contract.LossReasons, reason)
+		}
+	}
+}
+
+func containsSemanticString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func choiceArmForPath(path string) string {
 	for _, raw := range strings.Split(strings.TrimPrefix(path, "root."), ".") {
 		part := strings.TrimSuffix(raw, "[]")
@@ -260,7 +345,7 @@ func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputCo
 		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
 		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...),
-		Lossless: column.Lossless, MLReady: column.MLReady, Filterable: column.Filterable, Chartable: column.Chartable,
+		Lossless: column.Lossless, MLReady: column.MLReady, StructuralSuitability: column.StructuralSuitability, LossReasons: append([]string(nil), column.LossReasons...), Filterable: column.Filterable, Chartable: column.Chartable,
 	}
 }
 
@@ -430,7 +515,7 @@ func containsProjectionMode(values []capability.ProjectionMode, want capability.
 
 func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
 	empty := ""
-	fieldPath := strings.Trim(strings.TrimSpace(column.Source.FieldPath), ".")
+	fieldPath := strings.Trim(strings.TrimSpace(column.Source.FieldPath()), ".")
 	sourcePath, keyPath := "", ""
 	var value recipe.Expression
 	switch column.Source.Kind {
@@ -447,32 +532,37 @@ func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType str
 		return recipe.DynamicColumn{}, fmt.Errorf("unsupported source kind %q", column.Source.Kind)
 	}
 	key := recipe.Expression{Select: keyPath}
-	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: column.Source.Match}}, nil
+	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: column.Source.LookupMatch()}}, nil
 }
 
 func semanticAggregate(column authoringv2.Column, alias, resourceType string) (recipe.Aggregate, string, error) {
-	op := strings.ToUpper(strings.TrimSpace(column.Source.Operation))
+	if column.Source.Aggregate == nil {
+		return recipe.Aggregate{}, "", fmt.Errorf("aggregate payload is required")
+	}
+	source := column.Source.Aggregate
+	op := strings.ToUpper(strings.TrimSpace(source.Operation))
 	operation := recipe.AggregateOperation(op)
 	aggregate := recipe.Aggregate{
 		Name: "aggregate_" + shortHash(column.OccurrenceID+"\x00"+column.Column+"\x00"+op), OutputName: column.Column,
 		Operation: operation, FieldRef: column.Column, ValueMode: recipe.ValueModeAuto,
-		RequiredValues: append([]string(nil), column.Source.RequiredValues...),
+		RequiredValues: append([]string(nil), source.RequiredValues...),
 	}
-	if strings.TrimSpace(column.Source.FieldPath) != "" {
-		path := strings.Trim(strings.TrimSpace(column.Source.FieldPath), ".")
+	if strings.TrimSpace(source.Path) != "" {
+		path := strings.Trim(strings.TrimSpace(source.Path), ".")
 		aggregate.Expr = &recipe.Expression{Select: alias + "." + path}
 	}
-	if wherePath := strings.Trim(strings.TrimSpace(column.Source.WherePath), "."); wherePath != "" {
+	if source.Where != nil && strings.TrimSpace(source.Where.Path) != "" {
+		wherePath := strings.Trim(strings.TrimSpace(source.Where.Path), ".")
 		where := &recipe.Filter{Select: alias + "." + wherePath, FieldRef: column.Column}
-		if strings.TrimSpace(column.Source.WhereEquals) == "" {
+		if strings.TrimSpace(source.Where.Equals) == "" {
 			where.Operator = recipe.FilterExists
 		} else {
 			where.Operator = recipe.FilterEquals
 			where.Quantifier = recipe.QuantifierAny
-			value := column.Source.WhereEquals
+			value := source.Where.Equals
 			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, wherePath)
 			if !ok || metadata.Primitive != fhirschema.PrimitiveString {
-				return recipe.Aggregate{}, "", fmt.Errorf("aggregate predicate selector %q must resolve to a string or code", column.Source.WherePath)
+				return recipe.Aggregate{}, "", fmt.Errorf("aggregate predicate selector %q must resolve to a string or code", source.Where.Path)
 			}
 			if wherePath == "code" || strings.HasSuffix(wherePath, ".code") {
 				where.Values = []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: value}}}
@@ -490,9 +580,9 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string) (r
 	case recipe.AggregateExists, recipe.AggregateContainsAll:
 		logicalType = "boolean"
 	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax:
-		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(column.Source.FieldPath), "."))
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(source.Path), "."))
 		if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
-			return recipe.Aggregate{}, "", fmt.Errorf("aggregate selector %q is not represented by generated resource type %q", column.Source.FieldPath, resourceType)
+			return recipe.Aggregate{}, "", fmt.Errorf("aggregate selector %q is not represented by generated resource type %q", source.Path, resourceType)
 		}
 		switch metadata.Primitive {
 		case fhirschema.PrimitiveInteger:
@@ -509,18 +599,21 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string) (r
 			logicalType = "string"
 		}
 	default:
-		return recipe.Aggregate{}, "", fmt.Errorf("unsupported aggregate operation %q", column.Source.Operation)
+		return recipe.Aggregate{}, "", fmt.Errorf("unsupported aggregate operation %q", source.Operation)
 	}
 	return aggregate, logicalType, nil
 }
 
 func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {
-	separator := "__" + column.Source.Match
+	if column.Source.Lookup == nil {
+		return recipe.Pivot{}, fmt.Errorf("observation component lookup payload is required")
+	}
+	separator := "__" + column.Source.Lookup.Match
 	if !strings.HasSuffix(leaf, separator) || strings.TrimSuffix(leaf, separator) == "" {
 		return recipe.Pivot{}, fmt.Errorf("observation component column %q must end with %q", column.Column, separator)
 	}
 	name := strings.TrimSuffix(leaf, separator)
-	sourcePath := firstNonEmpty(strings.Trim(strings.TrimSpace(column.Source.FieldPath), "."), "component[]")
+	sourcePath := firstNonEmpty(strings.Trim(strings.TrimSpace(column.Source.Lookup.Path), "."), "component[]")
 	prefix := alias + "." + sourcePath
 	return recipe.Pivot{
 		Name:             name,
@@ -529,7 +622,7 @@ func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (re
 		ValueFallbacks:   []recipe.Expression{{Select: prefix + ".valueCodeableConcept.text"}, {Select: prefix + ".valueQuantity.value"}, {Select: prefix + ".valueInteger"}},
 		ItemSource:       recipe.Expression{Select: alias + "." + sourcePath},
 		ItemResourceType: "ObservationComponent",
-		Columns:          []string{column.Source.Match},
+		Columns:          []string{column.Source.Lookup.Match},
 	}, nil
 }
 

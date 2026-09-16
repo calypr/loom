@@ -22,6 +22,9 @@ func (w Workspace) Validate() error {
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
+	if w.SemanticsVersion > CurrentSemanticsVersion {
+		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", w.SemanticsVersion)
+	}
 	if strings.TrimSpace(w.Explorer.Title) == "" {
 		return fmt.Errorf("explorer.title is required")
 	}
@@ -81,6 +84,22 @@ func (w Workspace) ValidateForPublication() error {
 	for i, document := range w.Documents {
 		if !visibleOutputs[document.Output.ID] {
 			continue
+		}
+		for columnIndex, column := range document.Columns {
+			if column.OccurrenceID == RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil {
+				continue
+			}
+			mode := strings.ToUpper(strings.TrimSpace(column.Source.Field.ProjectionMode))
+			if mode == "" {
+				mode = "FIRST"
+			}
+			if mode != "VALUE" && mode != "FIRST" && mode != "INDEXED" {
+				continue
+			}
+			selection := column.Source.Field.RelatedSelection
+			if selection == nil || selection.Kind != "first-by-resource-key" || !selection.Acknowledged {
+				return fmt.Errorf("UNACKNOWLEDGED_RELATED_FIRST: documents[%d].columns[%d] requires relatedSelection acknowledgement", i, columnIndex)
+			}
 		}
 		visible := 0
 		for _, column := range document.Columns {

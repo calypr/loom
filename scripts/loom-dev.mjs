@@ -738,7 +738,16 @@ const rowValue = (row, column) => row[column] ?? null;
 
 const coordinateIndex = (emitted) => emitted?.coordinates?.at(-1)?.index ?? -1;
 
+// Ingestion keys include the project and generation. Legacy FIRST orders by
+// those storage keys, not FHIR IDs; these expectations do not use the compiler.
+export const expectedFixtureRelatedValue = (project, generation) => {
+  const key = (id) => createHash('sha256')
+    .update(['vertex', project, generation, 'Observation', id, ''].join('\0')).digest('hex');
+  return key('dev-observation-001') < key('dev-observation-003') ? 172.5 : 180;
+};
+
 const verifyBrowserScenario = async (target, report, full) => {
+  const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
   const scenarioStarted = Date.now();
   const runID = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
   const evidenceDir = join(target.artifacts, runID);
@@ -802,11 +811,25 @@ const verifyBrowserScenario = async (target, report, full) => {
     recordAssertion(report, 'preview-shows-exact-fixture-table', {
       headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'valueQuantity.value'],
       rows: [
-        ['dev-patient-001', 'Example', 'Example-Smith', '2', '172.5'],
+        ['dev-patient-001', 'Example', 'Example-Smith', '2', String(relatedValue)],
         ['dev-patient-002', 'Builder', '—', '1', '68'],
       ],
     }, preview);
 
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]'))`);
+    recordAssertion(report, 'related-selection-starts-unacknowledged', false,
+      await evaluate(cdp, `document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]').checked`));
+    recordAssertion(report, 'contract-does-not-claim-ml-readiness', false,
+      await evaluate(cdp, `document.body.innerText.includes('ML-ready: Yes')`));
+    await browserEval(cdp, `clickButton('Publish')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('UNACKNOWLEDGED_RELATED_FIRST')`, 30000);
+    const rejectedState = await fetchExplorerState(target, explorerId);
+    recordAssertion(report, 'unacknowledged-related-selection-cannot-publish', false,
+      Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
+    await browserEval(cdp, `document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]').click()`);
+    await waitForBrowser(cdp, `document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]')?.checked === true && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Publish')`);
     const runtimeStarted = Date.now();
     let state;
@@ -856,6 +879,15 @@ const verifyBrowserScenario = async (target, report, full) => {
     recordAssertion(report, 'published-output-has-id-lineage', true, Boolean(idColumn));
     recordAssertion(report, 'published-output-has-repeated-family-lineage', true, familyColumns.length >= 2 && familyColumns.every(({ emitted }) => emitted.coordinates?.length > 0));
     recordAssertion(report, 'published-output-has-related-value-lineage', true, Boolean(valueColumn));
+    recordAssertion(report, 'indexed-family-and-count-preserve-selected-values', true,
+      [...familyColumns, nameCountColumn].every(({ emitted }) => emitted.lossless === true && !emitted.lossReasons?.length));
+    recordAssertion(report, 'related-value-retains-loss-warning-after-acknowledgment', {
+      lossless: false, structure: 'requires-review', reasons: ['RELATED_RESOURCE_FIRST_LOSSY'],
+    }, {
+      lossless: valueColumn.emitted.lossless === true,
+      structure: valueColumn.emitted.structuralSuitability,
+      reasons: valueColumn.emitted.lossReasons,
+    });
     const result = await graphQLRows(target, output.selector, physicalColumns);
     report.target.materialization = result.materialization;
     recordAssertion(report, 'new-materialization-is-readable', true, Boolean(result.materialization?.id));
@@ -872,7 +904,7 @@ const verifyBrowserScenario = async (target, report, full) => {
       relatedValue: rowValue(row, valueColumn.runtime.column),
     }));
     recordAssertion(report, 'materialized-exact-fixture-rows', [
-      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue: 172.5 },
+      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue },
       { id: 'dev-patient-002', family: ['Builder', null], nameCount: '1', gender: null, relatedValue: 68 },
     ], exactRows);
 
@@ -894,7 +926,7 @@ const verifyBrowserScenario = async (target, report, full) => {
     })()`);
     recordAssertion(report, 'viewer-filter-shows-exact-table', {
       headers: ['id', 'name[].family [0]', 'name[].family [1]', 'valueQuantity.value', 'name__count'],
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '172.5', '2']],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', String(relatedValue), '2']],
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
@@ -904,7 +936,7 @@ const verifyBrowserScenario = async (target, report, full) => {
     const csvRows = parseCSV(readFileSync(csvPath, 'utf8'));
     const expectedCSV = {
       headers: output.columns.filter((column) => column.visible).map((column) => column.column),
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '172.5', '2']],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', String(relatedValue), '2']],
     };
     recordAssertion(report, 'downloaded-csv-has-generated-physical-headers', expectedCSV.headers, csvRows[0] ?? []);
     recordAssertion(report, 'downloaded-csv-has-exact-filtered-rows', expectedCSV.rows, csvRows.slice(1));

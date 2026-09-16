@@ -277,10 +277,10 @@ func referencedColumns(config explorer.ConfigV2, view explorer.ConfigView) []str
 
 func inferSource(project, rootResourceType, occurrenceID, leaf, physical string) (authoringv2.ColumnSource, string, error) {
 	if physical == "project_id" {
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID, ProjectionMode: "FIRST"}, "string", nil
+		return authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}, "string", nil
 	}
 	if marker := "observation_component_values__"; strings.Contains(leaf, marker) {
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceObservationComponentByCode, Match: leaf[strings.Index(leaf, marker)+len(marker):], FieldPath: "component[]", ProjectionMode: "FIRST"}, "string", nil
+		return authoringv2.ColumnSource{Kind: authoringv2.SourceObservationComponentByCode, Lookup: &authoringv2.LookupSource{Match: leaf[strings.Index(leaf, marker)+len(marker):], Path: "component[]", ProjectionMode: "FIRST"}}, "string", nil
 	}
 	if marker := "identifier_by_system_"; strings.Contains(leaf, marker) {
 		encoded := leaf[strings.Index(leaf, marker)+len(marker):]
@@ -288,7 +288,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		if !ok {
 			return authoringv2.ColumnSource{}, "", fmt.Errorf("cannot recover identifier system %q", encoded)
 		}
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Match: match, FieldPath: "identifier[]", ProjectionMode: "FIRST"}, "string", nil
+		return authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Match: match, Path: "identifier[]", ProjectionMode: "FIRST"}}, "string", nil
 	}
 	if marker := "extension_by_url_"; strings.Contains(leaf, marker) {
 		encoded := leaf[strings.Index(leaf, marker)+len(marker):]
@@ -296,7 +296,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		if !ok {
 			return authoringv2.ColumnSource{}, "", fmt.Errorf("cannot recover extension URL %q", encoded)
 		}
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Match: match, FieldPath: "extension[]", ProjectionMode: "FIRST"}, "string", nil
+		return authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{Match: match, Path: "extension[]", ProjectionMode: "FIRST"}}, "string", nil
 	}
 	if rootResourceType == "DocumentReference" && strings.HasPrefix(leaf, "document_reference_") {
 		name := strings.TrimPrefix(leaf, "document_reference_")
@@ -308,7 +308,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		case "identifier":
 			return field("identifier[].value", "string"), "string", nil
 		default:
-			return authoringv2.ColumnSource{Kind: authoringv2.SourceCodingBySystem, Match: "https://humantumoratlas.org/" + name, FieldPath: "category[].coding[]", ProjectionMode: "FIRST"}, "string", nil
+			return authoringv2.ColumnSource{Kind: authoringv2.SourceCodingBySystem, Lookup: &authoringv2.LookupSource{Match: "https://humantumoratlas.org/" + name, Path: "category[].coding[]", ProjectionMode: "FIRST"}}, "string", nil
 		}
 	}
 	switch leaf {
@@ -329,7 +329,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 }
 
 func field(path, _ string) authoringv2.ColumnSource {
-	return authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: path, ProjectionMode: "FIRST"}
+	return authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: path, ProjectionMode: "FIRST"}}
 }
 
 func decodeKnownURL(project, encoded string) (string, bool) {

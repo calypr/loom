@@ -12,7 +12,8 @@ import (
 
 func (s *Service) PublishRepository(ctx context.Context, request RepositoryPublishRequest) (RepositoryPublishResult, error) {
 	if err := request.Workspace.ValidateForPublication(); err != nil {
-		return RepositoryPublishResult{}, unprocessable("repository_publish", "INVALID_WORKSPACE", err.Error(), err)
+		code := workspaceValidationCode(err)
+		return RepositoryPublishResult{}, unprocessable("repository_publish", code, err.Error(), err)
 	}
 	if s.config.Capability.Current == nil || s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "repository V2 compilation is not configured", nil)

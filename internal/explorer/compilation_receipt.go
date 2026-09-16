@@ -23,8 +23,9 @@ const (
 	CompilationReceiptFormatVersion = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion       = "loom.explorer.compiler/v11"
-	legacyCompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v10"
+	CompilationReceiptCompilerContractVersion       = "loom.explorer.compiler/v12"
+	legacyCompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v11"
+	legacyCompilationReceiptOlderContractVersion    = "loom.explorer.compiler/v10"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -63,6 +64,7 @@ type CompilationReceipt struct {
 	Project                  string            `json:"project"`
 	ExplorerID               string            `json:"explorerId"`
 	IntentDigest             string            `json:"intentDigest"`
+	ResolvedInputsDigest     string            `json:"resolvedInputsDigest,omitempty"`
 	SnapshotToken            string            `json:"snapshotToken"`
 	AuthorizationScopeDigest string            `json:"authorizationScopeDigest,omitempty"`
 	CapabilitySchemaDigest   string            `json:"capabilitySchemaDigest,omitempty"`
@@ -119,6 +121,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		Project                 string `json:"project"`
 		ExplorerID              string `json:"explorerId"`
 		IntentDigest            string `json:"intentDigest"`
+		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
 		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
 		SnapshotToken           string `json:"snapshotToken"`
 		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
@@ -136,6 +139,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		Project                 string `json:"project"`
 		ExplorerID              string `json:"explorerId"`
 		IntentDigest            string `json:"intentDigest"`
+		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
 		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
 		SnapshotToken           string `json:"snapshotToken"`
 		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
@@ -144,7 +148,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		SourceGeneration        string `json:"sourceGeneration"`
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
-		r.IntentDigest, normalized, r.SnapshotToken,
+		r.IntentDigest, r.ResolvedInputsDigest, normalized, r.SnapshotToken,
 		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration,
 	}
 	return digestIdentity("compile_", identity)
@@ -216,7 +220,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {

@@ -89,6 +89,13 @@ describe('Loom project paths', () => {
       '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/reconcile',
       '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/publish',
     ]);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
+      commandId: 'command-1',
+      semanticsVersion: 3,
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      commands: [],
+    });
   });
 
   it('preserves standalone project identifiers', async () => {

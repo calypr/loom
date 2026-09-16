@@ -3,6 +3,20 @@ import type { ExplorerBuilderCompileResult } from '../../../types';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
 const ROW_HEIGHT = 42;
+const lossLabels: Readonly<Record<string, string>> = {
+  RELATED_RESOURCE_FIRST_LOSSY: 'Only the first related record is kept. Other records are omitted.',
+  RELATED_RESOURCE_ALL_LOSSY: 'Values from related records are flattened. Their association with each record is not retained.',
+  FIELD_FIRST_REDUCTION: 'Only the first value in a repeated field is kept. Other values are omitted.',
+  DISTINCT_VALUES_REDUCTION: 'Repeated values are deduplicated. Their frequency and order are not retained.',
+  AGGREGATE_REDUCTION: 'Records are summarized. Individual input values are not retained.',
+  RELATED_LOOKUP_REDUCTION: 'The lookup does not preserve every related record.',
+};
+const lossLabel = (reason: string): string => lossLabels[reason] ?? reason;
+const structureLabels = {
+  scalar: 'Scalar columns',
+  array: 'Includes arrays',
+  'requires-review': 'Needs review',
+};
 
 const shortDigest = (value: string | undefined) =>
   value ? `${value.slice(0, 18)}…${value.slice(-8)}` : 'unavailable';
@@ -62,8 +76,8 @@ export const DataframeContractPanel = ({
         </button>
       </div>
       <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
-        <div><span className="font-semibold">Lossless:</span> {output.lossless === false ? 'No' : 'Yes'}</div>
-        <div><span className="font-semibold">ML-ready:</span> {output.mlReady === false ? 'No' : 'Yes'}</div>
+        <div><span className="font-semibold">Lossless:</span> {output.lossless === undefined ? 'Not assessed' : output.lossless ? 'Yes' : 'No'}</div>
+        <div><span className="font-semibold">Structure:</span> {output.structuralSuitability ? structureLabels[output.structuralSuitability] : 'Not assessed'}</div>
         <div title={receipt.generation}><span className="font-semibold">Generation:</span> {receipt.generation}</div>
         <div title={receipt.receiptId}><span className="font-semibold">Receipt:</span> {shortDigest(receipt.receiptId)}</div>
         <div title={receipt.shapeDigest}><span className="font-semibold">Shape:</span> {shortDigest(receipt.shapeDigest)}</div>
@@ -71,6 +85,14 @@ export const DataframeContractPanel = ({
         <div title={receipt.resolvedSchemaDigest}><span className="font-semibold">Schema:</span> {shortDigest(receipt.resolvedSchemaDigest)}</div>
         <div title={receipt.outputContractDigest}><span className="font-semibold">Contract:</span> {shortDigest(receipt.outputContractDigest)}</div>
       </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Scalar columns alone do not establish suitability for machine learning. Data quality and feature meaning still need review.
+      </p>
+      {output.lossReasons?.length ? (
+        <ul className="mt-2 list-inside list-disc text-xs text-amber-800">
+          {output.lossReasons.map((reason) => <li key={reason}>{lossLabel(reason)}</li>)}
+        </ul>
+      ) : null}
       <details className="mt-3">
         <summary className="cursor-pointer text-xs font-semibold text-slate-700">
           Column lineage and nullability
@@ -88,7 +110,7 @@ export const DataframeContractPanel = ({
                 >
                   <div className="truncate font-mono" title={column.column}>{column.column}</div>
                   <div>{column.logicalType}{column.nullable ? ' · nullable' : ''}</div>
-                  <div>{column.shape ?? 'scalar'}{column.lossless === false ? ' · lossy' : ''}</div>
+                  <div title={column.lossReasons?.map(lossLabel).join('; ')}>{column.shape ?? 'Not assessed'}{column.lossless === false ? ' · lossy' : ''}</div>
                   <div className="truncate" title={[column.sourceResourceType, column.sourcePath, column.choiceArm, coordinates].filter(Boolean).join(' · ')}>
                     {[column.sourceResourceType, column.sourcePath, column.choiceArm && `choice ${column.choiceArm}`, coordinates].filter(Boolean).join(' · ') || 'compiler-generated'}
                   </div>

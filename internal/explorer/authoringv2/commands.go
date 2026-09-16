@@ -20,7 +20,9 @@ const (
 	CommandUpdateRouteEdge    = "UPDATE_ROUTE_EDGE"
 	CommandRemoveRoute        = "REMOVE_ROUTE"
 	CommandAddColumn          = "ADD_COLUMN"
+	CommandAddColumnSource    = "ADD_COLUMN_SOURCE"
 	CommandUpdateColumn       = "UPDATE_COLUMN"
+	CommandUpdateColumnSource = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn       = "REMOVE_COLUMN"
 	CommandResultTableCreated = "TABLE_CREATED"
 	CommandResultTableChanged = "TABLE_CHANGED"
@@ -37,27 +39,49 @@ const (
 // conflict after a later command advances the draft.
 type ApplyCommandsRequest struct {
 	CommandID            string    `json:"commandId"`
+	SemanticsVersion     int       `json:"semanticsVersion"`
 	SnapshotToken        string    `json:"snapshotToken"`
 	ExpectedDraftVersion int64     `json:"expectedDraftVersion"`
 	ExpectedDraftDigest  string    `json:"expectedDraftDigest,omitempty"`
 	Commands             []Command `json:"commands"`
 }
 
+func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
+	type wire ApplyCommandsRequest
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*r = ApplyCommandsRequest(decoded)
+	return nil
+}
+
 type Command struct {
-	Type                string   `json:"type"`
-	OutputID            string   `json:"outputId,omitempty"`
-	SourceOutputID      string   `json:"sourceOutputId,omitempty"`
-	Title               string   `json:"title,omitempty"`
-	RootNodeID          string   `json:"rootNodeId,omitempty"`
-	ParentOccurrenceID  string   `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID        string   `json:"occurrenceId,omitempty"`
-	EdgeID              string   `json:"edgeId,omitempty"`
-	CandidateID         string   `json:"candidateId,omitempty"`
-	ProjectionMode      string   `json:"projectionMode,omitempty"`
-	InitialPresentation string   `json:"initialPresentation,omitempty"`
-	Column              string   `json:"column,omitempty"`
-	ColumnValue         *Column  `json:"columnValue,omitempty"`
-	OutputIDs           []string `json:"outputIds,omitempty"`
+	Type                string        `json:"type"`
+	OutputID            string        `json:"outputId,omitempty"`
+	SourceOutputID      string        `json:"sourceOutputId,omitempty"`
+	Title               string        `json:"title,omitempty"`
+	RootNodeID          string        `json:"rootNodeId,omitempty"`
+	ParentOccurrenceID  string        `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID        string        `json:"occurrenceId,omitempty"`
+	EdgeID              string        `json:"edgeId,omitempty"`
+	CandidateID         string        `json:"candidateId,omitempty"`
+	ProjectionMode      string        `json:"projectionMode,omitempty"`
+	InitialPresentation string        `json:"initialPresentation,omitempty"`
+	Column              string        `json:"column,omitempty"`
+	ColumnValue         *Column       `json:"columnValue,omitempty"`
+	Source              *ColumnSource `json:"source,omitempty"`
+	OutputIDs           []string      `json:"outputIds,omitempty"`
+}
+
+func (c *Command) UnmarshalJSON(raw []byte) error {
+	type wire Command
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*c = Command(decoded)
+	return nil
 }
 
 type CommandResult struct {
@@ -78,6 +102,9 @@ type ApplyCommandsResponse struct {
 }
 
 func (r ApplyCommandsRequest) Validate() error {
+	if r.SemanticsVersion != CurrentSemanticsVersion {
+		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", r.SemanticsVersion)
+	}
 	if emptyID(r.CommandID) || strings.TrimSpace(r.SnapshotToken) == "" {
 		return fmt.Errorf("commandId and snapshotToken are required")
 	}
@@ -97,9 +124,10 @@ func (r ApplyCommandsRequest) Validate() error {
 
 func (r ApplyCommandsRequest) Digest() (string, error) {
 	canonical, err := json.Marshal(struct {
-		SnapshotToken string    `json:"snapshotToken"`
-		Commands      []Command `json:"commands"`
-	}{r.SnapshotToken, r.Commands})
+		SemanticsVersion int       `json:"semanticsVersion"`
+		SnapshotToken    string    `json:"snapshotToken"`
+		Commands         []Command `json:"commands"`
+	}{r.SemanticsVersion, r.SnapshotToken, r.Commands})
 	if err != nil {
 		return "", err
 	}
@@ -163,6 +191,20 @@ func (c Command) validate() error {
 	case CommandUpdateColumn:
 		if !required(c.OutputID, c.Column) || c.ColumnValue == nil {
 			return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
+		}
+	case CommandAddColumnSource:
+		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
+			return fmt.Errorf("ADD_COLUMN_SOURCE requires outputId, occurrenceId, and source")
+		}
+		if err := c.Source.validate("source"); err != nil {
+			return err
+		}
+	case CommandUpdateColumnSource:
+		if !required(c.OutputID, c.Column) || c.Source == nil {
+			return fmt.Errorf("UPDATE_COLUMN_SOURCE requires outputId, column, and source")
+		}
+		if err := c.Source.validate("source"); err != nil {
+			return err
 		}
 	case CommandRemoveColumn:
 		if !required(c.OutputID, c.Column) {
@@ -395,7 +437,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		for i := range workspace.Documents[document].Columns {
 			column := &workspace.Documents[document].Columns[i]
-			if column.OccurrenceID == command.OccurrenceID && column.Source.Kind == SourceField && strings.TrimPrefix(column.Source.FieldPath, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.ProjectionMode, mode) {
+			if column.OccurrenceID == command.OccurrenceID && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
 				applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document].Columns))
 				return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: column.Column}, nil
 			}
@@ -408,8 +450,35 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if label == "" {
 			label = candidate.Label
 		}
-		column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: ColumnSource{Kind: SourceField, FieldPath: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}}
+		source := editableSource(command.OccurrenceID, ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
+		column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: source}
 		applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document].Columns))
+		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
+		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
+	case CommandAddColumnSource:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		source := editableSource(command.OccurrenceID, *command.Source)
+		if err := validateEditableSource(workspace.Documents[document], catalog, command.OccurrenceID, source); err != nil {
+			return result, err
+		}
+		for _, existing := range workspace.Documents[document].Columns {
+			if existing.OccurrenceID == command.OccurrenceID && sourceEqual(existing.Source, source) {
+				return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: existing.Column}, nil
+			}
+		}
+		columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID, sourceIdentity(source))
+		label := strings.TrimSpace(command.Title)
+		if label == "" {
+			label = strings.TrimSpace(source.fieldPath())
+		}
+		if label == "" {
+			label = source.Kind
+		}
+		column := Column{Column: columnID, Label: label, LogicalType: inferredSourceLogicalType(workspace.Documents[document], catalog, command.OccurrenceID, source, "string"), OccurrenceID: command.OccurrenceID, Source: source}
+		applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(workspace.Documents[document].Columns))
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 	case CommandUpdateColumn:
@@ -427,6 +496,25 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 				return result, fmt.Errorf("column label is required")
 			}
 			current.Label, current.Table, current.Filter, current.Chart = value.Label, value.Table, value.Filter, value.Chart
+			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
+		}
+		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandUpdateColumnSource:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		for i := range workspace.Documents[document].Columns {
+			current := &workspace.Documents[document].Columns[i]
+			if current.Column != command.Column {
+				continue
+			}
+			source := editableSource(current.OccurrenceID, *command.Source)
+			if err := validateEditableSource(workspace.Documents[document], catalog, current.OccurrenceID, source); err != nil {
+				return result, err
+			}
+			current.Source = source
+			current.LogicalType = inferredSourceLogicalType(workspace.Documents[document], catalog, current.OccurrenceID, source, current.LogicalType)
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
@@ -453,6 +541,34 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, nil
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
+}
+
+// editableSource adds the explicit related-resource policy to new child
+// selections. A child column is rendered through a first matching resource
+// even when its projection mode is VALUE or INDEXED, so publication must not
+// silently present that reduction as lossless.
+func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
+	source = source.Normalized()
+	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
+	if occurrenceID != RootOccurrenceID && source.Kind == SourceField && source.Field != nil && source.Field.RelatedSelection == nil && (mode == "VALUE" || mode == "FIRST" || mode == "INDEXED") {
+		source.Field.RelatedSelection = &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: false}
+	}
+	return source
+}
+
+func sourceEqual(left, right ColumnSource) bool {
+	left, right = left.Normalized(), right.Normalized()
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
+}
+
+func sourceIdentity(source ColumnSource) string {
+	raw, err := json.Marshal(source.Normalized())
+	if err != nil {
+		return "invalid-source"
+	}
+	return string(raw)
 }
 
 func cloneWorkspace(value Workspace) (Workspace, error) {
@@ -510,6 +626,87 @@ func catalogCandidate(catalog CatalogSnapshot, id string) (CatalogCandidate, boo
 		}
 	}
 	return CatalogCandidate{}, false
+}
+
+func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {
+	occurrence := findRoute(&document.Route, occurrenceID)
+	if occurrence == nil {
+		return fmt.Errorf("occurrence %q was not found", occurrenceID)
+	}
+	path := strings.TrimPrefix(strings.TrimSpace(source.fieldPath()), "root.")
+	if source.Kind == SourceProjectID {
+		return nil
+	}
+	if path == "" && source.Kind != SourceAggregate {
+		return fmt.Errorf("source path is required for %s", source.Kind)
+	}
+	findCandidate := func(candidatePath string) (CatalogCandidate, bool) {
+		candidatePath = strings.TrimPrefix(strings.TrimSpace(candidatePath), "root.")
+		for _, candidate := range catalog.Candidates {
+			node, ok := catalogNode(catalog, candidate.NodeID)
+			if !ok || node.ResourceType != occurrence.ResourceType {
+				continue
+			}
+			if candidatePath == strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") {
+				return candidate, true
+			}
+		}
+		return CatalogCandidate{}, false
+	}
+	if source.Kind == SourceAggregate {
+		if path != "" {
+			if _, ok := findCandidate(path); !ok {
+				return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
+			}
+		}
+		if source.Aggregate != nil && source.Aggregate.Where != nil {
+			wherePath := strings.TrimPrefix(strings.TrimSpace(source.Aggregate.Where.Path), "root.")
+			if _, ok := findCandidate(wherePath); !ok {
+				return fmt.Errorf("aggregate where path %q is not present for occurrence %q", wherePath, occurrenceID)
+			}
+		}
+		return nil
+	}
+	candidate, ok := findCandidate(path)
+	if !ok {
+		return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
+	}
+	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	if !contains(candidate.ProjectionModes, mode) {
+		return fmt.Errorf("projection mode %q is not advertised for source path %q", mode, path)
+	}
+	return nil
+}
+
+func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, fallback string) string {
+	if source.Kind == SourceProjectID {
+		return "string"
+	}
+	if source.Kind == SourceAggregate && source.Aggregate != nil {
+		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {
+		case "COUNT", "COUNT_DISTINCT":
+			return "integer"
+		case "EXISTS", "CONTAINS_ALL":
+			return "boolean"
+		}
+	}
+	occurrence := findRoute(&document.Route, occurrenceID)
+	if occurrence != nil {
+		path := strings.TrimPrefix(strings.TrimSpace(source.fieldPath()), "root.")
+		for _, candidate := range catalog.Candidates {
+			node, ok := catalogNode(catalog, candidate.NodeID)
+			if ok && node.ResourceType == occurrence.ResourceType && strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") == path && strings.TrimSpace(candidate.LogicalType) != "" {
+				return candidate.LogicalType
+			}
+		}
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return fallback
+	}
+	return "string"
 }
 
 func contains(values []string, want string) bool {
