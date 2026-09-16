@@ -340,6 +340,30 @@ describe('Loom project paths', () => {
       .resolves.toMatchObject({ generation: 'generation-1', outputs: [{ selector: state.runtime.outputs[0].selector }] });
   });
 
+  it('accepts a nullable generated dataset output list at the API boundary', async () => {
+    const state = {
+      apiVersion: 'loom.calypr.org/explorer-state/v1',
+      kind: 'ExplorerState',
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      title: 'Cohort',
+      management: 'interactive',
+      active: { revisionId: 'revision-1' },
+      draft: { version: 1, digest: 'digest' },
+      generated: {
+        dataset: { generation: 'generation-1', schemaDigest: 'schema-1', outputs: null },
+      },
+      activeUrl: '/viewer',
+      runtime: { outputs: [], sharedFilters: {}, diagnostics: [] },
+    };
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(state), { status: 200 })),
+    });
+
+    await expect(client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }))
+      .resolves.toMatchObject({ outputs: [], responseIdentity: 'revision-1' });
+  });
+
   it('derives distinct session identities for legacy runtimes from response revisions', async () => {
     const state = (revisionId: string) => ({
       apiVersion: 'loom.calypr.org/explorer-state/v1',
