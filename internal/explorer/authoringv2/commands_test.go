@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func emptyCommandWorkspace() Workspace {
@@ -42,6 +44,35 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	}
 	if !strings.Contains(string(wire), `"columns":[]`) {
 		t.Fatalf("empty columns must remain an array on the wire: %s", wire)
+	}
+}
+
+func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
+	catalog := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer",
+		SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot", Complete: true,
+		Nodes:       []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
+	}
+	source := &ColumnSource{Kind: SourceObservationComponentByCode, Lookup: &LookupSource{
+		Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+		Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+	}}
+	updated, results, err := ApplyCommands(workspace, catalog, "add-correlated", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(updated.Documents[0].Columns) != 1 {
+		t.Fatalf("results=%#v workspace=%#v", results, updated)
+	}
+	column := updated.Documents[0].Columns[0]
+	if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Path != "" || column.LogicalType != "decimal" {
+		t.Fatalf("correlated source was not preserved as typed input: %#v", column)
 	}
 }
 

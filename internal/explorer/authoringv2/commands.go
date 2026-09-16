@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -637,6 +639,14 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 	if source.Kind == SourceProjectID {
 		return nil
 	}
+	if source.Lookup != nil && source.Lookup.Binding != nil && (source.Kind == SourceCodingBySystem || source.Kind == SourceObservationComponentByCode) {
+		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
+			return fmt.Errorf("source binding: %w", err)
+		}
+		// Correlated lookups carry their structural source in Binding. They do
+		// not have a legacy field path to resolve against a catalog candidate.
+		return nil
+	}
 	if path == "" && source.Kind != SourceAggregate {
 		return fmt.Errorf("source path is required for %s", source.Kind)
 	}
@@ -684,6 +694,9 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, fallback string) string {
 	if source.Kind == SourceProjectID {
 		return "string"
+	}
+	if source.Lookup != nil && source.Lookup.Binding != nil && strings.TrimSpace(source.Lookup.Binding.LogicalType) != "" {
+		return strings.TrimSpace(source.Lookup.Binding.LogicalType)
 	}
 	if source.Kind == SourceAggregate && source.Aggregate != nil {
 		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {

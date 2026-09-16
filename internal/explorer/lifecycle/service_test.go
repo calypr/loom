@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type fakeStore struct {
@@ -263,6 +264,61 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 				t.Fatalf("err=%v, want conflict %s", err, test.code)
 			}
 		})
+	}
+}
+
+func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	catalog := authoringv2.CatalogSnapshot{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "observations",
+		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		Nodes: []authoringv2.CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Observations"},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}}},
+		Tabs:      []authoringv2.Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{created: &explorer.Explorer{
+		Project: "project-a", ExplorerID: "observations", Title: "Observations", ManagementMode: explorer.ManagementInteractive,
+		DraftConfig: draft, DraftVersion: 4, DraftDigest: digest,
+	}}
+	config := testConfig(snapshot)
+	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	service := newTestService(t, store, config)
+	request := authoringv2.ApplyCommandsRequest{
+		CommandID: "add-correlated", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
+			Kind: authoringv2.SourceObservationComponentByCode,
+			Lookup: &authoringv2.LookupSource{
+				Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+				Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+			},
+		}}},
+	}
+	response, err := service.ApplyCommands(context.Background(), "project-a", "observations", request, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil || len(response.Workspace.Documents) != 1 || len(response.Workspace.Documents[0].Columns) != 1 {
+		t.Fatalf("response workspace = %#v", response)
+	}
+	column := response.Workspace.Documents[0].Columns[0]
+	if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Path != "" || column.LogicalType != "decimal" {
+		t.Fatalf("correlated source was not preserved through lifecycle ApplyCommands: %#v", column)
+	}
+	if store.created == nil || store.created.DraftVersion != 5 {
+		t.Fatalf("persisted draft version = %#v, want 5", store.created)
 	}
 }
 

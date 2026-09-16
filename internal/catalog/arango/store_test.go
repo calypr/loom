@@ -281,3 +281,31 @@ func TestCapabilityEvidenceFieldEnrichmentDecodesMaxItems(t *testing.T) {
 		t.Fatalf("max items = %#v", result.Values)
 	}
 }
+
+func TestCapabilityEvidenceFieldEnrichmentPreservesSemanticObservations(t *testing.T) {
+	client := &evidenceClient{rows: map[string][]map[string]any{fieldEnrichmentAQL: {{
+		"project": "p", "resource_type": "Observation", "path": "component[]", "kind": "array", "doc_count": int64(2), "sample_count": int64(2),
+		"semantic_observations": []any{map[string]any{
+			"schema_version": int64(2), "owning_scope": "component[]", "choice_arm": "valueQuantity", "logical_type": "decimal",
+			"completeness": "complete", "status": "supported", "population": int64(2), "examples": []any{"111", "222"},
+			"source": map[string]any{"canonical": "Observation.component", "type": "Observation", "profile": "http://hl7.org/fhir/StructureDefinition/Observation", "path": "component"},
+			"key":    map[string]any{"selector": "code.coding[]", "system": "urn:study:A", "code": "shared", "display": "Shared"},
+			"value":  map[string]any{"selector": "valueQuantity.value", "type": "decimal"},
+		}},
+	}}}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := adapter.DiscoverFieldEnrichment(context.Background(), catalog.FieldEnrichmentOptions{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Values) != 1 || len(result.Values[0].SemanticObservations) != 1 {
+		t.Fatalf("semantic observations = %#v", result.Values)
+	}
+	observation := result.Values[0].SemanticObservations[0]
+	if observation.Key.System != "urn:study:A" || observation.Key.Code != "shared" || observation.Value.Selector != "valueQuantity.value" || observation.LogicalType != "decimal" || observation.Population != 2 {
+		t.Fatalf("semantic observation = %#v", observation)
+	}
+}
