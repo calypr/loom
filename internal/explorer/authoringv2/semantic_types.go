@@ -401,6 +401,11 @@ func (d Document) validateSemantic() error {
 	if err != nil {
 		return err
 	}
+	if d.Population != nil {
+		if err := d.Population.Validate(); err != nil {
+			return err
+		}
+	}
 	seen := map[string]bool{}
 	for i, column := range d.Columns {
 		path := fmt.Sprintf("columns[%d]", i)

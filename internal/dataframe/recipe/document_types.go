@@ -48,7 +48,24 @@ type Output struct {
 	DynamicColumns        []DynamicColumn       `json:"dynamicColumns,omitempty"`
 	ExtensionColumns      []ExtensionColumn     `json:"extensionColumns,omitempty"`
 	CatalogProjections    []CatalogProjection   `json:"catalogProjections,omitempty"`
+	Population            *PopulationConstraint `json:"population,omitempty"`
 	CollisionPolicy       string                `json:"collisionPolicy,omitempty"`
+}
+
+// PopulationConstraint is a storage-neutral row-root membership constraint.
+// Selection identity is resolved before compilation; the physical collection
+// used to read its members remains a runtime binding.
+type PopulationConstraint struct {
+	SelectionRevisionID string                `json:"selectionRevisionId"`
+	MembershipDigest    string                `json:"membershipDigest"`
+	MemberCount         int64                 `json:"memberCount"`
+	ResourceType        string                `json:"resourceType"`
+	Route               []PopulationRouteStep `json:"route,omitempty"`
+}
+
+type PopulationRouteStep struct {
+	ResourceType string `json:"resourceType"`
+	Relationship string `json:"relationship"`
 }
 
 type RootColumnNaming string
@@ -491,7 +508,10 @@ type RuntimeBindings struct {
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
-	PreviewLimit      int
+	// SelectionMembersCollection is a runtime-only collection binding used by
+	// population constraints. It is never serialized into a recipe digest.
+	SelectionMembersCollection string
+	PreviewLimit               int
 	// IncludeAuthResourcePath is set only for ClickHouse publication streams.
 	// It keeps the reserved row-level authorization field out of ordinary
 	// dataframe previews while ensuring published rows carry their source path.

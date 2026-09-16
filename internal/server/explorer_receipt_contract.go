@@ -45,11 +45,11 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, explorercompilation.ResolvedInputs{})
+	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, request.ResolvedInputs)
 	if err != nil {
 		return nil, err
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
 		return nil, err

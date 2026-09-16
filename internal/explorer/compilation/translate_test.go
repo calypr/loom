@@ -159,6 +159,45 @@ func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
 	}
 }
 
+func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{}},
+			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
+		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{},
+	}}}
+	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	population := first.Bundle.Outputs[0].Population
+	if population == nil || population.SelectionRevisionID != "selection-1" || population.MembershipDigest != "sha256:members" || population.MemberCount != 3 || population.ResourceType != "Patient" {
+		t.Fatalf("compiled population = %#v", population)
+	}
+	if first.ResolvedInputsDigest == "" || !strings.HasPrefix(first.ResolvedInputsDigest, "sha256:") {
+		t.Fatalf("resolved input digest = %q", first.ResolvedInputsDigest)
+	}
+	resolved.Populations[0].SelectionRevisionID = "selection-2"
+	workspace.Documents[0].Population.SelectionRevisionID = "selection-2"
+	second, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ResolvedInputsDigest == second.ResolvedInputsDigest || first.RecipeDigest == second.RecipeDigest {
+		t.Fatalf("population identity did not change compilation identity: first=%q/%q second=%q/%q", first.ResolvedInputsDigest, first.RecipeDigest, second.ResolvedInputsDigest, second.RecipeDigest)
+	}
+}
+
 func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 	visible := true
 	document := authoringv2.Document{

@@ -177,6 +177,18 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 // persists both the new draft and the bounded last-command replay record in
 // one compare-and-swap. Older command IDs are rejected by draft CAS.
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil)
+}
+
+// ApplyWorkspaceCommandsChecked is the mutation boundary for workflows that
+// need an external immutable reference validated before the draft CAS. The
+// checker runs after the pure command reducer and before any owner fields are
+// changed or SaveDraft is called.
+func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, checker)
+}
+
+func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -224,6 +236,11 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, request.Commands)
 	if err != nil {
 		return nil, err
+	}
+	if checker != nil {
+		if err := checker(workspace); err != nil {
+			return nil, err
+		}
 	}
 	canonical, err := workspace.CanonicalJSON()
 	if err != nil {

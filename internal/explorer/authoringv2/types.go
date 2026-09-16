@@ -3,6 +3,11 @@
 // contracts: this package describes user intent and catalog facts only.
 package authoringv2
 
+import (
+	"fmt"
+	"strings"
+)
+
 const (
 	APIVersion              = "loom.calypr.org/explorer-authoring/v2"
 	Kind                    = "ExplorerBuilderDocument"
@@ -21,9 +26,36 @@ type Document struct {
 	Output           Output        `json:"output"`
 	RootResourceType string        `json:"rootResourceType,omitempty"`
 	Route            RouteNode     `json:"route,omitempty"`
+	Population       *Population   `json:"population,omitempty"`
 	Columns          []Column      `json:"columns"`
 	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
 	Actions          []Action      `json:"actions,omitempty"`
+}
+
+// Population constrains an output's row roots to resources reachable from a
+// completed immutable selection. Route steps contain semantic resource
+// identities only. Catalog edge IDs are accepted at the command boundary but
+// are never persisted into the workspace.
+type Population struct {
+	SelectionRevisionID string                `json:"selectionRevisionId"`
+	Route               []PopulationRouteStep `json:"route"`
+}
+
+type PopulationRouteStep struct {
+	ResourceType string `json:"resourceType"`
+	Relationship string `json:"relationship"`
+}
+
+func (p Population) Validate() error {
+	if strings.TrimSpace(p.SelectionRevisionID) == "" {
+		return fmt.Errorf("population.selectionRevisionId is required")
+	}
+	for i, step := range p.Route {
+		if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
+			return fmt.Errorf("population.route[%d] requires resourceType and relationship", i)
+		}
+	}
+	return nil
 }
 
 type Output struct {

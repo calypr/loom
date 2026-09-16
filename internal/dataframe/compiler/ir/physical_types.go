@@ -56,32 +56,34 @@ const (
 	// PhysicalSortOp and PhysicalLimitOp describe the root execution window.
 	// They are intentionally typed so preview ordering and bounds cannot be
 	// smuggled into an AQL string by a caller.
-	PhysicalSortOp        PhysicalOperationKind = "SORT"
-	PhysicalLimitOp       PhysicalOperationKind = "LIMIT"
-	PhysicalReturnOp      PhysicalOperationKind = "RETURN"
-	PhysicalPathSeedOp    PhysicalOperationKind = "PATH_SEED"
-	PhysicalPathExtendOp  PhysicalOperationKind = "PATH_EXTEND"
-	PhysicalGraphReturnOp PhysicalOperationKind = "GRAPH_RETURN"
+	PhysicalSortOp           PhysicalOperationKind = "SORT"
+	PhysicalLimitOp          PhysicalOperationKind = "LIMIT"
+	PhysicalReturnOp         PhysicalOperationKind = "RETURN"
+	PhysicalPathSeedOp       PhysicalOperationKind = "PATH_SEED"
+	PhysicalPathExtendOp     PhysicalOperationKind = "PATH_EXTEND"
+	PhysicalGraphReturnOp    PhysicalOperationKind = "GRAPH_RETURN"
+	PhysicalCollectionScanOp PhysicalOperationKind = "COLLECTION_SCAN"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
 // be set. Source can be more specific than the plan-level provenance.
 type PhysicalOperation struct {
-	Kind          PhysicalOperationKind
-	Source        PhysicalSource
-	RootScan      *PhysicalRootScan
-	Traversal     *PhysicalTraversal
-	Filter        *PhysicalFilter
-	DerivedLet    *PhysicalDerivedLet
-	ExpressionLet *PhysicalExpressionLet
-	Set           *PhysicalSet
-	Unnest        *PhysicalUnnest
-	Sort          *PhysicalSort
-	Limit         *PhysicalLimit
-	Return        *PhysicalReturn
-	PathSeed      *PhysicalPathSeed
-	PathExtend    *PhysicalPathExtend
-	GraphReturn   *PhysicalGraphReturn
+	Kind           PhysicalOperationKind
+	Source         PhysicalSource
+	RootScan       *PhysicalRootScan
+	Traversal      *PhysicalTraversal
+	Filter         *PhysicalFilter
+	DerivedLet     *PhysicalDerivedLet
+	ExpressionLet  *PhysicalExpressionLet
+	Set            *PhysicalSet
+	Unnest         *PhysicalUnnest
+	Sort           *PhysicalSort
+	Limit          *PhysicalLimit
+	Return         *PhysicalReturn
+	PathSeed       *PhysicalPathSeed
+	PathExtend     *PhysicalPathExtend
+	GraphReturn    *PhysicalGraphReturn
+	CollectionScan *PhysicalCollectionScan
 }
 
 type PhysicalRootScan struct {

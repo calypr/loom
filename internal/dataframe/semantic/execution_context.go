@@ -11,4 +11,5 @@ type ExecutionContext struct {
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
+	SelectionMembersCollection string
 }

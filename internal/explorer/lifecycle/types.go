@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
 
 // CapabilityResolver resolves the current or a retained immutable capability
@@ -42,12 +43,14 @@ func (a AuthorizedCapability) Clone() AuthorizedCapability {
 }
 
 type CompileReceiptRequest struct {
-	Project       string
-	ExplorerID    string
-	Workspace     authoringv2.Workspace
-	SnapshotToken string
-	RequestID     string
-	Authorized    AuthorizedCapability
+	Project                    string
+	ExplorerID                 string
+	Workspace                  authoringv2.Workspace
+	SnapshotToken              string
+	RequestID                  string
+	Authorized                 AuthorizedCapability
+	ResolvedInputs             explorercompilation.ResolvedInputs
+	SelectionMembersCollection string
 }
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
@@ -86,7 +89,10 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 // Config contains deployment adapters. Lifecycle policy calls these narrow
 // callbacks, but never imports the transport packages that construct them.
 type Config struct {
-	Capability CapabilityResolver
+	// SelectionMembersCollection is a deployment-owned runtime binding. It is
+	// never copied into authoring intent, recipes, or receipt identity.
+	SelectionMembersCollection string
+	Capability                 CapabilityResolver
 	// SelectionSourceResolver resolves an exact immutable published revision
 	// after Capability.ForExecution has established project and scope.
 	SelectionSourceResolver     SelectionSourceResolver

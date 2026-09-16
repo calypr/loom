@@ -26,7 +26,11 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
-	response, err := s.store.ApplyWorkspaceCommands(ctx, project, explorerID, s.config.Capability.Catalog(snapshot, explorerID), request, actor)
+	catalog := s.config.Capability.Catalog(snapshot, explorerID)
+	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, func(workspace authoringv2.Workspace) error {
+		_, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
+		return validationErr
+	})
 	switch {
 	case errors.Is(err, explorer.ErrDraftConflict):
 		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before editing", nil, err)
@@ -51,7 +55,16 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
 		return nil, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
 	}
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized})
+	if authorized.Scope.Mode != "" {
+		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+			return nil, conflict("population", "INVALID_POPULATION_SCOPE", "the effective authorization scope is stale", nil, err)
+		}
+	}
+	resolvedInputs, err := s.resolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
+	if err != nil {
+		return nil, unprocessable("population", "INVALID_POPULATION", err.Error(), err)
+	}
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {

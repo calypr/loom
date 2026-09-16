@@ -340,6 +340,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("configure local workspace writeback: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
+		SelectionMembersCollection:  explorerarango.SelectionMembersCollection,
 		SelectionSourceResolver:     published.SelectionSourceAdapter{Reader: materializationReader},
 		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
 		CompileReceipt:              compileReceipt,

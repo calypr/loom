@@ -274,6 +274,8 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, i
 	lines := make([]string, 0, len(subplan.Operations)*3+2)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {
+		case ir.PhysicalCollectionScanOp:
+			lines = append(lines, fmt.Sprintf("%sFOR %s IN @@%s", indent+"  ", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
 		case ir.PhysicalTraversalOp:
 			traversal := operation.Traversal
 			lines = append(lines,

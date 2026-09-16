@@ -52,6 +52,9 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	physical.Operations = appendProjectScope(physical.Operations, []string{"root"}, "", output.Root)
 	physical.Operations = appendDatasetGenerationScope(physical.Operations, []string{"root"}, "", output.Root)
 	physical.Operations = appendAuthScope(physical.Operations, []ir.PhysicalValue{{Variable: "root", Path: []string{"auth_resource_path"}}}, "root_scope_allowed", output.Root)
+	if err := appendPopulationSemijoin(&physical, output.Root, output.Population, context); err != nil {
+		return ir.PhysicalPlan{}, err
+	}
 	if err := appendRootPhysicalFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}

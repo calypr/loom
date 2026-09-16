@@ -108,6 +108,13 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			return fmt.Errorf("subplan operation %d (%s): %w", index, operation.Kind, err)
 		}
 		switch operation.Kind {
+		case PhysicalCollectionScanOp:
+			if err := requireCollectionBind(bindVars, operation.CollectionScan.CollectionBindKey); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, operation.CollectionScan.Variable); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
 		case PhysicalTraversalOp:
 			traversal := operation.Traversal
 			if !defined[traversal.SourceVariable] {

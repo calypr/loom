@@ -12,27 +12,29 @@ import (
 )
 
 const (
-	CommandCreateTable        = "CREATE_TABLE"
-	CommandDuplicateTable     = "DUPLICATE_TABLE"
-	CommandDeleteTable        = "DELETE_TABLE"
-	CommandRenameTable        = "RENAME_TABLE"
-	CommandReorderTables      = "REORDER_TABLES"
-	CommandSetTableRoot       = "SET_TABLE_ROOT"
-	CommandAddRoute           = "ADD_ROUTE"
-	CommandUpdateRouteEdge    = "UPDATE_ROUTE_EDGE"
-	CommandRemoveRoute        = "REMOVE_ROUTE"
-	CommandAddColumn          = "ADD_COLUMN"
-	CommandAddColumnSource    = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn       = "UPDATE_COLUMN"
-	CommandUpdateColumnSource = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn       = "REMOVE_COLUMN"
-	CommandResultTableCreated = "TABLE_CREATED"
-	CommandResultTableChanged = "TABLE_CHANGED"
-	CommandResultRouteAdded   = "ROUTE_ADDED"
-	CommandResultColumnAdded  = "COLUMN_ADDED"
-	InitialPresentationTable  = "TABLE"
-	InitialPresentationFilter = "FILTER"
-	InitialPresentationChart  = "CHART"
+	CommandCreateTable          = "CREATE_TABLE"
+	CommandDuplicateTable       = "DUPLICATE_TABLE"
+	CommandDeleteTable          = "DELETE_TABLE"
+	CommandRenameTable          = "RENAME_TABLE"
+	CommandReorderTables        = "REORDER_TABLES"
+	CommandSetTableRoot         = "SET_TABLE_ROOT"
+	CommandSetTablePopulation   = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute             = "ADD_ROUTE"
+	CommandUpdateRouteEdge      = "UPDATE_ROUTE_EDGE"
+	CommandRemoveRoute          = "REMOVE_ROUTE"
+	CommandAddColumn            = "ADD_COLUMN"
+	CommandAddColumnSource      = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn         = "UPDATE_COLUMN"
+	CommandUpdateColumnSource   = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn         = "REMOVE_COLUMN"
+	CommandResultTableCreated   = "TABLE_CREATED"
+	CommandResultTableChanged   = "TABLE_CHANGED"
+	CommandResultRouteAdded     = "ROUTE_ADDED"
+	CommandResultColumnAdded    = "COLUMN_ADDED"
+	InitialPresentationTable    = "TABLE"
+	InitialPresentationFilter   = "FILTER"
+	InitialPresentationChart    = "CHART"
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
@@ -64,6 +66,8 @@ type Command struct {
 	SourceOutputID      string        `json:"sourceOutputId,omitempty"`
 	Title               string        `json:"title,omitempty"`
 	RootNodeID          string        `json:"rootNodeId,omitempty"`
+	SelectionRevisionID string        `json:"selectionRevisionId,omitempty"`
+	EdgeIDs             []string      `json:"edgeIds,omitempty"`
 	ParentOccurrenceID  string        `json:"parentOccurrenceId,omitempty"`
 	OccurrenceID        string        `json:"occurrenceId,omitempty"`
 	EdgeID              string        `json:"edgeId,omitempty"`
@@ -170,6 +174,14 @@ func (c Command) validate() error {
 	case CommandSetTableRoot:
 		if !required(c.OutputID, c.RootNodeID) {
 			return fmt.Errorf("SET_TABLE_ROOT requires outputId and rootNodeId")
+		}
+	case CommandSetTablePopulation:
+		if !required(c.OutputID, c.SelectionRevisionID) {
+			return fmt.Errorf("SET_TABLE_POPULATION requires outputId and selectionRevisionId")
+		}
+	case CommandClearTablePopulation:
+		if !required(c.OutputID) {
+			return fmt.Errorf("CLEAR_TABLE_POPULATION requires outputId")
 		}
 	case CommandAddRoute:
 		if !required(c.OutputID, c.ParentOccurrenceID, c.EdgeID) {
@@ -320,12 +332,31 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if document < 0 || !ok || !node.RowRootEligible {
 			return result, fmt.Errorf("output or eligible root node was not found")
 		}
-		workspace.Documents[document].RootResourceType = node.ResourceType
-		workspace.Documents[document].Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
-		workspace.Documents[document].Columns = []Column{}
-		workspace.Documents[document].FixedFilters = nil
-		workspace.Documents[document].Actions = nil
-		cleanupWorkspaceBindings(workspace)
+		current := &workspace.Documents[document]
+		if current.RootResourceType == node.ResourceType {
+			return result, nil
+		}
+		if current.RootResourceType != node.ResourceType && documentHasConfiguredMeaning(*current) {
+			return result, fmt.Errorf("ROOT_REBASE_REQUIRED: changing table root would discard configured routes, columns, filters, actions, or population")
+		}
+		current.RootResourceType = node.ResourceType
+		current.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
+		return result, nil
+	case CommandSetTablePopulation:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID, command.EdgeIDs); err != nil {
+			return result, err
+		}
+		return result, nil
+	case CommandClearTablePopulation:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		workspace.Documents[document].Population = nil
 		return result, nil
 	case CommandAddRoute:
 		document := documentIndex(workspace, command.OutputID)
@@ -556,6 +587,44 @@ func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
 		source.Field.RelatedSelection = &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: false}
 	}
 	return source
+}
+
+func documentHasConfiguredMeaning(document Document) bool {
+	return len(document.Route.Children) != 0 || len(document.Columns) != 0 || len(document.FixedFilters) != 0 || len(document.Actions) != 0 || document.Population != nil
+}
+
+func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisionID string, edgeIDs []string) error {
+	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.OccurrenceID != RootOccurrenceID {
+		return fmt.Errorf("table root is required before attaching a population")
+	}
+	if catalog.RoutePolicy.MaxHops != nil && len(edgeIDs) > *catalog.RoutePolicy.MaxHops {
+		return fmt.Errorf("ROUTE_TOO_LONG: population route exceeds capability route policy (maxHops=%d, hops=%d)", *catalog.RoutePolicy.MaxHops, len(edgeIDs))
+	}
+	steps := make([]PopulationRouteStep, 0, len(edgeIDs))
+	fromType := document.RootResourceType
+	seenEdges := map[string]bool{}
+	for index, edgeID := range edgeIDs {
+		edge, ok := catalogEdge(catalog, edgeID)
+		if !ok {
+			return fmt.Errorf("population edge %q was not found", edgeID)
+		}
+		if seenEdges[edge.ID] && !catalog.RoutePolicy.AllowRepeatedEdges {
+			return fmt.Errorf("population edge %q is repeated but repeated edges are not allowed", edgeID)
+		}
+		from, fromOK := catalogNode(catalog, edge.FromNodeID)
+		to, toOK := catalogNode(catalog, edge.ToNodeID)
+		if !fromOK || !toOK || from.ResourceType != fromType {
+			return fmt.Errorf("population edge %q cannot extend %q at step %d", edgeID, fromType, index)
+		}
+		if from.ResourceType == to.ResourceType && !catalog.RoutePolicy.AllowSelfLoops {
+			return fmt.Errorf("population edge %q is a self-loop but self-loops are not allowed", edgeID)
+		}
+		steps = append(steps, PopulationRouteStep{ResourceType: to.ResourceType, Relationship: edge.Label})
+		seenEdges[edge.ID] = true
+		fromType = to.ResourceType
+	}
+	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
+	return nil
 }
 
 func sourceEqual(left, right ColumnSource) bool {

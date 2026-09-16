@@ -44,6 +44,20 @@ type OutputPlan struct {
 	DynamicMaps        []SemanticDynamicMap
 	CatalogProjections []string
 	Collision          string
+	Population         *SemanticPopulation
+}
+
+type SemanticPopulation struct {
+	SelectionRevisionID string
+	MembershipDigest    string
+	MemberCount         int64
+	ResourceType        string
+	Route               []SemanticPopulationRouteStep
+}
+
+type SemanticPopulationRouteStep struct {
+	ResourceType string
+	Relationship string
 }
 
 // SemanticExpression keeps the checked typed AST together with the logical

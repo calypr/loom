@@ -185,6 +185,14 @@ type PhysicalSubplan struct {
 	Return     PhysicalExpression
 }
 
+// PhysicalCollectionScan reads a compiler-provided collection inside a
+// correlated predicate subplan. It is used for indexed immutable membership
+// joins and is not legal as a top-level root scan.
+type PhysicalCollectionScan struct {
+	Variable          string
+	CollectionBindKey string
+}
+
 type PhysicalPredicate struct {
 	Operator string
 	Left     PhysicalValue

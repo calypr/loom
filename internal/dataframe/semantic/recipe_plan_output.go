@@ -82,6 +82,13 @@ func validCustomGrain(value string) bool {
 }
 
 func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame) (OutputPlan, error) {
+	if output.Population != nil {
+		route := make([]SemanticPopulationRouteStep, len(output.Population.Route))
+		for index, step := range output.Population.Route {
+			route[index] = SemanticPopulationRouteStep{ResourceType: step.ResourceType, Relationship: step.Relationship}
+		}
+		plan.Population = &SemanticPopulation{SelectionRevisionID: output.Population.SelectionRevisionID, MembershipDigest: output.Population.MembershipDigest, MemberCount: output.Population.MemberCount, ResourceType: output.Population.ResourceType, Route: route}
+	}
 	if plan.Collision == "" {
 		plan.Collision = "error"
 	}

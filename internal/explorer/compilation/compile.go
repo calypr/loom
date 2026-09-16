@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -98,6 +99,18 @@ type WorkspaceResult struct {
 	Workspace            authoringv2.Workspace
 }
 
+// ResolvedPopulation is the immutable, checked external input for one output.
+// It is kept separate from the authoring workspace so changing a selection
+// revision can never mutate draft intent in place.
+type ResolvedPopulation struct {
+	OutputID            string                            `json:"outputId"`
+	SelectionRevisionID string                            `json:"selectionRevisionId"`
+	MembershipDigest    string                            `json:"membershipDigest"`
+	MemberCount         int64                             `json:"memberCount"`
+	ResourceType        string                            `json:"resourceType"`
+	Route               []authoringv2.PopulationRouteStep `json:"route,omitempty"`
+}
+
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
@@ -106,6 +119,9 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
 	workspace = workspace.NormalizePresentationOrders()
+	if err := validateResolvedPopulationCoverage(workspace, resolvedInputs); err != nil {
+		return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", "$.resolvedInputs.populations", err.Error(), nil, err)
+	}
 	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
 	if err != nil {
 		return WorkspaceResult{}, fail("intent", "RESOLVED_INPUTS_DIGEST_FAILED", "$.workspace", "resolved input identity could not be calculated", nil, err)
@@ -124,9 +140,28 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		OutputContracts:  []explorer.PublicOutputContract{},
 	}
 	for i, document := range workspace.Documents {
+		population, hasResolvedPopulation := resolvedInputs.PopulationFor(document.Output.ID)
+		if document.Population == nil {
+			if hasResolvedPopulation {
+				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), "resolved population input has no matching authoring population", nil, nil)
+			}
+		} else {
+			if !hasResolvedPopulation {
+				return WorkspaceResult{}, fail("intent", "POPULATION_UNRESOLVED", fmt.Sprintf("$.workspace.documents[%d].population", i), "population selection must be resolved before compilation", nil, nil)
+			}
+			if err := validateResolvedPopulation(document, population); err != nil {
+				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), err.Error(), nil, err)
+			}
+		}
 		compiled, err := Compile(ctx, project, explorerID, document, snapshot)
 		if err != nil {
 			return WorkspaceResult{}, fail("compile", "DOCUMENT_COMPILE_FAILED", fmt.Sprintf("$.workspace.documents[%d]", i), err.Error(), nil, err)
+		}
+		if hasResolvedPopulation {
+			if len(compiled.Bundle.Outputs) != 1 {
+				return WorkspaceResult{}, fail("compile", "POPULATION_OUTPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d]", i), "population could not be attached to the compiled output", nil, nil)
+			}
+			compiled.Bundle.Outputs[0].Population = recipePopulation(population)
 		}
 		result.Bundle.Outputs = append(result.Bundle.Outputs, compiled.Bundle.Outputs...)
 		result.EmittedColumns = append(result.EmittedColumns, compiled.EmittedColumns...)
@@ -145,15 +180,88 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	return result, nil
 }
 
+func validateResolvedPopulationCoverage(workspace authoringv2.Workspace, inputs ResolvedInputs) error {
+	expected := make(map[string]struct{})
+	for _, document := range workspace.Documents {
+		if document.Population != nil {
+			expected[document.Output.ID] = struct{}{}
+		}
+	}
+	seen := make(map[string]struct{}, len(inputs.Populations))
+	for index, population := range inputs.Populations {
+		outputID := strings.TrimSpace(population.OutputID)
+		if outputID == "" {
+			return fmt.Errorf("resolvedInputs.populations[%d].outputId is required", index)
+		}
+		if _, duplicate := seen[outputID]; duplicate {
+			return fmt.Errorf("resolvedInputs.populations contains duplicate outputId %q", outputID)
+		}
+		seen[outputID] = struct{}{}
+		if _, known := expected[outputID]; !known {
+			return fmt.Errorf("resolved population outputId %q has no matching populated document", outputID)
+		}
+	}
+	for outputID := range expected {
+		if _, resolved := seen[outputID]; !resolved {
+			return fmt.Errorf("populated document %q has no resolved population input", outputID)
+		}
+	}
+	return nil
+}
+
+func validateResolvedPopulation(document authoringv2.Document, resolved ResolvedPopulation) error {
+	if strings.TrimSpace(resolved.OutputID) != document.Output.ID {
+		return fmt.Errorf("resolved population outputId %q does not match document outputId %q", resolved.OutputID, document.Output.ID)
+	}
+	if strings.TrimSpace(resolved.SelectionRevisionID) == "" || resolved.SelectionRevisionID != document.Population.SelectionRevisionID {
+		return fmt.Errorf("resolved population selectionRevisionId does not match authoring intent")
+	}
+	if strings.TrimSpace(resolved.ResourceType) == "" {
+		return fmt.Errorf("resolved population resourceType is required")
+	}
+	if resolved.MemberCount < 0 || strings.TrimSpace(resolved.MembershipDigest) == "" {
+		return fmt.Errorf("resolved population membership identity is incomplete")
+	}
+	if len(resolved.Route) != len(document.Population.Route) {
+		return fmt.Errorf("resolved population route does not match authoring intent")
+	}
+	for index := range document.Population.Route {
+		if resolved.Route[index] != document.Population.Route[index] {
+			return fmt.Errorf("resolved population route does not match authoring intent")
+		}
+	}
+	return nil
+}
+
 // ResolvedInputs is the explicit compile-only seam for resolved external
 // values. B01 has no external values, so callers pass the zero value. The
 // normalized workspace meaning is supplied separately to the digest function;
 // it is not duplicated inside this seam.
-type ResolvedInputs struct{}
+type ResolvedInputs struct {
+	Populations []ResolvedPopulation `json:"populations,omitempty"`
+}
+
+func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool) {
+	for _, population := range r.Populations {
+		if population.OutputID == outputID {
+			return population, true
+		}
+	}
+	return ResolvedPopulation{}, false
+}
+
+func recipePopulation(input ResolvedPopulation) *recipe.PopulationConstraint {
+	route := make([]recipe.PopulationRouteStep, len(input.Route))
+	for index, step := range input.Route {
+		route[index] = recipe.PopulationRouteStep{ResourceType: step.ResourceType, Relationship: step.Relationship}
+	}
+	return &recipe.PopulationConstraint{SelectionRevisionID: input.SelectionRevisionID, MembershipDigest: input.MembershipDigest, MemberCount: input.MemberCount, ResourceType: input.ResourceType, Route: route}
+}
 
 // ResolvedInputsDigest returns a stable digest for normalized authoring
 // meaning plus the capability identity used to resolve it.
 func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (string, error) {
+	resolvedInputs = resolvedInputs.Canonical()
 	normalized, err := workspace.CanonicalJSON()
 	if err != nil {
 		return "", err
@@ -176,6 +284,20 @@ func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.S
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (r ResolvedInputs) Canonical() ResolvedInputs {
+	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...)}
+	for index := range copy.Populations {
+		copy.Populations[index].Route = append([]authoringv2.PopulationRouteStep(nil), copy.Populations[index].Route...)
+	}
+	sort.SliceStable(copy.Populations, func(i, j int) bool {
+		if copy.Populations[i].OutputID != copy.Populations[j].OutputID {
+			return copy.Populations[i].OutputID < copy.Populations[j].OutputID
+		}
+		return copy.Populations[i].SelectionRevisionID < copy.Populations[j].SelectionRevisionID
+	})
+	return copy
 }
 
 // Compile translates one semantic V2 document against the exact capability

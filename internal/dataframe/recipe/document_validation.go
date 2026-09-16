@@ -45,6 +45,16 @@ func (b Bundle) Validate() error {
 		if strings.TrimSpace(output.RowGrain) == "" {
 			return validationError("required", path+".rowGrain", "rowGrain is required")
 		}
+		if output.Population != nil {
+			if strings.TrimSpace(output.Population.SelectionRevisionID) == "" || strings.TrimSpace(output.Population.MembershipDigest) == "" || strings.TrimSpace(output.Population.ResourceType) == "" || output.Population.MemberCount < 0 {
+				return validationError("invalid_population", path+".population", "population identity and resource type are required")
+			}
+			for index, step := range output.Population.Route {
+				if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
+					return validationError("invalid_population_route", fmt.Sprintf("%s.population.route[%d]", path, index), "resourceType and relationship are required")
+				}
+			}
+		}
 		if !output.TraversalColumnNaming.Valid() {
 			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH or ALIAS")
 		}

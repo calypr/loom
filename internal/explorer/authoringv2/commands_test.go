@@ -47,6 +47,73 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	}
 }
 
+func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{
+		Type: CommandSetTablePopulation, OutputID: outputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	population := workspace.Documents[0].Population
+	if population == nil || population.SelectionRevisionID != "selection-1" || len(population.Route) != 1 || population.Route[0] != (PopulationRouteStep{ResourceType: "Encounter", Relationship: "encounters"}) {
+		t.Fatalf("population = %#v", population)
+	}
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "patient-encounter") {
+		t.Fatalf("catalog edge ID was persisted in population route: %s", encoded)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-population", []Command{{Type: CommandClearTablePopulation, OutputID: outputID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Population != nil {
+		t.Fatalf("population was not cleared: %#v", workspace.Documents[0].Population)
+	}
+}
+
+func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t *testing.T) {
+	catalog := commandCatalog()
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	preserved, _, err := ApplyCommands(workspace, catalog, "same-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preserved.Documents[0].Route.Children) != 1 || len(preserved.Documents[0].Columns) != 1 {
+		t.Fatalf("same-root command discarded configured meaning: %#v", preserved.Documents[0])
+	}
+	if _, _, err := ApplyCommands(workspace, catalog, "change-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "encounter"}}); err == nil || !strings.Contains(err.Error(), "ROOT_REBASE_REQUIRED") {
+		t.Fatalf("destructive root rebase error = %v", err)
+	}
+}
+
+func TestApplyCommandsRejectsPopulationRouteBeyondCatalogMaxHops(t *testing.T) {
+	catalog := commandCatalog()
+	maxHops := 0
+	catalog.RoutePolicy.MaxHops = &maxHops
+	catalog.RoutePolicy.Unbounded = false
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{Type: CommandSetTablePopulation, OutputID: created[0].OutputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"}}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("population over-depth error = %v, want ROUTE_TOO_LONG", err)
+	}
+}
+
 func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 	catalog := CatalogSnapshot{
 		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer",

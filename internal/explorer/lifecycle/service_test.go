@@ -38,6 +38,7 @@ type fakeStore struct {
 	release            dataset.ProjectRelease
 	revision           int64
 	order              *[]string
+	selection          *explorer.SelectionRevision
 }
 
 func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
@@ -101,6 +102,14 @@ func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, st
 		return nil, explorer.ErrNotFound
 	}
 	return f.receipt, nil
+}
+
+func (f *fakeStore) GetSelection(context.Context, string, string) (*explorer.SelectionRevision, error) {
+	if f.selection == nil {
+		return nil, explorer.ErrSelectionNotFound
+	}
+	selection := *f.selection
+	return &selection, nil
 }
 
 func (f *fakeStore) GetRevision(context.Context, string) (*explorer.Revision, error) {
@@ -188,6 +197,16 @@ func testConfig(snapshot capability.Snapshot) Config {
 			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
 	}}
+}
+
+func completedTestSelection(snapshot capability.Snapshot, resourceType string) *explorer.SelectionRevision {
+	completedAt := time.Now().UTC()
+	return &explorer.SelectionRevision{
+		ID: "selection-1", Project: snapshot.Identity.Project, Generation: snapshot.Identity.Generation, ResourceType: resourceType,
+		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "rule-digest", MembershipDigest: "membership-digest", MemberCount: 1, MemberBytes: 1,
+		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
+	}
 }
 
 func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
@@ -319,6 +338,105 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 	}
 	if store.created == nil || store.created.DraftVersion != 5 {
 		t.Fatalf("persisted draft version = %#v, want 5", store.created)
+	}
+}
+
+func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
+	catalog := authoringv2.CatalogSnapshot{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients",
+		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token,
+		Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}},
+		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: completedTestSelection(snapshot, "Patient")}
+	config := testConfig(snapshot)
+	config.SelectionMembersCollection = "loom_explorer_selection_members"
+	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	service := newTestService(t, store, config)
+	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "set-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1"}},
+	}, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil || response.Workspace.Documents[0].Population == nil || store.created.DraftVersion != 2 {
+		t.Fatalf("population draft = %#v persisted=%#v", response, store.created)
+	}
+
+	var compileRequestSeen CompileReceiptRequest
+	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileRequestSeen = request
+		receipt := nativeReceipt(snapshot)
+		store.receipt = receipt
+		return receipt, nil
+	}
+	service = newTestService(t, store, config)
+	compiled, err := service.Reconcile(context.Background(), ReconcileRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: store.created.DraftVersion, DraftDigest: store.created.DraftDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled == nil || len(compileRequestSeen.ResolvedInputs.Populations) != 1 {
+		t.Fatalf("compiled=%#v request=%#v", compiled, compileRequestSeen)
+	}
+	resolved := compileRequestSeen.ResolvedInputs.Populations[0]
+	if resolved.OutputID != "patients" || resolved.SelectionRevisionID != "selection-1" || resolved.ResourceType != "Patient" || resolved.MemberCount != 1 {
+		t.Fatalf("resolved population = %#v", resolved)
+	}
+	if compileRequestSeen.SelectionMembersCollection != "loom_explorer_selection_members" {
+		t.Fatalf("compile runtime binding = %q", compileRequestSeen.SelectionMembersCollection)
+	}
+}
+
+func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot.Nodes = []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}
+	catalog := authoringv2.CatalogSnapshot{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation,
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}},
+		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := completedTestSelection(snapshot, "Patient")
+	selection.Complete = false
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: selection}
+	config := testConfig(snapshot)
+	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	service := newTestService(t, store, config)
+	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "set-incomplete-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1"}},
+	}, "alice")
+	if err == nil || store.created.DraftVersion != 1 {
+		t.Fatalf("incomplete selection err=%v persisted=%#v", err, store.created)
 	}
 }
 

@@ -274,6 +274,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		graphCopy.PathSets = cloneStrings(operation.GraphReturn.PathSets)
 		copy.GraphReturn = &graphCopy
 	}
+	if operation.CollectionScan != nil {
+		collectionCopy := *operation.CollectionScan
+		copy.CollectionScan = &collectionCopy
+	}
 	return copy
 }
 

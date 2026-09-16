@@ -151,10 +151,11 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
 	context := semantic.ExecutionContext{
-		Project:           bindings.Project,
-		DatasetGeneration: bindings.DatasetGeneration,
-		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
-		AuthScopeMode:     bindings.AuthScopeMode,
+		Project:                    bindings.Project,
+		DatasetGeneration:          bindings.DatasetGeneration,
+		AuthResourcePaths:          append([]string(nil), bindings.AuthResourcePaths...),
+		AuthScopeMode:              bindings.AuthScopeMode,
+		SelectionMembersCollection: bindings.SelectionMembersCollection,
 	}
 	if err := validateSemanticOutputNames(output); err != nil {
 		return CompiledRecipeOutput{}, err

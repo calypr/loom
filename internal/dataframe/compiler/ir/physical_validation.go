@@ -516,6 +516,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.GraphReturn != nil {
 		payloads++
 	}
+	if operation.CollectionScan != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -531,7 +534,8 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalReturnOp && operation.Return != nil) ||
 		(operation.Kind == PhysicalPathSeedOp && operation.PathSeed != nil) ||
 		(operation.Kind == PhysicalPathExtendOp && operation.PathExtend != nil) ||
-		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil)
+		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil) ||
+		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}
