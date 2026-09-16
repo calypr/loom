@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -21,6 +22,9 @@ type selectionLifecycleStore struct {
 	header   explorer.SelectionRevision
 	members  map[string]explorer.SelectionMember
 	revision *explorer.Revision
+	abortCalls,
+	completeCalls,
+	getCalls int
 }
 
 func (s *selectionLifecycleStore) BeginSelection(_ context.Context, value explorer.SelectionRevision, _ string) (*explorer.SelectionRevision, error) {
@@ -143,14 +147,19 @@ func (s *selectionLifecycleStore) DigestSelectionMembers(_ context.Context, _, _
 }
 
 func (s *selectionLifecycleStore) CompleteSelection(_ context.Context, _ string, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
+	s.completeCalls++
 	s.header.Complete, s.header.MembershipDigest, s.header.MemberCount, s.header.MemberBytes = true, digest, count, bytes
 	s.header.CompletedAt = &completedAt
 	return &s.header, nil
 }
 
-func (s *selectionLifecycleStore) AbortSelection(context.Context, string, string) error { return nil }
+func (s *selectionLifecycleStore) AbortSelection(context.Context, string, string) error {
+	s.abortCalls++
+	return nil
+}
 
 func (s *selectionLifecycleStore) GetSelection(context.Context, string, string) (*explorer.SelectionRevision, error) {
+	s.getCalls++
 	return &s.header, nil
 }
 
@@ -214,6 +223,8 @@ func TestCreateAndReadSelectionKeepsLiteralMembershipAndIdempotence(t *testing.T
 type selectionResolverFixture struct {
 	materialization published.Materialization
 	executionID     string
+	rows            []map[string]any
+	streamErr       error
 }
 
 func (f *selectionResolverFixture) ResolveSelectionSource(_ context.Context, _, _, executionID, _ string) (published.Materialization, error) {
@@ -221,8 +232,94 @@ func (f *selectionResolverFixture) ResolveSelectionSource(_ context.Context, _, 
 	return f.materialization, nil
 }
 
-func (f *selectionResolverFixture) StreamSelectionSource(_ context.Context, _ published.Materialization, _ published.StreamRequest, _ func(map[string]any) error) error {
-	return nil
+func (f *selectionResolverFixture) StreamSelectionSource(_ context.Context, _ published.Materialization, _ published.StreamRequest, visit func(map[string]any) error) error {
+	for _, row := range f.rows {
+		if err := visit(row); err != nil {
+			return err
+		}
+	}
+	return f.streamErr
+}
+
+func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	store := &selectionLifecycleStore{revision: &explorer.Revision{
+		Project: "project", ExplorerID: "explorer", CompilationReceiptID: "receipt", ResolvedSchemaDigest: "schema",
+		Publication: explorer.PublicationMetadata{ExecutionID: "execution"},
+		Dataset:     explorer.DatasetMetadata{Generation: "generation-a", Outputs: []explorer.DatasetOutput{{Name: "files"}}},
+	}}
+	persistence, _ := explorer.NewService(store)
+	streamErr := errors.New("source stream interrupted")
+	resolver := &selectionResolverFixture{
+		materialization: published.Materialization{
+			Revision: "execution", SourceRevision: "revision", ReceiptID: "receipt", SchemaDigest: "schema",
+			Project: "project", DatasetGeneration: "generation-a",
+			SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"},
+		},
+		rows: []map[string]any{{"id": "files001"}, {"id": "files002"}}, streamErr: streamErr,
+	}
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
+	}}, SelectionSourceResolver: resolver})
+	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "interrupted-stream",
+		Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
+	})
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("interrupted stream error = %v", err)
+	}
+	if store.abortCalls != 1 || store.completeCalls != 0 || store.header.Complete {
+		t.Fatalf("interrupted stream lifecycle abort=%d complete=%d header=%#v", store.abortCalls, store.completeCalls, store.header)
+	}
+}
+
+func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	store := &selectionLifecycleStore{}
+	persistence, _ := explorer.NewService(store)
+	refs := make([]explorer.ResourceRef, int(DefaultSelectionMaxRows)+1)
+	for i := range refs {
+		refs[i] = explorer.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: fmt.Sprintf("files-%06d", i)}
+	}
+	service, _ := New(persistence, Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
+		}},
+		SelectionReferenceValidator: func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error { return nil },
+	})
+	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "row-limit",
+		ResourceType: "DocumentReference", Source: SelectionSourceIntent{Kind: SelectionSourceResources, Resources: refs},
+	})
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != "SELECTION_LIMIT_EXCEEDED" {
+		t.Fatalf("row limit error = %v", err)
+	}
+	if store.abortCalls != 1 || store.completeCalls != 0 || store.header.Complete {
+		t.Fatalf("row limit lifecycle abort=%d complete=%d header=%#v", store.abortCalls, store.completeCalls, store.header)
+	}
+}
+
+func TestReadSelectionRejectsInvalidNarrowedScopeBeforeHeaderLoad(t *testing.T) {
+	store := &selectionLifecycleStore{}
+	persistence, _ := explorer.NewService(store)
+	badScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted, AuthResourcePaths: []string{"secret"}}
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{
+		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
+			return capabilitySnapshot("current-token", "generation-a", "invalid-scope"), nil
+		},
+		ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: capabilitySnapshot("current-token", "generation-a", "invalid-scope"), Scope: badScope}, nil
+		},
+	}})
+	_, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: "selection-never-loaded", Limit: 10})
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
+		t.Fatalf("invalid narrowed scope error = %v", err)
+	}
+	if store.getCalls != 0 {
+		t.Fatalf("selection header loaded before scope validation: %d calls", store.getCalls)
+	}
 }
 
 func TestCreateSelectionRejectsForeignReferencesWithoutRewritingThem(t *testing.T) {
