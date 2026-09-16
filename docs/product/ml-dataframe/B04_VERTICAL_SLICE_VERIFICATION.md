@@ -54,3 +54,24 @@ B04 remains in progress. This slice does not yet provide:
 - independent contributor-scoped relationship occurrences;
 - a checked nontrivial root rebase that preserves compatible features;
 - a density benchmark that compares target scans with membership-driven traversal.
+
+## Acceptance audit on 2026-09-16
+
+The superseding B01-B08 plan classifies this work as a partial B04 slice.
+
+| Issue | Status | Proven | Still required |
+| --- | --- | --- | --- |
+| `ML-B04-01` | In progress | The compiler applies direct and reversed population semijoins. The saved live evidence maps two selected files to one Specimen. | Retain matched member IDs, report unmapped members, and prove both directions through live Preview. |
+| `ML-B04-02` | In progress | A same-root command preserves the table. An unsafe root change returns `ROOT_REBASE_REQUIRED` before draft persistence. | Assess a proposed row change, identify affected features, and atomically apply an unambiguous rebase without changing stable feature IDs. |
+| `ML-B04-03` | Not started | None. | Add independent contributor-scoped occurrences, typed predicates, required population matching, and predicate-aware traversal sharing. |
+| `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, chooses a unique route, previews constrained rows, and reloads the attachment. | Add selection variants and exclusions, an explicit row-definition control, resulting and unmapped counts, and a live non-file-root journey. |
+
+The current focused Go package gate passes. The UI boundary check, TypeScript
+test compilation, and all 134 UI tests pass. The current machine could not
+repeat the live gate because Docker Desktop canceled credential access while
+building `node:22.22.0-bookworm-slim`. The prior retained live artifacts remain
+evidence for the implemented slice, not for the missing acceptance criteria.
+
+The B04 performance gate has no result. B02 selection-storage measurements do
+not replace the required sparse-versus-dense population-plan comparison or the
+row-change-to-preview timing.
