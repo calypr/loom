@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commandEnvironment, createDevSession, createVerificationReport, sourceMountMatches } from './loom-dev.mjs';
+import { commandEnvironment, createDevSession, createVerificationReport, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('development session defaults to isolated names, ports, and fixture', () => {
   const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-registry-'));
@@ -124,4 +124,24 @@ test('Docker Desktop host mount normalization accepts only this checkout', () =>
   assert.equal(sourceMountMatches(`${checkout}/cmd`, `${checkout}/cmd`), true);
   assert.equal(sourceMountMatches(`/host_mnt${checkout}/cmd`, `${checkout}/cmd`), true);
   assert.equal(sourceMountMatches('/host_mnt/private/tmp/another-checkout/cmd', `${checkout}/cmd`), false);
+});
+
+test('dataframe verification uses the versioned frontend output contract', () => {
+  const request = graphQLRowsRequest(
+    { fixtureProject: 'loom_dev_contract' },
+    { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
+    ['id', 'status'],
+    [{ column: 'status', op: 'IN', value: ['active'] }],
+  );
+  assert.equal(
+    request.query,
+    'query VerifyRows($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } }',
+  );
+  assert.deepEqual(request.variables.input, {
+    projectId: 'loom_dev_contract',
+    selector: { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
+    columns: ['id', 'status'],
+    filters: [{ column: 'status', op: 'IN', value: ['active'] }],
+    first: 25,
+  });
 });

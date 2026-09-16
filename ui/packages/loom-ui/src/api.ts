@@ -18,6 +18,7 @@ import {
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import { z } from 'zod';
+import { dataframeOutputQuery } from '../../../../contracts/dataframe-output-query.mjs';
 
 export interface ExplorerSummary {
   readonly project: string;
@@ -434,9 +435,7 @@ const outputQuery = (request: LoomOutputRequest): {
     ...(request.first === undefined ? {} : { first: request.first }),
     ...(request.after ? { after: request.after } : {}),
   };
-  const query = hasFacets
-    ? `query LoomOutput($input: DataframeRowsInput!, $facetInput: DataframeAggregationsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } dataframeAggregations(input: $facetInput) { aggregations } }`
-    : `query LoomOutput($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } }`;
+  const query = dataframeOutputQuery('LoomOutput', hasFacets);
   const variables: Record<string, unknown> = { input };
   if (hasFacets) {
     variables.facetInput = {

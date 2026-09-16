@@ -6,6 +6,7 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dataframeOutputQuery } from '../contracts/dataframe-output-query.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
@@ -701,9 +702,13 @@ const findDownloadedCSV = async (directory, timeout = 10000) => {
   throw new Error('viewer did not download a CSV file');
 };
 
+export const graphQLRowsRequest = (target, selector, columns, filters = []) => ({
+  query: dataframeOutputQuery('VerifyRows'),
+  variables: { input: { projectId: target.fixtureProject, selector, columns, filters, first: 25 } },
+});
+
 const graphQLRows = async (target, selector, columns, filters = []) => {
-  const query = `query VerifyRows($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } }`;
-  const body = { query, variables: { input: { projectId: target.fixtureProject, selector, columns, filters, first: 25 } } };
+  const body = graphQLRowsRequest(target, selector, columns, filters);
   const { response, value } = await requestJSON(`${target.apiUrl}/graphql/graph`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout: 30000 });
   if (!response.ok || value.errors?.length) throw new Error(`dataframe proof failed: HTTP ${response.status} ${JSON.stringify(value.errors ?? value).slice(0, 500)}`);
   return value.data?.dataframeRows;

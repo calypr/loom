@@ -432,7 +432,8 @@ describe('Loom project paths', () => {
       sort: { column: 'status', desc: true }, first: 20, after: 'cursor-1',
       facets: [{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }],
     });
-    const payload = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { variables: { input: Record<string, unknown>; facetInput: Record<string, unknown> } };
+    const payload = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { query: string; variables: { input: Record<string, unknown>; facetInput: Record<string, unknown> } };
+    expect(payload.query).toBe('query LoomOutput($input: DataframeRowsInput!, $facetInput: DataframeAggregationsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } dataframeAggregations(input: $facetInput) { aggregations } }');
     expect(payload.variables.input).toMatchObject({ projectId: 'NCPI_ACCEPTANCE', first: 20, after: 'cursor-1', sort: { column: 'status', desc: true } });
     expect(payload.variables.input.filters).toEqual([{ column: 'status', op: 'IN', value: ['active', 'pending'] }]);
     expect(payload.variables.facetInput.specs).toEqual([{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }]);
