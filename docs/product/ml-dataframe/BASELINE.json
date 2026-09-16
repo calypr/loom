@@ -1,6 +1,6 @@
 {
-  "source_baseline_sha": "f5b10fba2a6b2bc67a608644e9f640031d5b7cf1",
+  "source_baseline_sha": "39100bdde69e7fb24c2b02d08c90264f015c0476",
   "source_branch": "arch/integration",
   "planned_at": "2026-09-15T23:20:00Z",
-  "reconcile_after": "complete after WP07 full browser verification"
+  "reconcile_after": "refresh before F1 if arch/integration moves"
 }
