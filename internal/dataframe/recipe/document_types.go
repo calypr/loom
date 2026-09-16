@@ -236,7 +236,10 @@ type Pivot struct {
 	Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
 	CorrelationSystem string                        `json:"correlationSystem,omitempty"`
 	CorrelationCode   string                        `json:"correlationCode,omitempty"`
-	Discovered        bool                          `json:"-"`
+	// ExtensionCorrelation is the closed ancestor-aware extension binding. It
+	// is mutually exclusive with Correlation and legacy selector expressions.
+	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
+	Discovered           bool                         `json:"-"`
 }
 
 const (
@@ -272,27 +275,28 @@ func NormalizedPivotProjectionMode(mode string) string {
 // contract.
 func (p Pivot) MarshalJSON() ([]byte, error) {
 	type pivotJSON struct {
-		Name              string                        `json:"name"`
-		FieldRef          string                        `json:"fieldRef,omitempty"`
-		ColumnExpr        *Expression                   `json:"columnExpr,omitempty"`
-		ValueExpr         *Expression                   `json:"valueExpr,omitempty"`
-		ValueFallbacks    []Expression                  `json:"valueFallbacks,omitempty"`
-		ItemSource        *Expression                   `json:"itemSource,omitempty"`
-		ItemResourceType  string                        `json:"itemResourceType,omitempty"`
-		Columns           []string                      `json:"columns"`
-		ColumnAliases     map[string]string             `json:"columnAliases,omitempty"`
-		ProjectionMode    string                        `json:"projectionMode,omitempty"`
-		Discovery         *PivotDiscovery               `json:"discovery,omitempty"`
-		Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
-		CorrelationSystem string                        `json:"correlationSystem,omitempty"`
-		CorrelationCode   string                        `json:"correlationCode,omitempty"`
+		Name                 string                        `json:"name"`
+		FieldRef             string                        `json:"fieldRef,omitempty"`
+		ColumnExpr           *Expression                   `json:"columnExpr,omitempty"`
+		ValueExpr            *Expression                   `json:"valueExpr,omitempty"`
+		ValueFallbacks       []Expression                  `json:"valueFallbacks,omitempty"`
+		ItemSource           *Expression                   `json:"itemSource,omitempty"`
+		ItemResourceType     string                        `json:"itemResourceType,omitempty"`
+		Columns              []string                      `json:"columns"`
+		ColumnAliases        map[string]string             `json:"columnAliases,omitempty"`
+		ProjectionMode       string                        `json:"projectionMode,omitempty"`
+		Discovery            *PivotDiscovery               `json:"discovery,omitempty"`
+		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+		CorrelationSystem    string                        `json:"correlationSystem,omitempty"`
+		CorrelationCode      string                        `json:"correlationCode,omitempty"`
+		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode}
-	if p.Correlation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, ExtensionCorrelation: p.ExtensionCorrelation}
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
 	}
-	if p.Correlation == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
 		value := p.ValueExpr
 		wire.ValueExpr = &value
 	}

@@ -67,6 +67,9 @@ type LookupSource struct {
 	// Key is required with Binding and carries the selected system/code
 	// identity. It is not accepted for legacy lookup variants.
 	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
+	// Extension is the ancestor-aware closed alternative for extensionByUrl.
+	// It cannot coexist with legacy Match/Path or the terminology Binding/Key.
+	Extension *fhirschema.ExtensionBinding `json:"extension,omitempty"`
 }
 
 type RelatedSelection struct {
@@ -174,6 +177,13 @@ func (s ColumnSource) Normalized() ColumnSource {
 		if lookup.Key != nil {
 			key := *lookup.Key
 			lookup.Key = &key
+		}
+		if lookup.Extension != nil {
+			extension := *lookup.Extension
+			extension.URLPath = append([]string(nil), lookup.Extension.URLPath...)
+			extension.ChoiceArms = append([]string(nil), lookup.Extension.ChoiceArms...)
+			extension.ValueFallback = append([]string(nil), lookup.Extension.ValueFallback...)
+			lookup.Extension = &extension
 		}
 		n.Lookup = &lookup
 	}
@@ -318,8 +328,17 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if s.Lookup == nil || (s.Lookup.Binding == nil && strings.TrimSpace(s.Lookup.Match) == "") {
+		if s.Lookup == nil || (s.Lookup.Binding == nil && s.Lookup.Extension == nil && strings.TrimSpace(s.Lookup.Match) == "") {
 			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
+		}
+		if s.Lookup != nil && s.Lookup.Extension != nil {
+			if s.Kind != SourceExtensionByURL {
+				return fmt.Errorf("%s extension binding is only supported for extensionByUrl", path)
+			}
+			if s.Lookup.Binding != nil || s.Lookup.Key != nil || strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
+				return fmt.Errorf("%s extension lookup must not combine extension with match, path, binding, or key", path)
+			}
+			return nil
 		}
 		if s.Lookup != nil && s.Lookup.Binding != nil {
 			if s.Kind != SourceCodingBySystem && s.Kind != SourceObservationComponentByCode {
@@ -404,6 +423,11 @@ func (d Document) validateSemantic() error {
 		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {
 			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {
 				return fmt.Errorf("%s.source.binding: %w", path, err)
+			}
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
+			if _, err := fhirschema.ValidateExtensionBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Extension); err != nil {
+				return fmt.Errorf("%s.source.extension: %w", path, err)
 			}
 		}
 		if column.Table != nil && column.Table.Order != nil && *column.Table.Order < 0 {

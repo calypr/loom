@@ -58,6 +58,9 @@ type SemanticPivot struct {
 	Correlation       *fhirschema.CorrelatedBinding
 	CorrelationSystem string
 	CorrelationCode   string
+	// ExtensionCorrelation carries the checked ancestor-aware extension
+	// binding. It shares the physical correlation IR with terminology pivots.
+	ExtensionCorrelation *fhirschema.ExtensionBinding
 }
 
 type SemanticAggregate struct {

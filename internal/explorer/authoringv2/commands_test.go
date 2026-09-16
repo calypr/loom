@@ -76,6 +76,45 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 	}
 }
 
+func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *testing.T) {
+	catalog := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer",
+		SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot", Complete: true,
+		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}, RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
+	}
+	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
+	}}}
+	updated, results, err := ApplyCommands(workspace, catalog, "add-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: typed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(updated.Documents[0].Columns) != 1 || updated.Documents[0].Columns[0].Source.Lookup.Extension == nil {
+		t.Fatalf("typed extension result = %#v", updated)
+	}
+	legacy := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Match: "leaf", Path: "extension[].valueString"}}
+	if _, _, err := ApplyCommands(workspace, catalog, "legacy-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: legacy}}); err == nil || !strings.Contains(err.Error(), "explicit typed binding") {
+		t.Fatalf("legacy extension write error = %v", err)
+	}
+	wrongArm := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueInteger", LogicalType: "string",
+	}}}
+	if _, _, err := ApplyCommands(workspace, catalog, "wrong-extension-arm", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: wrongArm}}); err == nil || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("wrong extension arm error = %v", err)
+	}
+	missingParent := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
+	}}}
+	if _, _, err := ApplyCommands(workspace, catalog, "missing-extension-parent", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: missingParent}}); err == nil || !strings.Contains(err.Error(), "one URL per extension boundary") {
+		t.Fatalf("missing extension parent error = %v", err)
+	}
+}
+
 func TestApplyCommandsRequestRequiresSemanticsV3(t *testing.T) {
 	request := ApplyCommandsRequest{CommandID: "cmd", SnapshotToken: "token", Commands: []Command{{Type: CommandDeleteTable, OutputID: "out"}}}
 	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {

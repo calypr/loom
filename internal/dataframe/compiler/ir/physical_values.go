@@ -208,6 +208,12 @@ type PhysicalCorrelation struct {
 	ValuePrimitive  string
 	SystemBindKey   string
 	CodeBindKey     string
+	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
+	// aware extension correlation. Each selector is relative to the current
+	// Extension item and each bind is matched before descending to the next
+	// nested extension. When non-empty, coding fields above are unused.
+	ExtensionURLSelectors []spec.Selector
+	ExtensionURLBindKeys  []string
 }
 
 type PhysicalObjectLookup struct {

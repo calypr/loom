@@ -205,6 +205,46 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 			return fmt.Errorf("owner selector: %w", err)
 		}
 	}
+	if len(correlation.ExtensionURLSelectors) > 0 {
+		if correlation.OwnerResource != "Extension" {
+			return fmt.Errorf("extension correlation owner resource %q is not Extension", correlation.OwnerResource)
+		}
+		if len(correlation.ExtensionURLSelectors) != len(correlation.ExtensionURLBindKeys) {
+			return fmt.Errorf("extension URL selectors and bind keys must have equal length")
+		}
+		for index, selector := range correlation.ExtensionURLSelectors {
+			if err := validatePhysicalSelector(correlation.OwnerResource, selector); err != nil {
+				return fmt.Errorf("extension URL selector %d: %w", index, err)
+			}
+			key := strings.TrimSpace(correlation.ExtensionURLBindKeys[index])
+			if key == "" {
+				return fmt.Errorf("extension URL bind key %d is required", index)
+			}
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+			if _, ok := bindVars[key].(string); !ok {
+				return fmt.Errorf("extension URL bind %q must be a string", key)
+			}
+		}
+		if err := validatePhysicalSelector(correlation.OwnerResource, correlation.ValueSelector); err != nil {
+			return fmt.Errorf("extension value selector: %w", err)
+		}
+		for index, fallback := range correlation.ValueFallbacks {
+			if err := validatePhysicalSelector(correlation.OwnerResource, fallback); err != nil {
+				return fmt.Errorf("extension value fallback %d: %w", index, err)
+			}
+		}
+		for index, choice := range correlation.ChoiceSelectors {
+			if err := validatePhysicalSelector(correlation.OwnerResource, choice); err != nil {
+				return fmt.Errorf("extension choice selector %d: %w", index, err)
+			}
+		}
+		if strings.TrimSpace(correlation.LogicalType) == "" {
+			return fmt.Errorf("extension correlation logical type is required")
+		}
+		return nil
+	}
 	if strings.TrimSpace(correlation.KeyResource) == "" || !schemaDefinitionExists(correlation.KeyResource) {
 		return fmt.Errorf("correlation key resource %q is not represented by generated FHIR schema", correlation.KeyResource)
 	}

@@ -279,6 +279,9 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 }
 
 func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if len(correlation.ExtensionURLSelectors) > 0 {
+		return r.renderExtensionCorrelatedPivot(correlation, columnsBindKey, stringify, flattenSingle, projectionMode)
+	}
 	if columnsBindKey == "" {
 		return "", fmt.Errorf("correlated pivot columns bind is required")
 	}
@@ -315,44 +318,10 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	mode := strings.ToUpper(strings.TrimSpace(projectionMode))
-	if mode == "" {
-		mode = "FIRST"
+	value, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
+	if err != nil {
+		return "", err
 	}
-	var value string
-	valuePrimitive := strings.ToLower(strings.TrimSpace(correlation.ValuePrimitive))
-	stringConversion := stringify && valuePrimitive != "" && valuePrimitive != "string"
-	switch mode {
-	case "ALL":
-		value = "__correlation_flat_values"
-		if stringConversion {
-			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
-		}
-	case "DISTINCT":
-		values := "__correlation_flat_values"
-		if stringConversion {
-			values = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
-		}
-		value = "SORTED_UNIQUE(" + values + ")"
-	case "VALUE":
-		first := "FIRST(__correlation_flat_values)"
-		if stringConversion {
-			first = "TO_STRING(" + first + ")"
-		}
-		value = `LENGTH(__correlation_flat_values) == 1 ? ` + first + ` : { status: "INVALID_MULTIPLE_VALUES", raw: __correlation_flat_values }`
-	case "FIRST":
-		// FIRST is explicit authoring loss. Sort only to make the selected
-		// representative deterministic; it does not silently change ALL or
-		// VALUE semantics.
-		value = "FIRST(SORTED(__correlation_flat_values))"
-		if stringConversion {
-			value = "TO_STRING(" + value + ")"
-		}
-	default:
-		return "", fmt.Errorf("correlated pivot projection mode %q is unsupported", projectionMode)
-	}
-	invalid := `{ status: "INVALID_CHOICE_ARM", raw: __correlation_unsupported_values }`
-	value = fmt.Sprintf(`LENGTH(__correlation_unsupported_values) > 0 ? %s : %s`, invalid, value)
 	// Reduce repeated Coding aliases within each owner before the outer
 	// reduction. Distinct owners remain separate, so ALL retains multiplicity
 	// across components while duplicate Coding entries cannot duplicate a
@@ -553,4 +522,113 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 		return "", err
 	}
 	return "(FOR " + item + " IN " + items + " RETURN " + value + ")", nil
+}
+
+// renderExtensionCorrelatedPivot keeps each nested extension URL check in the
+// loop that owns the next extension object. A leaf URL can therefore never
+// match a value beneath a different ancestor URL.
+func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if columnsBindKey == "" {
+		return "", fmt.Errorf("extension pivot columns bind is required")
+	}
+	if _, collection := r.collectionKeys[columnsBindKey]; collection {
+		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", columnsBindKey)
+	}
+	columns, ok := r.bindVars[columnsBindKey].([]string)
+	if !ok || len(columns) == 0 {
+		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	if len(correlation.ExtensionURLSelectors) != len(correlation.ExtensionURLBindKeys) {
+		return "", fmt.Errorf("extension URL selectors and bind keys must have equal length")
+	}
+	extensionSelector, err := spec.ParseSelector("extension[]")
+	if err != nil {
+		return "", err
+	}
+	current := "__extension_base"
+	lines := []string{"FOR " + current + " IN " + owners}
+	for index, urlSelector := range correlation.ExtensionURLSelectors {
+		extension := fmt.Sprintf("__correlation_extension_%d", index)
+		extensions, selectorErr := r.renderSelectorArrayFromSource(current, extensionSelector, false, false)
+		if selectorErr != nil {
+			return "", fmt.Errorf("extension owner selector %d: %w", index, selectorErr)
+		}
+		lines = append(lines, "  FOR "+extension+" IN FLATTEN("+extensions+")")
+		url, scalarErr := r.renderCorrelationScalar(extension, urlSelector)
+		if scalarErr != nil {
+			return "", fmt.Errorf("extension URL selector %d: %w", index, scalarErr)
+		}
+		lines = append(lines, fmt.Sprintf("    FILTER %s != null AND %s == @%s", url, url, correlation.ExtensionURLBindKeys[index]))
+		current = extension
+	}
+	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(current, correlation)
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines,
+		"    LET __correlation_values = "+values,
+		"    LET __correlation_flat_values = FLATTEN(__correlation_values)",
+		"    LET __correlation_unsupported_values = "+unsupportedValues,
+		"    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0",
+		"    RETURN { values: __correlation_values, unsupported: __correlation_unsupported_values }")
+	pairs := strings.Join(lines, "\n")
+	value, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
+	if err != nil {
+		return "", err
+	}
+	// Aggregate every matched terminal extension before applying the declared
+	// reduction. Emitting one object per owner would make MERGE overwrite
+	// repeated matches and would silently turn VALUE multiplicity into FIRST.
+	aggregation := fmt.Sprintf("FOR __extension_result IN [1]\n  LET __extension_pairs = (\n    %s\n  )\n  LET __correlation_flat_values = FLATTEN(__extension_pairs[*].values)\n  LET __correlation_unsupported_values = FLATTEN(__extension_pairs[*].unsupported)\n  FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0\n  RETURN ", pairs)
+	if flattenSingle {
+		return "FIRST(\n  " + aggregation + value + "\n)", nil
+	}
+	return "MERGE(\n  " + aggregation + "{ [FIRST(@" + columnsBindKey + ")]: " + value + " }\n)", nil
+}
+
+// renderCorrelatedReduction is shared by Coding and Extension correlations so
+// every projection mode has one explicit multiplicity and invalid-choice
+// contract. ALL/DISTINCT preserve arrays; VALUE reports multiplicity; FIRST is
+// deterministic but intentionally lossy.
+func renderCorrelatedReduction(projectionMode string, stringify bool, primitive string) (string, error) {
+	mode := strings.ToUpper(strings.TrimSpace(projectionMode))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	valuePrimitive := strings.ToLower(strings.TrimSpace(primitive))
+	stringConversion := stringify && valuePrimitive != "" && valuePrimitive != "string"
+	value := "__correlation_flat_values"
+	switch mode {
+	case "ALL":
+		if stringConversion {
+			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+	case "DISTINCT":
+		if stringConversion {
+			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+		value = "SORTED_UNIQUE(" + value + ")"
+	case "VALUE":
+		first := "FIRST(__correlation_flat_values)"
+		if stringConversion {
+			first = "TO_STRING(" + first + ")"
+		}
+		value = `LENGTH(__correlation_flat_values) == 1 ? ` + first + ` : { status: "INVALID_MULTIPLE_VALUES", raw: __correlation_flat_values }`
+	case "FIRST":
+		value = "FIRST(SORTED(__correlation_flat_values))"
+		if stringConversion {
+			value = "TO_STRING(" + value + ")"
+		}
+	default:
+		return "", fmt.Errorf("correlated pivot projection mode %q is unsupported", projectionMode)
+	}
+	return `LENGTH(__correlation_unsupported_values) > 0 ? { status: "INVALID_CHOICE_ARM", raw: __correlation_unsupported_values } : ` + value, nil
 }

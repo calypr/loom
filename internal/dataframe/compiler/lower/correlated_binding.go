@@ -55,6 +55,52 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 	}, nil
 }
 
+// LowerExtensionBinding converts the checked ancestor-aware extension shape
+// into the same physical correlation IR used by terminology pivots. URL
+// literals are bound individually so every ancestor must match in its own
+// lexical extension loop before the terminal value is evaluated.
+func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBinding, source ir.PhysicalValue, urlBindKeys []string) (ir.PhysicalCorrelation, error) {
+	checked, err := fhirschema.ValidateExtensionBinding(resourceType, binding)
+	if err != nil {
+		return ir.PhysicalCorrelation{}, err
+	}
+	if len(urlBindKeys) != len(checked.URLSelectors) {
+		return ir.PhysicalCorrelation{}, fmt.Errorf("extension binding requires one URL bind per ancestor (got %d, want %d)", len(urlBindKeys), len(checked.URLSelectors))
+	}
+	for index, key := range urlBindKeys {
+		if strings.TrimSpace(key) == "" {
+			return ir.PhysicalCorrelation{}, fmt.Errorf("extension URL bind key %d is required", index)
+		}
+	}
+	choiceArms := append([]string(nil), checked.ChoiceArms...)
+	if len(choiceArms) == 0 {
+		valuePath := checked.ValueSelector.CanonicalPath()
+		if first, _, found := strings.Cut(valuePath, "."); found || strings.HasPrefix(valuePath, "value") {
+			if found {
+				choiceArms = []string{strings.TrimSuffix(first, "[]")}
+			} else {
+				choiceArms = []string{strings.TrimSuffix(valuePath, "[]")}
+			}
+		}
+	}
+	choiceSelectors := make([]spec.Selector, 0)
+	if len(choiceArms) > 0 {
+		for _, option := range fhirschema.ChoiceValueSelectorOptions(checked.OwnerResource) {
+			selector, parseErr := spec.ParseSelector(fhirschema.SelectorExpression(option))
+			if parseErr != nil {
+				return ir.PhysicalCorrelation{}, fmt.Errorf("choice selector %q: %w", fhirschema.SelectorExpression(option), parseErr)
+			}
+			choiceSelectors = append(choiceSelectors, selector)
+		}
+	}
+	return ir.PhysicalCorrelation{
+		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector,
+		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
+		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
+		ExtensionURLSelectors: append([]spec.Selector(nil), checked.URLSelectors...), ExtensionURLBindKeys: append([]string(nil), urlBindKeys...),
+	}, nil
+}
+
 // LowerCorrelatedPredicate uses the same binding as projection lowering. The
 // code system and code are independent bind values but are evaluated against
 // the same Coding item by the renderer.

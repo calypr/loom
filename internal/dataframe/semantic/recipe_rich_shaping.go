@@ -71,6 +71,22 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 		if !recipe.ValidPivotProjectionMode(input.ProjectionMode) {
 			return nil, fmt.Errorf("%s projectionMode %q is unsupported", path, input.ProjectionMode)
 		}
+		if input.Correlation != nil && input.ExtensionCorrelation != nil {
+			return nil, fmt.Errorf("%s cannot carry both terminology and extension correlation", path)
+		}
+		if input.ExtensionCorrelation != nil {
+			checked, bindingErr := fhirschema.ValidateExtensionBinding(resourceType, *input.ExtensionCorrelation)
+			if bindingErr != nil {
+				return nil, fmt.Errorf("%s extensionCorrelation: %w", path, bindingErr)
+			}
+			out = append(out, SemanticPivot{
+				Name: input.Name, FieldRef: input.FieldRef, Columns: columns, ColumnAliases: columnAliases, ProjectionMode: projectionMode,
+				Family: "extension_correlated", ExtensionCorrelation: cloneExtensionBinding(input.ExtensionCorrelation),
+				ValueKind: correlatedValueKind(checked.LogicalType), StringifyValue: checked.LogicalType == "string",
+				Discovered: input.Discovered,
+			})
+			continue
+		}
 		if input.Correlation != nil {
 			checked, bindingErr := fhirschema.ValidateCorrelatedBinding(resourceType, *input.Correlation)
 			if bindingErr != nil {
@@ -214,6 +230,17 @@ func cloneCorrelatedBinding(input *fhirschema.CorrelatedBinding) *fhirschema.Cor
 	copy := *input
 	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
 	copy.ChoiceArms = append([]string(nil), input.ChoiceArms...)
+	return &copy
+}
+
+func cloneExtensionBinding(input *fhirschema.ExtensionBinding) *fhirschema.ExtensionBinding {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.URLPath = append([]string(nil), input.URLPath...)
+	copy.ChoiceArms = append([]string(nil), input.ChoiceArms...)
+	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
 	return &copy
 }
 

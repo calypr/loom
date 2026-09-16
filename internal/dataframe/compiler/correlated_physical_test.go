@@ -174,6 +174,73 @@ func TestCorrelatedPhysicalFilterUsesSameCodingBinding(t *testing.T) {
 	}
 }
 
+func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
+	binding := &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
+	}
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			Name: "extension_family", Columns: []string{"left_leaf"}, ColumnAliases: map[string]string{"left_leaf": "left_leaf"}, ProjectionMode: "ALL",
+			ExtensionCorrelation: binding,
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("extension plan invalid: %v", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered.BindVars["pivot_root_extension_family_columns_url_0"] != "urn:parent:left" || rendered.BindVars["pivot_root_extension_family_columns_url_1"] != "urn:leaf" {
+		t.Fatalf("extension URL binds = %#v", rendered.BindVars)
+	}
+	if !strings.Contains(rendered.Query, "extension") || !strings.Contains(rendered.Query, "valueString") || !strings.Contains(rendered.Query, "pivot_root_extension_family_columns_url_0") || !strings.Contains(rendered.Query, "pivot_root_extension_family_columns_url_1") {
+		t.Fatalf("extension ancestry/value scope missing:\n%s", rendered.Query)
+	}
+	if strings.Contains(rendered.Query, "correlation_pivot_coding") || strings.Contains(rendered.Query, "match = leaf") {
+		t.Fatalf("extension projection used coding or legacy leaf matching:\n%s", rendered.Query)
+	}
+}
+
+func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
+	binding := &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
+	}
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ColumnAliases: map[string]string{"leaf": "leaf"}, ExtensionCorrelation: binding}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "INVALID_CHOICE_ARM") || !strings.Contains(rendered.Query, "valueBoolean") {
+		t.Fatalf("wrong extension choice arm is not explicit:\n%s", rendered.Query)
+	}
+}
+
+func TestExtensionPhysicalProjectionReducesAllOwnersTogether(t *testing.T) {
+	binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ProjectionMode: "VALUE", ExtensionCorrelation: binding}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FLATTEN(__extension_pairs[*].values)") || !strings.Contains(rendered.Query, "INVALID_MULTIPLE_VALUES") {
+		t.Fatalf("extension VALUE mode does not reduce all matching owners together:\n%s", rendered.Query)
+	}
+}
+
 func TestCorrelatedPhysicalFiltersKeepIndependentTerminologyBinds(t *testing.T) {
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{

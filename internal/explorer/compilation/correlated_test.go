@@ -34,6 +34,29 @@ func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
 	}
 }
 
+func TestCompileAuthoringExtensionLookupCarriesOnlyTypedAncestry(t *testing.T) {
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []authoringv2.Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{Extension: &fhirschema.ExtensionBinding{
+			OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
+		}, ProjectionMode: "ALL"}}}},
+	}
+	snapshot := fixtureSnapshotForProject("project")
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_observation", ResourceType: "Observation", RowRootEligible: true, RowGrain: "observation"})
+	result, err := Compile(context.Background(), "project", "explorer", document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivots := result.Bundle.Outputs[0].Pivots
+	if len(pivots) != 1 || pivots[0].ExtensionCorrelation == nil || len(pivots[0].ExtensionCorrelation.URLPath) != 2 {
+		t.Fatalf("compiled extension pivots = %#v", pivots)
+	}
+	if pivots[0].ProjectionMode != "ALL" || !isZeroRecipeExpression(pivots[0].ColumnExpr) || !isZeroRecipeExpression(pivots[0].ValueExpr) || len(pivots[0].ValueFallbacks) != 0 {
+		t.Fatalf("extension pivot retained legacy expressions or lost projection: %#v", pivots[0])
+	}
+}
+
 func isZeroRecipeExpression(value recipe.Expression) bool {
 	return value.Select == "" && value.Call == "" && value.Literal == nil && value.Document == nil && len(value.Args) == 0
 }

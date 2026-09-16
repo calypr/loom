@@ -190,6 +190,22 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
+		case authoringv2.SourceExtensionByURL:
+			if column.Source.Lookup == nil || column.Source.Lookup.Extension == nil {
+				// Legacy extension lookups remain readable for immutable recipes;
+				// writable authoring commands reject this shape before compilation.
+				dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
+				if dynamicErr != nil {
+					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
+				}
+				nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
+				break
+			}
+			pivot, pivotErr := semanticExtensionPivot(column, leaf)
+			if pivotErr != nil {
+				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
+			}
+			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
 			if column.Source.Aggregate != nil {
 				if path := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root."); path != "" {
@@ -664,14 +680,23 @@ func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (re
 		ItemResourceType: "ObservationComponent",
 		Columns:          []string{match},
 	}
-	if lookup.Binding != nil {
-		// The binding is lowered from its checked structural selectors; these
-		// legacy expressions remain only as readable recipe provenance.
-		pivot.Correlation = lookup.Binding
-		pivot.CorrelationSystem = lookup.Key.System
-		pivot.CorrelationCode = lookup.Key.Code
-	}
 	return pivot, nil
+}
+
+func semanticExtensionPivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
+	lookup := column.Source.Lookup
+	if lookup == nil || lookup.Extension == nil {
+		return recipe.Pivot{}, fmt.Errorf("ancestor-aware extension lookup requires extension binding")
+	}
+	if strings.TrimSpace(column.Column) == "" {
+		return recipe.Pivot{}, fmt.Errorf("extension output column is required")
+	}
+	return recipe.Pivot{
+		Name:    "extension_correlated_" + shortHash(column.Column+"\x00"+strings.Join(lookup.Extension.URLPath, "\x00")),
+		Columns: []string{leaf}, ColumnAliases: map[string]string{leaf: leaf},
+		ProjectionMode:       recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode),
+		ExtensionCorrelation: lookup.Extension,
+	}, nil
 }
 
 func semanticCorrelatedCodingPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {

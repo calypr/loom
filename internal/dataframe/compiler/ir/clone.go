@@ -314,6 +314,12 @@ func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrela
 		copy.ChoiceSelectors[index] = correlation.ChoiceSelectors[index]
 		copy.ChoiceSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ChoiceSelectors[index].Steps...)
 	}
+	copy.ExtensionURLSelectors = make([]spec.Selector, len(correlation.ExtensionURLSelectors))
+	for index := range correlation.ExtensionURLSelectors {
+		copy.ExtensionURLSelectors[index] = correlation.ExtensionURLSelectors[index]
+		copy.ExtensionURLSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ExtensionURLSelectors[index].Steps...)
+	}
+	copy.ExtensionURLBindKeys = append([]string(nil), correlation.ExtensionURLBindKeys...)
 	return &copy
 }
 

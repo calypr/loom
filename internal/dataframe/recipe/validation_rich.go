@@ -209,6 +209,9 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		}
 		aliases[alias] = key
 	}
+	if p.Correlation != nil && p.ExtensionCorrelation != nil {
+		return validationError("ambiguous_correlation", path, "pivot cannot carry both terminology and extension correlation")
+	}
 	if p.Correlation != nil {
 		if p.Discovery != nil {
 			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
@@ -223,6 +226,18 @@ func (p Pivot) validateAt(path string, budget *int) error {
 			return nil
 		}
 		return validationError("ambiguous_correlation", path, "correlated pivot must not carry legacy selector expressions")
+	}
+	if p.ExtensionCorrelation != nil {
+		if p.Discovery != nil {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot cannot use discovery")
+		}
+		if p.Correlation != nil || strings.TrimSpace(p.CorrelationSystem) != "" || strings.TrimSpace(p.CorrelationCode) != "" {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot must not carry terminology correlation fields")
+		}
+		if p.ItemResourceType != "" || !p.ColumnExpr.zero() || !p.ValueExpr.zero() || !p.ItemSource.zero() || len(p.ValueFallbacks) != 0 {
+			return validationError("ambiguous_correlation", path, "extension-correlated pivot must not carry legacy selector expressions")
+		}
+		return nil
 	}
 	// A catalog-backed pivot may omit selectors: the scoped resolver fills them
 	// from the catalog's validated pivot metadata before semantic compilation.

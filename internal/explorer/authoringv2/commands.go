@@ -639,6 +639,12 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 	if source.Kind == SourceProjectID {
 		return nil
 	}
+	if source.Lookup != nil && source.Lookup.Extension != nil && source.Kind == SourceExtensionByURL {
+		if _, err := fhirschema.ValidateExtensionBinding(occurrence.ResourceType, *source.Lookup.Extension); err != nil {
+			return fmt.Errorf("source extension: %w", err)
+		}
+		return nil
+	}
 	if source.Lookup != nil && source.Lookup.Binding != nil && (source.Kind == SourceCodingBySystem || source.Kind == SourceObservationComponentByCode) {
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
@@ -646,6 +652,9 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		// Correlated lookups carry their structural source in Binding. They do
 		// not have a legacy field path to resolve against a catalog candidate.
 		return nil
+	}
+	if source.Kind == SourceExtensionByURL || source.Kind == SourceObservationComponentByCode || source.Kind == SourceCodingBySystem {
+		return fmt.Errorf("new %s lookup requires an explicit typed binding", source.Kind)
 	}
 	if path == "" && source.Kind != SourceAggregate {
 		return fmt.Errorf("source path is required for %s", source.Kind)
@@ -697,6 +706,9 @@ func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occur
 	}
 	if source.Lookup != nil && source.Lookup.Binding != nil && strings.TrimSpace(source.Lookup.Binding.LogicalType) != "" {
 		return strings.TrimSpace(source.Lookup.Binding.LogicalType)
+	}
+	if source.Lookup != nil && source.Lookup.Extension != nil && strings.TrimSpace(source.Lookup.Extension.LogicalType) != "" {
+		return strings.TrimSpace(source.Lookup.Extension.LogicalType)
 	}
 	if source.Kind == SourceAggregate && source.Aggregate != nil {
 		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {

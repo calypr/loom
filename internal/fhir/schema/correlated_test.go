@@ -72,3 +72,38 @@ func TestValidateCorrelatedBindingRejectsTypeAndChoiceOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateExtensionBindingKeepsNestedURLAncestry(t *testing.T) {
+	binding := ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"},
+		ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
+	}
+	checked, err := ValidateExtensionBinding("Observation", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.OwnerSelector.CanonicalPath() != "" || len(checked.URLSelectors) != 2 || checked.OwnerResource != "Extension" || checked.ValueSelector.CanonicalPath() != "valueString" {
+		t.Fatalf("checked extension binding = %#v", checked)
+	}
+	if _, err := ValidateExtensionBinding("Observation", ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueInteger", LogicalType: "string",
+	}); err == nil {
+		t.Fatal("wrong value arm unexpectedly accepted")
+	}
+	if _, err := ValidateExtensionBinding("Observation", ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left"}, ValuePath: "valueString", LogicalType: "string",
+	}); err == nil {
+		t.Fatal("missing ancestor URL unexpectedly accepted")
+	}
+}
+
+func TestValidateExtensionBindingSupportsRepeatedBaseOwner(t *testing.T) {
+	binding := ExtensionBinding{OwnerPath: "component[].extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
+	checked, err := ValidateExtensionBinding("Observation", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.OwnerSelector.CanonicalPath() != "component[]" || len(checked.URLSelectors) != 1 {
+		t.Fatalf("checked base owner = %#v", checked)
+	}
+}

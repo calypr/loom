@@ -136,7 +136,19 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 	}
 	sharedExpression := ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
 		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false, ColumnAliases: cloneStringMap(pivot.ColumnAliases), ProjectionMode: pivot.ProjectionMode}}
-	if pivot.Correlation != nil {
+	if pivot.ExtensionCorrelation != nil {
+		urlBindKeys := make([]string, len(pivot.ExtensionCorrelation.URLPath))
+		for index, url := range pivot.ExtensionCorrelation.URLPath {
+			key := fmt.Sprintf("%s_url_%d", columnsBindKey, index)
+			physical.BindVars[key] = url
+			urlBindKeys[index] = key
+		}
+		correlation, err := LowerExtensionBinding(resourceType, *pivot.ExtensionCorrelation, source, urlBindKeys)
+		if err != nil {
+			return nil, err
+		}
+		sharedExpression.Pivot.Correlation = &correlation
+	} else if pivot.Correlation != nil {
 		systemKey := columnsBindKey + "_system"
 		codeKey := columnsBindKey + "_code"
 		physical.BindVars[systemKey] = pivot.CorrelationSystem

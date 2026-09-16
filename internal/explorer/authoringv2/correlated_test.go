@@ -51,3 +51,32 @@ func TestCorrelatedBindingIsClosedToSupportedLookupKinds(t *testing.T) {
 		}
 	}
 }
+
+func validExtensionLookup() *LookupSource {
+	return &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
+	}}
+}
+
+func extensionAuthoringDocument(lookup *LookupSource) Document {
+	return Document{
+		Kind: Kind, Output: Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
+		Route:   RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceExtensionByURL, Lookup: lookup}}},
+	}
+}
+
+func TestExtensionLookupKeepsURLAncestryAndRejectsMixedWrites(t *testing.T) {
+	if err := extensionAuthoringDocument(validExtensionLookup()).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	conflicting := validExtensionLookup()
+	conflicting.Match = "leaf"
+	if err := extensionAuthoringDocument(conflicting).Validate(); err == nil || !strings.Contains(err.Error(), "must not combine") {
+		t.Fatalf("mixed extension lookup error = %v", err)
+	}
+	legacy := &LookupSource{Match: "leaf", Path: "extension[].valueString"}
+	if err := extensionAuthoringDocument(legacy).Validate(); err != nil {
+		t.Fatalf("historical legacy source should remain readable: %v", err)
+	}
+}
