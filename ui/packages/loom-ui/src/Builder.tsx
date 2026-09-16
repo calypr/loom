@@ -36,6 +36,7 @@ export const LoomExplorerBuilder = ({
       return;
     }
     const controller = new AbortController();
+    setPopulationSelection(undefined);
     setPopulationSelectionLoading(true);
     setPopulationSelectionError(undefined);
     const projectId = organization ? `${organization}/${project}` : project;

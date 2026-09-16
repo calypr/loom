@@ -1013,7 +1013,7 @@ const BuilderWorkspaceContent = ({
                 selection={populationSelection}
                 loading={populationSelectionLoading}
                 error={populationSelectionError}
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                disabled={populationSelectionLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
                 onAttach={(edgeIds) => void applyCommands([{
                   type: 'SET_TABLE_POPULATION',
                   outputId: table.outputId,
