@@ -1,6 +1,9 @@
 {
-  "source_baseline_sha": "39100bdde69e7fb24c2b02d08c90264f015c0476",
+  "source_baseline_sha": "a921b9e5dca1d42a84a836286140fb3b4d704f3b",
   "source_branch": "arch/integration",
-  "planned_at": "2026-09-15T23:20:00Z",
-  "reconcile_after": "refresh before F1 if arch/integration moves"
+  "planned_at": "2026-09-16",
+  "reconcile_after": "Refresh before B01 if arch/integration moves",
+  "plan": "docs/product/ML_DATAFRAME_IMPLEMENTATION_PLAN.md",
+  "design": "docs/product/ML_DATAFRAME_TECHNICAL_DESIGN.md",
+  "supersedes": "F1-F4 Patient-first plan; no execution started"
 }

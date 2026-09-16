@@ -1,5 +1,7 @@
 # Build a training dataset without learning FHIR
 
+> Superseded on 2026-09-16. This document records the earlier Patient-first proposal, not the execution contract. Use [the implementation plan](ML_DATAFRAME_IMPLEMENTATION_PLAN.md) and [technical design](ML_DATAFRAME_TECHNICAL_DESIGN.md). The current execution tables contain B01-B08, which replace F1-F4. Do not implement the separate `DatasetDesignV1` adapter or the Patient-only workflow below.
+
 ## Product promise
 
 A researcher can create a defensible training table without knowing FHIR paths, Loom recipes, AQL, or storage column names.
@@ -12,7 +14,7 @@ Rows -> Features -> Check -> Export
 
 The FHIR graph remains available in **Advanced**. It supports inspection but does not organize the primary workflow.
 
-The canonical execution tables are [ISSUES.csv](ml-dataframe/ISSUES.csv) and [WORK_PACKAGES.csv](ml-dataframe/WORK_PACKAGES.csv). Validate them with:
+The replacement plan's canonical execution tables are [ISSUES.csv](ml-dataframe/ISSUES.csv) and [WORK_PACKAGES.csv](ml-dataframe/WORK_PACKAGES.csv). Validate them with:
 
 ```sh
 python3 scripts/validate_architecture_plan.py --plan-dir docs/product/ml-dataframe
