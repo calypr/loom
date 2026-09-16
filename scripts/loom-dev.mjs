@@ -1166,4 +1166,6 @@ const main = async (argv) => {
   }
 };
 
+export { browserEval, launchBrowser, navigate, snapshot, waitForBrowser };
+
 if (!process.env.NODE_TEST_CONTEXT && import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main(process.argv.slice(2));
