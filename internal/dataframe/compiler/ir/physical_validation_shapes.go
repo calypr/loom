@@ -181,7 +181,15 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			return fmt.Errorf("subplan operation %d has unsupported kind %q", index, operation.Kind)
 		}
 	}
-	return validatePhysicalExpression(subplan.Return, defined, bindVars)
+	if err := validatePhysicalExpression(subplan.Return, defined, bindVars); err != nil {
+		return err
+	}
+	if subplan.Sort != nil {
+		if err := validatePhysicalValue(*subplan.Sort, defined, bindVars); err != nil {
+			return fmt.Errorf("subplan sort: %w", err)
+		}
+	}
+	return nil
 }
 
 func validatePhysicalValue(value PhysicalValue, defined map[string]bool, bindVars map[string]any) error {

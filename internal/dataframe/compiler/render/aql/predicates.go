@@ -271,6 +271,14 @@ func (r *physicalPlanRenderer) renderPredicateExpression(predicate ir.PhysicalPr
 // always bounded: relationship matching is a semi-join, never a row-expanding
 // traversal, so the renderer appends LIMIT 1 immediately before RETURN.
 func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, indent string) (string, error) {
+	value, err := r.renderSubplan(subplan, indent, true)
+	if err != nil {
+		return "", err
+	}
+	return "LENGTH(" + value + ") > 0", nil
+}
+
+func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent string, bounded bool) (string, error) {
 	lines := make([]string, 0, len(subplan.Operations)*3+2)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {
@@ -294,10 +302,24 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, i
 			return "", fmt.Errorf("subplan operation %d has unsupported render kind %q", index, operation.Kind)
 		}
 	}
+	if subplan.Sort != nil {
+		sort, err := r.renderValue(*subplan.Sort)
+		if err != nil {
+			return "", fmt.Errorf("subplan sort: %w", err)
+		}
+		lines = append(lines, indent+"    SORT "+sort)
+	}
 	value, err := r.renderExpression(subplan.Return)
 	if err != nil {
 		return "", err
 	}
-	lines = append(lines, indent+"    LIMIT 1", indent+"    RETURN "+value)
-	return "LENGTH((\n" + strings.Join(lines, "\n") + "\n" + indent + "  )) > 0", nil
+	if bounded {
+		lines = append(lines, indent+"    LIMIT 1")
+	}
+	lines = append(lines, indent+"    RETURN "+value)
+	result := "(\n" + strings.Join(lines, "\n") + "\n" + indent + "  )"
+	if subplan.Unique {
+		result = "SORTED_UNIQUE(" + result + ")"
+	}
+	return result, nil
 }

@@ -183,6 +183,10 @@ type PhysicalSubplan struct {
 	Captures   []string
 	Operations []PhysicalOperation
 	Return     PhysicalExpression
+	// Sort makes an array-valued subplan projection deterministic. It is
+	// validated in the subplan's local scope and is absent from EXISTS plans.
+	Sort   *PhysicalValue
+	Unique bool
 }
 
 // PhysicalCollectionScan reads a compiler-provided collection inside a

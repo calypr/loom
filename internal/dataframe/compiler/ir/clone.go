@@ -158,6 +158,9 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 			canonicalizePhysicalExpression(&expression.Call.Args[index])
 		}
 	}
+	if expression.Subplan != nil {
+		canonicalizePhysicalSubplan(expression.Subplan)
+	}
 }
 
 func clonePhysicalBindVars(bindVars map[string]any) map[string]any {
@@ -444,6 +447,10 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Object = &object
 	}
+	if expression.Subplan != nil {
+		subplan := clonePhysicalSubplan(*expression.Subplan)
+		copy.Subplan = &subplan
+	}
 	return copy
 }
 
@@ -455,6 +462,10 @@ func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 		copy.Operations[i] = clonePhysicalOperation(op)
 	}
 	copy.Return = clonePhysicalExpression(subplan.Return)
+	if subplan.Sort != nil {
+		sort := clonePhysicalValue(*subplan.Sort)
+		copy.Sort = &sort
+	}
 	return copy
 }
 

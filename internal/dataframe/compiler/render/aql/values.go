@@ -43,6 +43,11 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		return r.renderKeySet(expression)
 	case ir.PhysicalObjectExpression:
 		return r.renderObject(expression)
+	case ir.PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return "", fmt.Errorf("SUBPLAN expression is missing payload")
+		}
+		return r.renderSubplan(*expression.Subplan, "  ", false)
 	case ir.PhysicalCallExpression:
 		return r.renderCall(expression)
 	default:

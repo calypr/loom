@@ -48,6 +48,9 @@ const (
 	// bounded source. It is executor metadata, not a public dataframe column.
 	PhysicalKeySetExpression PhysicalExpressionKind = "KEY_SET"
 	PhysicalObjectExpression PhysicalExpressionKind = "OBJECT"
+	// PhysicalSubplanExpression evaluates a compiler-owned correlated subquery
+	// as an array-valued projection, such as row-level population provenance.
+	PhysicalSubplanExpression PhysicalExpressionKind = "SUBPLAN"
 	// PhysicalCallExpression represents a recipe-neutral expression function.
 	// Name is validated against the compiler-owned operator registry and Args
 	// remain typed expressions; neither contains AQL source text.
@@ -83,6 +86,7 @@ type PhysicalExpression struct {
 	ObjectKeys   *PhysicalObjectKeys
 	KeySet       *PhysicalKeySet
 	Object       *PhysicalObject
+	Subplan      *PhysicalSubplan
 	Call         *PhysicalCall
 }
 

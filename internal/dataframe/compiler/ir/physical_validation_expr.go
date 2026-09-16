@@ -50,6 +50,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Object != nil {
 		payloads++
 	}
+	if expression.Subplan != nil {
+		payloads++
+	}
 	if expression.Call != nil {
 		payloads++
 	}
@@ -121,6 +124,11 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalObject(*expression.Object, defined, bindVars)
+	case PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		return validatePhysicalSubplan(*expression.Subplan, defined, bindVars)
 	case PhysicalCallExpression:
 		if expression.Call == nil {
 			return fmt.Errorf("expression payload does not match kind")
@@ -292,6 +300,11 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				if err := visitExpression(fallback); err != nil {
 					return err
 				}
+			}
+		}
+		if current.Subplan != nil {
+			if err := visitSubplan(*current.Subplan); err != nil {
+				return err
 			}
 		}
 		return nil
