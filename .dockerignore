@@ -1,5 +1,8 @@
 .git
 .github
+.gitnexus
+.artifacts
+.audit-worker
 .gocache
 .gomodcache
 .DS_Store
