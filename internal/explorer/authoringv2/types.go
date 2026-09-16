@@ -4,7 +4,6 @@
 package authoringv2
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -71,11 +70,6 @@ type Workspace struct {
 	APIVersion       string `json:"apiVersion"`
 	Kind             string `json:"kind"`
 	SemanticsVersion int    `json:"semanticsVersion,omitempty"`
-	// DatasetDesign preserves the product-level intent that was lowered into
-	// this ordinary V2 workspace. The V2 reducer and compiler remain the
-	// execution authority and treat this payload as immutable metadata.
-	DatasetDesign       json.RawMessage `json:"datasetDesign,omitempty"`
-	DatasetDesignDigest string          `json:"datasetDesignDigest,omitempty"`
 	// MigrationDecisions records automatic interpretation of ambiguous legacy
 	// intent so the choice remains visible and part of the workspace digest.
 	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`

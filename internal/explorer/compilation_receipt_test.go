@@ -120,54 +120,6 @@ func TestCompilationKeyIncludesResolvedInputsIdentity(t *testing.T) {
 	}
 }
 
-func TestCompilationReceiptDatasetDesignMetadataRequiresMatchingPair(t *testing.T) {
-	const digest = "sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
-	valid := testReceipt()
-	valid.DatasetDesign = json.RawMessage(` { "b": 2, "a": 1 } `)
-	valid.DatasetDesignDigest = digest
-	var err error
-	valid.CompilationKey, err = CompilationKey(valid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	equivalent := valid
-	equivalent.DatasetDesign = json.RawMessage(`{"a":1,"b":2}`)
-	equivalent.CompilationKey, err = CompilationKey(equivalent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := equivalent.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for name, receipt := range map[string]CompilationReceipt{
-		"missing payload": func() CompilationReceipt {
-			value := testReceipt()
-			value.DatasetDesignDigest = digest
-			return value
-		}(),
-		"missing digest": func() CompilationReceipt {
-			value := testReceipt()
-			value.DatasetDesign = json.RawMessage(`{"a":1,"b":2}`)
-			return value
-		}(),
-		"mismatched digest": func() CompilationReceipt {
-			value := valid
-			value.DatasetDesignDigest = "sha256:wrong"
-			value.CompilationKey, _ = CompilationKey(value)
-			return value
-		}(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := receipt.Validate(); err == nil {
-				t.Fatalf("accepted invalid metadata pair: %#v", receipt)
-			}
-		})
-	}
-}
-
 func TestCompilationReceiptValidateRejectsArtifactlessLegacyReceipt(t *testing.T) {
 	r := CompilationReceipt{Project: "project-a", ExplorerID: "explorer-a", ID: "receipt_legacy"}
 	if err := r.Validate(); !errors.Is(err, ErrReceiptRecompileRequired) {

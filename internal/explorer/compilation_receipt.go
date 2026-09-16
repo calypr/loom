@@ -77,8 +77,6 @@ type CompilationReceipt struct {
 	ResolvedSchemaDigest     string            `json:"resolvedSchemaDigest,omitempty"`
 	OutputContractDigest     string            `json:"outputContractDigest,omitempty"`
 	NormalizedBundle         json.RawMessage   `json:"normalizedBundle"`
-	DatasetDesign            json.RawMessage   `json:"datasetDesign,omitempty"`
-	DatasetDesignDigest      string            `json:"datasetDesignDigest,omitempty"`
 	Bundle                   recipe.Bundle     `json:"compiledRecipe"`
 	CompiledConfig           json.RawMessage   `json:"compiledConfig,omitempty"`
 	PublicOutputContract     json.RawMessage   `json:"publicOutputContract,omitempty"`
@@ -126,8 +124,6 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		IntentDigest            string `json:"intentDigest"`
 		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
 		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
-		DatasetDesign           []byte `json:"datasetDesign,omitempty"`
-		DatasetDesignDigest     string `json:"datasetDesignDigest,omitempty"`
 		SnapshotToken           string `json:"snapshotToken"`
 		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
 		CapabilitySchema        string `json:"capabilitySchemaDigest,omitempty"`
@@ -138,10 +134,6 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("canonical normalized bundle: %w", err)
 	}
-	datasetDesign, err := canonicalRaw(r.DatasetDesign)
-	if err != nil {
-		return "", fmt.Errorf("canonical dataset design: %w", err)
-	}
 	identity = struct {
 		ReceiptFormatVersion    int    `json:"receiptFormatVersion"`
 		CompilerContractVersion string `json:"compilerContractVersion"`
@@ -150,8 +142,6 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		IntentDigest            string `json:"intentDigest"`
 		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
 		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
-		DatasetDesign           []byte `json:"datasetDesign,omitempty"`
-		DatasetDesignDigest     string `json:"datasetDesignDigest,omitempty"`
 		SnapshotToken           string `json:"snapshotToken"`
 		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
 		CapabilitySchema        string `json:"capabilitySchemaDigest,omitempty"`
@@ -159,7 +149,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		SourceGeneration        string `json:"sourceGeneration"`
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
-		r.IntentDigest, r.ResolvedInputsDigest, normalized, datasetDesign, r.DatasetDesignDigest, r.SnapshotToken,
+		r.IntentDigest, r.ResolvedInputsDigest, normalized, r.SnapshotToken,
 		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration,
 	}
 	return digestIdentity("compile_", identity)
@@ -180,18 +170,12 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("canonical public output contract: %w", err)
 	}
-	datasetDesign, err := canonicalRaw(r.DatasetDesign)
-	if err != nil {
-		return "", fmt.Errorf("canonical dataset design: %w", err)
-	}
 	identity := struct {
 		CompilationKey       string                       `json:"compilationKey"`
 		RecipeDigest         string                       `json:"recipeDigest"`
 		ResolvedRecipeDigest string                       `json:"resolvedRecipeDigest,omitempty"`
 		ResolvedSchemaDigest string                       `json:"resolvedSchemaDigest,omitempty"`
 		OutputContractDigest string                       `json:"outputContractDigest,omitempty"`
-		DatasetDesign        []byte                       `json:"datasetDesign,omitempty"`
-		DatasetDesignDigest  string                       `json:"datasetDesignDigest,omitempty"`
 		Bundle               recipe.Bundle                `json:"compiledRecipe"`
 		CompiledConfig       []byte                       `json:"compiledConfig,omitempty"`
 		PublicOutputContract []byte                       `json:"publicOutputContract,omitempty"`
@@ -202,7 +186,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		Warnings             []CompilationWarning         `json:"warnings,omitempty"`
 	}{
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
-		r.OutputContractDigest, datasetDesign, r.DatasetDesignDigest, r.Bundle, compiledConfig,
+		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
 		r.OutputFingerprints, r.OutputColumnProvenance, r.Warnings,
 	}
@@ -319,23 +303,6 @@ func (r CompilationReceipt) Validate() error {
 	if len(r.NormalizedBundle) > 0 {
 		if _, err := canonicalJSONBytes(r.NormalizedBundle); err != nil {
 			return fmt.Errorf("invalid normalized bundle: %w", err)
-		}
-	}
-	if len(r.DatasetDesign) == 0 && strings.TrimSpace(r.DatasetDesignDigest) == "" {
-		// Legacy receipts do not carry product-level design metadata.
-	} else {
-		if len(r.DatasetDesign) == 0 {
-			return fmt.Errorf("dataset design is required when dataset design digest is present")
-		}
-		if strings.TrimSpace(r.DatasetDesignDigest) == "" {
-			return fmt.Errorf("dataset design digest is required when dataset design is present")
-		}
-		expected, err := CompilationArtifactDigest(r.DatasetDesign)
-		if err != nil {
-			return fmt.Errorf("invalid dataset design: %w", err)
-		}
-		if r.DatasetDesignDigest != expected {
-			return fmt.Errorf("dataset design digest mismatch: got %q want %q", r.DatasetDesignDigest, expected)
 		}
 	}
 	if len(r.CompiledConfig) > 0 {

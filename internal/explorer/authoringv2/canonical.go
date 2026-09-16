@@ -16,13 +16,6 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		return nil, err
 	}
 	n := w.NormalizePresentationOrders()
-	if len(w.DatasetDesign) != 0 {
-		canonical, err := canonicalMetadataJSON(w.DatasetDesign)
-		if err != nil {
-			return nil, fmt.Errorf("canonical dataset design: %w", err)
-		}
-		n.DatasetDesign = canonical
-	}
 	n.Documents = append([]Document(nil), n.Documents...)
 	for i := range n.Documents {
 		n.Documents[i].APIVersion = ""
@@ -41,48 +34,6 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		n.Tabs = []Tab{}
 	}
 	return json.Marshal(n)
-}
-
-func canonicalMetadataJSON(raw []byte) ([]byte, error) {
-	if err := rejectDuplicateKeys(raw); err != nil {
-		return nil, fmt.Errorf("duplicate JSON field: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return nil, fmt.Errorf("multiple JSON values")
-		}
-		return nil, err
-	}
-	return json.Marshal(value)
-}
-
-func validateDatasetDesignMetadata(design json.RawMessage, digest string) error {
-	if len(design) == 0 && strings.TrimSpace(digest) == "" {
-		return nil
-	}
-	if len(design) == 0 {
-		return fmt.Errorf("datasetDesign is required when datasetDesignDigest is present")
-	}
-	if strings.TrimSpace(digest) == "" {
-		return fmt.Errorf("datasetDesignDigest is required when datasetDesign is present")
-	}
-	canonical, err := canonicalMetadataJSON(design)
-	if err != nil {
-		return fmt.Errorf("datasetDesign must be canonicalizable JSON: %w", err)
-	}
-	sum := sha256.Sum256(canonical)
-	want := "sha256:" + hex.EncodeToString(sum[:])
-	if digest != want {
-		return fmt.Errorf("datasetDesignDigest mismatch: got %q want %q", digest, want)
-	}
-	return nil
 }
 
 // NormalizePresentationOrders gives every table column one unambiguous,
@@ -338,17 +289,15 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 }
 
 type persistedWorkspaceWire struct {
-	APIVersion          string                           `json:"apiVersion"`
-	Kind                string                           `json:"kind"`
-	SemanticsVersion    int                              `json:"semanticsVersion,omitempty"`
-	DatasetDesign       json.RawMessage                  `json:"datasetDesign,omitempty"`
-	DatasetDesignDigest string                           `json:"datasetDesignDigest,omitempty"`
-	MigrationDecisions  []string                         `json:"migrationDecisions,omitempty"`
-	Explorer            ExplorerMetadata                 `json:"explorer"`
-	Documents           []persistedDocumentWire          `json:"documents"`
-	Tabs                []Tab                            `json:"tabs"`
-	SharedFilters       map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
-	FileActions         *FileActions                     `json:"fileActions,omitempty"`
+	APIVersion         string                           `json:"apiVersion"`
+	Kind               string                           `json:"kind"`
+	SemanticsVersion   int                              `json:"semanticsVersion,omitempty"`
+	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
+	Explorer           ExplorerMetadata                 `json:"explorer"`
+	Documents          []persistedDocumentWire          `json:"documents"`
+	Tabs               []Tab                            `json:"tabs"`
+	SharedFilters      map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions        *FileActions                     `json:"fileActions,omitempty"`
 }
 
 type persistedDocumentWire struct {
@@ -390,7 +339,6 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 	}
 	out := Workspace{
 		APIVersion: wire.APIVersion, Kind: wire.Kind, SemanticsVersion: wire.SemanticsVersion,
-		DatasetDesign: append(json.RawMessage(nil), wire.DatasetDesign...), DatasetDesignDigest: wire.DatasetDesignDigest,
 		MigrationDecisions: append([]string(nil), wire.MigrationDecisions...), Explorer: wire.Explorer,
 		Tabs: append([]Tab(nil), wire.Tabs...), SharedFilters: wire.SharedFilters, FileActions: wire.FileActions,
 		Documents: make([]Document, 0, len(wire.Documents)),
