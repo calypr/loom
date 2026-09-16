@@ -9,6 +9,7 @@ import (
 
 const (
 	populationSelectionIDBindKey       = "population_selection_id"
+	populationProjectBindKey           = "population_project"
 	populationResourceTypeBindKey      = "population_resource_type"
 	populationMembersCollectionBindKey = "population_members_collection"
 	populationResultBindKey            = "population_match"
@@ -24,7 +25,11 @@ func appendPopulationSemijoin(physical *ir.PhysicalPlan, output semantic.Semanti
 	if context.SelectionMembersCollection == "" {
 		return fmt.Errorf("population selection members collection binding is required")
 	}
+	if context.SelectionProject == "" {
+		return fmt.Errorf("population selection project binding is required")
+	}
 	physical.BindVars[populationSelectionIDBindKey] = population.SelectionRevisionID
+	physical.BindVars[populationProjectBindKey] = context.SelectionProject
 	physical.BindVars[populationResourceTypeBindKey] = population.ResourceType
 	physical.BindVars[populationMembersCollectionBindKey] = context.SelectionMembersCollection
 	physical.BindVars[populationResultBindKey] = 1
@@ -59,7 +64,7 @@ func appendPopulationSemijoin(physical *ir.PhysicalPlan, output semantic.Semanti
 		right ir.PhysicalValue
 	}{
 		{"selectionId", ir.PhysicalValue{BindKey: populationSelectionIDBindKey}},
-		{"project", ir.PhysicalValue{BindKey: "project"}},
+		{"project", ir.PhysicalValue{BindKey: populationProjectBindKey}},
 		{"generation", ir.PhysicalValue{BindKey: "dataset_generation"}},
 		{"resourceType", ir.PhysicalValue{BindKey: populationResourceTypeBindKey}},
 	}

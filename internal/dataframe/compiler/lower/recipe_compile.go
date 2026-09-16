@@ -155,6 +155,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		DatasetGeneration:          bindings.DatasetGeneration,
 		AuthResourcePaths:          append([]string(nil), bindings.AuthResourcePaths...),
 		AuthScopeMode:              bindings.AuthScopeMode,
+		SelectionProject:           bindings.SelectionProject,
 		SelectionMembersCollection: bindings.SelectionMembersCollection,
 	}
 	if err := validateSemanticOutputNames(output); err != nil {

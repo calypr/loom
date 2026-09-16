@@ -42,7 +42,7 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return PreviewResult{}, unprocessable("preview", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection, PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection, PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}}
 	applyAuthorizedScope(&bindings, authorized, false)
 	columns := emittedColumnsForOutput(receipt, request.OutputID)
 	result := PreviewResult{Receipt: receipt, Columns: columns}

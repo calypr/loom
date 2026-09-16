@@ -23,6 +23,7 @@ func TestPopulationSemijoinDirectRootRendersIndexedMemberScan(t *testing.T) {
 		"FOR root IN @@root_collection",
 		"FOR population_member IN @@population_members_collection",
 		"population_member.selectionId == @population_selection_id",
+		"population_member.project == @population_project",
 		"population_member.resourceType == @population_resource_type",
 		"population_member.id == root.id",
 	} {
@@ -32,6 +33,9 @@ func TestPopulationSemijoinDirectRootRendersIndexedMemberScan(t *testing.T) {
 	}
 	if got := rendered.BindVars["@population_members_collection"]; got != "loom_explorer_selection_members" {
 		t.Fatalf("population member collection bind = %#v", got)
+	}
+	if got := rendered.BindVars["population_project"]; got != "project/a" {
+		t.Fatalf("population project bind = %#v", got)
 	}
 }
 
@@ -66,7 +70,7 @@ func renderPopulationRecipe(t *testing.T, output recipe.Output) aql.RenderedPhys
 		Outputs:             []recipe.Output{output},
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{
-		Project: "project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
+		Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
 	})
 	if err != nil {
 		t.Fatal(err)

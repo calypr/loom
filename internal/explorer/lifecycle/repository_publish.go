@@ -42,7 +42,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 			return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 materialization: %v", err), err)
 		}
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
 	var execution Execution
 	if s.config.MaterializeReceipt == nil {

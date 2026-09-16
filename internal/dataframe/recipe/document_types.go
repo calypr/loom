@@ -508,6 +508,9 @@ type RuntimeBindings struct {
 	DatasetGeneration string
 	AuthResourcePaths []string
 	AuthScopeMode     authscope.ReadScopeMode
+	// SelectionProject is the canonical project identity stored with immutable
+	// selection members. Project may use the legacy FHIR-storage spelling.
+	SelectionProject string
 	// SelectionMembersCollection is a runtime-only collection binding used by
 	// population constraints. It is never serialized into a recipe digest.
 	SelectionMembersCollection string

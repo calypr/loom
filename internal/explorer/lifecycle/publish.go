@@ -55,7 +55,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {
 		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt generation is no longer active", map[string]any{"generation": receipt.SourceGeneration}, err)
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {

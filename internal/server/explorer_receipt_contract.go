@@ -49,7 +49,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
 		return nil, err
