@@ -1,154 +1,219 @@
-# ML-ready dataframe product tranche
+# Build a training dataset without learning FHIR
 
 ## Product promise
 
-A researcher who does not understand FHIR paths should be able to define what one row means, turn repeated clinical data into explicit features, see whether those features are usable, publish the result, and download a reproducible training artifact. Loom must explain every lossy choice before publication and preserve the data, schema, quality evidence, and provenance under one immutable identity.
+A researcher can create a defensible training table without knowing FHIR paths, Loom recipes, AQL, or storage column names.
 
-This tranche is not another general cleanup pass. Each work package ends in a user-visible result driven through the local Builder, Preview, Publish, Viewer, and export loop. Backend work is included only when a frontend promise requires it.
+The primary workflow is:
 
-The canonical execution tables are [ISSUES.csv](ISSUES.csv) and [WORK_PACKAGES.csv](WORK_PACKAGES.csv). Validate them with:
+```text
+Rows -> Features -> Check -> Export
+```
+
+The FHIR graph remains available in **Advanced**. It supports inspection but does not organize the primary workflow.
+
+The canonical execution tables are [ISSUES.csv](ml-dataframe/ISSUES.csv) and [WORK_PACKAGES.csv](ml-dataframe/WORK_PACKAGES.csv). Validate them with:
 
 ```sh
 python3 scripts/validate_architecture_plan.py --plan-dir docs/product/ml-dataframe
 ```
 
-## Current product boundary
+## The first useful dataset
 
-The current flow is mechanically complete:
+The first release builds one concrete dataset:
 
-```text
-Builder -> commands -> reconcile receipt -> preview -> publish
-        -> Viewer -> paginated rows/facets -> browser-built CSV
+- One row represents one Patient.
+- `Gender` is a direct Patient value.
+- `Observation count` counts all related Observations.
+- `Final observation count` counts related Observations with final status.
+- `Has preliminary observation` is a yes or no feature.
+- A related Observation value requires an explicit multiple-match choice.
+
+The local fixture contains two Patients. Patient 001 has two Observations, and Patient 002 has one. The expected feature values are literal acceptance data:
+
+| Patient | Gender | Observation count | Final observation count | Has preliminary observation |
+| --- | --- | ---: | ---: | --- |
+| `dev-patient-001` | `female` | 2 | 1 | true |
+| `dev-patient-002` | null | 1 | 1 | false |
+
+After a feature ships, every later package must preserve its values through inline preview, full Preview, publication, GraphQL, Viewer, and the available download format. Authoring results share one receipt. The published revision records that receipt, and Viewer plus downloads use the resulting materialization.
+
+## What Loom already provides
+
+Loom already has most of the execution path:
+
+- Builder loads a server-owned draft and an authorization-scoped capability catalog.
+- Versioned commands create tables, roots, routes, and ordinary field columns.
+- Reconcile produces an immutable receipt. Preview and publish consume that receipt.
+- The compiler supports root fields, repeated projections, routes, and aggregates such as `COUNT` and `EXISTS`.
+- Viewer reads published rows through GraphQL and supports filters, paging, details, and CSV download.
+- `make verify-fast` drives a real browser through Builder, Preview, Publish, Viewer, filter, CSV, and reload.
+
+The product does not yet let a researcher state feature meaning. Builder submits the default field projection. It cannot author aggregate sources. Preview does not measure row-key integrity, coverage, or dropped related values. Export does not produce one data artifact with schema, quality, and provenance.
+
+The compiler also has a correctness trap. A scalar field from multiple related resources can become `FIRST(FLATTEN(...))`. Loom can drop related values and still report the output as lossless and ML-ready. The new workflow must reject that implicit choice.
+
+## Product shape
+
+The workflow uses a closed dataset design. It does not expose a formula editor or a generic predicate language.
+
+```ts
+type DatasetDesignV1 = {
+  version: 1
+  title: string
+  grain: RowGrain
+  features: FeatureDefinition[]
+}
+
+type FeatureDefinition = {
+  key: string
+  label: string
+  role: "identifier" | "feature" | "outcome" | "timestamp" | "ignore" | "unspecified"
+  missingMeaning: "unknown" | "not_observed" | "not_applicable" | "zero" | "false"
+  source: FeatureSource
+}
+
+type FeatureSource =
+  | { kind: "root-value"; field: FieldRef; projection: RootProjection }
+  | { kind: "related-value"; route: RouteRef; field: FieldRef; multiple: RelatedMultiplicity }
+  | { kind: "related-count"; route: RouteRef; predicate?: ObservationStatusPredicate }
+  | { kind: "related-exists"; route: RouteRef; predicate?: ObservationStatusPredicate }
+
+type RelatedMultiplicity =
+  | { kind: "require-one" }
+  | { kind: "keep-all" }
+  | { kind: "first-by-resource-id"; acknowledged: true }
+
+type ObservationStatusPredicate = {
+  kind: "observation-status-is"
+  code: string
+}
 ```
 
-It is not yet semantically safe for ML authoring:
+`FieldRef` and `RouteRef` are catalog identities. The user never types a FHIR path. A design adapter validates these values against the capability snapshot and lowers the four feature variants to the existing V2 compiler.
 
-- Row grain is inferred from the selected root rather than chosen and validated as a product decision.
-- Relationship multiplicity is hidden. A one-to-many child can be reduced with `FIRST` while the output still appears lossless and ML-ready.
-- Candidate metadata advertises `VALUE`, `INDEXED`, `FIRST`, `ALL`, and `DISTINCT`, but Builder uses the default without a visible choice.
-- Builder cannot author the aggregate and typed feature vocabulary already present in lower layers.
-- Preview shows cells, not feature coverage, row-key uniqueness, relationship cardinality, or actionable readiness evidence.
-- Viewer export collects every page into browser memory and is not visibly pinned to one immutable publication.
-- The receipt manifest describes compilation, not a portable data-plus-schema-plus-quality artifact.
+The receipt echoes the normalized feature, output shape, loss policy, and exact lineage. The UI never reconstructs meaning from physical column names.
 
-## Observable final artifact
+One receipt-bound evidence operation grows with the product:
 
-The user-visible result is a versioned `LoomDatasetArtifact`:
-
-```text
-loom-dataset-artifact/
-  data.parquet
-  manifest.json
-  schema.json
-  provenance.json
-  quality.json
-  README.md
+```ts
+type DatasetEvidence = {
+  receiptId: string
+  outputId: string
+  snapshotToken: string
+  sourceGeneration: string
+  complete: boolean
+  limits: { rows: number; bytes: number; durationMs: number }
+  rows: { total: number; key: string; nullKeys: number; duplicateKeys: number }
+  relationships: RelationshipEvidence[]
+  features: FeatureEvidence[]
+  readiness?: { state: "ready" | "ready_with_warnings" | "blocked"; reasons: ReadinessReason[] }
+}
 ```
 
-CSV and JSONL remain explicit compatibility formats. Parquet is preferred once the server exporter supports it.
+F1 adds the evidence identity, limits, completeness state, row-key results, and root-value coverage. F2 adds relationship counts and dropped-value evidence. F3 adds readiness policy, bounded distributions, and repair links. Unknown or incomplete evidence never becomes `ready`.
 
-The artifact contract must include:
+## The four work packages
 
-- An immutable publication, revision, and materialization pin.
-- Row grain, row key, row and column counts, file digests, and exact output selector.
-- Ordered columns with stable key, human label, logical/storage type, nullability, array shape, feature role, and encoding guidance.
-- FHIR resource, relationship occurrence, path, choice arm, code system, repeated coordinates, projection policy, derivation, and missing-value meaning.
-- Receipt, snapshot, generation, recipe/schema/contract digests, compiler/translation versions, cohort filters, and export time.
-- Measured row-key duplicates, coverage, missing/empty/invalid counts, distinctness, distributions, relationship zero/one/many counts, and any collapsed or truncated values.
-- `ready`, `ready_with_warnings`, or `blocked` with stable reason codes and plain-language remediation.
+### F1: Create a Patient training table
 
-An artifact must fail rather than silently complete if its data and schema disagree, its pinned materialization disappears, or a lossy choice was not explicitly authored. A republish after export starts must not change any file in the artifact.
+The researcher creates a dataset, selects **Patient, one row for each patient**, and adds **Gender** as a value. The Rows screen shows `2 rows`, `0 null keys`, and `0 duplicate keys`. The Gender feature card shows `50% populated` and an inline sample with `female` and null.
 
-## User journey
+F1 adds `DatasetDesignV1`, the root-value variant, and a one-way adapter to the existing V2 compiler. It adds receipt identity, source generation, measurement limits, completeness, row-key results, and root-value coverage to the receipt-bound evidence operation. It also adds the third hostile-fixture Observation for later packages. It does not add related-feature controls.
 
-1. Choose a project and name the training dataset.
-2. Choose what one row represents and see whether the proposed row key is actually unique.
-3. Add a related resource and see observed zero/one/many cardinality before selecting fields.
-4. Choose how repeated values become features: safe scalar, indexed columns, array, aggregate, distinct list, explicit first, or separate output.
-5. Add useful derived features such as Observation count, final-only count, and existence without writing FHIRPath, recipes, or AQL.
-6. Preview values alongside coverage, missingness, cardinality, distributions, and actionable warnings.
-7. Assign feature roles and review leakage/time-window warnings before publishing.
-8. Publish once the receipt and readiness evidence agree.
-9. Inspect the same semantics in Viewer.
-10. Download a pinned artifact whose data and sidecars all identify the same materialization.
+The existing Preview, Publish, Viewer, CSV, and reload path must work for the new design. The Rows screen, inline preview, evidence response, and full Preview share one receipt ID. Publish records the revision produced from that receipt. Viewer and CSV use the materialization and selector returned by that publication.
 
-FHIR paths and compiler details remain available under advanced disclosure, but the primary copy explains the consequence in researcher language.
+### F2: Turn related records into features
 
-## Delivery sequence
+From **Features**, the researcher clicks **Add feature** and chooses one of three cards:
 
-| WP | User-visible outcome | Depends on | Execution |
-| --- | --- | --- | --- |
-| P0 | The hostile fixture and artifact contract make hard cases executable | Architecture WP04 loop | Serial on integration |
-| P1 | Builder explains row grain and refuses silent one-to-many loss | P0; architecture WP01/WP05 | Serial on integration |
-| P2 | A user explicitly chooses repeated-value projection | P1 | Serial on integration |
-| P3 | A user authors and verifies derived aggregate features | P2 | Parallel with P5 on a dedicated branch |
-| P5 | Builder and Viewer share plain-language FHIR semantics | P2 | Parallel with P3 on a dedicated branch |
-| P4 | Preview reports measured quality and readiness evidence | P3 and P5 | Serial integration slice |
-| P6 | Viewer downloads a pinned portable artifact | P4 and P5; architecture WP03/WP06 | Serial integration slice |
+- **A value** selects one field. A related value must use `require-one`, `keep-all`, or acknowledged `first-by-resource-id`.
+- **A count** counts related records and may filter by one Observation status.
+- **Yes / No** reports whether any related Observation has that status.
 
-P3 and P5 are the only planned parallel branches. Their worker scopes are disjoint; shared OpenAPI/generated/UI contract files remain integration-owner files. All other packages stay on `arch/integration`.
+The feature card shows an inline sample, coverage, and **How this is made**. That disclosure contains the resource, relationship, exact path, operation, missing meaning, and stable key. An Observation-status feature shows its status code. A future Coding feature must also show its coding system.
 
-## Work-package outcomes
+Before the user saves a related value, Loom shows the observed `none`, `one`, and `many` counts. `require-one` cannot save while any root has `many`. If later data violates a saved `require-one` invariant, Check blocks publication with `RELATIONSHIP_CARDINALITY_VIOLATION`. `first-by-resource-id` states that it drops values, requires acknowledgement, and sets `lossless=false`. `indexed` is not offered as a solution to multiple related resources because it solves repetition inside one resource.
 
-### P0 — Contract and hostile fixture
+F2 adds only the remaining closed source variants and an explicit Observation-status predicate. The adapter lowers them to the existing route, projection, `WherePath` and `WhereEquals`, `COUNT`, and `EXISTS` support. It does not add arbitrary equality, a generic Coding predicate, latest-value logic, unit conversion, time windows, or custom expressions.
 
-Freeze artifact v1 and add a small FHIR fixture containing two related Observations for one Patient, repeated values, an all-null field, partial population, a choice type, coding system/display, and a missing reference. Extend the local driver with artifact-aware acceptance hooks and record cold/warm timing and memory baselines. Do not replace the fast smoke fixture.
+### F3: Check and repair the dataset
 
-### P1 — What does one row mean?
+The **Check** screen reports:
 
-Expose observed relationship cardinality and require an explicit policy for a one-to-many route. A scalar child cannot claim lossless or ML-ready merely because its field path is scalar. The contract carries stable reason codes and the UI says which root rows are affected.
+- Row count and row-key integrity.
+- Feature coverage and missingness.
+- Relationship `none`, `one`, and `many` counts.
+- Dropped or truncated related values.
+- A bounded range or distinct count when the feature type supports it.
+- Stable readiness reasons with a direct repair action.
 
-### P2 — Repeated-value projection chooser
+A Check request runs against the validated receipt through the same Preview execution boundary. It does not query a published dataset or a current GraphQL pointer.
 
-Wire the existing projection vocabulary into Builder. Explain scalar, indexed, array, distinct, and first-value behavior before preview. `FIRST` is explicitly lossy and names its deterministic ordering. `INDEXED` states its width and overflow policy. Preview, receipt, Viewer, and artifact schema must agree.
+A repair action returns to and focuses the exact feature card. Null or duplicate row keys, an identity or schema mismatch, and unacknowledged value loss block publication. Sparse coverage, an unspecified role, and an unknown missing-value meaning produce warnings. Loom records feature role and missing meaning. It does not claim to decide whether a feature is clinically safe.
 
-### P3 — Derived feature studio
+FHIR explanation is not a separate project. Each feature card, Preview column, Viewer column, and artifact descriptor uses the same versioned feature descriptor and the same null and array display policy.
 
-Add one guided feature editor and one typed authoring command boundary. The first released features are Observation count, filtered count, and existence. Exact values must agree in Preview, published reads, Viewer, and export before adding broader terminology, unit, or temporal operators.
+### F4: Download one reproducible training artifact
 
-### P4 — Coverage and readiness evidence
+The researcher clicks **Publish and export** and downloads `loom-dataset-artifact-v1.zip`. The archive contains exactly:
 
-Profile the same immutable output that Preview and export read. Report row-key integrity, coverage/missingness, invalid values, distinctness, type-appropriate distributions, relationship cardinality, and cohort/filter effects. Readiness is a reasoned state with remediation, never an opaque boolean.
+```text
+data.csv
+manifest.json
+schema.json
+provenance.json
+quality.json
+README.md
+```
 
-### P5 — FHIR explanation and semantic presentation
+The server resolves one receipt, revision, output, and materialization before it reads rows. Every file names those identities. `manifest.json` records every SHA-256 checksum. The server exposes the archive only after every member and checksum succeeds.
 
-Define one column descriptor and one null/array rendering policy shared by Builder, Preview, Viewer, and artifact sidecars. Present friendly labels first while retaining exact paths, choice arms, relationships, code systems, and stable physical keys. Record feature roles and leakage/time-window intent without pretending to automate clinical judgment.
+CSV is the first data member because Loom already has a CSV codec. Parquet is a later format capability, not a hidden requirement for artifact v1. The existing Viewer CSV remains a compatibility action until the server artifact flow replaces all callers.
 
-### P6 — Pinned portable export
+The live test starts export A, publishes revision B, and proves that every member of A remains pinned to A. A forced later-page failure must not produce an enabled download or a file presented as complete.
 
-Expose a server-owned streaming export bound to one publication/revision/materialization. Produce a checksummed archive containing data, manifest, schema, provenance, quality, and README. Add progress/cancel/failure handling and prove that a concurrent republish cannot mix revisions. Never present a partial archive as complete.
+## Execution order
 
-## Acceptance spine
+The packages run in order: F1, F2, F3, then F4. They share the dataset design, API, and Builder contracts, so the plan has no parallel package branches. Each package lands on `arch/integration` after its focused and live gates pass. The source baseline is the `arch/integration` tip recorded in `BASELINE.json`, not the separate planning branch that stores these documents.
 
-Every package uses the warm local loop. Each issue runs focused behavior tests; each package runs `make verify-fast`; the integrated tranche runs Go/dataframe/OpenAPI/GraphQL gates, all UI checks/builds, and the complete DOM/API journey once. Run `verify-full` only when watcher/build/dev-driver behavior changes.
+## Screen contract
 
-The tranche is complete only when these live scenarios pass:
+### Rows
 
-1. A nontechnical user creates a Patient dataset and understands “one row per Patient” without seeing an internal ID as the only explanation.
-2. A Patient with two Observations forces an explicit policy. Array/indexed/first outputs and warnings agree across receipt, Preview, Viewer, and artifact schema.
-3. Total and final-only Observation counts have exact expected values everywhere.
-4. An absent value and an all-null feature produce measured coverage and an actionable readiness state.
-5. An export started from revision A remains entirely revision A after revision B is published.
-6. Repeated, choice-type, and coding columns have stable machine names and matching human/FHIR explanations.
-7. Reloading and switching Builder/Viewer preserves row grain, projection, readiness, and publication identity.
-8. A multi-page export failure is recoverable and cannot yield a file presented as complete.
+`[data-testid="rows-step"]` asks, "What should one row represent?" `[data-testid="row-grain-patient"]` says, "One row for each patient." `[data-testid="row-key-evidence"]` shows the proposed key, observed row count, null keys, duplicate keys, completeness, and receipt identity.
 
-## Explicit non-goals for this tranche
+### Features
 
-- No general repository cleanup or package reorganization unless a live acceptance scenario proves it necessary.
-- No silent one-hot encoding, normalization, imputation, or train/test split policy. Loom preserves semantic metadata and offers guidance; model-specific transformations require an explicit later contract.
-- No attempt to infer clinical leakage safety automatically. Loom records feature role, index time, and observation window and warns when evidence is missing.
-- No full terminology service or unit-conversion platform before the first aggregate feature slice works end to end.
-- No raw source JSON in exported artifacts by default.
+`[data-testid="features-step"]` offers **A value**, **A count**, and **Yes / No**. Each `[data-feature-key]` card owns its preview, coverage, lineage disclosure, warning, and edit action. `[data-testid="route-cardinality"]` shows `none`, `one`, and `many` before a related value can save.
 
-## Decisions to lock during P0
+### Check
 
-- First-class row grains and whether ambiguous child records become a separate output or may expand rows.
-- Stable ordering and width rules for `FIRST`, `INDEXED`, and `DISTINCT`.
-- The distinction among absent resource, absent path, empty array, null, invalid, and not applicable.
-- Required feature roles and the minimum time-window/leakage metadata.
-- Whether artifact v1 ships CSV plus sidecars before Parquet, or blocks until Parquet is available.
-- Authorization rules for sharing manifests and quality counts across project scopes.
-- Maximum profile/export rows, bytes, duration, and explicit truncation/failure behavior.
+`[data-testid="check-step"]` lists only measured results and concrete actions. Each `[data-reason-code]` action focuses the responsible row or `[data-feature-key]` control. `[data-testid="readiness-state"]` names the receipt that produced the rows and evidence. `[data-testid="publish-dataset"]` is disabled while a blocking reason exists.
 
-The first demonstration is intentionally narrow and valuable: select Patient plus repeated Observations, see the ambiguity, choose an explicit representation, inspect coverage, publish, and download a pinned artifact whose data, schema, quality, provenance, and README agree.
+### Export
+
+`[data-testid="export-step"]` shows publication identity, artifact progress, row and feature counts, format, and failure state. `[data-testid="artifact-download"]` is enabled only after `[data-testid="artifact-status"]` reports complete. A partial archive never appears as complete.
+
+## Verification
+
+Each issue runs focused Go or UI behavior tests. Each package runs `make dev-doctor && make verify-fast` against the owned warm stack. The driver extends the existing browser journey instead of adding a second test harness.
+
+The integrated tranche runs the Go, OpenAPI, GraphQL, and UI gates once. Run `make verify-full` only when the fixture, watcher, build, or driver mechanics change.
+
+The local loop must assert literal DOM text, API fields, row values, receipt and publication identities, parsed CSV or archive members, and checksums. A screenshot alone is not evidence.
+
+## Migration and compatibility
+
+- New wizard datasets write `datasetDesignVersion: 1` and retain the design digest in their receipts and revisions.
+- Existing V2 drafts and published revisions remain readable through the current Builder and Viewer.
+- Loom does not infer a design or clinical intent from an existing draft.
+- A legacy related `FIRST` column remains available in the legacy flow. It cannot enter or publish through the wizard until the user chooses and acknowledges a supported policy.
+- The wizard can ship behind a per-Explorer feature flag during F1.
+- Coordinated API changes are allowed, but each package must leave one executable end-to-end path.
+
+## Exclusions
+
+This tranche does not add a generic DSL, formulas, arbitrary predicates, latest-value selection, time-window enforcement, unit normalization, terminology mapping, imputation, encoding, train and test splits, automated clinical leakage decisions, row expansion, or model training.
+
+These are future product decisions. They must enter as named feature templates with their own literal data and acceptance journeys, not as escape hatches around the typed design.
