@@ -18,7 +18,7 @@ import {
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import { z } from 'zod';
-import { dataframeOutputQuery } from '../../../../contracts/dataframe-output-query.mjs';
+import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
 
 export interface ExplorerSummary {
   readonly project: string;
