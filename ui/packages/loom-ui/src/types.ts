@@ -177,6 +177,14 @@ export type ExplorerBuilderRouteNode = {
   relationship?: string;
   children?: ExplorerBuilderRouteNode[];
 };
+const explorerPopulationStepSchema = z.object({
+  resourceType: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+}).strict();
+export const explorerPopulationSchema = z.object({
+  selectionRevisionId: opaqueIdSchema,
+  route: z.array(explorerPopulationStepSchema),
+}).strict();
 export const explorerBuilderRouteNodeSchema: z.ZodType<ExplorerBuilderRouteNode> =
   z.lazy(() =>
     z
@@ -212,6 +220,7 @@ export const explorerBuilderDocumentSchema = z
       })
       .strict(),
     rootResourceType: opaqueIdSchema,
+    population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     columns: z.array(explorerBuilderColumnSchema),
     fixedFilters: z
@@ -430,6 +439,8 @@ export const explorerBuilderCommandSchema = z
       'RENAME_TABLE',
       'REORDER_TABLES',
       'SET_TABLE_ROOT',
+      'SET_TABLE_POPULATION',
+      'CLEAR_TABLE_POPULATION',
       'ADD_ROUTE',
       'UPDATE_ROUTE_EDGE',
       'REMOVE_ROUTE',
@@ -443,6 +454,8 @@ export const explorerBuilderCommandSchema = z
     sourceOutputId: opaqueIdSchema.optional(),
     title: z.string().optional(),
     rootNodeId: opaqueIdSchema.optional(),
+    selectionRevisionId: opaqueIdSchema.optional(),
+    edgeIds: z.array(opaqueIdSchema).optional(),
     parentOccurrenceId: opaqueIdSchema.optional(),
     occurrenceId: opaqueIdSchema.optional(),
     edgeId: opaqueIdSchema.optional(),

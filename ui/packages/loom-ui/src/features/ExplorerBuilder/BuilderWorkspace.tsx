@@ -12,6 +12,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
+import type { SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
@@ -25,6 +26,7 @@ import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
 import { PreviewTable } from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
+import { PopulationPanel } from './components/PopulationPanel';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -126,11 +128,17 @@ const BuilderWorkspaceContent = ({
   organization,
   project,
   explorerId,
+  populationSelection,
+  populationSelectionLoading = false,
+  populationSelectionError,
   onExplorerChange,
 }: {
   readonly organization?: string;
   readonly project: string;
   readonly explorerId?: string;
+  readonly populationSelection?: SelectionRevision;
+  readonly populationSelectionLoading?: boolean;
+  readonly populationSelectionError?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
 }) => {
   const projectId = organization ? `${organization}/${project}` : project;
@@ -998,6 +1006,26 @@ const BuilderWorkspaceContent = ({
         ) : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
+            {table ? (
+              <PopulationPanel
+                catalog={state.catalog}
+                table={table}
+                selection={populationSelection}
+                loading={populationSelectionLoading}
+                error={populationSelectionError}
+                disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                onAttach={(edgeIds) => void applyCommands([{
+                  type: 'SET_TABLE_POPULATION',
+                  outputId: table.outputId,
+                  selectionRevisionId: populationSelection?.id,
+                  edgeIds: [...edgeIds],
+                }])}
+                onClear={() => void applyCommands([{
+                  type: 'CLEAR_TABLE_POPULATION',
+                  outputId: table.outputId,
+                }])}
+              />
+            ) : null}
             <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">
               <GuidedGraphWorkspace
                 catalog={state.catalog}

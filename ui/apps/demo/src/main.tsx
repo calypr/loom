@@ -7,6 +7,7 @@ import './styles.css';
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? import.meta.env.VITE_LOOM_PROJECT ?? 'NCPI_ACCEPTANCE';
 const explorerId = params.get('explorer') ?? import.meta.env.VITE_LOOM_EXPLORER ?? 'default';
+const selectionRevisionId = params.get('selection') ?? undefined;
 const mode = params.get('mode') ?? import.meta.env.VITE_LOOM_MODE ?? 'builder';
 const baseUrl = import.meta.env.VITE_LOOM_BASE_URL ?? '/';
 
@@ -59,7 +60,7 @@ const App = () => {
       <div className="demo-content">
         <React.Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Explorer…</div>}>
           {currentMode === 'builder'
-            ? <LoomExplorerBuilder project={project} explorerId={selectedExplorerId} onExplorerChange={onExplorerChange} />
+            ? <LoomExplorerBuilder project={project} explorerId={selectedExplorerId} selectionRevisionId={selectionRevisionId} onExplorerChange={onExplorerChange} />
             : <LoomExplorerViewer project={project} explorerId={selectedExplorerId} />}
         </React.Suspense>
       </div>
