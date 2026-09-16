@@ -288,7 +288,33 @@ func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
 		rightCopy := clonePhysicalValue(*predicate.Right)
 		copy.Right = &rightCopy
 	}
+	copy.Correlation = clonePhysicalCorrelation(predicate.Correlation)
 	return copy
+}
+
+func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrelation {
+	if correlation == nil {
+		return nil
+	}
+	copy := *correlation
+	copy.Source = clonePhysicalValue(correlation.Source)
+	copy.OwnerSelector.Steps = append([]spec.SelectorStep(nil), correlation.OwnerSelector.Steps...)
+	copy.KeySelector.Steps = append([]spec.SelectorStep(nil), correlation.KeySelector.Steps...)
+	copy.SystemSelector.Steps = append([]spec.SelectorStep(nil), correlation.SystemSelector.Steps...)
+	copy.CodeSelector.Steps = append([]spec.SelectorStep(nil), correlation.CodeSelector.Steps...)
+	copy.ValueSelector.Steps = append([]spec.SelectorStep(nil), correlation.ValueSelector.Steps...)
+	copy.ValueFallbacks = make([]spec.Selector, len(correlation.ValueFallbacks))
+	for index := range correlation.ValueFallbacks {
+		copy.ValueFallbacks[index] = correlation.ValueFallbacks[index]
+		copy.ValueFallbacks[index].Steps = append([]spec.SelectorStep(nil), correlation.ValueFallbacks[index].Steps...)
+	}
+	copy.ChoiceArms = append([]string(nil), correlation.ChoiceArms...)
+	copy.ChoiceSelectors = make([]spec.Selector, len(correlation.ChoiceSelectors))
+	for index := range correlation.ChoiceSelectors {
+		copy.ChoiceSelectors[index] = correlation.ChoiceSelectors[index]
+		copy.ChoiceSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ChoiceSelectors[index].Steps...)
+	}
+	return &copy
 }
 
 func clonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) PhysicalPredicateExpression {
@@ -329,6 +355,11 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		pivot.Source = clonePhysicalValue(expression.Pivot.Source)
 		pivot.ItemSource.Steps = append([]spec.SelectorStep(nil), expression.Pivot.ItemSource.Steps...)
 		pivot.ValueFallbacks = append([]spec.Selector(nil), expression.Pivot.ValueFallbacks...)
+		pivot.ColumnAliases = make(map[string]string, len(expression.Pivot.ColumnAliases))
+		for key, value := range expression.Pivot.ColumnAliases {
+			pivot.ColumnAliases[key] = value
+		}
+		pivot.Correlation = clonePhysicalCorrelation(expression.Pivot.Correlation)
 		pivot.ColumnsBindKey = expression.Pivot.ColumnsBindKey
 		if pivot.PreparedKey != nil {
 			prepared := *pivot.PreparedKey

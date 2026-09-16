@@ -173,6 +173,23 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
+		case authoringv2.SourceCodingBySystem:
+			if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil {
+				// Legacy coding lookups remain readable for old immutable recipes,
+				// but new writable correlated coding sources must use the typed
+				// binding path below.
+				dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
+				if dynamicErr != nil {
+					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
+				}
+				nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
+				break
+			}
+			pivot, pivotErr := semanticCorrelatedCodingPivot(column, alias, leaf)
+			if pivotErr != nil {
+				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
+			}
+			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
 			if column.Source.Aggregate != nil {
 				if path := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root."); path != "" {
@@ -608,22 +625,70 @@ func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (re
 	if column.Source.Lookup == nil {
 		return recipe.Pivot{}, fmt.Errorf("observation component lookup payload is required")
 	}
-	separator := "__" + column.Source.Lookup.Match
+	lookup := column.Source.Lookup
+	if lookup.Binding != nil {
+		if lookup.Key == nil {
+			return recipe.Pivot{}, fmt.Errorf("correlated observation component lookup key is required")
+		}
+		if strings.TrimSpace(column.Column) == "" {
+			return recipe.Pivot{}, fmt.Errorf("correlated observation component output column is required")
+		}
+		// Correlated pivots carry no legacy selector expressions. The checked
+		// binding is the sole provenance for key/value extraction; ColumnAliases
+		// preserves the authored public name independently of the terminology
+		// code (including codes containing punctuation).
+		return recipe.Pivot{
+			Name:              "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
+			Columns:           []string{lookup.Key.Code},
+			ColumnAliases:     map[string]string{lookup.Key.Code: leaf},
+			ProjectionMode:    recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode),
+			Correlation:       lookup.Binding,
+			CorrelationSystem: lookup.Key.System,
+			CorrelationCode:   lookup.Key.Code,
+		}, nil
+	}
+	match := lookup.Match
+	separator := "__" + match
 	if !strings.HasSuffix(leaf, separator) || strings.TrimSuffix(leaf, separator) == "" {
 		return recipe.Pivot{}, fmt.Errorf("observation component column %q must end with %q", column.Column, separator)
 	}
 	name := strings.TrimSuffix(leaf, separator)
-	sourcePath := firstNonEmpty(strings.Trim(strings.TrimSpace(column.Source.Lookup.Path), "."), "component[]")
+	sourcePath := firstNonEmpty(strings.Trim(strings.TrimSpace(lookup.Path), "."), "component[]")
 	prefix := alias + "." + sourcePath
-	return recipe.Pivot{
+	pivot := recipe.Pivot{
 		Name:             name,
 		ColumnExpr:       recipe.Expression{Select: prefix + ".code.coding[].code"},
 		ValueExpr:        recipe.Expression{Select: prefix + ".valueString"},
 		ValueFallbacks:   []recipe.Expression{{Select: prefix + ".valueCodeableConcept.text"}, {Select: prefix + ".valueQuantity.value"}, {Select: prefix + ".valueInteger"}},
 		ItemSource:       recipe.Expression{Select: alias + "." + sourcePath},
 		ItemResourceType: "ObservationComponent",
-		Columns:          []string{column.Source.Lookup.Match},
-	}, nil
+		Columns:          []string{match},
+	}
+	if lookup.Binding != nil {
+		// The binding is lowered from its checked structural selectors; these
+		// legacy expressions remain only as readable recipe provenance.
+		pivot.Correlation = lookup.Binding
+		pivot.CorrelationSystem = lookup.Key.System
+		pivot.CorrelationCode = lookup.Key.Code
+	}
+	return pivot, nil
+}
+
+func semanticCorrelatedCodingPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {
+	lookup := column.Source.Lookup
+	if lookup == nil || lookup.Binding == nil || lookup.Key == nil {
+		return recipe.Pivot{}, fmt.Errorf("correlated coding lookup requires binding and key")
+	}
+	if strings.TrimSpace(column.Column) == "" {
+		return recipe.Pivot{}, fmt.Errorf("correlated coding output column is required")
+	}
+	pivot := recipe.Pivot{
+		Name:    "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
+		Columns: []string{lookup.Key.Code}, ColumnAliases: map[string]string{lookup.Key.Code: leaf},
+		ProjectionMode: recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode), Correlation: lookup.Binding,
+		CorrelationSystem: lookup.Key.System, CorrelationCode: lookup.Key.Code,
+	}
+	return pivot, nil
 }
 
 func appendSemanticPivot(pivots []recipe.Pivot, pivot recipe.Pivot) []recipe.Pivot {

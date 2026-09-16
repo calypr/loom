@@ -136,6 +136,33 @@ type CatalogCandidate struct {
 	SuggestionsComplete   bool               `json:"-"`
 	SuggestionsTruncated  bool               `json:"-"`
 	SuggestionCount       int                `json:"-"`
+	ConceptCandidates     []ConceptCandidate `json:"conceptCandidates,omitempty"`
+}
+
+// ConceptCandidate is an observed structural terminology/value candidate.
+// It is evidence for authoring, not a claim of clinical equivalence.
+type ConceptCandidate struct {
+	SourceResourceType string   `json:"sourceResourceType"`
+	SourcePath         string   `json:"sourcePath,omitempty"`
+	SourceCanonical    string   `json:"sourceCanonical,omitempty"`
+	SourceProfile      string   `json:"sourceProfile,omitempty"`
+	OwningScope        string   `json:"owningScope,omitempty"`
+	ExtensionURLPath   []string `json:"extensionUrlPath,omitempty"`
+	KeySelector        string   `json:"keySelector,omitempty"`
+	System             string   `json:"system,omitempty"`
+	Code               string   `json:"code,omitempty"`
+	Display            string   `json:"display,omitempty"`
+	ValueSelector      string   `json:"valueSelector,omitempty"`
+	ChoiceArm          string   `json:"choiceArm,omitempty"`
+	LogicalType        string   `json:"logicalType,omitempty"`
+	ObservedUnits      []string `json:"observedUnits,omitempty"`
+	Completeness       string   `json:"completeness"`
+	Status             string   `json:"status"`
+	Population         int64    `json:"population"`
+	Examples           []string `json:"examples,omitempty"`
+	ExamplesTruncated  bool     `json:"examplesTruncated,omitempty"`
+	RuleHint           string   `json:"ruleHint,omitempty"`
+	RuleVersion        string   `json:"ruleVersion,omitempty"`
 }
 
 type RepeatedBoundary struct {

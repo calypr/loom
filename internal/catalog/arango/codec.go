@@ -109,6 +109,70 @@ func decodeExtensionValues(value any) ([]catalog.ExtensionValueObservation, erro
 	return result, nil
 }
 
+func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		if typed, typedOK := value.([]map[string]any); typedOK {
+			items = make([]any, len(typed))
+			for i := range typed {
+				items[i] = typed[i]
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported semantic observation slice type %T", value)
+		}
+	}
+	result := make([]catalog.SemanticObservation, 0, len(items))
+	for i, item := range items {
+		row, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("unsupported semantic observation type %T at index %d", item, i)
+		}
+		observation := catalog.SemanticObservation{}
+		var err error
+		if version, versionErr := decodeInt64(row["schema_version"]); versionErr != nil {
+			return nil, versionErr
+		} else {
+			observation.SchemaVersion = int(version)
+		}
+		observation.OwningScope = stringValue(row["owning_scope"])
+		observation.ChoiceArm = stringValue(row["choice_arm"])
+		observation.LogicalType = stringValue(row["logical_type"])
+		observation.Status = stringValue(row["status"])
+		observation.Completeness = catalog.SemanticObservationCompleteness(stringValue(row["completeness"]))
+		observation.RuleHint = stringValue(row["rule_hint"])
+		observation.RuleVersion = stringValue(row["rule_version"])
+		if observation.Population, err = decodeInt64(row["population"]); err != nil {
+			return nil, err
+		}
+		if observation.Examples, err = decodeStrings(row["examples"]); err != nil {
+			return nil, err
+		}
+		if observation.ObservedUnits, err = decodeStrings(row["observed_units"]); err != nil {
+			return nil, err
+		}
+		if observation.ExtensionURLPath, err = decodeStrings(row["extension_url_path"]); err != nil {
+			return nil, err
+		}
+		if observation.ExamplesTruncated, err = decodeBool(row["examples_truncated"]); err != nil {
+			return nil, err
+		}
+		if source, ok := row["source"].(map[string]any); ok {
+			observation.Source = catalog.SemanticObservationSource{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
+		}
+		if key, ok := row["key"].(map[string]any); ok {
+			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
+		}
+		if value, ok := row["value"].(map[string]any); ok {
+			observation.Value = catalog.SemanticObservationValue{Selector: stringValue(value["selector"]), Type: stringValue(value["type"])}
+		}
+		result = append(result, observation)
+	}
+	return result, nil
+}
+
 func decode(row map[string]any, out *catalog.PopulatedField) error {
 	out.Project = stringValue(row["project"])
 	out.DatasetGeneration = stringValue(row["dataset_generation"])
@@ -147,6 +211,9 @@ func decode(row map[string]any, out *catalog.PopulatedField) error {
 	}
 	if out.ExtensionValues, err = decodeExtensionValues(row["extension_values"]); err != nil {
 		return fmt.Errorf("decode field row %s/%s extension_values: %w", out.ResourceType, out.Path, err)
+	}
+	if out.SemanticObservations, err = decodeSemanticObservations(row["semantic_observations"]); err != nil {
+		return fmt.Errorf("decode field row %s/%s semantic_observations: %w", out.ResourceType, out.Path, err)
 	}
 	out.PivotKind = stringValue(row["pivot_kind"])
 	out.PivotFamily = stringValue(row["pivot_family"])

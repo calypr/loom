@@ -156,7 +156,35 @@ type Candidate struct {
 	SuggestedValues       []string           `json:"suggestedValues,omitempty"`
 	SuggestionsComplete   bool               `json:"suggestionsComplete"`
 	SuggestionsTruncated  bool               `json:"suggestionsTruncated"`
+	ConceptCandidates     []ConceptCandidate `json:"conceptCandidates,omitempty"`
 	BlockedReason         string             `json:"blockedReason,omitempty"`
+}
+
+// ConceptCandidate carries observed FHIR identity into Builder without
+// claiming terminology equivalence. It intentionally retains unresolved and
+// mixed-choice statuses so the authoring layer can present them explicitly.
+type ConceptCandidate struct {
+	SourceResourceType string   `json:"sourceResourceType"`
+	SourcePath         string   `json:"sourcePath,omitempty"`
+	SourceCanonical    string   `json:"sourceCanonical,omitempty"`
+	SourceProfile      string   `json:"sourceProfile,omitempty"`
+	OwningScope        string   `json:"owningScope,omitempty"`
+	ExtensionURLPath   []string `json:"extensionUrlPath,omitempty"`
+	KeySelector        string   `json:"keySelector,omitempty"`
+	System             string   `json:"system,omitempty"`
+	Code               string   `json:"code,omitempty"`
+	Display            string   `json:"display,omitempty"`
+	ValueSelector      string   `json:"valueSelector,omitempty"`
+	ChoiceArm          string   `json:"choiceArm,omitempty"`
+	LogicalType        string   `json:"logicalType,omitempty"`
+	ObservedUnits      []string `json:"observedUnits,omitempty"`
+	Completeness       string   `json:"completeness"`
+	Status             string   `json:"status"`
+	Population         int64    `json:"population"`
+	Examples           []string `json:"examples,omitempty"`
+	ExamplesTruncated  bool     `json:"examplesTruncated,omitempty"`
+	RuleHint           string   `json:"ruleHint,omitempty"`
+	RuleVersion        string   `json:"ruleVersion,omitempty"`
 }
 
 type RepeatedBoundary struct {
@@ -308,7 +336,14 @@ func normalizeCandidateSlices(cs []Candidate) {
 func normalizeCandidateValues(cs []Candidate) {
 	for i := range cs {
 		sort.Strings(cs[i].SuggestedValues)
+		sort.SliceStable(cs[i].ConceptCandidates, func(left, right int) bool {
+			return conceptCandidateKey(cs[i].ConceptCandidates[left]) < conceptCandidateKey(cs[i].ConceptCandidates[right])
+		})
 	}
+}
+
+func conceptCandidateKey(candidate ConceptCandidate) string {
+	return strings.Join([]string{candidate.SourceResourceType, candidate.SourceCanonical, candidate.SourceProfile, candidate.SourcePath, candidate.OwningScope, strings.Join(candidate.ExtensionURLPath, "\x1f"), candidate.KeySelector, candidate.System, candidate.Code, candidate.ChoiceArm, candidate.ValueSelector, candidate.Status}, "\x00")
 }
 
 func cloneSnapshot(s Snapshot) Snapshot {
@@ -338,6 +373,21 @@ func cloneCandidates(v []Candidate) []Candidate {
 		out[i].SupportedOperations = append([]Operation(nil), out[i].SupportedOperations...)
 		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
 		out[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), out[i].RepeatedBoundaries...)
+		out[i].ConceptCandidates = cloneConceptCandidateValues(out[i].ConceptCandidates)
+	}
+	return out
+}
+
+func cloneConceptCandidateValues(in []ConceptCandidate) []ConceptCandidate {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
 	}
 	return out
 }

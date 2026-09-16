@@ -177,8 +177,37 @@ type PhysicalPivotMap struct {
 	StringifyValue      bool
 	ColumnsBindKey      string
 	FlattenSingleColumn bool
+	ColumnAliases       map[string]string
+	ProjectionMode      string
 	PreparedKey         *PhysicalPreparedReference
 	PreparedValue       *PhysicalPreparedReference
+	// Correlation is optional for legacy pivots. When present, one owner item
+	// is iterated first, then its Coding items are matched by system+code in
+	// the same Coding object before ValueSelector is evaluated.
+	Correlation *PhysicalCorrelation
+}
+
+// PhysicalCorrelation is the shared typed representation for correlated
+// terminology predicates and projections. Selectors are relative to Source's
+// owner payload, except SystemSelector and CodeSelector which are relative to
+// one item produced by KeySelector.
+type PhysicalCorrelation struct {
+	Source          PhysicalValue
+	ResourceType    string
+	OwnerResource   string
+	OwnerSelector   spec.Selector
+	KeyResource     string
+	KeySelector     spec.Selector
+	SystemSelector  spec.Selector
+	CodeSelector    spec.Selector
+	ValueSelector   spec.Selector
+	ValueFallbacks  []spec.Selector
+	ChoiceArms      []string
+	ChoiceSelectors []spec.Selector
+	LogicalType     string
+	ValuePrimitive  string
+	SystemBindKey   string
+	CodeBindKey     string
 }
 
 type PhysicalObjectLookup struct {

@@ -38,6 +38,7 @@ type FieldObservation struct {
 	SuggestedValues       []string
 	SuggestionsComplete   bool
 	SuggestionsTruncated  bool
+	ConceptCandidates     []ConceptCandidate
 }
 
 // Evidence is the complete catalog evidence set used to build a capability
@@ -127,6 +128,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	for i := range fields {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
 		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
+		fields[i].ConceptCandidates = cloneConceptCandidates(fields[i].ConceptCandidates)
 	}
 
 	policy := b.Policy
@@ -263,6 +265,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.SuggestedValues = append([]string(nil), f.SuggestedValues...)
 		c.SuggestionsComplete = f.SuggestionsComplete
 		c.SuggestionsTruncated = f.SuggestionsTruncated
+		c.ConceptCandidates = cloneConceptCandidates(f.ConceptCandidates)
 		sort.Strings(c.SuggestedValues)
 		if policy.Projection.SuggestionLimit > 0 && len(c.SuggestedValues) > policy.Projection.SuggestionLimit {
 			c.SuggestedValues = c.SuggestedValues[:policy.Projection.SuggestionLimit]
@@ -313,6 +316,20 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	s.AuditCandidates = auditCandidates
 	s = rehash(s)
 	return s, nil
+}
+
+func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+	}
+	return out
 }
 
 func (b Builder) failed(identity SnapshotIdentity, code, message string) Snapshot {

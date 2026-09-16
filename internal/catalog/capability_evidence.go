@@ -104,6 +104,12 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 		}
+		out[i].SemanticObservations = append([]SemanticObservation(nil), in[i].SemanticObservations...)
+		for j := range out[i].SemanticObservations {
+			out[i].SemanticObservations[j].ExtensionURLPath = append([]string(nil), in[i].SemanticObservations[j].ExtensionURLPath...)
+			out[i].SemanticObservations[j].ObservedUnits = append([]string(nil), in[i].SemanticObservations[j].ObservedUnits...)
+			out[i].SemanticObservations[j].Examples = append([]string(nil), in[i].SemanticObservations[j].Examples...)
+		}
 	}
 	return out
 }

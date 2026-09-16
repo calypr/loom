@@ -173,6 +173,7 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		n.Candidates[i].ProjectionModes = append([]string(nil), n.Candidates[i].ProjectionModes...)
 		n.Candidates[i].FilterOperators = append([]string(nil), n.Candidates[i].FilterOperators...)
 		n.Candidates[i].ChartOperations = append([]string(nil), n.Candidates[i].ChartOperations...)
+		n.Candidates[i].ConceptCandidates = cloneConceptCandidates(n.Candidates[i].ConceptCandidates)
 		sort.Strings(n.Candidates[i].ProjectionModes)
 		sort.Strings(n.Candidates[i].FilterOperators)
 		sort.Strings(n.Candidates[i].ChartOperations)
@@ -187,6 +188,22 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		return n.Diagnostics[i].Message < n.Diagnostics[j].Message
 	})
 	return json.Marshal(n)
+}
+
+func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := strings.Join([]string{out[i].SourceResourceType, out[i].SourceCanonical, out[i].SourceProfile, out[i].SourcePath, out[i].OwningScope, strings.Join(out[i].ExtensionURLPath, "\x1f"), out[i].KeySelector, out[i].System, out[i].Code, out[i].ValueSelector, out[i].ChoiceArm}, "\x00")
+		right := strings.Join([]string{out[j].SourceResourceType, out[j].SourceCanonical, out[j].SourceProfile, out[j].SourcePath, out[j].OwningScope, strings.Join(out[j].ExtensionURLPath, "\x1f"), out[j].KeySelector, out[j].System, out[j].Code, out[j].ValueSelector, out[j].ChoiceArm}, "\x00")
+		return left < right
+	})
+	return out
 }
 
 func (c CatalogSnapshot) Digest() (string, error) {

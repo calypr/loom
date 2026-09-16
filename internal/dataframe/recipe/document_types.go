@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // CurrentSchemaVersion is the first stable recipe document schema.
@@ -213,16 +214,55 @@ type FilterValue struct {
 
 // Pivot describes a bounded, schema-validated column/value mapping.
 type Pivot struct {
-	Name             string          `json:"name"`
-	FieldRef         string          `json:"fieldRef,omitempty"`
-	ColumnExpr       Expression      `json:"columnExpr"`
-	ValueExpr        Expression      `json:"valueExpr"`
-	ValueFallbacks   []Expression    `json:"valueFallbacks,omitempty"`
-	ItemSource       Expression      `json:"itemSource,omitempty"`
-	ItemResourceType string          `json:"itemResourceType,omitempty"`
-	Columns          []string        `json:"columns"`
-	Discovery        *PivotDiscovery `json:"discovery,omitempty"`
-	Discovered       bool            `json:"-"`
+	Name             string       `json:"name"`
+	FieldRef         string       `json:"fieldRef,omitempty"`
+	ColumnExpr       Expression   `json:"columnExpr"`
+	ValueExpr        Expression   `json:"valueExpr"`
+	ValueFallbacks   []Expression `json:"valueFallbacks,omitempty"`
+	ItemSource       Expression   `json:"itemSource,omitempty"`
+	ItemResourceType string       `json:"itemResourceType,omitempty"`
+	Columns          []string     `json:"columns"`
+	// ColumnAliases binds each discovered/raw pivot key to its authored public
+	// output name. Correlated pivots use this explicit mapping so a public
+	// column may remain stable when the selected terminology code changes.
+	ColumnAliases map[string]string `json:"columnAliases,omitempty"`
+	// ProjectionMode is the lookup's declared reduction policy. Empty is the
+	// legacy FIRST default; correlated pivots preserve ALL, DISTINCT, VALUE,
+	// and FIRST through physical lowering.
+	ProjectionMode string          `json:"projectionMode,omitempty"`
+	Discovery      *PivotDiscovery `json:"discovery,omitempty"`
+	// Correlation is the closed system+code/value binding for terminology
+	// pivots. Nil preserves the legacy selector pivot representation.
+	Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+	CorrelationSystem string                        `json:"correlationSystem,omitempty"`
+	CorrelationCode   string                        `json:"correlationCode,omitempty"`
+	Discovered        bool                          `json:"-"`
+}
+
+const (
+	PivotProjectionValue    = "VALUE"
+	PivotProjectionFirst    = "FIRST"
+	PivotProjectionAll      = "ALL"
+	PivotProjectionDistinct = "DISTINCT"
+)
+
+// ValidPivotProjectionMode is intentionally closed. Lookup sources use the
+// uppercase authoring spelling; empty retains the historical FIRST behavior.
+func ValidPivotProjectionMode(mode string) bool {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "", PivotProjectionValue, PivotProjectionFirst, PivotProjectionAll, PivotProjectionDistinct:
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizedPivotProjectionMode(mode string) string {
+	mode = strings.ToUpper(strings.TrimSpace(mode))
+	if mode == "" {
+		return PivotProjectionFirst
+	}
+	return mode
 }
 
 // MarshalJSON permits catalog-backed pivots to omit selectors in their stored
@@ -232,22 +272,27 @@ type Pivot struct {
 // contract.
 func (p Pivot) MarshalJSON() ([]byte, error) {
 	type pivotJSON struct {
-		Name             string          `json:"name"`
-		FieldRef         string          `json:"fieldRef,omitempty"`
-		ColumnExpr       *Expression     `json:"columnExpr,omitempty"`
-		ValueExpr        *Expression     `json:"valueExpr,omitempty"`
-		ValueFallbacks   []Expression    `json:"valueFallbacks,omitempty"`
-		ItemSource       *Expression     `json:"itemSource,omitempty"`
-		ItemResourceType string          `json:"itemResourceType,omitempty"`
-		Columns          []string        `json:"columns"`
-		Discovery        *PivotDiscovery `json:"discovery,omitempty"`
+		Name              string                        `json:"name"`
+		FieldRef          string                        `json:"fieldRef,omitempty"`
+		ColumnExpr        *Expression                   `json:"columnExpr,omitempty"`
+		ValueExpr         *Expression                   `json:"valueExpr,omitempty"`
+		ValueFallbacks    []Expression                  `json:"valueFallbacks,omitempty"`
+		ItemSource        *Expression                   `json:"itemSource,omitempty"`
+		ItemResourceType  string                        `json:"itemResourceType,omitempty"`
+		Columns           []string                      `json:"columns"`
+		ColumnAliases     map[string]string             `json:"columnAliases,omitempty"`
+		ProjectionMode    string                        `json:"projectionMode,omitempty"`
+		Discovery         *PivotDiscovery               `json:"discovery,omitempty"`
+		Correlation       *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+		CorrelationSystem string                        `json:"correlationSystem,omitempty"`
+		CorrelationCode   string                        `json:"correlationCode,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, Discovery: p.Discovery}
-	if p.Discovery == nil || !p.ColumnExpr.zero() {
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode}
+	if p.Correlation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
 	}
-	if p.Discovery == nil || !p.ValueExpr.zero() {
+	if p.Correlation == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
 		value := p.ValueExpr
 		wire.ValueExpr = &value
 	}
@@ -293,7 +338,7 @@ func (op AggregateOperation) Valid() bool {
 }
 
 type Aggregate struct {
-	Name string `json:"name"`
+	Name           string             `json:"name"`
 	OutputName     string             `json:"outputName,omitempty"`
 	Operation      AggregateOperation `json:"operation"`
 	FieldRef       string             `json:"fieldRef,omitempty"`

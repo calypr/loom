@@ -193,6 +193,37 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		}
 		seen[column] = true
 	}
+	if !ValidPivotProjectionMode(p.ProjectionMode) {
+		return validationError("invalid_projection_mode", path+".projectionMode", fmt.Sprintf("unsupported projection mode %q", p.ProjectionMode))
+	}
+	aliases := map[string]string{}
+	for key, alias := range p.ColumnAliases {
+		if !seen[key] {
+			return validationError("unknown_column_alias", path+".columnAliases", fmt.Sprintf("alias key %q is not a pivot column", key))
+		}
+		if err := validateRecipeName(alias, path+".columnAliases."+key); err != nil {
+			return err
+		}
+		if previous, exists := aliases[alias]; exists && previous != key {
+			return validationError("duplicate_column_alias", path+".columnAliases", fmt.Sprintf("columns %q and %q share output alias %q", previous, key, alias))
+		}
+		aliases[alias] = key
+	}
+	if p.Correlation != nil {
+		if p.Discovery != nil {
+			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
+		}
+		if strings.TrimSpace(p.CorrelationSystem) == "" || strings.TrimSpace(p.CorrelationCode) == "" {
+			return validationError("invalid_correlation", path+".correlation", "selected system and code are required")
+		}
+		if p.ItemResourceType == "" && p.ColumnExpr.zero() && p.ValueExpr.zero() && p.ItemSource.zero() && len(p.ValueFallbacks) == 0 {
+			// Correlated pivots are a closed binding variant. Their selectors are
+			// validated from Correlation and are deliberately not duplicated as
+			// writable legacy expressions.
+			return nil
+		}
+		return validationError("ambiguous_correlation", path, "correlated pivot must not carry legacy selector expressions")
+	}
 	// A catalog-backed pivot may omit selectors: the scoped resolver fills them
 	// from the catalog's validated pivot metadata before semantic compilation.
 	if p.Discovery != nil && p.ColumnExpr.Select == "" && p.ValueExpr.Select == "" && p.ColumnExpr.Call == "" && p.ValueExpr.Call == "" {

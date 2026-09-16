@@ -196,6 +196,7 @@ type PhysicalPredicate struct {
 	Right          *PhysicalValue
 	Quantifier     spec.ArrayQuantifier
 	ValueKind      spec.FilterValueKind
+	Correlation    *PhysicalCorrelation
 }
 
 type PhysicalPredicateKind string

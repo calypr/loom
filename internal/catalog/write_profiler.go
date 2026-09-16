@@ -87,6 +87,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
+	p.observeSemanticObservations(payload)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 
@@ -169,6 +170,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 				distinctSet:           make(map[string]struct{}),
 				pivotColumnSet:        make(map[string]struct{}),
 				extensionValueSet:     make(map[string]struct{}),
+				semanticObservations:  make(map[string]*semanticObservationStats),
 			}
 			p.stats[path] = stat
 		}
@@ -186,6 +188,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 		for _, observation := range otherStat.extensionValues {
 			p.addExtensionValueWithLimits(stat, observation)
 		}
+		mergeSemanticObservations(stat, otherStat)
 	}
 	return nil
 }
@@ -203,6 +206,29 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
 		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
+		semanticObservations := make([]SemanticObservation, 0, len(stat.semanticObservations))
+		for _, observation := range stat.semanticObservations {
+			semanticObservations = append(semanticObservations, semanticObservationValues(observation))
+		}
+		mixedChoices := make(map[string]map[string]struct{})
+		for _, observation := range semanticObservations {
+			key := strings.Join([]string{observation.Source.Canonical, observation.OwningScope, observation.Key.System, observation.Key.Code, observation.Key.Selector}, "\x00")
+			if mixedChoices[key] == nil {
+				mixedChoices[key] = map[string]struct{}{}
+			}
+			mixedChoices[key][observation.ChoiceArm] = struct{}{}
+		}
+		for index := range semanticObservations {
+			observation := &semanticObservations[index]
+			key := strings.Join([]string{observation.Source.Canonical, observation.OwningScope, observation.Key.System, observation.Key.Code, observation.Key.Selector}, "\x00")
+			if len(mixedChoices[key]) > 1 {
+				observation.Status = "MIXED_CHOICE"
+				observation.Completeness = SemanticPartial
+			}
+		}
+		sort.Slice(semanticObservations, func(i, j int) bool {
+			return semanticObservationKey(semanticObservations[i]) < semanticObservationKey(semanticObservations[j])
+		})
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
 		sort.Slice(extensionValues, func(i, j int) bool {
@@ -240,6 +266,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotItemResourceType: stat.pivotItemResourceType,
 			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
 			ExtensionValues:       extensionValues,
+			SemanticObservations:  semanticObservations,
 		})
 	}
 	return out

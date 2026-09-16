@@ -255,6 +255,22 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node semantic.Se
 		if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
 			return fmt.Errorf("graph traversal %q filter %q: %w", node.Alias, filter.FieldRef, err)
 		}
+		binding := filter.Correlation
+		if binding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return fmt.Errorf("graph traversal %q correlated filter %q requires one CODE value", node.Alias, filter.FieldRef)
+			}
+			systemKey := fmt.Sprintf("graph_%s_filter_%d_system", sanitizeColumnName(node.Alias), index+1)
+			codeKey := fmt.Sprintf("graph_%s_filter_%d_code", sanitizeColumnName(node.Alias), index+1)
+			binds[systemKey] = filter.Values[0].Code.System
+			binds[codeKey] = filter.Values[0].Code.Code
+			predicate, err := correlatedPredicateWithBinds(node.ResourceType, *binding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemKey, codeKey)
+			if err != nil {
+				return fmt.Errorf("graph traversal %q filter correlation: %w", node.Alias, err)
+			}
+			*operations = append(*operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+			continue
+		}
 		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {
 			return fmt.Errorf("graph traversal %q filter selector: %w", node.Alias, err)

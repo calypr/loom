@@ -135,15 +135,41 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		familyVariable = fmt.Sprintf("__loom_pivot_%s_%s_%d", sanitizeColumnName(source.Variable), sanitizeColumnName(pivot.Name), index)
 	}
 	sharedExpression := ir.PhysicalExpression{Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false}}
+		Pivot: &ir.PhysicalPivotMap{Source: source, ResourceType: resourceType, ItemSource: pivot.ItemSource, ItemResourceType: pivot.ItemResourceType, KeySelector: pivot.ColumnSelector, ValueSelector: pivot.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), pivot.ValueFallbacks...), StringifyValue: pivot.StringifyValue, ColumnsBindKey: columnsBindKey, FlattenSingleColumn: false, ColumnAliases: cloneStringMap(pivot.ColumnAliases), ProjectionMode: pivot.ProjectionMode}}
+	if pivot.Correlation != nil {
+		systemKey := columnsBindKey + "_system"
+		codeKey := columnsBindKey + "_code"
+		physical.BindVars[systemKey] = pivot.CorrelationSystem
+		physical.BindVars[codeKey] = pivot.CorrelationCode
+		correlation, err := LowerCorrelatedBinding(resourceType, *pivot.Correlation, source, systemKey, codeKey)
+		if err != nil {
+			return nil, err
+		}
+		sharedExpression.Pivot.Correlation = &correlation
+	}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &ir.PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})
 	for _, column := range pivot.Columns {
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
-		projections = append(projections, ir.PhysicalProjection{Name: prefix + pivot.Name + "__" + sanitizeColumnName(column), Expression: &expression})
+		name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
+		if alias, ok := pivot.ColumnAliases[column]; ok {
+			name = prefix + alias
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	return projections, nil
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string) bool {
@@ -301,6 +327,18 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 	for index, filter := range root.Filters {
 		if err := spec.ValidateTypedFilterForResource(root.ResourceType, filter); err != nil {
 			return fmt.Errorf("root filter %q: %w", filter.FieldRef, err)
+		}
+		binding := filter.Correlation
+		if binding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return fmt.Errorf("root correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			predicate, err := LowerCorrelatedPredicateWithIdentity(physical, root.ResourceType, *binding, ir.PhysicalValue{Variable: "root"}, *filter.Values[0].Code, fmt.Sprintf("filter_%d", index+1))
+			if err != nil {
+				return fmt.Errorf("root filter %q correlation: %w", filter.FieldRef, err)
+			}
+			physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+			continue
 		}
 		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {

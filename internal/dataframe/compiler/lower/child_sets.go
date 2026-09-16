@@ -37,6 +37,18 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err := spec.ValidateTypedFilterForResource(child.ResourceType, filter); err != nil {
 			return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q: %w", filter.FieldRef, err)
 		}
+		correlationBinding := filter.Correlation
+		if correlationBinding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return ir.PhysicalSet{}, nil, fmt.Errorf("child correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			correlated, correlatedErr := LowerCorrelatedPredicateWithIdentity(physical, child.ResourceType, *correlationBinding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, *filter.Values[0].Code, fmt.Sprintf("%s_filter_%d", prefix, index+1))
+			if correlatedErr != nil {
+				return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q correlation: %w", filter.FieldRef, correlatedErr)
+			}
+			subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &correlated}}})
+			continue
+		}
 		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {
 			return ir.PhysicalSet{}, nil, fmt.Errorf("child filter %q selector: %w", filter.FieldRef, err)

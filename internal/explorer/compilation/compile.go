@@ -232,11 +232,21 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 			modes[i] = wireProjectionMode(mode)
 		}
 		defaultMode := preferredProjectionMode(modes)
+		conceptCandidates := make([]authoringv2.ConceptCandidate, len(candidate.ConceptCandidates))
+		for index, concept := range candidate.ConceptCandidates {
+			conceptCandidates[index] = authoringv2.ConceptCandidate{
+				SourceResourceType: concept.SourceResourceType, SourcePath: concept.SourcePath, SourceCanonical: concept.SourceCanonical, SourceProfile: concept.SourceProfile, OwningScope: concept.OwningScope,
+				ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...), KeySelector: concept.KeySelector,
+				System: concept.System, Code: concept.Code, Display: concept.Display, ValueSelector: concept.ValueSelector,
+				ChoiceArm: concept.ChoiceArm, LogicalType: concept.LogicalType, ObservedUnits: append([]string(nil), concept.ObservedUnits...),
+				Completeness: concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
+			}
+		}
 		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType,
 			Repeated: candidate.Cardinality != "scalar", Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
 			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
-			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries),
+			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries), ConceptCandidates: conceptCandidates,
 		})
 	}
 	return catalog

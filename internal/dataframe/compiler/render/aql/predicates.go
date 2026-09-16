@@ -9,6 +9,9 @@ import (
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
+	if predicate.Correlation != nil {
+		return r.renderCorrelationPredicate(*predicate.Correlation)
+	}
 	if predicate.LeftExpression != nil {
 		return r.renderSelectorPredicate(predicate)
 	}
@@ -33,6 +36,147 @@ func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (
 	default:
 		return "", fmt.Errorf("unsupported direct physical filter operator %q", predicate.Operator)
 	}
+}
+
+// renderCorrelationPredicate keeps the Coding loop and owner value in one
+// lexical scope. A system from Coding[0] can therefore never match a code
+// from Coding[1], nor can a value from a different repeated component pass.
+func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.PhysicalCorrelation) (string, error) {
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("correlation_owner")
+	coding := r.newInternalVariable("correlation_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", fmt.Errorf("correlation key selector: %w", err)
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation system selector: %w", err)
+	}
+	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation code selector: %w", err)
+	}
+	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
+		return "", fmt.Errorf("correlation match binds are required")
+	}
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`LENGTH(
+  FOR %s IN %s
+    FOR %s IN FLATTEN(%s)
+      LET __correlation_system = %s
+      LET __correlation_code = %s
+      FILTER __correlation_system != null AND __correlation_system != ""
+      FILTER __correlation_code != null AND __correlation_code != ""
+      FILTER __correlation_system == @%s
+	      FILTER __correlation_code == @%s
+	      LET __correlation_values = %s
+	      LET __correlation_unsupported_values = %s
+	      FILTER LENGTH(__correlation_unsupported_values) == 0
+	      FILTER LENGTH(FLATTEN(__correlation_values)) > 0
+	      LIMIT 1
+	      RETURN 1
+) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, values, unsupportedValues), nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, ownerSelector spec.Selector) (string, error) {
+	raw, err := r.renderValue(source)
+	if err != nil {
+		return "", err
+	}
+	if source.Variable != "" && r.setVariables[source.Variable] != "" {
+		if ownerSelector.CanonicalPath() != "" {
+			owners, err := r.renderSelectorArrayFromSource(raw, ownerSelector, true, false)
+			if err != nil {
+				return "", err
+			}
+			return "FLATTEN(" + owners + ")", nil
+		}
+		return "(FOR __correlation_entry IN " + raw + " RETURN __correlation_entry.payload)", nil
+	}
+	if source.Variable != "" && len(source.Path) == 0 {
+		raw += ".payload"
+	}
+	if ownerSelector.CanonicalPath() != "" {
+		owners, err := r.renderSelectorArrayFromSource(raw, ownerSelector, false, false)
+		if err != nil {
+			return "", err
+		}
+		// A selector whose terminal step iterates an array returns one array
+		// per source document. Correlation loops over owner items, so flatten
+		// exactly that selector-result layer before pairing Coding/value data.
+		return "FLATTEN(" + owners + ")", nil
+	}
+	return "[" + raw + "]", nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationScalar(source string, selector spec.Selector) (string, error) {
+	values, err := r.renderSelectorArrayFromSource(source, selector, false, true)
+	if err != nil {
+		return "", err
+	}
+	return "FIRST(" + values + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector spec.Selector, fallbacks []spec.Selector) (string, error) {
+	selectors := append([]spec.Selector{selector}, fallbacks...)
+	values := make([]string, 0, len(selectors))
+	for _, candidate := range selectors {
+		value, err := r.renderSelectorArrayFromSource(source, candidate, false, false)
+		if err != nil {
+			return "", err
+		}
+		values = append(values, value)
+	}
+	if len(values) == 1 {
+		return values[0], nil
+	}
+	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER LENGTH(__correlation_candidate) > 0 RETURN __correlation_candidate)", nil
+}
+
+// renderCorrelationUnsupportedChoiceValues returns values observed on choice
+// arms that are not part of the checked binding. Keeping this separate from
+// the selected value expression lets projections expose an explicit typed
+// incompatibility while predicates reject that row instead of treating it as
+// ordinary absence.
+func (r *physicalPlanRenderer) renderCorrelationUnsupportedChoiceValues(source string, correlation ir.PhysicalCorrelation) (string, error) {
+	if len(correlation.ChoiceSelectors) == 0 || len(correlation.ChoiceArms) == 0 {
+		return "[]", nil
+	}
+	parts := make([]string, 0, len(correlation.ChoiceSelectors))
+	for _, selector := range correlation.ChoiceSelectors {
+		if len(selector.Steps) == 0 || correlationChoiceArmAllowed(selector.Steps[0].Field, correlation.ChoiceArms) {
+			continue
+		}
+		values, err := r.renderSelectorArrayFromSource(source, selector, false, false)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, values)
+	}
+	if len(parts) == 0 {
+		return "[]", nil
+	}
+	return "FLATTEN([" + strings.Join(parts, ", ") + "])", nil
+}
+
+func correlationChoiceArmAllowed(arm string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.TrimSpace(candidate) == strings.TrimSpace(arm) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *physicalPlanRenderer) renderSelectorPredicate(predicate ir.PhysicalPredicate) (string, error) {

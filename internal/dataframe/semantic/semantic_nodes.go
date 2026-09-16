@@ -3,6 +3,7 @@ package semantic
 import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // SemanticNode is the canonical backend-independent graph node used by every
@@ -47,8 +48,16 @@ type SemanticPivot struct {
 	ItemSource       spec.Selector
 	ItemResourceType string
 	Columns          []string
+	ColumnAliases    map[string]string
+	ProjectionMode   string
 	Family           string
 	Discovered       bool
+	// Correlation is the closed system+code/value binding used when a pivot
+	// must preserve one Coding and one owning repeated item. Nil retains the
+	// legacy validated pivot path.
+	Correlation       *fhirschema.CorrelatedBinding
+	CorrelationSystem string
+	CorrelationCode   string
 }
 
 type SemanticAggregate struct {

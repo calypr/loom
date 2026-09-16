@@ -578,6 +578,15 @@ func validatePhysicalPredicate(predicate PhysicalPredicate, defined map[string]b
 	default:
 		return fmt.Errorf("unknown physical filter operator %q", predicate.Operator)
 	}
+	if predicate.Correlation != nil {
+		if predicate.Left.Variable != "" || predicate.Left.BindKey != "" || len(predicate.Left.Path) != 0 || predicate.LeftExpression != nil || predicate.Right != nil {
+			return fmt.Errorf("correlated predicate cannot also declare ordinary left/right values")
+		}
+		if operator != "EQUALS" && operator != "EXISTS" {
+			return fmt.Errorf("correlated predicate operator %q is unsupported", predicate.Operator)
+		}
+		return validatePhysicalCorrelation(*predicate.Correlation, defined, bindVars)
+	}
 	hasLeftValue := predicate.Left.Variable != "" || predicate.Left.BindKey != "" || len(predicate.Left.Path) != 0
 	hasLeftExpression := predicate.LeftExpression != nil
 	if hasLeftValue == hasLeftExpression {

@@ -9,6 +9,15 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, bindVars map[string]any) error {
 	if err := validatePhysicalValue(extract.Source, defined, bindVars); err != nil {
 		return err
@@ -126,11 +135,13 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 	if strings.TrimSpace(pivot.ResourceType) == "" || !fhirschema.HasResource(pivot.ResourceType) {
 		return fmt.Errorf("pivot resource type %q is not represented by the active generated FHIR schema", pivot.ResourceType)
 	}
-	if err := validatePhysicalSelector(pivot.ResourceType, pivot.KeySelector); err != nil {
-		return fmt.Errorf("pivot key selector: %w", err)
-	}
-	if err := validatePhysicalSelector(pivot.ResourceType, pivot.ValueSelector); err != nil {
-		return fmt.Errorf("pivot value selector: %w", err)
+	if pivot.Correlation == nil {
+		if err := validatePhysicalSelector(pivot.ResourceType, pivot.KeySelector); err != nil {
+			return fmt.Errorf("pivot key selector: %w", err)
+		}
+		if err := validatePhysicalSelector(pivot.ResourceType, pivot.ValueSelector); err != nil {
+			return fmt.Errorf("pivot value selector: %w", err)
+		}
 	}
 	if err := requireBind(bindVars, pivot.ColumnsBindKey); err != nil {
 		return err
@@ -144,6 +155,24 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 			return fmt.Errorf("pivot columns bind %q contains an empty column", pivot.ColumnsBindKey)
 		}
 	}
+	if mode := strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)); mode != "" && mode != "VALUE" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
+		return fmt.Errorf("pivot projection mode %q is unsupported", pivot.ProjectionMode)
+	}
+	aliases := map[string]string{}
+	for key, alias := range pivot.ColumnAliases {
+		if !containsString(columns, key) || strings.TrimSpace(alias) == "" {
+			return fmt.Errorf("pivot column alias %q is invalid", key)
+		}
+		if previous, exists := aliases[alias]; exists && previous != key {
+			return fmt.Errorf("pivot column alias %q is shared by %q and %q", alias, previous, key)
+		}
+		aliases[alias] = key
+	}
+	if pivot.Correlation != nil {
+		if err := validatePhysicalCorrelation(*pivot.Correlation, defined, bindVars); err != nil {
+			return fmt.Errorf("pivot correlation: %w", err)
+		}
+	}
 	if pivot.PreparedKey != nil {
 		if err := validatePhysicalPreparedReference(*pivot.PreparedKey, defined); err != nil {
 			return fmt.Errorf("prepared pivot key: %w", err)
@@ -152,6 +181,70 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 	if pivot.PreparedValue != nil {
 		if err := validatePhysicalPreparedReference(*pivot.PreparedValue, defined); err != nil {
 			return fmt.Errorf("prepared pivot value: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[string]bool, bindVars map[string]any) error {
+	if err := validatePhysicalValue(correlation.Source, defined, bindVars); err != nil {
+		return err
+	}
+	if strings.TrimSpace(correlation.ResourceType) == "" || !schemaDefinitionExists(correlation.ResourceType) {
+		return fmt.Errorf("correlation resource type %q is not represented by generated FHIR schema", correlation.ResourceType)
+	}
+	ownerResource := correlation.OwnerResource
+	if ownerResource == "" {
+		ownerResource = correlation.ResourceType
+	}
+	if !schemaDefinitionExists(ownerResource) {
+		return fmt.Errorf("correlation owner resource %q is not represented by generated FHIR schema", ownerResource)
+	}
+	if correlation.OwnerSelector.CanonicalPath() != "" {
+		if err := validatePhysicalSelector(correlation.ResourceType, correlation.OwnerSelector); err != nil {
+			return fmt.Errorf("owner selector: %w", err)
+		}
+	}
+	if strings.TrimSpace(correlation.KeyResource) == "" || !schemaDefinitionExists(correlation.KeyResource) {
+		return fmt.Errorf("correlation key resource %q is not represented by generated FHIR schema", correlation.KeyResource)
+	}
+	if err := validatePhysicalSelector(ownerResource, correlation.KeySelector); err != nil {
+		return fmt.Errorf("key selector: %w", err)
+	}
+	if err := validatePhysicalSelector(correlation.KeyResource, correlation.SystemSelector); err != nil {
+		return fmt.Errorf("system selector: %w", err)
+	}
+	if err := validatePhysicalSelector(correlation.KeyResource, correlation.CodeSelector); err != nil {
+		return fmt.Errorf("code selector: %w", err)
+	}
+	if err := validatePhysicalSelector(ownerResource, correlation.ValueSelector); err != nil {
+		return fmt.Errorf("value selector: %w", err)
+	}
+	for index, fallback := range correlation.ValueFallbacks {
+		if err := validatePhysicalSelector(ownerResource, fallback); err != nil {
+			return fmt.Errorf("value fallback %d: %w", index, err)
+		}
+	}
+	for index, choice := range correlation.ChoiceSelectors {
+		if err := validatePhysicalSelector(ownerResource, choice); err != nil {
+			return fmt.Errorf("choice selector %d: %w", index, err)
+		}
+	}
+	if strings.TrimSpace(correlation.LogicalType) == "" {
+		return fmt.Errorf("correlation logical type is required")
+	}
+	if primitive := strings.TrimSpace(correlation.ValuePrimitive); primitive != "" && primitive != string(fhirschema.PrimitiveString) && primitive != string(fhirschema.PrimitiveBoolean) && primitive != string(fhirschema.PrimitiveInteger) && primitive != string(fhirschema.PrimitiveDecimal) && primitive != string(fhirschema.PrimitiveDate) && primitive != string(fhirschema.PrimitiveDateTime) {
+		return fmt.Errorf("correlation value primitive %q is unsupported", correlation.ValuePrimitive)
+	}
+	for name, key := range map[string]string{"system": correlation.SystemBindKey, "code": correlation.CodeBindKey} {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("correlation %s bind key is required", name)
+		}
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+		if _, ok := bindVars[key].(string); !ok {
+			return fmt.Errorf("correlation %s bind %q must be a string", name, key)
 		}
 	}
 	return nil

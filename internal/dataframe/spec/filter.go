@@ -7,6 +7,7 @@ import (
 	"time"
 
 	fhir "github.com/calypr/loom/generated/fhir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // FilterOperator is the closed set of operations accepted by the typed filter
@@ -75,12 +76,13 @@ type TypedFilter struct {
 	// Selector is a resolved, canonical FHIR selector. Product callers should
 	// normally supply FieldRef and receive this selector from the semantic
 	// registry; the compiler requires it before physical lowering.
-	Selector   string          `json:"selector,omitempty"`
-	FieldKind  FilterValueKind `json:"fieldKind"`
-	Repeated   bool            `json:"repeated,omitempty"`
-	Quantifier ArrayQuantifier `json:"quantifier,omitempty"`
-	Operator   FilterOperator  `json:"operator"`
-	Values     []FilterValue   `json:"values,omitempty"`
+	Selector    string                        `json:"selector,omitempty"`
+	FieldKind   FilterValueKind               `json:"fieldKind"`
+	Repeated    bool                          `json:"repeated,omitempty"`
+	Quantifier  ArrayQuantifier               `json:"quantifier,omitempty"`
+	Operator    FilterOperator                `json:"operator"`
+	Values      []FilterValue                 `json:"values,omitempty"`
+	Correlation *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
 }
 
 func (f TypedFilter) Validate() error {
@@ -125,6 +127,20 @@ func (f TypedFilter) Validate() error {
 		}
 		if err := validateOrderedTemporalValue(f.Operator, value); err != nil {
 			return fmt.Errorf("filter value %d: %w", i, err)
+		}
+	}
+	if f.Correlation != nil && f.FieldKind != FilterCode {
+		return errors.New("correlated filter requires CODE field kind")
+	}
+	if f.Correlation != nil {
+		if f.Operator != FilterEquals {
+			return fmt.Errorf("correlated filter supports only EQUALS, got %s", f.Operator)
+		}
+		if f.Quantifier != "" && f.Quantifier != QuantifierAny {
+			return fmt.Errorf("correlated filter supports only ANY quantifier, got %s", f.Quantifier)
+		}
+		if len(f.Values) != 1 || f.Values[0].Code == nil || strings.TrimSpace(f.Values[0].Code.System) == "" {
+			return errors.New("correlated filter requires one CODE value with system")
 		}
 	}
 	return nil

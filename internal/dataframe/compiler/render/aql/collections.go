@@ -175,6 +175,9 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 	if pivot == nil {
 		return "", fmt.Errorf("PIVOT expression is missing payload")
 	}
+	if pivot.Correlation != nil {
+		return r.renderCorrelatedPivot(*pivot.Correlation, pivot.ColumnsBindKey, pivot.StringifyValue, pivot.FlattenSingleColumn, pivot.ProjectionMode)
+	}
 	if _, collection := r.collectionKeys[pivot.ColumnsBindKey]; collection {
 		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", pivot.ColumnsBindKey)
 	}
@@ -272,6 +275,132 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
     LET __pivot_flat_values = SORTED_UNIQUE(FLATTEN(__pivot_group[*].__pair.values))
     FILTER LENGTH(__pivot_flat_values) > 0
     RETURN { [__pivot_key]: %s }
+)`, pairs, value), nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if columnsBindKey == "" {
+		return "", fmt.Errorf("correlated pivot columns bind is required")
+	}
+	if _, collection := r.collectionKeys[columnsBindKey]; collection {
+		return "", fmt.Errorf("pivot columns bind %q cannot be a collection bind", columnsBindKey)
+	}
+	columns, ok := r.bindVars[columnsBindKey].([]string)
+	if !ok || len(columns) == 0 {
+		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("correlation_pivot_owner")
+	coding := r.newInternalVariable("correlation_pivot_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", err
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", err
+	}
+	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	if err != nil {
+		return "", err
+	}
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if err != nil {
+		return "", err
+	}
+	mode := strings.ToUpper(strings.TrimSpace(projectionMode))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	var value string
+	valuePrimitive := strings.ToLower(strings.TrimSpace(correlation.ValuePrimitive))
+	stringConversion := stringify && valuePrimitive != "" && valuePrimitive != "string"
+	switch mode {
+	case "ALL":
+		value = "__correlation_flat_values"
+		if stringConversion {
+			value = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+	case "DISTINCT":
+		values := "__correlation_flat_values"
+		if stringConversion {
+			values = "(FOR __correlation_value IN __correlation_flat_values RETURN TO_STRING(__correlation_value))"
+		}
+		value = "SORTED_UNIQUE(" + values + ")"
+	case "VALUE":
+		first := "FIRST(__correlation_flat_values)"
+		if stringConversion {
+			first = "TO_STRING(" + first + ")"
+		}
+		value = `LENGTH(__correlation_flat_values) == 1 ? ` + first + ` : { status: "INVALID_MULTIPLE_VALUES", raw: __correlation_flat_values }`
+	case "FIRST":
+		// FIRST is explicit authoring loss. Sort only to make the selected
+		// representative deterministic; it does not silently change ALL or
+		// VALUE semantics.
+		value = "FIRST(SORTED(__correlation_flat_values))"
+		if stringConversion {
+			value = "TO_STRING(" + value + ")"
+		}
+	default:
+		return "", fmt.Errorf("correlated pivot projection mode %q is unsupported", projectionMode)
+	}
+	invalid := `{ status: "INVALID_CHOICE_ARM", raw: __correlation_unsupported_values }`
+	value = fmt.Sprintf(`LENGTH(__correlation_unsupported_values) > 0 ? %s : %s`, invalid, value)
+	// Reduce repeated Coding aliases within each owner before the outer
+	// reduction. Distinct owners remain separate, so ALL retains multiplicity
+	// across components while duplicate Coding entries cannot duplicate a
+	// component's value.
+	pairs := fmt.Sprintf(`FOR %s IN %s
+  LET __correlation_owner_pairs = (
+    FOR %s IN FLATTEN(%s)
+      LET __correlation_system = %s
+      LET __correlation_code = %s
+      FILTER __correlation_system != null AND __correlation_system != ""
+      FILTER __correlation_code != null AND __correlation_code != ""
+      FILTER __correlation_system == @%s
+      FILTER POSITION(@%s, __correlation_code)
+      LET __correlation_values = %s
+      LET __correlation_flat_values = FLATTEN(__correlation_values)
+      LET __correlation_unsupported_values = %s
+      FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+      RETURN { key: __correlation_code, values: __correlation_values, unsupported: __correlation_unsupported_values }
+  )
+  FOR __correlation_owner_pair IN (
+    FOR __correlation_candidate IN __correlation_owner_pairs
+      COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group
+        LET __correlation_owner_values = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.values))
+        LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.unsupported))
+        RETURN { key: __correlation_owner_key, values: __correlation_owner_values, unsupported: __correlation_owner_unsupported }
+  )
+    RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, values, unsupportedValues)
+	if flattenSingle {
+		return fmt.Sprintf(`FIRST(
+	  FOR __correlation_pair IN (
+	    %s
+	  )
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+	    RETURN %s
+)`, pairs, value), nil
+	}
+	return fmt.Sprintf(`MERGE(
+  FOR __correlation_pair IN (
+    %s
+	  )
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
+	    RETURN { [__correlation_key]: %s }
 )`, pairs, value), nil
 }
 

@@ -68,6 +68,7 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		}
 		field.ResourceType = resourceType
 		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]catalog.ExtensionValueObservation(nil), field.ExtensionValues...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
+		result.Values[len(result.Values)-1].SemanticObservations = append([]catalog.SemanticObservation(nil), field.SemanticObservations...)
 		// DistinctTruncated is per-field suggestion metadata. It is retained
 		// on the observation but does not make the complete enrichment artifact
 		// unusable; only an artifact-level marker can fail the snapshot.
@@ -146,6 +147,7 @@ FOR d IN fhir_field_catalog
     distinct_values: d.distinct_values,
     distinct_truncated: d.distinct_truncated,
     extension_values: d.extension_values,
+    semantic_observations: d.semantic_observations,
     pivot_candidate: d.pivot_candidate,
     pivot_kind: d.pivot_kind,
     pivot_columns: d.pivot_columns,
@@ -177,6 +179,7 @@ FOR d IN fhir_field_catalog
     distinct_values: d.distinct_values,
     distinct_truncated: d.distinct_truncated,
     extension_values: d.extension_values,
+    semantic_observations: d.semantic_observations,
     pivot_candidate: d.pivot_candidate,
     pivot_kind: d.pivot_kind,
     pivot_columns: d.pivot_columns,

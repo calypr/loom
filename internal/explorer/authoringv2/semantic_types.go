@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -55,9 +57,16 @@ type SourceWhere struct {
 }
 
 type LookupSource struct {
-	Match          string `json:"match"`
+	Match          string `json:"match,omitempty"`
 	Path           string `json:"path,omitempty"`
 	ProjectionMode string `json:"projectionMode,omitempty"`
+	// Binding is the validated correlated FHIR shape used by code/system
+	// lookups. It is a closed alternative to legacy Match/Path, never a
+	// precedence rule between two writable lookup meanings.
+	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
+	// Key is required with Binding and carries the selected system/code
+	// identity. It is not accepted for legacy lookup variants.
+	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
 }
 
 type RelatedSelection struct {
@@ -155,6 +164,16 @@ func (s ColumnSource) Normalized() ColumnSource {
 		lookup := *n.Lookup
 		if strings.TrimSpace(lookup.ProjectionMode) == "" {
 			lookup.ProjectionMode = "FIRST"
+		}
+		if lookup.Binding != nil {
+			binding := *lookup.Binding
+			binding.ValueFallback = append([]string(nil), lookup.Binding.ValueFallback...)
+			binding.ChoiceArms = append([]string(nil), lookup.Binding.ChoiceArms...)
+			lookup.Binding = &binding
+		}
+		if lookup.Key != nil {
+			key := *lookup.Key
+			lookup.Key = &key
 		}
 		n.Lookup = &lookup
 	}
@@ -299,8 +318,21 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if s.Lookup == nil || strings.TrimSpace(s.Lookup.Match) == "" {
+		if s.Lookup == nil || (s.Lookup.Binding == nil && strings.TrimSpace(s.Lookup.Match) == "") {
 			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
+		}
+		if s.Lookup != nil && s.Lookup.Binding != nil {
+			if s.Kind != SourceCodingBySystem && s.Kind != SourceObservationComponentByCode {
+				return fmt.Errorf("%s correlated binding is only supported for codingBySystem and observationComponentByCode", path)
+			}
+			if strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
+				return fmt.Errorf("%s correlated lookup must not combine binding with legacy match or path", path)
+			}
+			if s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
+				return fmt.Errorf("%s correlated lookup requires key.system and key.code", path)
+			}
+		} else if s.Lookup != nil && s.Lookup.Key != nil {
+			return fmt.Errorf("%s legacy lookup must not contain correlated key", path)
 		}
 	case SourceAggregate:
 		if s.Aggregate == nil {
@@ -368,6 +400,11 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {
+			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {
+				return fmt.Errorf("%s.source.binding: %w", path, err)
+			}
 		}
 		if column.Table != nil && column.Table.Order != nil && *column.Table.Order < 0 {
 			return fmt.Errorf("%s.table.order must not be negative", path)
