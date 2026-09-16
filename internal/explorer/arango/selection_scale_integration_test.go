@@ -36,7 +36,7 @@ func TestSelectionStorageScaleAgainstArango(t *testing.T) {
 	}
 
 	const (
-		batchSize    = 1000
+		batchSize    = 256
 		project      = "loom_selection_scale"
 		generation   = "selection-scale-generation"
 		resourceType = "DocumentReference"

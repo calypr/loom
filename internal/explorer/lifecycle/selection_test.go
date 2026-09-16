@@ -300,7 +300,7 @@ func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
 	}
 }
 
-func TestReadSelectionRejectsInvalidNarrowedScopeBeforeHeaderLoad(t *testing.T) {
+func TestReadSelectionRejectsInvalidScopeBeforeHeaderLoad(t *testing.T) {
 	store := &selectionLifecycleStore{}
 	persistence, _ := explorer.NewService(store)
 	badScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted, AuthResourcePaths: []string{"secret"}}
@@ -315,10 +315,37 @@ func TestReadSelectionRejectsInvalidNarrowedScopeBeforeHeaderLoad(t *testing.T) 
 	_, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: "selection-never-loaded", Limit: 10})
 	var typed *Error
 	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
-		t.Fatalf("invalid narrowed scope error = %v", err)
+		t.Fatalf("invalid scope error = %v", err)
 	}
 	if store.getCalls != 0 {
 		t.Fatalf("selection header loaded before scope validation: %d calls", store.getCalls)
+	}
+}
+
+func TestReadSelectionRejectsNarrowedScopeWithoutReturningCounts(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
+	digest := scopeDigest(scope)
+	store := &selectionLifecycleStore{header: explorer.SelectionRevision{
+		ID: "selection-private", Project: "project", Generation: "generation-a",
+		Complete: true, MemberCount: 42,
+		ScopeDigest: scopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}),
+	}}
+	persistence, _ := explorer.NewService(store)
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{
+		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
+			return capabilitySnapshot("current-token", "generation-a", digest), nil
+		},
+		ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: capabilitySnapshot("current-token", "generation-a", digest), Scope: scope}, nil
+		},
+	}})
+	result, err := service.ReadSelection(context.Background(), SelectionReadIntentRequest{Project: "project", ExplorerID: "explorer", RevisionID: store.header.ID, Limit: 10})
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != "SELECTION_STALE_SCOPE" {
+		t.Fatalf("narrowed scope error = %v", err)
+	}
+	if result.Header != nil || len(result.Members) != 0 || result.NextCursor != "" {
+		t.Fatalf("narrowed scope disclosed selection: %#v", result)
 	}
 }
 

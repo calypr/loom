@@ -23,6 +23,10 @@ Reading batched insert results in batches instead of one row per cursor request 
 
 The combined changes measured 100 members in 28ms, 10,000 in 1.542s, and 100,000 in 15.636s. The real storage correctness suite also passed in 0.83s. These are single-run backend persistence measurements, not end-to-end HTTP timings. They do not establish that a 100,000-member HTTP request fits the lifecycle deadline.
 
+The committed scale test now uses the lifecycle's 256-member batch size. That run passed exact counts and digests at 31ms for 100 members, 1.918s for 10,000, and 20.493s for 100,000. Lifecycle regressions also prove abort without completion after an interrupted source stream or exceeded row limit, and rejection of an invalid authorization scope before loading the selection header.
+
+A separate valid deny-all scope regression rejects a selection created under unrestricted access without returning its header, members, or cursor. The rebuilt API probe also passed after the optimization, with evidence at `.artifacts/loom-dev/selections-1789586419969.json` and small-fixture explicit creation at 28.6ms.
+
 After restarting `loom-dev-arch-integration-loom-api-1`, the script's `--check-saved` mode verified the same membership, counts, and digests for explicit, matching, and empty selections.
 
 Live verification exposed and corrected four integration mistakes that isolated tests had missed:
