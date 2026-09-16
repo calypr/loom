@@ -103,6 +103,8 @@ const empty = await preview(outputId);
 assert.deepEqual(empty.result.rows, [], 'a complete empty selection must produce zero rows');
 assert.notEqual(empty.compiled.receiptId, selected.compiled.receiptId, 'different membership digests must produce different receipts');
 
+await command([{ type: 'CLEAR_TABLE_POPULATION', outputId }]);
+
 const artifact = {
   target,
   explorerId,
