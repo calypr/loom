@@ -62,6 +62,48 @@ func (t *finalizingTarget) Begin(_ context.Context, _ PublicationIdentity, _ []O
 	return t.tx, nil
 }
 
+type sourceMetadataTx struct {
+	fakeTx
+	metadata map[string]SourceRowMetadata
+}
+
+func (t *sourceMetadataTx) SetSourceRowMetadata(_ context.Context, name string, metadata SourceRowMetadata) error {
+	if t.metadata == nil {
+		t.metadata = map[string]SourceRowMetadata{}
+	}
+	t.metadata[name] = metadata
+	return nil
+}
+
+type sourceMetadataTarget struct{ tx *sourceMetadataTx }
+
+func (t *sourceMetadataTarget) SupportsObjectValues() bool { return false }
+
+func (t *sourceMetadataTarget) Begin(_ context.Context, _ PublicationIdentity, _ []OutputSchema) (Transaction, error) {
+	t.tx = &sourceMetadataTx{}
+	return t.tx, nil
+}
+
+func TestPublishPersistsSourceRowMetadataBeforeCommit(t *testing.T) {
+	target := &sourceMetadataTarget{}
+	_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "p"}, []OutputStream{{
+		Name: "files", SourceRow: &SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}, Columns: []LogicalColumn{{Name: "id", Kind: "string"}},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			return visit(map[string]any{"id": "files001"})
+		},
+	}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, ok := target.tx.metadata["files"]
+	if !ok || metadata.ResourceType != "DocumentReference" || metadata.IDColumn != "id" {
+		t.Fatalf("source metadata = %#v", target.tx.metadata)
+	}
+	if !target.tx.committed {
+		t.Fatal("publication did not commit")
+	}
+}
+
 type objectTarget struct{ fakeTarget }
 
 func (t *objectTarget) SupportsObjectValues() bool { return true }

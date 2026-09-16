@@ -4,7 +4,7 @@ import "testing"
 
 func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	s := CollectionSpecs()
-	if len(s) != 5 {
+	if len(s) != 7 {
 		t.Fatalf("specs=%#v", s)
 	}
 	for _, spec := range s {

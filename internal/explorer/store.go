@@ -3,6 +3,7 @@ package explorer
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/calypr/loom/internal/dataset"
 )
@@ -37,4 +38,12 @@ type Store interface {
 	GetRevision(context.Context, string) (*Revision, error)
 	FailRevision(context.Context, string, []Diagnostic) (*Revision, error)
 	ActivateRepositoryGeneration(context.Context, string, string, string) error
+	BeginSelection(context.Context, SelectionRevision, string) (*SelectionRevision, error)
+	AppendSelectionMembers(context.Context, string, string, []SelectionMember) ([]SelectionMember, error)
+	DigestSelectionMembers(context.Context, string, string) (string, int64, int64, error)
+	CompleteSelection(context.Context, string, string, string, int64, int64, time.Time) (*SelectionRevision, error)
+	AbortSelection(context.Context, string, string) error
+	CleanupSelectionStaging(context.Context, time.Time, int) error
+	GetSelection(context.Context, string, string) (*SelectionRevision, error)
+	VisitSelectionMembers(context.Context, string, string, string, int, func(SelectionMember) error) (string, error)
 }

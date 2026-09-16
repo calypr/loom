@@ -54,6 +54,11 @@ type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.Com
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
+// SelectionReferenceValidator resolves explicit references against the
+// authorized active generation. It must verify both resource existence and
+// auth_resource_path before lifecycle persists any member or exclusion.
+type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
+
 // Execution is the small logical publication result needed by Explorer. It
 // intentionally avoids the GraphQL resolver's execution type.
 type Execution struct {
@@ -82,6 +87,10 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 // callbacks, but never imports the transport packages that construct them.
 type Config struct {
 	Capability CapabilityResolver
+	// SelectionSourceResolver resolves an exact immutable published revision
+	// after Capability.ForExecution has established project and scope.
+	SelectionSourceResolver     SelectionSourceResolver
+	SelectionReferenceValidator SelectionReferenceValidator
 
 	CompileReceipt     ReceiptCompiler
 	PreviewReceipt     ReceiptPreviewer

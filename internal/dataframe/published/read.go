@@ -31,9 +31,9 @@ type Reader struct {
 }
 
 type Filter struct {
-	Column string
-	Op     string
-	Value  any
+	Column string `json:"column"`
+	Op     string `json:"op"`
+	Value  any    `json:"value,omitempty"`
 }
 
 type Sort struct {

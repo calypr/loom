@@ -36,16 +36,18 @@ type LogicalColumn struct {
 }
 
 type OutputSchema struct {
-	Name    string
-	Columns []LogicalColumn
+	Name      string
+	Columns   []LogicalColumn
+	SourceRow *SourceRowMetadata
 }
 
 // OutputStream is consumed exactly once. The callback must invoke visit for
 // each row and must stop when visit returns an error.
 type OutputStream struct {
-	Name    string
-	Columns []LogicalColumn
-	Stream  func(context.Context, func(map[string]any) error) error
+	Name      string
+	Columns   []LogicalColumn
+	SourceRow *SourceRowMetadata
+	Stream    func(context.Context, func(map[string]any) error) error
 }
 
 type PublicationIdentity struct {
@@ -59,6 +61,7 @@ type PublicationIdentity struct {
 	DatasetGeneration string
 	RecipeDigest      string
 	SchemaDigest      string
+	ReceiptID         string
 	ScopeDigest       string
 	EngineVersion     string
 	AuthScopeMode     string
@@ -99,8 +102,9 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 		Identity     bool   `json:"identity,omitempty"`
 	}
 	type output struct {
-		Name    string     `json:"name"`
-		Columns []contract `json:"columns"`
+		Name      string             `json:"name"`
+		Columns   []contract         `json:"columns"`
+		SourceRow *SourceRowMetadata `json:"sourceRow,omitempty"`
 	}
 	ordered := make([]output, 0, len(schemas))
 	for _, schema := range schemas {
@@ -108,6 +112,7 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 		for _, column := range schema.Columns {
 			item.Columns = append(item.Columns, contract{Name: column.Name, Kind: column.Kind, SemanticPath: column.SemanticPath, Repeated: column.Repeated, Nullable: column.Nullable, Identity: column.IsIdentity})
 		}
+		item.SourceRow = schema.SourceRow
 		ordered = append(ordered, item)
 	}
 	payload := struct {

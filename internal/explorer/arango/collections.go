@@ -7,6 +7,8 @@ const (
 	ExplorersCollection           = "loom_explorers"
 	RevisionsCollection           = "loom_explorer_revisions"
 	CompilationReceiptsCollection = "loom_explorer_compilation_receipts"
+	SelectionsCollection          = "loom_explorer_selections"
+	SelectionMembersCollection    = "loom_explorer_selection_members"
 	// LegacyRepositoryConfigsCollection is read only. It remains in bootstrap
 	// for one compatibility window so startup can migrate old default-owner
 	// pointers into loom_explorers; no current workflow writes it.
@@ -23,6 +25,16 @@ func CollectionSpecs() []store.CollectionSpec {
 			{"project", "explorerId", "intentDigest"},
 			{"project", "explorerId", "createdAt"},
 			{"project", "explorerId", "compilationKey", "receiptFormatVersion", "compilerContractVersion"},
+		}},
+		{Name: SelectionsCollection, Indexes: [][]string{
+			{"project", "id"},
+			{"project", "idempotencyKey"},
+			{"project", "generation", "resourceType", "createdAt"},
+			{"state", "createdAt"},
+		}},
+		{Name: SelectionMembersCollection, Indexes: [][]string{
+			{"selectionId", "project", "generation", "resourceType", "id"},
+			{"selectionId", "memberKey"},
 		}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),

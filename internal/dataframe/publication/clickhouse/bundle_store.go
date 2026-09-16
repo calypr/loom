@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -76,7 +77,7 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 	bundleIdentity := publication.BundleIdentity{
 		Name: identity.Name, TranslationVersion: identity.TranslationVersion, OutputName: identity.OutputName,
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, RecipeDigest: identity.RecipeDigest,
-		SchemaDigest: identity.SchemaDigest, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
+		SchemaDigest: identity.SchemaDigest, ReceiptID: identity.ReceiptID, ScopeDigest: identity.ScopeDigest, EngineVersion: identity.EngineVersion,
 		AuthScopeMode: identity.AuthScopeMode, AuthResourcePaths: append([]string(nil), identity.AuthResourcePaths...),
 	}
 	tx, err := s.beginBundle(ctx, bundleIdentity)
@@ -105,6 +106,15 @@ func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.
 			abortErr := tx.Abort(cleanupCtx, cause)
 			cancel()
 			return nil, errors.Join(cause, abortErr)
+		}
+		if schema.SourceRow != nil {
+			if err := tx.SetSourceRowMetadata(ctx, schema.Name, *schema.SourceRow); err != nil {
+				cause := fmt.Errorf("output %q source identity: %w", schema.Name, err)
+				cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
+				abortErr := tx.Abort(cleanupCtx, cause)
+				cancel()
+				return nil, errors.Join(cause, abortErr)
+			}
 		}
 	}
 	return tx, nil
@@ -221,6 +231,89 @@ func (s *ClickHouseBundleStore) releaseLease(ctx context.Context, key, owner str
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	return nil
+}
+
+const (
+	cleanupLeaseTTL      = 2 * time.Minute
+	cleanupLeaseRenewal  = 30 * time.Second
+	cleanupLeaseCallTime = 5 * time.Second
+)
+
+type executionCleanupLease struct {
+	ctx         context.Context
+	cancel      context.CancelFunc
+	done        chan struct{}
+	pins        publication.ExecutionReadPinCatalog
+	executionID string
+	owner       string
+	lost        atomic.Bool
+	errMu       sync.Mutex
+	renewErr    error
+	stopOnce    sync.Once
+	stopErr     error
+}
+
+func (l *executionCleanupLease) run() {
+	defer close(l.done)
+	ticker := time.NewTicker(cleanupLeaseRenewal)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-l.ctx.Done():
+			return
+		case <-ticker.C:
+			renewCtx, cancel := context.WithTimeout(context.WithoutCancel(l.ctx), cleanupLeaseCallTime)
+			owned, err := l.pins.RenewExecutionCleanup(renewCtx, l.executionID, l.owner, time.Now().UTC().Add(cleanupLeaseTTL))
+			cancel()
+			if err != nil || !owned {
+				l.errMu.Lock()
+				if err != nil {
+					l.renewErr = err
+				} else {
+					l.renewErr = publication.ErrExecutionReadPinLost
+				}
+				l.errMu.Unlock()
+				l.lost.Store(true)
+				l.cancel()
+				return
+			}
+		}
+	}
+}
+
+func (l *executionCleanupLease) release() error {
+	l.stopOnce.Do(func() {
+		l.cancel()
+		<-l.done
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(l.ctx), bundleCleanupTimeout)
+		defer cancel()
+		l.stopErr = l.pins.ReleaseExecutionCleanup(releaseCtx, l.executionID, l.owner)
+		if l.lost.Load() {
+			l.errMu.Lock()
+			renewErr := l.renewErr
+			l.errMu.Unlock()
+			l.stopErr = errors.Join(l.stopErr, publication.ErrExecutionReadPinLost, renewErr)
+		}
+	})
+	return l.stopErr
+}
+
+func (s *ClickHouseBundleStore) claimExecutionCleanup(ctx context.Context, executionID, owner string) (context.Context, func() error, error) {
+	pins, ok := s.catalog.(publication.ExecutionReadPinCatalog)
+	if !ok {
+		return ctx, func() error { return nil }, nil
+	}
+	claimed, err := pins.ClaimExecutionCleanup(ctx, executionID, owner)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !claimed {
+		return nil, nil, publication.ErrExecutionReadPinActive
+	}
+	leaseCtx, cancel := context.WithCancel(ctx)
+	lease := &executionCleanupLease{ctx: leaseCtx, cancel: cancel, done: make(chan struct{}), pins: pins, executionID: executionID, owner: owner}
+	go lease.run()
+	return leaseCtx, lease.release, nil
 }
 
 type clickHouseBundleTx struct {
@@ -445,6 +538,42 @@ func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string,
 	return t.save(ctx)
 }
 
+// SetSourceRowMetadata records the proven typed source identity before the
+// publication is committed. Selection refuses outputs without this mapping.
+func (t *clickHouseBundleTx) SetSourceRowMetadata(ctx context.Context, name string, metadata publication.SourceRowMetadata) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("bundle transaction is closed")
+	}
+	if err := t.ensureLease(); err != nil {
+		return err
+	}
+	metadata.ResourceType = strings.TrimSpace(metadata.ResourceType)
+	metadata.IDColumn = strings.TrimSpace(metadata.IDColumn)
+	if metadata.ResourceType == "" || metadata.IDColumn == "" {
+		return fmt.Errorf("source row metadata requires resource type and id column")
+	}
+	idx := t.outputIndex(name)
+	if idx < 0 {
+		return fmt.Errorf("bundle output %q was not created", name)
+	}
+	record := &t.execution.Outputs[idx]
+	found := false
+	for _, column := range record.Columns {
+		if column.Name == metadata.IDColumn {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("source id column %q is not present in output %q", metadata.IDColumn, name)
+	}
+	record.SourceRow = &metadata
+	return t.save(ctx)
+}
+
 // FinalizeSchema removes discovered columns that were never populated and
 // persists the retained logical/physical schema before verification.
 func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
@@ -466,6 +595,17 @@ func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publi
 			return fmt.Errorf("bundle output %q was not created", schema.Name)
 		}
 		record := &t.execution.Outputs[idx]
+		if schema.SourceRow != nil {
+			metadata := *schema.SourceRow
+			metadata.ResourceType = strings.TrimSpace(metadata.ResourceType)
+			metadata.IDColumn = strings.TrimSpace(metadata.IDColumn)
+			if record.SourceRow != nil && *record.SourceRow != metadata {
+				return fmt.Errorf("output %q source identity changed during schema finalization", schema.Name)
+			}
+			if record.SourceRow == nil {
+				record.SourceRow = &metadata
+			}
+		}
 		retained := make(map[string]publication.LogicalColumn, len(schema.Columns))
 		for _, column := range schema.Columns {
 			retained[column.Name] = column
@@ -504,7 +644,7 @@ func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publi
 			}
 		}
 	}
-	identity := publication.PublicationIdentity{Name: t.execution.Name, TranslationVersion: t.execution.TranslationVersion, Project: t.execution.Project, DatasetGeneration: t.execution.DatasetGeneration, RecipeDigest: t.execution.RecipeDigest, ScopeDigest: t.execution.ScopeDigest, EngineVersion: t.execution.EngineVersion, AuthScopeMode: t.execution.AuthScopeMode, AuthResourcePaths: append([]string(nil), t.execution.AuthResourcePaths...)}
+	identity := publication.PublicationIdentity{Name: t.execution.Name, TranslationVersion: t.execution.TranslationVersion, Project: t.execution.Project, DatasetGeneration: t.execution.DatasetGeneration, RecipeDigest: t.execution.RecipeDigest, SchemaDigest: t.execution.SchemaDigest, ReceiptID: t.execution.ReceiptID, ScopeDigest: t.execution.ScopeDigest, EngineVersion: t.execution.EngineVersion, AuthScopeMode: t.execution.AuthScopeMode, AuthResourcePaths: append([]string(nil), t.execution.AuthResourcePaths...)}
 	t.execution.SchemaDigest = publication.FinalSchemaDigest(identity, schemas)
 	return t.save(ctx)
 }
@@ -706,9 +846,15 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 	}
 	cleanupCtx, cancel := boundedBundleCleanupContext(ctx)
 	defer cancel()
+	leaseCtx, releaseCleanup, claimErr := t.store.claimExecutionCleanup(cleanupCtx, t.execution.ID, t.execution.OwnerID)
+	if claimErr != nil {
+		t.closed = true
+		return errors.Join(claimErr, t.stopLease())
+	}
+	defer func() { _ = releaseCleanup() }()
 	var cleanup error
 	for _, output := range t.execution.Outputs {
-		if err := t.store.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+		if err := t.store.clickHouse.DropTable(leaseCtx, output.PhysicalTable); err != nil {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
@@ -720,7 +866,7 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 		}
 	}
 	if t.execution.State != publication.BundleFailed {
-		if err := t.fail(cleanupCtx, cause); err != nil {
+		if err := t.fail(leaseCtx, cause); err != nil {
 			cleanup = errors.Join(cleanup, err)
 		}
 	}
@@ -896,10 +1042,15 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 	if pointerErr == nil && pointer.ExecutionID == execution.ID {
 		return s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
 	}
+	leaseCtx, releaseCleanup, claimErr := s.claimExecutionCleanup(cleanupCtx, execution.ID, reconcilerID)
+	if claimErr != nil {
+		return errors.Join(claimErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+	}
+	defer func() { _ = releaseCleanup() }()
 	var first error
 	remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
-		if err := s.clickHouse.DropTable(cleanupCtx, output.PhysicalTable); err != nil {
+		if err := s.clickHouse.DropTable(leaseCtx, output.PhysicalTable); err != nil {
 			first = errors.Join(first, err)
 			remaining = append(remaining, output)
 		}
@@ -912,7 +1063,7 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 	execution.Outputs = remaining
 	execution.OwnerID = ""
 	execution.LeaseExpiresAt = nil
-	if err := s.catalog.SaveExecution(cleanupCtx, execution, reconcilerID); err != nil {
+	if err := s.catalog.SaveExecution(leaseCtx, execution, reconcilerID); err != nil {
 		first = errors.Join(first, err)
 	}
 	first = errors.Join(first, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))

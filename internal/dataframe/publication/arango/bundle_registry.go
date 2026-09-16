@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -16,6 +17,7 @@ const (
 	BundleExecutionsCollection = "loom_dataframe_bundle_executions"
 	BundlePointersCollection   = "loom_dataframe_bundle_pointers"
 	BundleLeasesCollection     = "loom_dataframe_bundle_leases"
+	executionCleanupTTL        = 2 * time.Minute
 )
 
 func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution, fenceOwner string) error {
@@ -335,6 +337,123 @@ FILTER existing != null AND existing.ownerId == @owner
 REMOVE existing IN @@collection`, map[string]interface{}{"@collection": BundleLeasesCollection, "key": key, "owner": owner})
 }
 
+func (r *Registry) AcquireExecutionReadPin(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {
+	executionID, owner = strings.TrimSpace(executionID), strings.TrimSpace(owner)
+	if executionID == "" || owner == "" {
+		return false, publication.ErrExecutionReadPinLost
+	}
+	now := time.Now().UTC()
+	claimed := false
+	err := r.client.QueryRows(ctx, `LET state = DOCUMENT(@@collection, @stateKey)
+LET pins = state == null ? [] : NOT_NULL(state.pins, [])
+LET retained = (FOR pin IN pins FILTER pin.expiresAt >= @now AND pin.ownerId != @owner RETURN pin)
+LET cleanup = state == null ? null : state.cleanup
+FILTER cleanup == null OR cleanup.expiresAt < @now
+UPSERT {_key: @stateKey}
+INSERT {_key: @stateKey, executionId: @executionId, pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), cleanup: null, updatedAt: @now}
+UPDATE {pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), updatedAt: @now} IN @@collection
+	RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "executionId": executionID, "owner": owner, "expiresAt": expires, "now": now}, func(row map[string]any) error {
+		claimed, _ = row["claimed"].(bool)
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *Registry) RenewExecutionReadPin(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {
+	now := time.Now().UTC()
+	claimed := false
+	err := r.client.QueryRows(ctx, `FOR state IN @@collection
+FILTER state._key == @stateKey
+LET pins = NOT_NULL(state.pins, [])
+LET cleanup = state.cleanup
+LET owned = FIRST(FOR pin IN pins FILTER pin.ownerId == @owner RETURN pin)
+LET retained = (FOR pin IN pins FILTER pin.ownerId != @owner AND pin.expiresAt >= @now RETURN pin)
+FILTER (cleanup == null OR cleanup.expiresAt < @now) AND owned != null AND owned.expiresAt >= @now
+UPDATE state WITH {pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), updatedAt: @now} IN @@collection
+	RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "owner": owner, "expiresAt": expires, "now": now}, func(row map[string]any) error {
+		claimed, _ = row["claimed"].(bool)
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *Registry) ReleaseExecutionReadPin(ctx context.Context, executionID, owner string) error {
+	return r.removeReadPin(ctx, pinDocumentKey(executionID, owner), executionID, owner, "PIN")
+}
+
+func (r *Registry) ClaimExecutionCleanup(ctx context.Context, executionID, owner string) (bool, error) {
+	now := time.Now().UTC()
+	claimed := false
+	err := r.client.QueryRows(ctx, `LET state = DOCUMENT(@@collection, @stateKey)
+LET pins = state == null ? [] : NOT_NULL(state.pins, [])
+LET active = (FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin)
+LET cleanup = state == null ? null : state.cleanup
+FILTER LENGTH(active) == 0 AND (cleanup == null OR cleanup.expiresAt < @now OR cleanup.ownerId == @owner)
+UPSERT {_key: @stateKey}
+INSERT {_key: @stateKey, executionId: @executionId, pins: [], cleanup: {ownerId: @owner, expiresAt: @expiresAt}, updatedAt: @now}
+UPDATE {pins: [], cleanup: {ownerId: @owner, expiresAt: @expiresAt}, updatedAt: @now} IN @@collection
+	RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "executionId": executionID, "owner": owner, "expiresAt": now.Add(executionCleanupTTL), "now": now}, func(row map[string]any) error {
+		claimed, _ = row["claimed"].(bool)
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *Registry) RenewExecutionCleanup(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {
+	now := time.Now().UTC()
+	claimed := false
+	err := r.client.QueryRows(ctx, `FOR state IN @@collection
+FILTER state._key == @stateKey
+LET pins = NOT_NULL(state.pins, [])
+LET cleanup = state.cleanup
+LET active = (FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin)
+FILTER cleanup != null AND cleanup.ownerId == @owner AND cleanup.expiresAt >= @now AND LENGTH(active) == 0
+UPDATE state WITH {cleanup: {ownerId: @owner, expiresAt: @expiresAt}, updatedAt: @now} IN @@collection
+	RETURN {claimed: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "owner": owner, "expiresAt": expires, "now": now}, func(row map[string]any) error {
+		claimed, _ = row["claimed"].(bool)
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *Registry) ReleaseExecutionCleanup(ctx context.Context, executionID, owner string) error {
+	return r.removeReadPin(ctx, cleanupDocumentKey(executionID), executionID, owner, "CLEANUP")
+}
+
+func (r *Registry) removeReadPin(ctx context.Context, key, executionID, owner, kind string) error {
+	now := time.Now().UTC()
+	_ = key
+	if kind == "PIN" {
+		return r.client.QueryRows(ctx, `FOR state IN @@collection
+FILTER state._key == @stateKey
+LET pins = NOT_NULL(state.pins, [])
+LET retained = (FOR pin IN pins FILTER pin.ownerId != @owner RETURN pin)
+UPDATE state WITH {pins: retained, updatedAt: @now} IN @@collection
+		RETURN {released: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "owner": owner, "now": now}, func(map[string]any) error { return nil })
+	}
+	return r.client.QueryRows(ctx, `FOR state IN @@collection
+FILTER state._key == @stateKey
+LET cleanup = state.cleanup
+FILTER cleanup != null AND cleanup.ownerId == @owner
+UPDATE state WITH {cleanup: null, updatedAt: @now} IN @@collection
+RETURN {released: true}`, r.batchSize, map[string]interface{}{"@collection": ExecutionReadPinsCollection, "stateKey": executionStateKey(executionID), "owner": owner, "now": now}, func(map[string]any) error { return nil })
+}
+
+func pinDocumentKey(executionID, owner string) string {
+	sum := sha256.Sum256([]byte(executionID + "\x00" + owner))
+	return "pin_" + hex.EncodeToString(sum[:])
+}
+
+func cleanupDocumentKey(executionID string) string {
+	sum := sha256.Sum256([]byte(executionID))
+	return "cleanup_" + hex.EncodeToString(sum[:])
+}
+
+func executionStateKey(executionID string) string {
+	sum := sha256.Sum256([]byte("state\x00" + executionID))
+	return "state_" + hex.EncodeToString(sum[:])
+}
+
 func pointerDocumentKey(name string) string {
 	sum := sha256.Sum256([]byte(name))
 	return hex.EncodeToString(sum[:])
@@ -343,3 +462,4 @@ func pointerDocumentKey(name string) string {
 var _ publication.BundleCatalog = (*Registry)(nil)
 var _ publication.ExactExecutionCatalog = (*Registry)(nil)
 var _ publication.PagedBundleCatalog = (*Registry)(nil)
+var _ publication.ExecutionReadPinCatalog = (*Registry)(nil)

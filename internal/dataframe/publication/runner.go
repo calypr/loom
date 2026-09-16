@@ -36,14 +36,30 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err != nil {
 		return Result{}, err
 	}
-	if tx.Idempotent() {
-		return Result{Outputs: tx.ExistingPublishedOutputs()}, nil
-	}
 	fail := func(cause error) (Result, error) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		abortErr := tx.Abort(cleanupCtx, cause)
 		return Result{}, errors.Join(cause, abortErr)
+	}
+	if tx.Idempotent() {
+		return Result{Outputs: tx.ExistingPublishedOutputs()}, nil
+	}
+	if metadataWriter, ok := tx.(SourceRowMetadataWriter); ok {
+		for _, output := range normalizedOutputs {
+			if output.SourceRow == nil {
+				continue
+			}
+			if err := metadataWriter.SetSourceRowMetadata(ctx, output.Name, *output.SourceRow); err != nil {
+				return fail(fmt.Errorf("output %q source identity: %w", output.Name, err))
+			}
+		}
+	} else {
+		for _, output := range normalizedOutputs {
+			if output.SourceRow != nil {
+				return fail(fmt.Errorf("publication target cannot persist source row metadata"))
+			}
+		}
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
 	populated := make(map[string]map[string]bool, len(normalizedOutputs))
@@ -105,7 +121,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	}
 	retained := make([]OutputSchema, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
-		schema := OutputSchema{Name: output.Name}
+		schema := OutputSchema{Name: output.Name, SourceRow: output.SourceRow}
 		for _, column := range output.Columns {
 			if column.Provenance == ColumnDiscovered && !column.LoomOwned && !column.IsIdentity && !populated[output.Name][column.Name] {
 				continue
@@ -222,7 +238,7 @@ func validateOutputs(outputs []OutputStream, supportsObjects bool) ([]OutputSche
 			}
 			columnSeen[column.Name] = struct{}{}
 		}
-		schemas = append(schemas, OutputSchema{Name: name, Columns: columns})
+		schemas = append(schemas, OutputSchema{Name: name, Columns: columns, SourceRow: output.SourceRow})
 	}
 	return schemas, nil
 }

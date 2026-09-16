@@ -278,6 +278,42 @@ func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt Compilati
 	return s.store.InsertCompilationReceipt(ctx, receipt)
 }
 
+func (s *Service) BeginSelection(ctx context.Context, selection SelectionRevision, writerToken string) (*SelectionRevision, error) {
+	return s.store.BeginSelection(ctx, selection, writerToken)
+}
+
+func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []SelectionMember) ([]SelectionMember, error) {
+	return s.store.AppendSelectionMembers(ctx, selectionID, writerToken, members)
+}
+
+func (s *Service) DigestSelectionMembers(ctx context.Context, project, selectionID string) (string, int64, int64, error) {
+	return s.store.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
+}
+
+func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*SelectionRevision, error) {
+	return s.store.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
+}
+
+func (s *Service) AbortSelection(ctx context.Context, selectionID, writerToken string) error {
+	return s.store.AbortSelection(ctx, selectionID, writerToken)
+}
+
+func (s *Service) CleanupSelectionStaging(ctx context.Context, before time.Time, limit int) error {
+	return s.store.CleanupSelectionStaging(ctx, before, limit)
+}
+
+func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*SelectionRevision, error) {
+	return s.store.GetSelection(ctx, projectid.Canonical(project), selectionID)
+}
+
+func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision, error) {
+	return s.store.GetRevision(ctx, strings.TrimSpace(revisionID))
+}
+
+func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(SelectionMember) error) (string, error) {
+	return s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
+}
+
 // PublishAuthoring atomically stores the receipt and immutable revision, then
 // switches both the dataset release and Explorer active pointers.
 func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
