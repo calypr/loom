@@ -38,6 +38,13 @@ stored. Compilation carries one canonical typed filter into a feature-local
 aggregate predicate; it never promotes that predicate into population or root
 row filtering.
 
+Every non-root route occurrence now also carries explicit row-match intent.
+`OPTIONAL` remains the compatibility default and contributes feature values
+without removing a root row. `REQUIRED` lowers through the existing typed
+root semijoin before sorting and pagination. The Builder labels this choice
+**Optional feature** or **Required match**; changing it uses a dedicated
+command and does not rewrite the relationship or its features.
+
 ## Executable evidence
 
 The full Go suite passed:
@@ -76,7 +83,8 @@ local Arango service. For Patient `p1`, independent optional Observation
 contributors returned `registered=1` and `cancelled=2`. Patient `p2`, which had
 no matching contributors, remained in the result with `0` and `0`. The test
 also asserts distinct bind variables so sibling predicates cannot overwrite
-one another:
+one another. The same fixture then marks one Observation route required and
+proves that only `p1` remains, still with counts `1` and `2`:
 
 ```text
 docker compose -p loom-dev-6d7df93d6a37 exec -T \
@@ -123,7 +131,6 @@ B04 remains in progress. This slice does not yet provide:
 
 - selection variants and exclusions that create a new immutable starting collection;
 - live exact-mapping assertions for both direct and reversed population routes;
-- required population-match semantics and any additional predicate-aware sharing needed by that distinct operation;
 - a visible Builder contributor editor and its Preview/Publish/Viewer/reload journey, tracked in B05;
 - support for compatible rebases deeper than one direct child;
 - a density benchmark that compares target scans with membership-driven traversal.
@@ -136,7 +143,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | --- | --- | --- | --- |
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
 | `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies a direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, explicit occurrence and inverse-edge ambiguity choices, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Support compatible deeper rebases if the product journey requires them. |
-| `ML-B04-03` | In progress | Sibling occurrences reuse one relationship with distinct stable IDs. Semantics v4 adds catalog-bound contributor predicates, explicit set/clear commands, deterministic legacy migration, and one canonical typed filter through semantic and physical lowering. Real Arango execution returns independent counts `1` and `2` while retaining an unmatched root as `0` and `0`. Repeats within one branch remain rejected. | Add required population-match semantics and predicate-aware sharing only where that operation needs it. The visible feature editor and its Preview/Publish/Viewer/reload journey are B05. |
+| `ML-B04-03` | Done | Sibling occurrences reuse one relationship with distinct stable IDs. Semantics v4 adds catalog-bound contributor predicates, explicit set/clear commands, deterministic legacy migration, and one canonical typed filter through semantic and physical lowering. Real Arango execution returns independent counts `1` and `2` while retaining an unmatched optional root as `0` and `0`; changing one route to required removes only that unmatched root. The live browser loop persists both **Required match** and **Optional feature** through the command API. | The visible contributor-value editor and its Preview/Publish/Viewer/reload journey are B05, not unfinished B04 predicate separation. |
 | `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded unmatched-resource list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
 The current focused Go package gate passes. The UI boundary check, TypeScript
@@ -152,6 +159,12 @@ legacy migration, and literal Arango execution. The backend package gate,
 OpenAPI check, 142 UI tests, production build, `dev-doctor`, and `verify-fast`
 pass. The visible Builder contributor editor and full browser journey remain
 B05 work.
+
+Commit `a1556e71` closes the remaining B04 route-match boundary. The full Go
+suite passes 2,382 tests. The real Arango fixture proves optional and required
+row behavior against identical source data, and `verify-fast` drives the
+Builder toggle in both directions, reads the persisted route intent after each
+command, and completes Preview, Publish, Viewer, export, and reload.
 
 Commit `abc74479` passed `go test ./internal/explorer/... ./internal/server
 -count=1`, the OpenAPI route-ownership check, all 140 Loom UI tests, TypeScript
