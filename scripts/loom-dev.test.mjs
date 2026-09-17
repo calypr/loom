@@ -56,8 +56,13 @@ test('derived ports are forwarded to Compose', () => {
   const target = createDevSession({}, process.cwd());
   const env = commandEnvironment(target);
   assert.equal(env.LOOM_DEV_SOURCE_ROOT, target.sourceRoot);
+  assert.equal(env.LOOM_DEV_COMPOSE_PROJECT, target.composeProject);
+  assert.equal(env.LOOM_DEV_PROJECT, target.fixtureProject);
+  assert.equal(env.LOOM_DEV_GENERATION, target.fixtureGeneration);
+  assert.equal(env.LOOM_DEV_HOST, target.host);
   assert.equal(env.LOOM_DEV_API_PORT, String(target.apiPort));
   assert.equal(env.LOOM_DEV_UI_PORT, String(target.uiPort));
+  assert.equal(env.LOOM_DEV_EXPLORER, 'loom-dev-bootstrap');
   assert.match(target.populationMappingCursorSecret, /^[a-f0-9]{64}$/);
   assert.equal(env.LOOM_POPULATION_MAPPING_CURSOR_SECRET, target.populationMappingCursorSecret);
 });

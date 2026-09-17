@@ -242,9 +242,14 @@ const recordEvidence = (report, path) => {
 
 export const commandEnvironment = (target) => ({
   ...process.env,
+  LOOM_DEV_COMPOSE_PROJECT: target.composeProject,
   LOOM_DEV_SOURCE_ROOT: target.sourceRoot,
+  LOOM_DEV_PROJECT: target.fixtureProject,
+  LOOM_DEV_GENERATION: target.fixtureGeneration,
+  LOOM_DEV_HOST: target.host,
   LOOM_DEV_API_PORT: String(target.apiPort),
   LOOM_DEV_UI_PORT: String(target.uiPort),
+  LOOM_DEV_EXPLORER: 'loom-dev-bootstrap',
   LOOM_POPULATION_MAPPING_CURSOR_SECRET: target.populationMappingCursorSecret,
 });
 
@@ -296,6 +301,15 @@ const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
       const wantedHost = target.host === 'localhost' ? '127.0.0.1' : target.host;
       if (!port || Number(port.HostPort) !== wantedPort || !['127.0.0.1', '::1', 'localhost'].includes(port.HostIp) || (port.HostIp === 'localhost' ? wantedHost !== '127.0.0.1' : port.HostIp !== wantedHost)) {
         throw new Error(`refusing development service with unexpected loopback port mapping: ${labels['com.docker.compose.service']}`);
+      }
+      if (labels['com.docker.compose.service'] === 'loom-ui') {
+        const environment = Object.fromEntries((container.Config?.Env ?? []).map((entry) => {
+          const separator = entry.indexOf('=');
+          return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
+        }));
+        if (environment.VITE_LOOM_PROJECT !== target.fixtureProject || environment.VITE_LOOM_EXPLORER !== 'loom-dev-bootstrap') {
+          throw new Error('development UI defaults do not target this session fixture and bootstrap Explorer');
+        }
       }
     }
   }
@@ -753,7 +767,7 @@ export const expectedFixtureRelatedValue = (project, generation) => {
   return key('dev-observation-001') < key('dev-observation-003') ? 172.5 : 180;
 };
 
-const verifyBrowserScenario = async (target, report, full) => {
+const verifyBrowserScenario = async (target, report, full, entryTarget = target) => {
   const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
   const scenarioStarted = Date.now();
   const runID = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
@@ -769,6 +783,17 @@ const verifyBrowserScenario = async (target, report, full) => {
   const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId)}&mode=builder`;
   let explorerId = '';
   try {
+    await navigate(cdp, entryTarget.uiUrl);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph') || document.body.innerText.includes('Create your first table')`, 60000);
+    recordAssertion(
+      report,
+      'bare-development-entry-loads-owned-bootstrap',
+      `${entryTarget.fixtureProject} / loom-dev-bootstrap`,
+      await evaluate(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() || ''`),
+    );
+    await snapshot(cdp, join(evidenceDir, 'bare-entry.html'));
+    recordEvidence(report, join(evidenceDir, 'bare-entry.html'));
+
     await navigate(cdp, browserURL);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph') || document.body.innerText.includes('Create your first table')`, 60000);
     await snapshot(cdp, join(evidenceDir, 'builder-initial.html'));
@@ -1147,7 +1172,7 @@ const main = async (argv) => {
       verificationReport.target.fixtureSeed = 'seeded';
       verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
       recordAssertion(verificationReport, 'verification-started-with-no-explorers-or-fixture-generation', true, seed.fresh && !seed.reused);
-      await verifyBrowserScenario(verificationTarget, verificationReport, command === 'verify-full');
+      await verifyBrowserScenario(verificationTarget, verificationReport, command === 'verify-full', target);
       verificationReport.status = 'passed';
       verificationReport.timings.total_ms = Date.now() - commandStarted;
       writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
