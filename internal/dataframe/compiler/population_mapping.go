@@ -13,12 +13,17 @@ import (
 
 // CompiledPopulationMappingQuery is an internal witness query. Its rows are
 // (selected member, final row identity) pairs and are not a dataframe schema.
+// Default identities are returned as ordered IdentityPartsColumn values for
+// the execution layer to hash with RowIdentity. Explicit recipe identities
+// use ExplicitIdentityColumn and preserve the compiled identity expression.
 type CompiledPopulationMappingQuery struct {
-	Query        string
-	BindVars     map[string]any
-	MemberColumn string
-	RowIDColumn  string
-	Diagnostics  ir.CompilerPlanDiagnostics
+	Query                  string
+	BindVars               map[string]any
+	MemberColumn           string
+	IdentityPartsColumn    string
+	ExplicitIdentityColumn string
+	RowIdentity            *spec.RowIdentity
+	Diagnostics            ir.CompilerPlanDiagnostics
 }
 
 // CompilePopulationMappingOutputWithPolicy builds the complete mapping query
@@ -43,9 +48,11 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 	}
 	return CompiledPopulationMappingQuery{
 		Query: rendered.Query, BindVars: rendered.BindVars,
-		MemberColumn: ir.PhysicalPopulationMappingMemberField,
-		RowIDColumn:  ir.PhysicalPopulationMappingRowIDField,
-		Diagnostics:  physicalPlanDiagnostics(physical),
+		MemberColumn:           ir.PhysicalPopulationMappingMemberField,
+		IdentityPartsColumn:    mappingIdentityPartsColumn(physical),
+		ExplicitIdentityColumn: mappingExplicitIdentityColumn(physical),
+		RowIdentity:            output.RowIdentity.Clone(),
+		Diagnostics:            physicalPlanDiagnostics(physical),
 	}, nil
 }
 
@@ -102,7 +109,7 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 	operations = append(operations, let, filter)
 	operations = append(operations, physical.Operations[populationIndex+1:]...)
 	physical.Operations = operations
-	terminalIndex, terminal, err := finalPopulationMappingTerminal(physical)
+	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
 	if err != nil {
 		return ir.PhysicalPlan{}, err
 	}
@@ -110,8 +117,9 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 		Kind:   ir.PhysicalPopulationMappingReturnOp,
 		Source: physical.Operations[terminalIndex].Source,
 		PopulationMappingReturn: &ir.PhysicalPopulationMappingReturn{
-			Members: ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Value: &ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable}},
-			RowID:   terminal,
+			Members:          ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Value: &ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable}},
+			IdentityParts:    identityParts,
+			ExplicitIdentity: explicitIdentity,
 		},
 	}
 	if err := physical.Validate(); err != nil {
@@ -147,27 +155,73 @@ func populationMemberVariable(subplan ir.PhysicalSubplan) (string, error) {
 	return "", fmt.Errorf("population mapping semijoin has no member collection scan")
 }
 
-func finalPopulationMappingTerminal(plan ir.PhysicalPlan) (int, ir.PhysicalExpression, error) {
+func finalPopulationMappingIdentity(plan ir.PhysicalPlan, identity *spec.RowIdentity) (int, []ir.PhysicalPopulationMappingIdentityPart, *ir.PhysicalExpression, error) {
+	if identity == nil {
+		return 0, nil, nil, fmt.Errorf("population mapping requires a row identity")
+	}
 	for index := range plan.Operations {
 		operation := &plan.Operations[index]
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
+		projections := make(map[string]ir.PhysicalProjection, len(operation.Return.Projections))
 		for _, projection := range operation.Return.Projections {
-			if projection.Name == "__loom_row_id" && projection.Expression != nil {
-				return index, ir.ClonePhysicalExpression(*projection.Expression), nil
-			}
+			projections[projection.Name] = projection
 		}
-		for _, projection := range operation.Return.Projections {
-			if projection.Name == "_key" {
-				if projection.Expression != nil {
-					return index, ir.ClonePhysicalExpression(*projection.Expression), nil
+		parts := make([]ir.PhysicalPopulationMappingIdentityPart, 0, len(identity.Fields))
+		for _, field := range identity.Fields {
+			projection, projected := projections[field]
+			if projected {
+				expression, err := physicalProjectionExpression(projection)
+				if err != nil {
+					return 0, nil, nil, fmt.Errorf("identity field %q: %w", field, err)
 				}
-				value := projection.Value
-				return index, ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &value}, nil
+				parts = append(parts, ir.PhysicalPopulationMappingIdentityPart{Name: field, Expression: expression})
+				continue
 			}
+			if _, bound := plan.BindVars[field]; bound {
+				parts = append(parts, ir.PhysicalPopulationMappingIdentityPart{Name: field, Expression: ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{BindKey: field}}})
+				continue
+			}
+			return 0, nil, nil, fmt.Errorf("identity field %q is not present in the final return projection or compiler bind vars", field)
 		}
-		return 0, ir.PhysicalExpression{}, fmt.Errorf("population mapping final output has no stable row identity projection")
+		var explicit *ir.PhysicalExpression
+		if projection, ok := projections["__loom_row_id"]; ok {
+			expression, err := physicalProjectionExpression(projection)
+			if err != nil {
+				return 0, nil, nil, fmt.Errorf("explicit row identity: %w", err)
+			}
+			explicit = &expression
+		}
+		return index, parts, explicit, nil
 	}
-	return 0, ir.PhysicalExpression{}, fmt.Errorf("population mapping final output has no RETURN operation")
+	return 0, nil, nil, fmt.Errorf("population mapping final output has no RETURN operation")
+}
+
+func physicalProjectionExpression(projection ir.PhysicalProjection) (ir.PhysicalExpression, error) {
+	if projection.Expression != nil {
+		return ir.ClonePhysicalExpression(*projection.Expression), nil
+	}
+	if projection.Value.Variable == "" && projection.Value.BindKey == "" {
+		return ir.PhysicalExpression{}, fmt.Errorf("final return projection has no typed expression or value")
+	}
+	return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &projection.Value}, nil
+}
+
+func mappingIdentityPartsColumn(plan ir.PhysicalPlan) string {
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil && operation.PopulationMappingReturn.ExplicitIdentity == nil && len(operation.PopulationMappingReturn.IdentityParts) > 0 {
+			return ir.PhysicalPopulationMappingIdentityPartsField
+		}
+	}
+	return ""
+}
+
+func mappingExplicitIdentityColumn(plan ir.PhysicalPlan) string {
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil && operation.PopulationMappingReturn.ExplicitIdentity != nil {
+			return ir.PhysicalPopulationMappingExplicitIdentityField
+		}
+	}
+	return ""
 }

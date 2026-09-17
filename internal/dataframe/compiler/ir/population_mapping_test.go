@@ -10,6 +10,7 @@ func populationMappingReturnPlan(terminal PhysicalPopulationMappingReturn) Physi
 		Version: 1,
 		BindVars: map[string]any{
 			"root_collection": "Specimen",
+			"project":         "project-a",
 		},
 		Operations: []PhysicalOperation{
 			{Kind: PhysicalRootScanOp, RootScan: &PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
@@ -31,9 +32,15 @@ func validPopulationMappingReturn() PhysicalPopulationMappingReturn {
 			Kind: PhysicalValueExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull,
 			Value: &PhysicalValue{Variable: PopulationMappingMembersVariable},
 		},
-		RowID: PhysicalExpression{
-			Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
-			Value: &PhysicalValue{Variable: "root", Path: []string{"_key"}},
+		IdentityParts: []PhysicalPopulationMappingIdentityPart{
+			{Name: "project", Expression: PhysicalExpression{
+				Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
+				Value: &PhysicalValue{BindKey: "project"},
+			}},
+			{Name: "_key", Expression: PhysicalExpression{
+				Kind: PhysicalValueExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
+				Value: &PhysicalValue{Variable: "root", Path: []string{"_key"}},
+			}},
 		},
 	}
 }
@@ -63,9 +70,19 @@ func TestPhysicalPopulationMappingReturnRejectsIllegalShapes(t *testing.T) {
 			want: "EMPTY_ON_NULL array",
 		},
 		{
-			name: "row identity array",
-			edit: func(terminal *PhysicalPopulationMappingReturn) { terminal.RowID.Cardinality = PhysicalArrayCardinality },
-			want: "row identity must be scalar",
+			name: "identity part array",
+			edit: func(terminal *PhysicalPopulationMappingReturn) {
+				terminal.IdentityParts[0].Expression.Cardinality = PhysicalArrayCardinality
+			},
+			want: "mapping identity part \"project\" must be scalar",
+		},
+		{
+			name: "explicit identity array",
+			edit: func(terminal *PhysicalPopulationMappingReturn) {
+				expression := PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "root", Path: []string{"id"}}}
+				terminal.ExplicitIdentity = &expression
+			},
+			want: "mapping explicit identity must be scalar",
 		},
 	}
 	for _, test := range tests {
@@ -85,11 +102,11 @@ func TestClonePhysicalPopulationMappingReturnClonesWitnessExpressions(t *testing
 	clone := ClonePhysicalPlan(plan)
 	terminal := clone.Operations[2].PopulationMappingReturn
 	terminal.Members.Value.Variable = "changed"
-	terminal.RowID.Value.Path[0] = "changed"
+	terminal.IdentityParts[1].Expression.Value.Path[0] = "changed"
 	if got := plan.Operations[2].PopulationMappingReturn.Members.Value.Variable; got != PopulationMappingMembersVariable {
 		t.Fatalf("clone mutation changed source members variable = %q", got)
 	}
-	if got := plan.Operations[2].PopulationMappingReturn.RowID.Value.Path[0]; got != "_key" {
-		t.Fatalf("clone mutation changed source row identity path = %q", got)
+	if got := plan.Operations[2].PopulationMappingReturn.IdentityParts[1].Expression.Value.Path[0]; got != "_key" {
+		t.Fatalf("clone mutation changed source identity part path = %q", got)
 	}
 }

@@ -683,11 +683,32 @@ func validatePhysicalPopulationMappingReturn(terminal PhysicalPopulationMappingR
 	if err := validatePhysicalExpression(terminal.Members, defined, bindVars); err != nil {
 		return fmt.Errorf("mapping members: %w", err)
 	}
-	if terminal.RowID.Cardinality != PhysicalScalarCardinality {
-		return fmt.Errorf("mapping row identity must be scalar")
+	if len(terminal.IdentityParts) == 0 {
+		return fmt.Errorf("mapping identity requires at least one ordered identity part")
 	}
-	if err := validatePhysicalExpression(terminal.RowID, defined, bindVars); err != nil {
-		return fmt.Errorf("mapping row identity: %w", err)
+	seen := make(map[string]struct{}, len(terminal.IdentityParts))
+	for index, part := range terminal.IdentityParts {
+		if strings.TrimSpace(part.Name) == "" {
+			return fmt.Errorf("mapping identity part %d has an empty name", index)
+		}
+		if _, exists := seen[part.Name]; exists {
+			return fmt.Errorf("mapping identity part %q is duplicated", part.Name)
+		}
+		seen[part.Name] = struct{}{}
+		if part.Expression.Cardinality != PhysicalScalarCardinality {
+			return fmt.Errorf("mapping identity part %q must be scalar", part.Name)
+		}
+		if err := validatePhysicalExpression(part.Expression, defined, bindVars); err != nil {
+			return fmt.Errorf("mapping identity part %q: %w", part.Name, err)
+		}
+	}
+	if terminal.ExplicitIdentity != nil {
+		if terminal.ExplicitIdentity.Cardinality != PhysicalScalarCardinality {
+			return fmt.Errorf("mapping explicit identity must be scalar")
+		}
+		if err := validatePhysicalExpression(*terminal.ExplicitIdentity, defined, bindVars); err != nil {
+			return fmt.Errorf("mapping explicit identity: %w", err)
+		}
 	}
 	return nil
 }

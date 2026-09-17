@@ -96,7 +96,12 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 		}
 		if operation.PopulationMappingReturn != nil {
 			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.Members)
-			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.RowID)
+			for part := range operation.PopulationMappingReturn.IdentityParts {
+				canonicalizePhysicalExpression(&operation.PopulationMappingReturn.IdentityParts[part].Expression)
+			}
+			if operation.PopulationMappingReturn.ExplicitIdentity != nil {
+				canonicalizePhysicalExpression(operation.PopulationMappingReturn.ExplicitIdentity)
+			}
 		}
 		if operation.PathExtend != nil {
 			canonicalizePhysicalOperations(operation.PathExtend.Scope)
@@ -288,7 +293,15 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.PopulationMappingReturn != nil {
 		mappingCopy := *operation.PopulationMappingReturn
 		mappingCopy.Members = clonePhysicalExpression(operation.PopulationMappingReturn.Members)
-		mappingCopy.RowID = clonePhysicalExpression(operation.PopulationMappingReturn.RowID)
+		mappingCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.PopulationMappingReturn.IdentityParts))
+		for index, part := range operation.PopulationMappingReturn.IdentityParts {
+			mappingCopy.IdentityParts[index] = part
+			mappingCopy.IdentityParts[index].Expression = clonePhysicalExpression(part.Expression)
+		}
+		if operation.PopulationMappingReturn.ExplicitIdentity != nil {
+			explicit := clonePhysicalExpression(*operation.PopulationMappingReturn.ExplicitIdentity)
+			mappingCopy.ExplicitIdentity = &explicit
+		}
 		copy.PopulationMappingReturn = &mappingCopy
 	}
 	return copy

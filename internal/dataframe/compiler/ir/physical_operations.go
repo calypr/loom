@@ -90,17 +90,26 @@ type PhysicalGraphReturn struct {
 }
 
 // PhysicalPopulationMappingReturn is an internal final-row witness terminal.
-// Members must be the matched selected-member array for the current root row;
-// RowID is evaluated in the final row scope. The renderer emits one witness
-// row per (member, rowID) pair without changing the ordinary return schema.
+// Members must be the matched selected-member array for the current root row.
+// IdentityParts preserve the ordered default identity inputs; ExplicitIdentity
+// carries a recipe-defined __loom_row_id expression when present. The
+// renderer emits one witness row per (member, identity) pair without changing
+// the ordinary return schema.
 type PhysicalPopulationMappingReturn struct {
-	Members PhysicalExpression
-	RowID   PhysicalExpression
+	Members          PhysicalExpression
+	IdentityParts    []PhysicalPopulationMappingIdentityPart
+	ExplicitIdentity *PhysicalExpression
+}
+
+type PhysicalPopulationMappingIdentityPart struct {
+	Name       string
+	Expression PhysicalExpression
 }
 
 const (
-	PhysicalPopulationMappingMemberField = "__loom_population_member"
-	PhysicalPopulationMappingRowIDField  = "__loom_population_row_id"
+	PhysicalPopulationMappingMemberField           = "__loom_population_member"
+	PhysicalPopulationMappingIdentityPartsField    = "__loom_population_identity_parts"
+	PhysicalPopulationMappingExplicitIdentityField = "__loom_population_explicit_identity"
 )
 
 // PhysicalUnnestJoinMode controls the row-preservation contract for a

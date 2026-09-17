@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,7 +29,8 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 		"RETURN population_member.id",
 		"FOR __loom_physical_population_mapping_member IN (__loom_population_members_value == null ? [] : __loom_population_members_value)",
 		"@__loom_physical_population_mapping_member_name",
-		"@__loom_physical_population_mapping_row_id_name",
+		"@__loom_physical_population_mapping_identity_name",
+		"[@project, root._key]",
 	} {
 		if !strings.Contains(compiled.Query, want) {
 			t.Fatalf("mapping query is missing %q:\n%s", want, compiled.Query)
@@ -40,8 +42,89 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingMemberField) {
 		t.Fatalf("member witness bind is missing from %#v", compiled.BindVars)
 	}
-	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingRowIDField) {
-		t.Fatalf("row identity witness bind is missing from %#v", compiled.BindVars)
+	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingIdentityPartsField) {
+		t.Fatalf("identity-parts witness bind is missing from %#v", compiled.BindVars)
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+		t.Fatalf("default mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+	if compiled.RowIdentity == nil || len(compiled.RowIdentity.Fields) != 2 || compiled.RowIdentity.Fields[0] != "project" || compiled.RowIdentity.Fields[1] != "_key" {
+		t.Fatalf("default mapping row identity = %#v", compiled.RowIdentity)
+	}
+}
+
+func TestCompilePopulationMappingExplicitIdentityUsesCompiledExpression(t *testing.T) {
+	compiled := compilePopulationMappingRecipe(t, recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields:   []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Identity: &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+			ResourceType: "Specimen",
+		},
+	})
+	if !strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: [root.payload.id]") {
+		t.Fatalf("mapping query did not preserve the compiled explicit identity expression:\n%s", compiled.Query)
+	}
+	if containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingIdentityPartsField) {
+		t.Fatalf("explicit mapping unexpectedly rendered default identity parts: %#v", compiled.BindVars)
+	}
+	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingExplicitIdentityField) {
+		t.Fatalf("explicit identity bind is missing: %#v", compiled.BindVars)
+	}
+	if compiled.IdentityPartsColumn != "" || compiled.ExplicitIdentityColumn != ir.PhysicalPopulationMappingExplicitIdentityField {
+		t.Fatalf("explicit mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+}
+
+func TestCompilePopulationMappingDefaultIdentityIsStableAcrossInnerOuterExpansion(t *testing.T) {
+	queries := make(map[string]CompiledPopulationMappingQuery, 2)
+	for _, mode := range []string{"INNER", "OUTER"} {
+		output := compilePopulationMappingOutput(t, recipe.Output{
+			Name: "Specimens", RootResourceType: "Specimen", RowGrain: "expanded",
+			Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+			Expand: &recipe.Expansion{From: recipe.Expression{Select: "root.extension[]"}, As: "item"},
+			Population: &recipe.PopulationConstraint{
+				SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
+				ResourceType: "Specimen",
+			},
+		})
+		if mode == "OUTER" {
+			for index := range output.Plan.Operations {
+				if output.Plan.Operations[index].Kind == ir.PhysicalUnnestOp && output.Plan.Operations[index].Unnest != nil {
+					output.Plan.Operations[index].Unnest.JoinMode = ir.PhysicalUnnestOuter
+				}
+			}
+		}
+		compiled, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(compiled.Query, "[@project, root._key]") {
+			t.Fatalf("%s mapping query does not carry canonical project/key identity parts:\n%s", mode, compiled.Query)
+		}
+		if compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+			t.Fatalf("%s mapping identity columns = (%q, %q)", mode, compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+		}
+		queries[mode] = compiled
+	}
+	if !reflect.DeepEqual(queries["INNER"].RowIdentity, queries["OUTER"].RowIdentity) {
+		t.Fatalf("inner/outer mapping identities differ: %#v != %#v", queries["INNER"].RowIdentity, queries["OUTER"].RowIdentity)
+	}
+}
+
+func TestCompilePopulationMappingRejectsMissingIdentityField(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+			ResourceType: "Specimen",
+		},
+	})
+	output.RowIdentity.Fields = []string{"project", "missing_identity_field"}
+	if _, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{}, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "missing_identity_field") {
+		t.Fatalf("missing identity field error = %v", err)
 	}
 }
 
@@ -93,8 +176,14 @@ func TestPopulationMappingPhysicalPlanCollectsMatchedIDsOnceAndUsesFinalTerminal
 	if terminal.Members.Value == nil || terminal.Members.Value.Variable != ir.PopulationMappingMembersVariable {
 		t.Fatalf("witness terminal does not reuse matched-member value: %#v", terminal.Members)
 	}
-	if terminal.RowID.Value == nil || terminal.RowID.Value.Variable != "root" || len(terminal.RowID.Value.Path) != 1 || terminal.RowID.Value.Path[0] != "_key" {
-		t.Fatalf("witness terminal does not use final stable root identity: %#v", terminal.RowID)
+	if len(terminal.IdentityParts) != 2 || terminal.IdentityParts[0].Name != "project" || terminal.IdentityParts[1].Name != "_key" {
+		t.Fatalf("witness terminal identity parts are not canonical: %#v", terminal.IdentityParts)
+	}
+	if terminal.IdentityParts[0].Expression.Value == nil || terminal.IdentityParts[0].Expression.Value.BindKey != "project" {
+		t.Fatalf("witness terminal project identity is not compiler-bound: %#v", terminal.IdentityParts[0])
+	}
+	if terminal.IdentityParts[1].Expression.Value == nil || terminal.IdentityParts[1].Expression.Value.Variable != "root" || len(terminal.IdentityParts[1].Expression.Value.Path) != 1 || terminal.IdentityParts[1].Expression.Value.Path[0] != "_key" {
+		t.Fatalf("witness terminal key identity is not final root key: %#v", terminal.IdentityParts[1])
 	}
 }
 
