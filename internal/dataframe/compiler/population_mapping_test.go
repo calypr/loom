@@ -63,7 +63,7 @@ func TestCompilePopulationMappingExplicitIdentityUsesCompiledExpression(t *testi
 			ResourceType: "Specimen",
 		},
 	})
-	if !strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: [root.payload.id]") {
+	if !strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: root.payload.id") || strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: [root.payload.id]") {
 		t.Fatalf("mapping query did not preserve the compiled explicit identity expression:\n%s", compiled.Query)
 	}
 	if containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingIdentityPartsField) {
