@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -230,11 +233,7 @@ func compilePopulationMappingOutput(resolved Resolved, name string) (compiler.Co
 
 func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, row map[string]any) (string, error) {
 	if query.ExplicitIdentityColumn != "" {
-		value, ok := row[query.ExplicitIdentityColumn].(string)
-		if !ok || strings.TrimSpace(value) == "" {
-			return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
-		}
-		return "explicit:" + value, nil
+		return populationExplicitIdentity(row[query.ExplicitIdentityColumn])
 	}
 	value, ok := row[query.IdentityPartsColumn].([]any)
 	if !ok || len(value) == 0 || query.RowIdentity == nil || len(value) != len(query.RowIdentity.Fields) {
@@ -251,6 +250,72 @@ func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, ro
 	}
 	digest := sha256.Sum256(encoded)
 	return "default:" + hex.EncodeToString(digest[:]), nil
+}
+
+func populationExplicitIdentity(value any) (string, error) {
+	switch value := value.(type) {
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "", fmt.Errorf("encode population mapping explicit row identity: %w", err)
+		}
+		return "explicit:string:" + string(encoded), nil
+	case bool:
+		return "explicit:bool:" + strconv.FormatBool(value), nil
+	case float32:
+		return populationNumericIdentity(float64(value), 32)
+	case float64:
+		return populationNumericIdentity(value, 64)
+	case json.Number:
+		canonical, err := canonicalJSONNumber(value.String())
+		if err != nil {
+			return "", fmt.Errorf("population mapping witness has an invalid explicit row identity: %w", err)
+		}
+		return "explicit:number:" + canonical, nil
+	case int:
+		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+	case int8:
+		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+	case int16:
+		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+	case int32:
+		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+	case int64:
+		return "explicit:number:" + strconv.FormatInt(value, 10), nil
+	case uint:
+		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+	case uint8:
+		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+	case uint16:
+		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+	case uint32:
+		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+	case uint64:
+		return "explicit:number:" + strconv.FormatUint(value, 10), nil
+	default:
+		return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
+	}
+}
+
+func populationNumericIdentity(value float64, bits int) (string, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
+	}
+	return "explicit:number:" + strconv.FormatFloat(value, 'g', -1, bits), nil
+}
+
+func canonicalJSONNumber(raw string) (string, error) {
+	if rational, ok := new(big.Rat).SetString(raw); ok {
+		return rational.RatString(), nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return "", fmt.Errorf("invalid numeric identity")
+	}
+	return strconv.FormatFloat(value, 'g', -1, 64), nil
 }
 
 func populationMappingIncomplete(err error) bool {

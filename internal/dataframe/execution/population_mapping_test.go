@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -87,5 +88,64 @@ func TestPopulationWitnessIdentityRejectsWrongShape(t *testing.T) {
 	}, map[string]any{"identity": "not-an-array"})
 	if err == nil {
 		t.Fatal("expected invalid identity shape")
+	}
+}
+
+func TestPopulationWitnessIdentityCanonicalizesExplicitScalars(t *testing.T) {
+	query := compiler.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
+	cases := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "string", value: "row-1", want: `explicit:string:"row-1"`},
+		{name: "number", value: float64(7), want: "explicit:number:7"},
+		{name: "number equivalent", value: json.Number("7.0"), want: "explicit:number:7"},
+		{name: "boolean", value: true, want: "explicit:bool:true"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := populationWitnessIdentity(query, map[string]any{"identity": test.value})
+			if err != nil || got != test.want {
+				t.Fatalf("identity = %q, err = %v, want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestPopulationWitnessIdentityRejectsNullAndStructuredExplicitValues(t *testing.T) {
+	query := compiler.CompiledPopulationMappingQuery{ExplicitIdentityColumn: "identity"}
+	for _, value := range []any{nil, []any{"row-1"}, map[string]any{"id": "row-1"}} {
+		if _, err := populationWitnessIdentity(query, map[string]any{"identity": value}); err == nil {
+			t.Fatalf("identity value %#v unexpectedly accepted", value)
+		}
+	}
+}
+
+func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities(t *testing.T) {
+	engine := &Engine{
+		batchSize: 1000,
+		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			for _, row := range []map[string]any{
+				{"member": "file-001", "identity": float64(7)},
+				{"member": "file-001", "identity": json.Number("7.0")},
+			} {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+		Query: "RETURN witnesses", MemberColumn: "member", ExplicitIdentityColumn: "identity",
+	}, PopulationMappingRequest{MaxUnmapped: 10}, PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+		return visit("file-001")
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingComplete || result.MappedCount != 1 || result.EmittedRows != 1 {
+		t.Fatalf("population mapping result = %#v", result)
 	}
 }
