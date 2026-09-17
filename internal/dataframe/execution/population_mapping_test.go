@@ -101,6 +101,9 @@ func TestPopulationWitnessIdentityCanonicalizesExplicitScalars(t *testing.T) {
 		{name: "string", value: "row-1", want: `explicit:string:"row-1"`},
 		{name: "number", value: float64(7), want: "explicit:number:7"},
 		{name: "number equivalent", value: json.Number("7.0"), want: "explicit:number:7"},
+		{name: "fraction", value: float64(0.5), want: "explicit:number:1/2"},
+		{name: "fraction decimal equivalent", value: json.Number("0.50"), want: "explicit:number:1/2"},
+		{name: "fraction exponent equivalent", value: json.Number("5e-1"), want: "explicit:number:1/2"},
 		{name: "boolean", value: true, want: "explicit:bool:true"},
 	}
 	for _, test := range cases {
@@ -127,8 +130,9 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 		batchSize: 1000,
 		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			for _, row := range []map[string]any{
-				{"member": "file-001", "identity": float64(7)},
-				{"member": "file-001", "identity": json.Number("7.0")},
+				{"member": "file-001", "identity": float64(0.5)},
+				{"member": "file-001", "identity": json.Number("0.50")},
+				{"member": "file-001", "identity": json.Number("5e-1")},
 			} {
 				if err := visit(row); err != nil {
 					return err

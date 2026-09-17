@@ -270,31 +270,27 @@ func populationExplicitIdentity(value any) (string, error) {
 	case float64:
 		return populationNumericIdentity(value, 64)
 	case json.Number:
-		canonical, err := canonicalJSONNumber(value.String())
-		if err != nil {
-			return "", fmt.Errorf("population mapping witness has an invalid explicit row identity: %w", err)
-		}
-		return "explicit:number:" + canonical, nil
+		return populationNumericStringIdentity(value.String())
 	case int:
-		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatInt(int64(value), 10))
 	case int8:
-		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatInt(int64(value), 10))
 	case int16:
-		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatInt(int64(value), 10))
 	case int32:
-		return "explicit:number:" + strconv.FormatInt(int64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatInt(int64(value), 10))
 	case int64:
-		return "explicit:number:" + strconv.FormatInt(value, 10), nil
+		return populationNumericStringIdentity(strconv.FormatInt(value, 10))
 	case uint:
-		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatUint(uint64(value), 10))
 	case uint8:
-		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatUint(uint64(value), 10))
 	case uint16:
-		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatUint(uint64(value), 10))
 	case uint32:
-		return "explicit:number:" + strconv.FormatUint(uint64(value), 10), nil
+		return populationNumericStringIdentity(strconv.FormatUint(uint64(value), 10))
 	case uint64:
-		return "explicit:number:" + strconv.FormatUint(value, 10), nil
+		return populationNumericStringIdentity(strconv.FormatUint(value, 10))
 	default:
 		return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
 	}
@@ -304,10 +300,18 @@ func populationNumericIdentity(value float64, bits int) (string, error) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return "", fmt.Errorf("population mapping witness has an invalid explicit row identity")
 	}
-	return "explicit:number:" + strconv.FormatFloat(value, 'g', -1, bits), nil
+	return populationNumericStringIdentity(strconv.FormatFloat(value, 'g', -1, bits))
 }
 
-func canonicalJSONNumber(raw string) (string, error) {
+func populationNumericStringIdentity(raw string) (string, error) {
+	canonical, err := canonicalPopulationNumber(raw)
+	if err != nil {
+		return "", fmt.Errorf("population mapping witness has an invalid explicit row identity: %w", err)
+	}
+	return "explicit:number:" + canonical, nil
+}
+
+func canonicalPopulationNumber(raw string) (string, error) {
 	if rational, ok := new(big.Rat).SetString(raw); ok {
 		return rational.RatString(), nil
 	}
@@ -315,7 +319,12 @@ func canonicalJSONNumber(raw string) (string, error) {
 	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 		return "", fmt.Errorf("invalid numeric identity")
 	}
-	return strconv.FormatFloat(value, 'g', -1, 64), nil
+	decimal := strconv.FormatFloat(value, 'g', -1, 64)
+	rational, ok := new(big.Rat).SetString(decimal)
+	if !ok {
+		return "", fmt.Errorf("invalid numeric identity")
+	}
+	return rational.RatString(), nil
 }
 
 func populationMappingIncomplete(err error) bool {
