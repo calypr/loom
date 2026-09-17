@@ -18,6 +18,7 @@ const (
 	CommandRenameTable          = "RENAME_TABLE"
 	CommandReorderTables        = "REORDER_TABLES"
 	CommandSetTableRoot         = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase = "APPLY_TABLE_ROOT_REBASE"
 	CommandSetTablePopulation   = "SET_TABLE_POPULATION"
 	CommandClearTablePopulation = "CLEAR_TABLE_POPULATION"
 	CommandAddRoute             = "ADD_ROUTE"
@@ -61,23 +62,24 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                string        `json:"type"`
-	OutputID            string        `json:"outputId,omitempty"`
-	SourceOutputID      string        `json:"sourceOutputId,omitempty"`
-	Title               string        `json:"title,omitempty"`
-	RootNodeID          string        `json:"rootNodeId,omitempty"`
-	SelectionRevisionID string        `json:"selectionRevisionId,omitempty"`
-	EdgeIDs             []string      `json:"edgeIds,omitempty"`
-	ParentOccurrenceID  string        `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID        string        `json:"occurrenceId,omitempty"`
-	EdgeID              string        `json:"edgeId,omitempty"`
-	CandidateID         string        `json:"candidateId,omitempty"`
-	ProjectionMode      string        `json:"projectionMode,omitempty"`
-	InitialPresentation string        `json:"initialPresentation,omitempty"`
-	Column              string        `json:"column,omitempty"`
-	ColumnValue         *Column       `json:"columnValue,omitempty"`
-	Source              *ColumnSource `json:"source,omitempty"`
-	OutputIDs           []string      `json:"outputIds,omitempty"`
+	Type                string             `json:"type"`
+	OutputID            string             `json:"outputId,omitempty"`
+	SourceOutputID      string             `json:"sourceOutputId,omitempty"`
+	Title               string             `json:"title,omitempty"`
+	RootNodeID          string             `json:"rootNodeId,omitempty"`
+	SelectionRevisionID string             `json:"selectionRevisionId,omitempty"`
+	EdgeIDs             []string           `json:"edgeIds,omitempty"`
+	ParentOccurrenceID  string             `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID        string             `json:"occurrenceId,omitempty"`
+	EdgeID              string             `json:"edgeId,omitempty"`
+	CandidateID         string             `json:"candidateId,omitempty"`
+	ProjectionMode      string             `json:"projectionMode,omitempty"`
+	InitialPresentation string             `json:"initialPresentation,omitempty"`
+	Column              string             `json:"column,omitempty"`
+	ColumnValue         *Column            `json:"columnValue,omitempty"`
+	Source              *ColumnSource      `json:"source,omitempty"`
+	RowChange           *RowChangeProposal `json:"rowChange,omitempty"`
+	OutputIDs           []string           `json:"outputIds,omitempty"`
 }
 
 func (c *Command) UnmarshalJSON(raw []byte) error {
@@ -174,6 +176,16 @@ func (c Command) validate() error {
 	case CommandSetTableRoot:
 		if !required(c.OutputID, c.RootNodeID) {
 			return fmt.Errorf("SET_TABLE_ROOT requires outputId and rootNodeId")
+		}
+	case CommandApplyTableRootRebase:
+		if c.RowChange == nil {
+			return fmt.Errorf("APPLY_TABLE_ROOT_REBASE requires rowChange")
+		}
+		if err := c.RowChange.validate(); err != nil {
+			return err
+		}
+		if c.OutputID != "" && c.OutputID != c.RowChange.OutputID {
+			return fmt.Errorf("APPLY_TABLE_ROOT_REBASE outputId must match rowChange.outputId")
 		}
 	case CommandSetTablePopulation:
 		if !required(c.OutputID, c.SelectionRevisionID) {
@@ -341,6 +353,20 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		current.RootResourceType = node.ResourceType
 		current.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
+		return result, nil
+	case CommandApplyTableRootRebase:
+		proposal := *command.RowChange
+		document := documentIndex(workspace, proposal.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", proposal.OutputID)
+		}
+		rebased, err := ApplyRowChange(workspace.Documents[document], catalog, proposal)
+		if err != nil {
+			return result, err
+		}
+		workspace.Documents[document] = rebased
+		result.OutputID = proposal.OutputID
+		result.OccurrenceID = RootOccurrenceID
 		return result, nil
 	case CommandSetTablePopulation:
 		document := documentIndex(workspace, command.OutputID)
