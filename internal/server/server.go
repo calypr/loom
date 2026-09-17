@@ -371,6 +371,25 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit}, visit)
 		},
+		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
+			if receipt == nil {
+				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.PopulationMappingResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
+			}
+			reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+				for _, id := range memberIDs {
+					if err := visit(id); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
+		},
 		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
 		ActivateRelease:           activateExplorerRelease,

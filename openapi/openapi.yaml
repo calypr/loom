@@ -211,6 +211,34 @@ paths:
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
         '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: checkExplorerPopulationMapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PopulationMappingRequest'
+      responses:
+        '200':
+          description: Receipt-bound selected-resource coverage report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PopulationMappingResponse'
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1596,6 +1624,41 @@ components:
             type: object
             additionalProperties: true
         rowCount: {type: integer, minimum: 0}
+        diagnostics:
+          type: array
+          items: {$ref: '#/components/schemas/Diagnostic'}
+    PopulationMappingRequest:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        cursor: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    PopulationMappingCounts:
+      type: object
+      additionalProperties: false
+      required: [selected, mapped, unmapped, emittedRows]
+      properties:
+        selected: {type: integer, format: int64, minimum: 0}
+        mapped: {type: integer, format: int64, minimum: 0}
+        unmapped: {type: integer, format: int64, minimum: 0}
+        emittedRows: {type: integer, format: int64, minimum: 0}
+    PopulationMappingResponse:
+      type: object
+      additionalProperties: false
+      required: [status, unmapped, diagnostics]
+      properties:
+        status: {type: string, enum: [COMPLETE, INCOMPLETE]}
+        counts:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PopulationMappingCounts'
+        unmapped:
+          type: array
+          items: {$ref: '#/components/schemas/SelectionResourceRef'}
+        nextCursor: {type: string}
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}

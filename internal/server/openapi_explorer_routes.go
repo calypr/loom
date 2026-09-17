@@ -269,6 +269,40 @@ func (r *HTTPRoutes) PreviewExplorer(ctx context.Context, request loomapi.Previe
 	}
 }
 
+func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request loomapi.CheckExplorerPopulationMappingRequestObject) (loomapi.CheckExplorerPopulationMappingResponseObject, error) {
+	project := string(request.Project)
+	explorerID := string(request.ExplorerId)
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "checkExplorerPopulationMapping", explorerUnavailable("populationMapping", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.populationMappingDirect(ctx, project, explorerID, request.Body)
+	if err == nil {
+		return loomapi.CheckExplorerPopulationMapping200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "checkExplorerPopulationMapping", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.CheckExplorerPopulationMapping400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.CheckExplorerPopulationMapping403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.CheckExplorerPopulationMapping404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.CheckExplorerPopulationMapping409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.CheckExplorerPopulationMapping422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.CheckExplorerPopulationMapping500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.CheckExplorerPopulationMapping504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("checkExplorerPopulationMapping", status)
+	}
+}
+
 func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.PublishExplorerRequestObject) (loomapi.PublishExplorerResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)

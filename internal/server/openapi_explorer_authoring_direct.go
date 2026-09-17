@@ -178,6 +178,43 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	return result, nil
 }
 
+func (h *explorerHTTPHandlers) populationMappingDirect(ctx context.Context, project, explorerID string, body *loomapi.CheckExplorerPopulationMappingJSONRequestBody) (loomapi.PopulationMappingResponse, error) {
+	var result loomapi.PopulationMappingResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("populationMapping", errors.New("receiptId and outputId are required"))
+	}
+	request := lifecycle.PopulationMappingRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.PopulationMapping(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.Status = loomapi.PopulationMappingResponseStatus(value.Report.Status)
+	result.Unmapped = make([]loomapi.SelectionResourceRef, 0, len(value.Report.Unmapped))
+	for _, ref := range value.Report.Unmapped {
+		result.Unmapped = append(result.Unmapped, loomapi.SelectionResourceRef{Project: ref.Project, Generation: ref.Generation, ResourceType: ref.ResourceType, Id: ref.ID})
+	}
+	if value.Report.NextCursor != "" {
+		result.NextCursor = &value.Report.NextCursor
+	}
+	if value.Report.Counts != nil {
+		result.Counts = &loomapi.PopulationMappingCounts{Selected: value.Report.Counts.Selected, Mapped: value.Report.Counts.Mapped, Unmapped: value.Report.Counts.Unmapped, EmittedRows: value.Report.Counts.EmittedRows}
+	}
+	result.Diagnostics = make([]loomapi.Diagnostic, 0, len(value.Report.Diagnostics))
+	for _, diagnostic := range value.Report.Diagnostics {
+		result.Diagnostics = append(result.Diagnostics, loomapi.Diagnostic{Severity: "INFO", Stage: "populationMapping", Code: diagnostic.Code, Message: diagnostic.Message})
+	}
+	return result, nil
+}
+
 func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.PublishExplorerJSONRequestBody) (loomapi.PublishResponse, error) {
 	var result loomapi.PublishResponse
 	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
