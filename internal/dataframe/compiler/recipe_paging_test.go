@@ -58,3 +58,52 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 		t.Fatalf("root-key discovery is not a keyset query:\n%s", page.RootKeysQuery)
 	}
 }
+
+func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "population-page-test",
+		TranslationVersion:  "population-page-test",
+		Outputs: []recipe.Output{{
+			Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+			Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+			Population: &recipe.PopulationConstraint{
+				SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
+				ResourceType: "Specimen",
+			},
+		}},
+	}
+	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, query := range map[string]string{"root keys": page.RootKeysQuery, "rows": page.RowsQuery} {
+		if got := strings.Count(query, "FOR population_member IN @@population_members_collection"); got != 1 {
+			t.Fatalf("%s population member scan count = %d, want 1:\n%s", name, got, query)
+		}
+		if !strings.Contains(query, "FILTER LENGTH(__loom_population_members_value) > 0") {
+			t.Fatalf("%s query lost the population eligibility filter:\n%s", name, query)
+		}
+	}
+	if got := strings.Count(page.RowsQuery, "__loom_population_members_value"); got != 3 {
+		t.Fatalf("paged rows matched-member value references = %d, want LET/filter/RETURN:\n%s", got, page.RowsQuery)
+	}
+	filterIndex := strings.Index(page.RowsQuery, "root._key IN @"+RootPageKeysBind)
+	populationIndex := strings.Index(page.RowsQuery, "FILTER LENGTH(__loom_population_members_value) > 0")
+	if populationIndex < 0 || filterIndex < 0 || populationIndex > filterIndex {
+		t.Fatalf("population eligibility was not evaluated before selected-root paging:\n%s", page.RowsQuery)
+	}
+}

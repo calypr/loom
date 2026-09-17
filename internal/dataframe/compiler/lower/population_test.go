@@ -62,6 +62,31 @@ func TestPopulationSemijoinDirectRootRetainsHiddenMatchedMembers(t *testing.T) {
 	}
 }
 
+func TestPopulationSemijoinReusesOneMatchedMemberComputation(t *testing.T) {
+	rendered := renderPopulationRecipe(t, recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
+			ResourceType: "Specimen",
+		},
+	})
+	if got := strings.Count(rendered.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
+		t.Fatalf("population member collection scan count = %d, want 1:\n%s", got, rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "__loom_population_members_value"); got != 3 {
+		t.Fatalf("matched-member value references = %d, want LET/filter/RETURN:\n%s", got, rendered.Query)
+	}
+	for _, want := range []string{
+		"LET __loom_population_members_value = SORTED_UNIQUE((",
+		"FILTER LENGTH(__loom_population_members_value) > 0",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("shared population member value is missing %q:\n%s", want, rendered.Query)
+		}
+	}
+}
+
 func TestPopulationSemijoinSpecimenDocumentReferenceSubjectRouteRendersInboundTraversal(t *testing.T) {
 	rendered := renderPopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
@@ -102,6 +127,12 @@ func TestPopulationSemijoinReversedRouteRetainsMatchedMembersAtTerminalNode(t *t
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("reversed population provenance query is missing %q:\n%s", want, rendered.Query)
 		}
+	}
+	if got := strings.Count(rendered.Query, "FOR population_node_0, population_edge_0 IN 1..1 INBOUND root"); got != 1 {
+		t.Fatalf("population route traversal count = %d, want 1:\n%s", got, rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
+		t.Fatalf("population member collection scan count = %d, want 1:\n%s", got, rendered.Query)
 	}
 }
 

@@ -78,6 +78,9 @@ func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, 
 		if predicate.Comparison != nil || len(predicate.Children) != 0 || predicate.Exists == nil {
 			return fmt.Errorf("EXISTS predicate requires exactly one subplan")
 		}
+		if predicate.Exists.Sort != nil || predicate.Exists.Unique {
+			return fmt.Errorf("EXISTS subplan cannot use projection-only sort or unique modifiers")
+		}
 		return validatePhysicalSubplan(*predicate.Exists, defined, bindVars)
 	default:
 		return fmt.Errorf("unknown predicate kind %q", predicate.Kind)
@@ -188,6 +191,9 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 		if err := validatePhysicalValue(*subplan.Sort, defined, bindVars); err != nil {
 			return fmt.Errorf("subplan sort: %w", err)
 		}
+	}
+	if subplan.Unique && subplan.Sort == nil {
+		return fmt.Errorf("unique subplan requires a stable sort value")
 	}
 	return nil
 }

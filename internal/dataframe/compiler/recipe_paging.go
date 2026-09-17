@@ -144,7 +144,14 @@ func rootPageInsertionIndex(operations []ir.PhysicalOperation) int {
 	index := 5 // ROOT_SCAN plus the canonical four-operation root scope block.
 	for index < len(operations) {
 		operation := operations[index]
-		if operation.Kind != ir.PhysicalFilterOp {
+		if operation.Kind == ir.PhysicalExpressionLetOp {
+			// A population LET is immediately followed by its root eligibility
+			// filter. Projection-only LETs are intentionally left out of the
+			// key-discovery prefix so paging does not evaluate them early.
+			if index+1 >= len(operations) || operations[index+1].Kind != ir.PhysicalFilterOp {
+				break
+			}
+		} else if operation.Kind != ir.PhysicalFilterOp {
 			break
 		}
 		index++

@@ -279,6 +279,12 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, i
 }
 
 func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent string, bounded bool) (string, error) {
+	if bounded && (subplan.Sort != nil || subplan.Unique) {
+		return "", fmt.Errorf("EXISTS subplan cannot use projection-only sort or unique modifiers")
+	}
+	if subplan.Unique && subplan.Sort == nil {
+		return "", fmt.Errorf("unique subplan requires a stable sort value")
+	}
 	lines := make([]string, 0, len(subplan.Operations)*3+2)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {

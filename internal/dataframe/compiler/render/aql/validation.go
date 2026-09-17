@@ -51,6 +51,12 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 						return err
 					}
 				}
+			case ir.PhysicalExpressionLetOp:
+				if operation.ExpressionLet != nil {
+					if err := collectExpressionCollections(operation.ExpressionLet.Expression, collectOperations, owner); err != nil {
+						return err
+					}
+				}
 			case ir.PhysicalSetOp:
 				if err := collectOperations(operation.Set.Subplan.Operations, owner+" SET"); err != nil {
 					return err
@@ -76,11 +82,30 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 }
 
 func collectPredicateCollections(predicate ir.PhysicalPredicateExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	if predicate.Comparison != nil && predicate.Comparison.LeftExpression != nil {
+		if err := collectExpressionCollections(*predicate.Comparison.LeftExpression, collectOperations, owner); err != nil {
+			return err
+		}
+	}
 	if predicate.Exists != nil {
 		return collectOperations(predicate.Exists.Operations, owner+" EXISTS")
 	}
 	for _, child := range predicate.Children {
 		if err := collectPredicateCollections(child, collectOperations, owner); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectExpressionCollections(expression ir.PhysicalExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	if expression.Subplan != nil {
+		if err := collectOperations(expression.Subplan.Operations, owner+" SUBPLAN"); err != nil {
+			return err
+		}
+	}
+	if expression.Aggregate != nil && expression.Aggregate.Predicate != nil {
+		if err := collectPredicateCollections(*expression.Aggregate.Predicate, collectOperations, owner+" AGGREGATE"); err != nil {
 			return err
 		}
 	}

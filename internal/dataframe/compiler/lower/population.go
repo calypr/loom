@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 const (
@@ -12,42 +13,74 @@ const (
 	populationProjectBindKey           = "population_project"
 	populationResourceTypeBindKey      = "population_resource_type"
 	populationMembersCollectionBindKey = "population_members_collection"
-	populationResultBindKey            = "population_match"
+	populationMembersVariable          = "__loom_population_members_value"
 	populationMembersProjectionName    = "__loom_population_members"
 )
 
-// appendPopulationSemijoin adds a pre-window root membership predicate. The
-// root scan remains the only top-level scan; route traversal and the indexed
-// selection-members scan are correlated inside an EXISTS subplan.
+// appendPopulationSemijoin computes the matched selected-member IDs once per
+// root row, before any root window. The same typed value is used by the
+// eligibility filter and the hidden provenance projection, so provenance does
+// not add a second correlated membership scan.
 func appendPopulationSemijoin(physical *ir.PhysicalPlan, output semantic.SemanticNode, population *semantic.SemanticPopulation, context semantic.ExecutionContext) error {
 	if population == nil {
 		return nil
 	}
-	subplan, err := buildPopulationSubplan(physical, output, population, context)
+	expression, err := populationMembersExpression(physical, output, population, context)
 	if err != nil {
 		return err
 	}
-	subplan.Return = populationScalarExpression(ir.PhysicalValue{BindKey: populationResultBindKey})
-	physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: "population", ResourceType: output.ResourceType}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &subplan}}})
+	physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+		Kind:          ir.PhysicalExpressionLetOp,
+		Source:        ir.PhysicalSource{SemanticNode: "population", ResourceType: output.ResourceType},
+		ExpressionLet: &ir.PhysicalExpressionLet{Variable: populationMembersVariable, Expression: expression},
+	})
+	physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalFilterOp,
+		Source: ir.PhysicalSource{SemanticNode: "population", ResourceType: output.ResourceType},
+		Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+			Kind: ir.PhysicalComparisonPredicate,
+			Comparison: &ir.PhysicalPredicate{
+				Operator:  "EXISTS",
+				ValueKind: spec.FilterString,
+				LeftExpression: &ir.PhysicalExpression{
+					Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+					Value: &ir.PhysicalValue{Variable: populationMembersVariable},
+				},
+			},
+		}},
+	})
 	return nil
 }
 
 // appendPopulationMemberProjection adds the compiler-owned row provenance
 // projection after root qualification. It never participates in authored
 // recipe columns, but remains available to later trace/export consumers.
-func appendPopulationMemberProjection(physical *ir.PhysicalPlan, projections *[]ir.PhysicalProjection, output semantic.SemanticNode, population *semantic.SemanticPopulation, context semantic.ExecutionContext) error {
+func appendPopulationMemberProjection(projections *[]ir.PhysicalProjection, population *semantic.SemanticPopulation) {
 	if population == nil {
-		return nil
+		return
 	}
+	expression := populationMembersReferenceExpression()
+	*projections = append(*projections, ir.PhysicalProjection{Name: populationMembersProjectionName, Hidden: true, Expression: &expression})
+}
+
+func populationMembersReferenceExpression() ir.PhysicalExpression {
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+		Value: &ir.PhysicalValue{Variable: populationMembersVariable},
+	}
+}
+
+func populationMembersExpression(physical *ir.PhysicalPlan, output semantic.SemanticNode, population *semantic.SemanticPopulation, context semantic.ExecutionContext) (ir.PhysicalExpression, error) {
 	subplan, err := buildPopulationSubplan(physical, output, population, context)
 	if err != nil {
-		return err
+		return ir.PhysicalExpression{}, err
 	}
 	subplan.Sort = &ir.PhysicalValue{Variable: "population_member", Path: []string{"id"}}
 	subplan.Unique = true
-	expression := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
-	*projections = append(*projections, ir.PhysicalProjection{Name: populationMembersProjectionName, Hidden: true, Expression: &expression})
-	return nil
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+		Subplan: &subplan,
+	}, nil
 }
 
 func populationScalarExpression(value ir.PhysicalValue) ir.PhysicalExpression {
@@ -65,8 +98,6 @@ func buildPopulationSubplan(physical *ir.PhysicalPlan, output semantic.SemanticN
 	physical.BindVars[populationProjectBindKey] = context.SelectionProject
 	physical.BindVars[populationResourceTypeBindKey] = population.ResourceType
 	physical.BindVars[populationMembersCollectionBindKey] = context.SelectionMembersCollection
-	physical.BindVars[populationResultBindKey] = 1
-
 	subplan := ir.PhysicalSubplan{Captures: []string{"root"}}
 	parentVariable, parentType := "root", output.ResourceType
 	terminalVariable := parentVariable

@@ -128,6 +128,12 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 		if expression.Subplan == nil {
 			return fmt.Errorf("expression payload does not match kind")
 		}
+		if expression.Cardinality != PhysicalArrayCardinality {
+			return fmt.Errorf("SUBPLAN expression must be array-valued, got %q", expression.Cardinality)
+		}
+		if expression.NullBehavior != PhysicalEmptyOnNull {
+			return fmt.Errorf("SUBPLAN expression must use EMPTY_ON_NULL, got %q", expression.NullBehavior)
+		}
 		return validatePhysicalSubplan(*expression.Subplan, defined, bindVars)
 	case PhysicalCallExpression:
 		if expression.Call == nil {

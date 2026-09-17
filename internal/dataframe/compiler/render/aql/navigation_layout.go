@@ -36,7 +36,13 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	}
 
 	index := 5
-	for index < last && plan.Operations[index].Kind == ir.PhysicalFilterOp {
+	for index < last {
+		if plan.Operations[index].Kind != ir.PhysicalFilterOp && plan.Operations[index].Kind != ir.PhysicalExpressionLetOp {
+			break
+		}
+		// Compiler-owned expression LETs may establish a typed value for a
+		// root predicate. Keep them in the pre-window block so the value is
+		// computed once per root and before SORT/LIMIT.
 		layout.rootPredicates = append(layout.rootPredicates, plan.Operations[index])
 		index++
 	}
