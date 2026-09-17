@@ -143,6 +143,11 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
   const host = envValue(env, 'LOOM_DEV_HOST', '127.0.0.1');
   const apiPort = portValue(env, 'LOOM_DEV_API_PORT', defaults.apiPort);
   const uiPort = portValue(env, 'LOOM_DEV_UI_PORT', defaults.uiPort);
+  const populationMappingCursorSecret = envValue(
+    env,
+    'LOOM_POPULATION_MAPPING_CURSOR_SECRET',
+    createHash('sha256').update(`loom-dev-population-mapping-cursor\x00${sourceRoot}\x00${composeProject}\x00${project}`).digest('hex'),
+  );
   const artifacts = resolve(envValue(env, 'LOOM_DEV_ARTIFACTS', defaults.artifacts));
   const fixtureDir = join(sourceRoot, 'testdata/devloop-fixture');
 
@@ -189,6 +194,7 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
     host,
     apiPort,
     uiPort,
+    populationMappingCursorSecret,
     apiUrl,
     uiUrl,
     artifacts,
@@ -239,6 +245,7 @@ export const commandEnvironment = (target) => ({
   LOOM_DEV_SOURCE_ROOT: target.sourceRoot,
   LOOM_DEV_API_PORT: String(target.apiPort),
   LOOM_DEV_UI_PORT: String(target.uiPort),
+  LOOM_POPULATION_MAPPING_CURSOR_SECRET: target.populationMappingCursorSecret,
 });
 
 const run = (command, args, options = {}) => new Promise((resolvePromise, reject) => {

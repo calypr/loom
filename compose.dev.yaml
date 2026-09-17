@@ -30,7 +30,9 @@ services:
 
   loom-api:
     environment:
-      LOOM_POPULATION_MAPPING_CURSOR_SECRET: ${LOOM_POPULATION_MAPPING_CURSOR_SECRET:?set LOOM_POPULATION_MAPPING_CURSOR_SECRET}
+      # loom-dev.mjs injects a stable per-worktree key for this local no-auth
+      # stack; production server configuration remains fail-closed.
+      LOOM_POPULATION_MAPPING_CURSOR_SECRET: ${LOOM_POPULATION_MAPPING_CURSOR_SECRET:-}
     build:
       context: ${LOOM_DEV_SOURCE_ROOT:-.}
       dockerfile: Dockerfile.dev

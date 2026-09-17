@@ -20,6 +20,10 @@ ui_build_context=${LOOM_UI_BUILD_CONTEXT:-$source_root/ui}
 api_image=${LOOM_API_IMAGE:-loom-demo-api:local}
 ui_image=${LOOM_UI_IMAGE:-loom-demo-ui:local}
 seed=${LOOM_DEMO_SEED:-true}
+population_cursor_secret=${LOOM_POPULATION_MAPPING_CURSOR_SECRET:-}
+if [[ -z "$population_cursor_secret" ]]; then
+  population_cursor_secret=$(printf 'loom-demo-population-mapping-cursor\0%s\0%s' "$source_root" "$run_id" | shasum -a 256 | awk '{print $1}')
+fi
 
 [[ $compose_project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid LOOM_DEMO_COMPOSE_PROJECT: $compose_project" >&2; exit 2; }
 [[ $api_port =~ ^[0-9]+$ ]] && ((api_port >= 1 && api_port <= 65535)) || { echo "invalid LOOM_DEMO_API_PORT: $api_port" >&2; exit 2; }
@@ -37,6 +41,7 @@ export LOOM_API_PORT=$api_port
 export LOOM_UI_HOST=$ui_host
 export LOOM_UI_PORT=$ui_port
 export LOOM_DEMO_RUN_ID=$run_id
+export LOOM_POPULATION_MAPPING_CURSOR_SECRET=$population_cursor_secret
 export LOOM_API_BUILD_CONTEXT=$api_build_context
 export LOOM_UI_BUILD_CONTEXT=$ui_build_context
 export LOOM_API_IMAGE=$api_image

@@ -58,6 +58,14 @@ test('derived ports are forwarded to Compose', () => {
   assert.equal(env.LOOM_DEV_SOURCE_ROOT, target.sourceRoot);
   assert.equal(env.LOOM_DEV_API_PORT, String(target.apiPort));
   assert.equal(env.LOOM_DEV_UI_PORT, String(target.uiPort));
+  assert.match(target.populationMappingCursorSecret, /^[a-f0-9]{64}$/);
+  assert.equal(env.LOOM_POPULATION_MAPPING_CURSOR_SECRET, target.populationMappingCursorSecret);
+});
+
+test('development cursor secret can be explicitly supplied', () => {
+  const target = createDevSession({ LOOM_POPULATION_MAPPING_CURSOR_SECRET: 'local-session-cursor-secret' }, process.cwd());
+  assert.equal(target.populationMappingCursorSecret, 'local-session-cursor-secret');
+  assert.equal(commandEnvironment(target).LOOM_POPULATION_MAPPING_CURSOR_SECRET, 'local-session-cursor-secret');
 });
 
 test('explicit ports bypass an unusable port registry', () => {
