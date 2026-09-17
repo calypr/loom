@@ -80,6 +80,35 @@ func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	}
 }
 
+func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, results, err := ApplyCommands(workspace, catalog, "contributors", []Command{
+		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
+		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := workspace.Documents[0].Route.Children
+	if len(results) != 2 || len(children) != 2 {
+		t.Fatalf("route results=%#v children=%#v", results, children)
+	}
+	if children[0].OccurrenceID == children[1].OccurrenceID {
+		t.Fatalf("independent contributors share occurrence identity: %#v", children)
+	}
+	for index, child := range children {
+		if child.ResourceType != "Encounter" || child.Relationship != "encounters" || child.OccurrenceID != results[index].OccurrenceID {
+			t.Fatalf("child[%d]=%#v result=%#v", index, child, results[index])
+		}
+	}
+}
+
 func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t *testing.T) {
 	catalog := commandCatalog()
 	workspace := Workspace{
@@ -244,8 +273,39 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 	}
 }
 
+func TestApplyCommandsRejectsRouteUpdateThatRepeatsADescendantEdge(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"},
+		CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"},
+	)
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter-secondary"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "descendant", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "update", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, OccurrenceID: encounter[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
+		t.Fatalf("route update error=%v", err)
+	}
+}
+
 func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing.T) {
 	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
 	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
 	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
 	if err != nil {
@@ -261,7 +321,7 @@ func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing
 		t.Fatal(err)
 	}
 	_, _, err = ApplyCommands(workspace, catalog, "repeat", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
-	if err == nil || !strings.Contains(err.Error(), "already used in this query") {
+	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
 		t.Fatalf("error=%v", err)
 	}
 }

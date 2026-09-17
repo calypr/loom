@@ -413,9 +413,8 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 	}
 	result := map[string]semanticOccurrence{}
 	order := []string{}
-	usedEdges := map[string]bool{}
-	var walk func(authoringv2.RouteNode, *semanticOccurrence, string, int) error
-	walk = func(route authoringv2.RouteNode, parent *semanticOccurrence, path string, depth int) error {
+	var walk func(authoringv2.RouteNode, *semanticOccurrence, string, int, map[string]bool) error
+	walk = func(route authoringv2.RouteNode, parent *semanticOccurrence, path string, depth int, usedEdges map[string]bool) error {
 		if snapshot.Policy.Route.MaxHops > 0 && depth > snapshot.Policy.Route.MaxHops {
 			return fail("route", "ROUTE_TOO_LONG", path, "route exceeds capability route policy", map[string]any{"maxHops": snapshot.Policy.Route.MaxHops, "hops": depth}, nil)
 		}
@@ -451,9 +450,14 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 			if selected.FromNodeID == selected.ToNodeID && !snapshot.Policy.Route.AllowsSelfLoops {
 				return fail("route", "SELF_LOOP_NOT_ALLOWED", path+".relationship", "route policy does not allow self loops", nil, nil)
 			}
-			usedEdges[selected.ID] = true
+			nextUsedEdges := make(map[string]bool, len(usedEdges)+1)
+			for id, used := range usedEdges {
+				nextUsedEdges[id] = used
+			}
+			nextUsedEdges[selected.ID] = true
 			edge = &selected
 			graph, _ = snapshot.Node(selected.ToNodeID)
+			usedEdges = nextUsedEdges
 		}
 		current := semanticOccurrence{node: route, graph: graph, edge: edge}
 		result[route.OccurrenceID] = current
@@ -461,13 +465,13 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 		children := append([]authoringv2.RouteNode(nil), route.Children...)
 		sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
 		for i := range children {
-			if err := walk(children[i], &current, fmt.Sprintf("%s.children[%d]", path, i), depth+1); err != nil {
+			if err := walk(children[i], &current, fmt.Sprintf("%s.children[%d]", path, i), depth+1, usedEdges); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(document.Route, nil, "$.route", 0); err != nil {
+	if err := walk(document.Route, nil, "$.route", 0, map[string]bool{}); err != nil {
 		return nil, nil, err
 	}
 	return result, order, nil
@@ -591,11 +595,13 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string) (r
 			where.Operator = recipe.FilterExists
 		} else {
 			where.Operator = recipe.FilterEquals
-			where.Quantifier = recipe.QuantifierAny
 			value := source.Where.Equals
 			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, wherePath)
 			if !ok || metadata.Primitive != fhirschema.PrimitiveString {
 				return recipe.Aggregate{}, "", fmt.Errorf("aggregate predicate selector %q must resolve to a string or code", source.Where.Path)
+			}
+			if metadata.Repeated {
+				where.Quantifier = recipe.QuantifierAny
 			}
 			if wherePath == "code" || strings.HasSuffix(wherePath, ".code") {
 				where.Values = []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: value}}}

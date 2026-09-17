@@ -6,13 +6,105 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func fixtureSnapshot() capability.Snapshot {
 	return fixtureSnapshotForProject("project-a")
+}
+
+func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScopes(t *testing.T) {
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+			{OccurrenceID: "observation_a", ResourceType: "Observation", Relationship: "focus_Patient"},
+			{OccurrenceID: "observation_b", ResourceType: "Observation", Relationship: "focus_Patient"},
+		}},
+		Columns: []authoringv2.Column{
+			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Where: &authoringv2.SourceWhere{Path: "status", Equals: "registered"}}}},
+			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Where: &authoringv2.SourceWhere{Path: "status", Equals: "cancelled"}}}},
+		},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traversals := compiled.Bundle.Outputs[0].Traversals
+	if len(traversals) != 2 {
+		t.Fatalf("compiled traversals=%#v, want two independent occurrences", traversals)
+	}
+	if traversals[0].Alias == traversals[1].Alias || traversals[0].Name != traversals[1].Name {
+		t.Fatalf("same relationship occurrences lost identity: %#v", traversals)
+	}
+	if traversals[0].MatchMode != recipe.MatchOptional || traversals[1].MatchMode != recipe.MatchOptional {
+		t.Fatalf("contributor traversals became required: %#v", traversals)
+	}
+	if len(traversals[0].Aggregates) != 1 || len(traversals[1].Aggregates) != 1 {
+		t.Fatalf("aggregate contributors=%#v", traversals)
+	}
+	if traversals[0].Aggregates[0].Where == nil || traversals[1].Aggregates[0].Where == nil {
+		t.Fatalf("contributor predicates were dropped: %#v", traversals)
+	}
+	if traversals[0].Aggregates[0].Where.Values[0].String == nil || *traversals[0].Aggregates[0].Where.Values[0].String != "registered" || traversals[1].Aggregates[0].Where.Values[0].String == nil || *traversals[1].Aggregates[0].Where.Values[0].String != "cancelled" {
+		t.Fatalf("contributor predicate literals=%#v/%#v", traversals[0].Aggregates[0].Where.Values, traversals[1].Aggregates[0].Where.Values)
+	}
+
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.Query, " = UNIQUE((") != 2 {
+		t.Fatalf("same relationship was collapsed into one contributor set:\n%s", rendered.Query)
+	}
+	values := map[string]bool{}
+	for _, value := range rendered.BindVars {
+		if value == "registered" || value == "cancelled" {
+			values[value.(string)] = true
+		}
+	}
+	if !values["registered"] || !values["cancelled"] {
+		t.Fatalf("rendered contributor predicate literals=%#v", rendered.BindVars)
+	}
+}
+
+func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.T) {
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
+				OccurrenceID: "patient", ResourceType: "Patient", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
+					OccurrenceID: "repeated_observation", ResourceType: "Observation", Relationship: "focus_Patient",
+				}},
+			}},
+		}}},
+	}
+	_, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "REPEATED_EDGE_NOT_ALLOWED" {
+		t.Fatalf("compile repeated edge error = %v, want REPEATED_EDGE_NOT_ALLOWED", err)
+	}
 }
 
 func fixtureSnapshotForProject(project string) capability.Snapshot {
@@ -28,6 +120,24 @@ func fixtureSnapshotForProject(project string) capability.Snapshot {
 		{ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops},
 	}
 	return capability.NewSnapshot(identity, policy, capability.StatusReady, true, false, nodes, edges, candidates, nil)
+}
+
+func contributorSnapshot() capability.Snapshot {
+	snapshot := fixtureSnapshot()
+	snapshot.Policy.Route.AllowsRepeatedEdges = false
+	snapshot.Nodes = []capability.Node{
+		{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"},
+		{ID: "n_observation", ResourceType: "Observation", RowRootEligible: true, RowGrain: "resource"},
+	}
+	snapshot.Edges = []capability.Edge{
+		{ID: "e_observation", FromNodeID: "n_patient", ToNodeID: "n_observation", Label: "focus_Patient"},
+		{ID: "e_patient", FromNodeID: "n_observation", ToNodeID: "n_patient", Label: "focus_Patient"},
+	}
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "status", Label: "Observation.status", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst}},
+	}
+	return capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, nil)
 }
 
 func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {

@@ -380,8 +380,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if !fromOK || !toOK || from.ResourceType != parent.ResourceType {
 			return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID)
 		}
-		if routeUsesRelationship(&workspace.Documents[document].Route, from.ResourceType, to.ResourceType, edge.Label, "") {
-			return result, fmt.Errorf("edge %q is already used in this query", edge.ID)
+		if !catalog.RoutePolicy.AllowRepeatedEdges && routePathUsesRelationship(&workspace.Documents[document].Route, command.ParentOccurrenceID, from.ResourceType, to.ResourceType, edge.Label) {
+			return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
 		}
 		occurrenceID := commandGeneratedID("occ_", commandID, index, command.Type)
 		if findRoute(&workspace.Documents[document].Route, occurrenceID) != nil {
@@ -415,8 +415,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if len(currentEdges) != 1 || currentEdges[0].FromNodeID != edge.FromNodeID || currentEdges[0].ToNodeID != edge.ToNodeID {
 			return result, fmt.Errorf("edge %q must preserve the catalog endpoints for occurrence %q", edge.ID, command.OccurrenceID)
 		}
-		if routeUsesRelationship(&workspace.Documents[document].Route, from.ResourceType, to.ResourceType, edge.Label, occurrence.OccurrenceID) {
-			return result, fmt.Errorf("edge %q is already used by another occurrence", edge.ID)
+		if !catalog.RoutePolicy.AllowRepeatedEdges && (routePathUsesRelationship(&workspace.Documents[document].Route, parent.OccurrenceID, from.ResourceType, to.ResourceType, edge.Label) || routeSubtreeUsesRelationship(occurrence, from.ResourceType, to.ResourceType, edge.Label)) {
+			return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
 		}
 		occurrence.Relationship = edge.Label
 		result.OccurrenceID = occurrence.OccurrenceID
@@ -852,17 +852,43 @@ func routeDepth(route *RouteNode, occurrenceID string) (int, bool) {
 	return walk(route, 0)
 }
 
-func routeUsesRelationship(route *RouteNode, fromResourceType, toResourceType, relationship, exceptOccurrenceID string) bool {
-	if route.ResourceType == fromResourceType {
-		for i := range route.Children {
-			child := &route.Children[i]
-			if child.OccurrenceID != exceptOccurrenceID && child.ResourceType == toResourceType && child.Relationship == relationship {
-				return true
-			}
-		}
+// routePathUsesRelationship checks only the root-to-parent path. Independent
+// sibling occurrences may share an edge, while a capability that disallows
+// repeated edges still rejects cycles/repeats within one route branch.
+func routePathUsesRelationship(route *RouteNode, targetOccurrenceID, fromResourceType, toResourceType, relationship string) bool {
+	_, repeated := routePathContainsRelationship(route, targetOccurrenceID, fromResourceType, toResourceType, relationship)
+	return repeated
+}
+
+func routePathContainsRelationship(route *RouteNode, targetOccurrenceID, fromResourceType, toResourceType, relationship string) (found, repeated bool) {
+	if route == nil {
+		return false, false
 	}
-	for i := range route.Children {
-		if routeUsesRelationship(&route.Children[i], fromResourceType, toResourceType, relationship, exceptOccurrenceID) {
+	if route.OccurrenceID == targetOccurrenceID {
+		return true, false
+	}
+	for index := range route.Children {
+		child := &route.Children[index]
+		childFound, childRepeated := routePathContainsRelationship(child, targetOccurrenceID, fromResourceType, toResourceType, relationship)
+		if !childFound {
+			continue
+		}
+		edgeRepeated := route.ResourceType == fromResourceType && child.ResourceType == toResourceType && child.Relationship == relationship
+		return true, childRepeated || edgeRepeated
+	}
+	return false, false
+}
+
+func routeSubtreeUsesRelationship(route *RouteNode, fromResourceType, toResourceType, relationship string) bool {
+	if route == nil {
+		return false
+	}
+	for index := range route.Children {
+		child := &route.Children[index]
+		if route.ResourceType == fromResourceType && child.ResourceType == toResourceType && child.Relationship == relationship {
+			return true
+		}
+		if routeSubtreeUsesRelationship(child, fromResourceType, toResourceType, relationship) {
 			return true
 		}
 	}
