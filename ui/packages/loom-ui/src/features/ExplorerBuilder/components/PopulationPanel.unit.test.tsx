@@ -89,6 +89,7 @@ it('ignores a deferred report after the receipt and selection change', async () 
 });
 
 it('renders complete and incomplete report states with the safe binding', async () => {
+  const onExclude = vi.fn();
   triggerPopulation.mockReturnValueOnce({ unwrap: () => Promise.resolve({
     binding: reportBinding('receipt-a'), status: 'COMPLETE',
     counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
@@ -96,11 +97,16 @@ it('renders complete and incomplete report states with the safe binding', async 
     diagnostics: [],
   }), abort: vi.fn() });
   const { rerender } = render(
-    <PopulationPanel catalog={catalog} table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" receiptId="receipt-a" onAttach={vi.fn()} onClear={vi.fn()} />,
+    <PopulationPanel catalog={catalog} table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" receiptId="receipt-a" onAttach={vi.fn()} onClear={vi.fn()} onExclude={onExclude} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Check selected-resource coverage' }));
   await waitFor(() => expect(screen.getByText('3 selected · 2 produce rows · 1 needs attention')).toBeTruthy());
   expect(screen.getByText('DocumentReference/dev-file-004')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove from collection' }));
+  expect(onExclude).toHaveBeenCalledWith(
+    { project: 'project', generation: 'generation', resourceType: 'DocumentReference', id: 'dev-file-004' },
+    ['subject-edge'],
+  );
 
   triggerPopulation.mockReturnValueOnce({ unwrap: () => Promise.resolve({
     binding: reportBinding('receipt-b'), status: 'INCOMPLETE', unmapped: [], diagnostics: [{ severity: 'INFO', stage: 'populationMapping', code: 'INCOMPLETE', message: 'incomplete' }],

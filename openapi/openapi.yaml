@@ -822,15 +822,22 @@ components:
         filters:
           type: array
           items: {$ref: '#/components/schemas/SelectionFilter'}
+    SelectionBaseRevision:
+      type: object
+      additionalProperties: false
+      required: [selectionRevisionId]
+      properties:
+        selectionRevisionId: {type: string, minLength: 1}
     SelectionRequestSource:
       type: object
       additionalProperties: false
       required: [kind]
       description: Exactly one payload matching kind is required. Published identities are resolved by the server.
       properties:
-        kind: {type: string, enum: [resources, publishedOutput]}
+        kind: {type: string, enum: [resources, publishedOutput, selectionRevision]}
         resources: {$ref: '#/components/schemas/SelectionExplicitResources'}
         publishedOutput: {$ref: '#/components/schemas/SelectionPublishedOutput'}
+        selectionRevision: {$ref: '#/components/schemas/SelectionBaseRevision'}
     SelectionCreateRequest:
       type: object
       additionalProperties: false
@@ -856,7 +863,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [EXPLICIT_REFS, PUBLISHED_OUTPUT]}
+        kind: {type: string, enum: [EXPLICIT_REFS, PUBLISHED_OUTPUT, SELECTION_REVISION]}
         generation: {type: string}
         revisionId: {type: string}
         receiptId: {type: string}
@@ -865,6 +872,7 @@ components:
         schemaDigest: {type: string}
         resourceType: {type: string}
         sourceIdColumn: {type: string}
+        membershipDigest: {type: string}
     SelectionRevision:
       type: object
       additionalProperties: false

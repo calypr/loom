@@ -27,6 +27,116 @@ type selectionLifecycleStore struct {
 	getCalls int
 }
 
+type selectionVariantStore struct {
+	explorer.Store
+	base           explorer.SelectionRevision
+	baseMembers    []explorer.SelectionMember
+	created        explorer.SelectionRevision
+	createdMembers []explorer.SelectionMember
+}
+
+func (s *selectionVariantStore) GetSelection(_ context.Context, _, selectionID string) (*explorer.SelectionRevision, error) {
+	if selectionID == s.base.ID {
+		value := s.base
+		return &value, nil
+	}
+	if selectionID == s.created.ID {
+		value := s.created
+		return &value, nil
+	}
+	return nil, explorer.ErrSelectionNotFound
+}
+
+func (s *selectionVariantStore) BeginSelection(_ context.Context, value explorer.SelectionRevision, _ string) (*explorer.SelectionRevision, error) {
+	s.created = value
+	return &s.created, nil
+}
+
+func (s *selectionVariantStore) VisitSelectionMembers(_ context.Context, _, selectionID, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+	values := s.baseMembers
+	if selectionID == s.created.ID {
+		values = s.createdMembers
+	}
+	next := after
+	count := 0
+	for _, member := range values {
+		if member.Ref.ID <= after || count >= limit {
+			continue
+		}
+		if err := visit(member); err != nil {
+			return next, err
+		}
+		next = member.Ref.ID
+		count++
+	}
+	return next, nil
+}
+
+func (s *selectionVariantStore) AppendSelectionMembers(_ context.Context, _, _ string, values []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
+	s.createdMembers = append(s.createdMembers, values...)
+	return values, nil
+}
+
+func (s *selectionVariantStore) DigestSelectionMembers(context.Context, string, string) (string, int64, int64, error) {
+	return explorer.MembershipDigest(s.createdMembers), int64(len(s.createdMembers)), int64(len(s.createdMembers)), nil
+}
+
+func (s *selectionVariantStore) CompleteSelection(_ context.Context, _ string, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
+	s.created.Complete = true
+	s.created.MembershipDigest = digest
+	s.created.MemberCount = count
+	s.created.MemberBytes = bytes
+	s.created.CompletedAt = &completedAt
+	return &s.created, nil
+}
+
+func (s *selectionVariantStore) AbortSelection(context.Context, string, string) error { return nil }
+
+func TestCreateSelectionVariantStreamsBaseMembershipAndAppliesExclusions(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	digest := scopeDigest(scope)
+	completedAt := time.Now().UTC()
+	ref := func(id string) explorer.ResourceRef {
+		return explorer.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: id}
+	}
+	baseMembers := []explorer.SelectionMember{{Ref: ref("file-1")}, {Ref: ref("file-2")}, {Ref: ref("file-3")}}
+	store := &selectionVariantStore{
+		base: explorer.SelectionRevision{
+			ID: "selection-base", Project: "project", Generation: "generation-a", ResourceType: "DocumentReference",
+			Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+			ScopeDigest: digest, RuleDigest: "base-rule", MembershipDigest: explorer.MembershipDigest(baseMembers), MemberCount: 3, MemberBytes: 3, Complete: true, CompletedAt: &completedAt,
+		},
+		baseMembers: baseMembers,
+	}
+	persistence, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(persistence, Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", digest), Scope: scope}, nil
+		}},
+		SelectionReferenceValidator: func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "exclude-file-2",
+		Source:     SelectionSourceIntent{Kind: SelectionSourceSelectionRevision, SelectionRevisionID: store.base.ID},
+		Exclusions: []explorer.ResourceRef{ref("file-2")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Header.MemberCount != 2 || len(store.createdMembers) != 2 || store.createdMembers[0].Ref.ID != "file-1" || store.createdMembers[1].Ref.ID != "file-3" {
+		t.Fatalf("variant header=%#v members=%#v", created.Header, store.createdMembers)
+	}
+	if created.Header.Source.Kind != explorer.SelectionSourceRevision || created.Header.Source.RevisionID != store.base.ID || created.Header.Source.MembershipDigest != store.base.MembershipDigest {
+		t.Fatalf("variant source=%#v", created.Header.Source)
+	}
+}
+
 func (s *selectionLifecycleStore) BeginSelection(_ context.Context, value explorer.SelectionRevision, _ string) (*explorer.SelectionRevision, error) {
 	if s.members == nil {
 		s.members = map[string]explorer.SelectionMember{}

@@ -45,6 +45,7 @@ try {
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.') || [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Use all authorized rows')`);
   const alreadyAttached = await browserEval(browser.cdp, `return Boolean(buttonByName('Use all authorized rows'));`);
   if (alreadyAttached) {
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Use all authorized rows' && !button.disabled))`);
     await browserEval(browser.cdp, `clickButton('Use all authorized rows');`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.')`);
   }
@@ -60,10 +61,17 @@ try {
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected · 2 produce rows · 1 needs attention')`, 60_000);
   const reportText = await browserEval(browser.cdp, `return document.body.innerText;`);
   assert.equal(reportText.includes('DocumentReference/dev-file-004'), true, 'coverage report omitted the bounded unmatched resource');
+  await browserEval(browser.cdp, `clickButton('Remove from collection');`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 DocumentReference resources constrain one row per Specimen.')`, 60_000);
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+  await browserEval(browser.cdp, `clickButton('Preview');`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-specimen-001')`, 60_000);
+  await browserEval(browser.cdp, `clickButton('Check selected-resource coverage');`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 selected · 2 produce rows · 0 needs attention')`, 60_000);
   await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per Specimen.')`, 60_000);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 DocumentReference resources constrain one row per Specimen.')`, 60_000);
   const reloadedText = await browserEval(browser.cdp, `return document.body.innerText;`);
-  assert.equal(reloadedText.includes('3 selected · 2 produce rows · 1 needs attention'), false, 'reload displayed stale coverage evidence');
+  assert.equal(reloadedText.includes('2 selected · 2 produce rows · 0 needs attention'), false, 'reload displayed stale coverage evidence');
   await snapshot(browser.cdp, artifact);
   console.log(JSON.stringify({
     evidence: artifact,
@@ -72,8 +80,10 @@ try {
       'the DOM control attaches the selection',
       'Preview contains only the specimen reached from selected files',
       'coverage report maps two files and returns only unlinked file 004',
+      'removing file 004 creates and attaches a new two-member immutable selection',
+      'the revised selection maps both remaining files with no unresolved resources',
       'reload clears stale coverage evidence',
-      'the attached population survives a full reload',
+      'the revised attached population survives a full reload',
     ],
   }, null, 2));
 } catch (error) {

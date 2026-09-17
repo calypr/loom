@@ -27,28 +27,30 @@ const (
 )
 
 type selectionCreateRequest struct {
-	Project        string
-	ExplorerID     string
-	SnapshotToken  string
-	Actor          string
-	Generation     string
-	IdempotencyKey string
-	ResourceType   string
-	Scope          authscope.ReadScope
-	ScopeDigest    string
-	Rule           explorer.SelectionRule
-	Members        []explorer.ResourceRef
-	Source         explorer.SelectionSource
-	Exclusions     []explorer.ResourceRef
+	Project         string
+	ExplorerID      string
+	SnapshotToken   string
+	Actor           string
+	Generation      string
+	IdempotencyKey  string
+	ResourceType    string
+	Scope           authscope.ReadScope
+	ScopeDigest     string
+	Rule            explorer.SelectionRule
+	Members         []explorer.ResourceRef
+	Source          explorer.SelectionSource
+	Exclusions      []explorer.ResourceRef
+	BaseSelectionID string
 }
 
 // SelectionSourceIntent is the closed authoring input. It contains no
 // execution, receipt, schema, or addressability metadata; lifecycle resolves
 // those identities from the authorized snapshot and exact publication source.
 type SelectionSourceIntent struct {
-	Kind            string
-	Resources       []explorer.ResourceRef
-	PublishedOutput *PublishedOutputIntent
+	Kind                string
+	Resources           []explorer.ResourceRef
+	PublishedOutput     *PublishedOutputIntent
+	SelectionRevisionID string
 }
 
 type PublishedOutputIntent struct {
@@ -58,8 +60,9 @@ type PublishedOutputIntent struct {
 }
 
 const (
-	SelectionSourceResources       = "resources"
-	SelectionSourcePublishedOutput = "publishedOutput"
+	SelectionSourceResources         = "resources"
+	SelectionSourcePublishedOutput   = "publishedOutput"
+	SelectionSourceSelectionRevision = "selectionRevision"
 )
 
 type SelectionIntentCreateRequest struct {
@@ -261,6 +264,35 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 			return SelectionCreateResult{}, err
 		}
 		return s.createSelectionWithMaterialization(ctx, resolved, materialization, resolver)
+	case SelectionSourceSelectionRevision:
+		if req.ResourceType != "" || req.Source.Resources != nil || req.Source.PublishedOutput != nil || strings.TrimSpace(req.Source.SelectionRevisionID) == "" {
+			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("selection revision source requires only selectionRevisionId"))
+		}
+		base, err := s.store.GetSelection(ctx, project, strings.TrimSpace(req.Source.SelectionRevisionID))
+		if err != nil {
+			return SelectionCreateResult{}, err
+		}
+		if base == nil || !base.Complete {
+			return SelectionCreateResult{}, explorer.ErrSelectionIncomplete
+		}
+		if base.Generation != generation || base.ScopeDigest != scopeDigest {
+			return SelectionCreateResult{}, selectionStale(fmt.Errorf("base selection is outside the active generation or authorization scope"))
+		}
+		resolved.ResourceType = base.ResourceType
+		resolved.Rule = explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}
+		resolved.Source = explorer.SelectionSource{Kind: explorer.SelectionSourceRevision, RevisionID: base.ID, Generation: base.Generation, ResourceType: base.ResourceType, MembershipDigest: base.MembershipDigest}
+		resolved.BaseSelectionID = base.ID
+		resolved.Exclusions, resolved.ResourceType, err = canonicalSelectionRefs(req.Exclusions, project, generation, resolved.ResourceType)
+		if err != nil {
+			return SelectionCreateResult{}, err
+		}
+		if s.config.SelectionReferenceValidator == nil {
+			return SelectionCreateResult{}, fmt.Errorf("selection reference validator is required")
+		}
+		if err := s.config.SelectionReferenceValidator(ctx, project, generation, authorized.Scope, resolved.Exclusions); err != nil {
+			return SelectionCreateResult{}, err
+		}
+		return s.createSelectionResolved(ctx, resolved)
 	default:
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("unsupported selection source %q", req.Source.Kind))
 	}
@@ -297,7 +329,7 @@ func (s *Service) createSelection(parent context.Context, req selectionCreateReq
 	if reader != nil && req.Source.Kind != explorer.SelectionSourcePublished {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published source identity is required"))
 	}
-	if reader == nil && req.Source.Kind != explorer.SelectionSourceExplicit {
+	if reader == nil && req.Source.Kind != explorer.SelectionSourceExplicit && req.Source.Kind != explorer.SelectionSourceRevision {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("explicit source identity is required"))
 	}
 	if err := req.Source.Validate(req.Project, req.Generation, req.ResourceType); err != nil && reader == nil {
@@ -341,7 +373,7 @@ func (s *Service) createSelection(parent context.Context, req selectionCreateReq
 		}
 	}
 	var requestMembers []explorer.ResourceRef
-	if req.Rule.Kind == explorer.SelectionRuleExplicit {
+	if req.Rule.Kind == explorer.SelectionRuleExplicit && req.Source.Kind == explorer.SelectionSourceExplicit {
 		requestMembers = req.Members
 	}
 	ruleDigest, err := explorer.SelectionRuleDigestWithMembers(req.Rule, req.Source, req.Exclusions, requestMembers)
@@ -360,7 +392,11 @@ func (s *Service) createSelection(parent context.Context, req selectionCreateReq
 	}
 	ctx, cancel := context.WithTimeout(parent, DefaultSelectionMaxDuration)
 	defer cancel()
-	if reader == nil {
+	if req.Source.Kind == explorer.SelectionSourceRevision {
+		if err := s.appendSelectionRevision(ctx, header, writerToken, req.BaseSelectionID); err != nil {
+			return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
+		}
+	} else if reader == nil {
 		if err := s.appendExplicit(ctx, header, writerToken, req.Members); err != nil {
 			return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
 		}
@@ -381,6 +417,30 @@ func (s *Service) createSelection(parent context.Context, req selectionCreateReq
 		return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
 	}
 	return SelectionCreateResult{Header: completed}, nil
+}
+
+func (s *Service) appendSelectionRevision(ctx context.Context, header explorer.SelectionRevision, writerToken, baseSelectionID string) error {
+	excluded := exclusionSet(header.Exclusions)
+	after := ""
+	for {
+		batch := make([]explorer.SelectionMember, 0, selectionBatchSize)
+		next, err := s.store.VisitSelectionMembers(ctx, header.Project, baseSelectionID, after, selectionBatchSize, func(member explorer.SelectionMember) error {
+			if _, skip := excluded[refKey(member.Ref)]; !skip {
+				batch = append(batch, explorer.SelectionMember{Ref: member.Ref})
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := s.store.AppendSelectionMembers(ctx, header.ID, writerToken, batch); err != nil {
+			return err
+		}
+		if next == "" || next == after {
+			return nil
+		}
+		after = next
+	}
 }
 
 func (s *Service) abortSelectionBounded(parent context.Context, selectionID, writerToken string) error {

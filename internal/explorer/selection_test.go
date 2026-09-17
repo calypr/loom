@@ -28,3 +28,17 @@ func TestSelectionRevisionRejectsUnaddressablePublishedSource(t *testing.T) {
 		t.Fatal("unaddressable source unexpectedly validated")
 	}
 }
+
+func TestSelectionSourceVariantsRejectForeignIdentity(t *testing.T) {
+	for name, source := range map[string]SelectionSource{
+		"explicit with revision":    {Kind: SelectionSourceExplicit, RevisionID: "selection-1"},
+		"published with membership": {Kind: SelectionSourcePublished, RevisionID: "revision-1", ReceiptID: "receipt-1", ExecutionID: "execution-1", OutputID: "files", SchemaDigest: "schema-1", Generation: "generation-1", ResourceType: "DocumentReference", SourceIDColumn: "id", MembershipDigest: "members-1"},
+		"revision with execution":   {Kind: SelectionSourceRevision, RevisionID: "selection-1", Generation: "generation-1", ResourceType: "DocumentReference", MembershipDigest: "members-1", ExecutionID: "execution-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := source.Validate("project-1", "generation-1", "DocumentReference"); err == nil {
+				t.Fatal("source accepted identity fields from another source variant")
+			}
+		})
+	}
+}

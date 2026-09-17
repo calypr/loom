@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
@@ -12,8 +12,9 @@ import {
   usePreviewExplorerAuthoringV2Mutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
+  useLoomClient,
 } from '../../react';
-import type { SelectionRevision } from '../../selection';
+import type { ResourceRef, SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
@@ -159,6 +160,7 @@ const BuilderWorkspaceContent = ({
   readonly populationSelectionError?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
 }) => {
+  const loomClient = useLoomClient();
   const projectId = organization ? `${organization}/${project}` : project;
   const authResourcePath = organization
     ? `/programs/${organization}/projects/${project}`
@@ -239,6 +241,10 @@ const BuilderWorkspaceContent = ({
     readonly draftDigest: string;
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
+  const [activePopulationSelection, setActivePopulationSelection] = useState(populationSelection);
+  const [activePopulationSelectionLoading, setActivePopulationSelectionLoading] = useState(false);
+  const [populationVariantError, setPopulationVariantError] = useState<string>();
+  const [populationVariantPending, setPopulationVariantPending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
@@ -337,6 +343,7 @@ const BuilderWorkspaceContent = ({
           serverDraftKey.current = builderDataKey;
           dispatch({ type: 'commandsApplied', value });
           setMessage(undefined);
+          return true;
         } catch (error) {
           const apiError = error as ExplorerAuthoringApiError;
           if (
@@ -353,7 +360,7 @@ const BuilderWorkspaceContent = ({
                 diagnostics: diagnosticsFromError(apiError),
               });
             }
-            return;
+            return false;
           }
           if (apiError.code !== 'CLIENT_CANCELLED') {
             dispatch({
@@ -361,11 +368,12 @@ const BuilderWorkspaceContent = ({
               diagnostics: diagnosticsFromError(apiError),
             });
           }
+          return false;
         } finally {
           setPendingCommands((value) => Math.max(0, value - 1));
         }
       });
-      commandQueue.current = run.catch(() => undefined);
+      commandQueue.current = run.then(() => undefined, () => undefined);
       return run;
     },
     [
@@ -382,6 +390,33 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  const handedOffPopulationSelectionID = populationSelection?.id;
+  useEffect(() => {
+    setActivePopulationSelection(populationSelection);
+    setPopulationVariantError(undefined);
+  }, [handedOffPopulationSelectionID]);
+  useEffect(() => {
+    const attachedSelectionID = table?.document.population?.selectionRevisionId;
+    if (!attachedSelectionID || activePopulationSelection?.id === attachedSelectionID) return;
+    const controller = new AbortController();
+    setActivePopulationSelectionLoading(true);
+    setPopulationVariantError(undefined);
+    void loomClient.getSelection({
+      project: projectId,
+      explorerId: state.explorerId,
+      authResourcePath,
+      selectionRevision: attachedSelectionID,
+      limit: 1,
+    }, controller.signal).then(
+      (page) => setActivePopulationSelection(page.revision),
+      (error: unknown) => {
+        if (!controller.signal.aborted) setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not load the attached collection.');
+      },
+    ).finally(() => {
+      if (!controller.signal.aborted) setActivePopulationSelectionLoading(false);
+    });
+    return () => controller.abort();
+  }, [activePopulationSelection?.id, authResourcePath, loomClient, projectId, state.explorerId, table?.document.population?.selectionRevisionId]);
   const occurrences = useMemo(
     () => derivedOccurrences(table, state.catalog),
     [state.catalog, table],
@@ -389,6 +424,40 @@ const BuilderWorkspaceContent = ({
   const occurrence = occurrences.find(
     (candidate) => candidate.id === state.selectedOccurrenceId,
   );
+
+  const excludePopulationMember = useCallback(async (ref: ResourceRef, edgeIds: ReadonlyArray<string>) => {
+    const current = latestState.current;
+    const currentTable = selectedTable(current);
+    const baseSelection = activePopulationSelection;
+    if (!currentTable || !baseSelection) return;
+    setPopulationVariantPending(true);
+    setPopulationVariantError(undefined);
+    try {
+      const idempotencyKey = `selection-variant-${window.crypto.randomUUID()}`;
+      const variant = await loomClient.createSelection({
+        project: projectId,
+        explorerId: current.explorerId,
+        authResourcePath,
+        snapshotToken: current.catalog.snapshotToken,
+        idempotencyKey,
+        source: { kind: 'selectionRevision', selectionRevision: { selectionRevisionId: baseSelection.id } },
+        exclusions: [ref],
+        requestId: idempotencyKey,
+      });
+      const attached = await applyCommands([{
+        type: 'SET_TABLE_POPULATION',
+        outputId: currentTable.outputId,
+        selectionRevisionId: variant.id,
+        edgeIds: [...edgeIds],
+      }]);
+      if (!attached) throw new Error('Loom created the revised collection but could not attach it to this table.');
+      setActivePopulationSelection(variant);
+    } catch (error) {
+      setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not create the revised collection.');
+    } finally {
+      setPopulationVariantPending(false);
+    }
+  }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, projectId]);
 
   const changeTableRoot = useCallback(
     async (nodeId: string, resolution: RowChangeResolution = {}) => {
@@ -1136,24 +1205,25 @@ const BuilderWorkspaceContent = ({
               <PopulationPanel
                 catalog={state.catalog}
                 table={table}
-                selection={populationSelection}
-                loading={populationSelectionLoading}
-                error={populationSelectionError}
+                selection={activePopulationSelection}
+                loading={populationSelectionLoading || activePopulationSelectionLoading}
+                error={populationVariantError ?? populationSelectionError}
                 project={projectId}
                 explorerId={state.explorerId}
                 authResourcePath={authResourcePath}
                 receiptId={state.receipt?.receiptId}
-                disabled={populationSelectionLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
                 onAttach={(edgeIds) => void applyCommands([{
                   type: 'SET_TABLE_POPULATION',
                   outputId: table.outputId,
-                  selectionRevisionId: populationSelection?.id,
+                  selectionRevisionId: activePopulationSelection?.id,
                   edgeIds: [...edgeIds],
                 }])}
                 onClear={() => void applyCommands([{
                   type: 'CLEAR_TABLE_POPULATION',
                   outputId: table.outputId,
                 }])}
+                onExclude={(ref, edgeIds) => void excludePopulationMember(ref, edgeIds)}
               />
             ) : null}
             <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">

@@ -10,7 +10,9 @@ func TestSelectionRequestRejectsUntrustedAndAmbiguousSources(t *testing.T) {
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","scopeDigest":"trusted","source":{"kind":"resources","resources":{"refs":[]}}}`,
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"publishedOutput","publishedOutput":{"revisionId":"r","outputId":"o","executionId":"forged"}}}`,
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"resources","resources":{"refs":[]},"publishedOutput":{"revisionId":"r","outputId":"o"}}}`,
+		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"selectionRevision","selectionRevision":{"selectionRevisionId":"base"},"resources":{"refs":[]}}}`,
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"resources"}}`,
+		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"selectionRevision"}}`,
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"other"}}`,
 		`{"idempotencyKey":"one","snapshotToken":"snapshot","source":{"kind":"resources","resources":{"refs":[{"project":"p","generation":"g","resourceType":"Specimen","id":"s","rowNumber":3}]}}}`,
 	} {
@@ -38,5 +40,12 @@ func TestSelectionRequestPreservesTypedReferenceAndFilterValues(t *testing.T) {
 	filter := (*published.Source.PublishedOutput.Filters)[0]
 	if filter.Column != "quantity" || filter.Op != "GT" || filter.Value != float64(12) {
 		t.Fatalf("filter changed: %+v", filter)
+	}
+	var variant SelectionCreateRequest
+	if err := json.Unmarshal([]byte(`{"idempotencyKey":"three","snapshotToken":"snapshot","source":{"kind":"selectionRevision","selectionRevision":{"selectionRevisionId":"base"}},"exclusions":[{"project":"p","generation":"g","resourceType":"Specimen","id":"s"}]}`), &variant); err != nil {
+		t.Fatal(err)
+	}
+	if got := variant.Source.SelectionRevision.SelectionRevisionId; got != "base" {
+		t.Fatalf("base selection changed: %q", got)
 	}
 }

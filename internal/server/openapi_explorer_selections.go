@@ -49,6 +49,9 @@ func (h *explorerHTTPHandlers) createSelectionDirect(ctx context.Context, reques
 			intent.Source.PublishedOutput.Filters = filters
 		}
 	}
+	if source := body.Source.SelectionRevision; source != nil {
+		intent.Source.SelectionRevisionID = source.SelectionRevisionId
+	}
 	if body.Exclusions != nil {
 		intent.Exclusions = selectionRefs(*body.Exclusions)
 	}

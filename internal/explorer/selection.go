@@ -83,6 +83,7 @@ const (
 	SelectionRuleAllMatching = "ALL_MATCHING"
 	SelectionSourceExplicit  = "EXPLICIT_REFS"
 	SelectionSourcePublished = "PUBLISHED_OUTPUT"
+	SelectionSourceRevision  = "SELECTION_REVISION"
 )
 
 func (r SelectionRule) Canonical() SelectionRule {
@@ -114,15 +115,16 @@ func (r SelectionRule) Validate() error {
 }
 
 type SelectionSource struct {
-	Kind           string `json:"kind"`
-	Generation     string `json:"generation,omitempty"`
-	RevisionID     string `json:"revisionId,omitempty"`
-	ReceiptID      string `json:"receiptId,omitempty"`
-	ExecutionID    string `json:"executionId,omitempty"`
-	OutputID       string `json:"outputId,omitempty"`
-	SchemaDigest   string `json:"schemaDigest,omitempty"`
-	ResourceType   string `json:"resourceType,omitempty"`
-	SourceIDColumn string `json:"sourceIdColumn,omitempty"`
+	Kind             string `json:"kind"`
+	Generation       string `json:"generation,omitempty"`
+	RevisionID       string `json:"revisionId,omitempty"`
+	ReceiptID        string `json:"receiptId,omitempty"`
+	ExecutionID      string `json:"executionId,omitempty"`
+	OutputID         string `json:"outputId,omitempty"`
+	SchemaDigest     string `json:"schemaDigest,omitempty"`
+	ResourceType     string `json:"resourceType,omitempty"`
+	SourceIDColumn   string `json:"sourceIdColumn,omitempty"`
+	MembershipDigest string `json:"membershipDigest,omitempty"`
 }
 
 func (s SelectionSource) Canonical() SelectionSource {
@@ -135,6 +137,7 @@ func (s SelectionSource) Canonical() SelectionSource {
 	s.SchemaDigest = strings.TrimSpace(s.SchemaDigest)
 	s.ResourceType = strings.TrimSpace(s.ResourceType)
 	s.SourceIDColumn = strings.TrimSpace(s.SourceIDColumn)
+	s.MembershipDigest = strings.TrimSpace(s.MembershipDigest)
 	return s
 }
 
@@ -142,8 +145,8 @@ func (s SelectionSource) Validate(project, generation, resourceType string) erro
 	s = s.Canonical()
 	switch s.Kind {
 	case SelectionSourceExplicit:
-		if s.ExecutionID != "" || s.OutputID != "" {
-			return fmt.Errorf("explicit selection source cannot name a published output")
+		if s.RevisionID != "" || s.ReceiptID != "" || s.ExecutionID != "" || s.OutputID != "" || s.SchemaDigest != "" || s.Generation != "" || s.ResourceType != "" || s.SourceIDColumn != "" || s.MembershipDigest != "" {
+			return fmt.Errorf("explicit selection source cannot carry source identity")
 		}
 	case SelectionSourcePublished:
 		if s.ExecutionID == "" || s.OutputID == "" || s.RevisionID == "" || s.ReceiptID == "" || s.SchemaDigest == "" {
@@ -157,6 +160,19 @@ func (s SelectionSource) Validate(project, generation, resourceType string) erro
 		}
 		if resourceType != "" && s.ResourceType != strings.TrimSpace(resourceType) {
 			return fmt.Errorf("published selection source type does not match selection resource type")
+		}
+		if s.MembershipDigest != "" {
+			return fmt.Errorf("published selection source cannot carry membership identity")
+		}
+	case SelectionSourceRevision:
+		if s.RevisionID == "" || s.Generation == "" || s.ResourceType == "" || s.MembershipDigest == "" {
+			return fmt.Errorf("selection revision source requires revision, generation, resource type, and membership identity")
+		}
+		if s.Generation != strings.TrimSpace(generation) || s.ResourceType != strings.TrimSpace(resourceType) {
+			return fmt.Errorf("selection revision source does not match selection scope")
+		}
+		if s.ReceiptID != "" || s.ExecutionID != "" || s.OutputID != "" || s.SchemaDigest != "" || s.SourceIDColumn != "" {
+			return fmt.Errorf("selection revision source cannot carry published output identity")
 		}
 	default:
 		return fmt.Errorf("unsupported selection source %q", s.Kind)

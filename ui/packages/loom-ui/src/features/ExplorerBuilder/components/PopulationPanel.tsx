@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePopulationMappingMutation } from '../../../react';
 import type { PopulationMappingResponse } from '../../../api';
 import type { SelectionRevision } from '../../../selection';
+import type { ResourceRef } from '../../../selection';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 
 type PopulationPath = {
   readonly edgeIds: ReadonlyArray<string>;
   readonly label: string;
+  readonly steps: ReadonlyArray<{ readonly resourceType: string; readonly relationship: string }>;
 };
 
 const populationPaths = (
@@ -19,11 +21,11 @@ const populationPaths = (
   const target = catalog.nodes.find((node) => node.resourceType === selectionResourceType);
   if (!root || !target) return [];
   if (root.nodeId === target.nodeId) {
-    return [{ edgeIds: [], label: rootResourceType }];
+    return [{ edgeIds: [], label: rootResourceType, steps: [] }];
   }
   const result: PopulationPath[] = [];
-  const queue: Array<{ readonly nodeId: string; readonly edges: ReadonlyArray<string>; readonly labels: ReadonlyArray<string> }> = [
-    { nodeId: root.nodeId, edges: [], labels: [rootResourceType] },
+  const queue: Array<{ readonly nodeId: string; readonly edges: ReadonlyArray<string>; readonly labels: ReadonlyArray<string>; readonly steps: PopulationPath['steps'] }> = [
+    { nodeId: root.nodeId, edges: [], labels: [rootResourceType], steps: [] },
   ];
   const shortestByNode = new Map<string, number>([[root.nodeId, 0]]);
   while (queue.length > 0) {
@@ -34,14 +36,15 @@ const populationPaths = (
       if (!node) continue;
       const edges = [...current.edges, edge.edgeId];
       const labels = [...current.labels, `${node.resourceType} via ${edge.label}`];
+      const steps = [...current.steps, { resourceType: node.resourceType, relationship: edge.label }];
       if (node.nodeId === target.nodeId) {
-        result.push({ edgeIds: edges, label: labels.join(' → ') });
+        result.push({ edgeIds: edges, label: labels.join(' → '), steps });
         continue;
       }
       const known = shortestByNode.get(node.nodeId);
       if (known !== undefined && known < edges.length) continue;
       shortestByNode.set(node.nodeId, edges.length);
-      queue.push({ nodeId: node.nodeId, edges, labels });
+      queue.push({ nodeId: node.nodeId, edges, labels, steps });
     }
   }
   const shortest = Math.min(...result.map((path) => path.edgeIds.length));
@@ -61,6 +64,7 @@ export const PopulationPanel = ({
   receiptId,
   onAttach,
   onClear,
+  onExclude,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
   readonly table: DraftTable;
@@ -74,6 +78,7 @@ export const PopulationPanel = ({
   readonly receiptId?: string;
   readonly onAttach: (edgeIds: ReadonlyArray<string>) => void;
   readonly onClear: () => void;
+  readonly onExclude?: (ref: ResourceRef, edgeIds: ReadonlyArray<string>) => void;
 }) => {
   const paths = useMemo(
     () => selection ? populationPaths(catalog, table.document.rootResourceType, selection.resourceType) : [],
@@ -85,6 +90,9 @@ export const PopulationPanel = ({
   const [coverageError, setCoverageError] = useState<string>();
   const reportRequestEpoch = useRef(0);
   const attached = table.document.population;
+  const attachedPath = attached
+    ? paths.find((path) => JSON.stringify(path.steps) === JSON.stringify(attached.route))
+    : undefined;
   useEffect(() => {
     reportRequestEpoch.current += 1;
     setCoverage(undefined);
@@ -181,8 +189,15 @@ export const PopulationPanel = ({
         <div className="mt-3 border-t border-indigo-200 pt-3" data-testid="population-coverage-report">
           <p className="font-semibold">{coverage.counts.selected.toLocaleString()} selected · {coverage.counts.mapped.toLocaleString()} produce rows · {coverage.counts.unmapped.toLocaleString()} needs attention</p>
           {coverage.unmapped.length > 0 ? (
-            <ul className="mt-2 list-disc pl-5 text-slate-700">
-              {coverage.unmapped.map((ref) => <li key={`${ref.resourceType}:${ref.id}`}>{ref.resourceType}/{ref.id}</li>)}
+            <ul className="mt-2 space-y-1 text-slate-700">
+              {coverage.unmapped.map((ref) => <li key={`${ref.resourceType}:${ref.id}`} className="flex flex-wrap items-center gap-2">
+                <span>{ref.resourceType}/{ref.id}</span>
+                {onExclude && attachedPath ? (
+                  <button type="button" disabled={disabled} onClick={() => onExclude(ref, attachedPath.edgeIds)} className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-semibold text-amber-900 disabled:opacity-40">
+                    Remove from collection
+                  </button>
+                ) : null}
+              </li>)}
             </ul>
           ) : <p className="mt-1 text-slate-600">All selected resources produce rows.</p>}
           {coverage.nextCursor ? <p className="mt-1 text-slate-600">Showing first {coverage.unmapped.length.toLocaleString()} unmatched resources; more available.</p> : null}

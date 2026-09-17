@@ -45,6 +45,33 @@ describe('immutable selection client', () => {
     });
   });
 
+  it('creates an immutable exclusion variant from an existing selection', async () => {
+    const variant = {
+      ...revision,
+      id: 'selection-2',
+      source: {
+        kind: 'SELECTION_REVISION',
+        generation: 'g1',
+        revisionId: 'selection-1',
+        resourceType: 'Specimen',
+        membershipDigest: 'membership',
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(variant)));
+    const client = createLoomClient({ fetch });
+    expect(await client.createSelection({
+      project: 'org/project', explorerId: 'files', snapshotToken: 'snapshot', idempotencyKey: 'command-3',
+      source: { kind: 'selectionRevision', selectionRevision: { selectionRevisionId: 'selection-1' } },
+      exclusions: [ref],
+    })).toEqual(variant);
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      snapshotToken: 'snapshot',
+      idempotencyKey: 'command-3',
+      source: { kind: 'selectionRevision', selectionRevision: { selectionRevisionId: 'selection-1' } },
+      exclusions: [ref],
+    });
+  });
+
   it('rechecks authorization on every page request instead of caching counts', async () => {
     const page = { revision, members: [{ ref }], nextCursor: 'next+/=' };
     const fetch = vi.fn<typeof globalThis.fetch>()

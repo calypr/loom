@@ -135,12 +135,16 @@ func (value *SelectionCreateRequest) UnmarshalJSON(raw []byte) error {
 	}
 	switch decoded.Source.Kind {
 	case "resources":
-		if decoded.Source.Resources == nil || decoded.Source.PublishedOutput != nil {
+		if decoded.Source.Resources == nil || decoded.Source.PublishedOutput != nil || decoded.Source.SelectionRevision != nil {
 			return errors.New("resources selection requires only the resources payload")
 		}
 	case "publishedOutput":
-		if decoded.Source.PublishedOutput == nil || decoded.Source.Resources != nil {
+		if decoded.Source.PublishedOutput == nil || decoded.Source.Resources != nil || decoded.Source.SelectionRevision != nil {
 			return errors.New("publishedOutput selection requires only the publishedOutput payload")
+		}
+	case "selectionRevision":
+		if decoded.Source.SelectionRevision == nil || decoded.Source.Resources != nil || decoded.Source.PublishedOutput != nil {
+			return errors.New("selectionRevision selection requires only the selectionRevision payload")
 		}
 	default:
 		return errors.New("unsupported selection source kind")

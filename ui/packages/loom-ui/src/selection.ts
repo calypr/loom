@@ -16,6 +16,9 @@ export type SelectionSourceIntent =
     readonly revisionId: string;
     readonly outputId: string;
     readonly filters?: ReadonlyArray<LoomOutputFilter>;
+  } }
+  | { readonly kind: 'selectionRevision'; readonly selectionRevision: {
+    readonly selectionRevisionId: string;
   } };
 
 const filterSchema = z.object({
@@ -34,7 +37,7 @@ export const selectionRevisionSchema = z.object({
     filters: z.array(filterSchema).optional(),
   }).strict(),
   source: z.object({
-    kind: z.enum(['EXPLICIT_REFS', 'PUBLISHED_OUTPUT']),
+    kind: z.enum(['EXPLICIT_REFS', 'PUBLISHED_OUTPUT', 'SELECTION_REVISION']),
     generation: identity.optional(),
     revisionId: identity.optional(),
     receiptId: identity.optional(),
@@ -43,6 +46,7 @@ export const selectionRevisionSchema = z.object({
     schemaDigest: identity.optional(),
     resourceType: identity.optional(),
     sourceIdColumn: identity.optional(),
+    membershipDigest: identity.optional(),
   }).strict(),
   exclusions: z.array(resourceRefSchema).optional(),
   scopeDigest: identity,

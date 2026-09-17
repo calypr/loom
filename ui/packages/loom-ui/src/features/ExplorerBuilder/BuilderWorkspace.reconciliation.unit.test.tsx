@@ -18,7 +18,10 @@ import {
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 
+const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
+
 vi.mock('../../react', () => ({
+  useLoomClient: () => mockLoomClient,
   useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
   useAssessExplorerRowChangeMutation: vi.fn(),
   useCreateExplorerAuthoringMutation: vi.fn(),
