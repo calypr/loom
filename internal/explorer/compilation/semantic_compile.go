@@ -57,13 +57,6 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		occurrence := occurrences[column.OccurrenceID]
 		alias := semanticAlias(column.OccurrenceID)
 		leaf := column.Column
-		if column.Source.Kind != authoringv2.SourceAggregate {
-			var err error
-			leaf, err = semanticColumnLeaf(column.Column, column.OccurrenceID)
-			if err != nil {
-				return Result{}, fail("lower", "COLUMN_ROUTE_PREFIX_MISMATCH", fmt.Sprintf("$.columns[%d].column", index), err.Error(), map[string]any{"column": column.Column, "occurrenceId": column.OccurrenceID}, err)
-			}
-		}
 		logicalType := firstNonEmpty(column.LogicalType, "string")
 		filterable, chartable := column.Filter != nil, column.Chart != nil
 		sourceJSON, _ := json.Marshal(column.Source.Normalized())
@@ -134,9 +127,6 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				for _, count := range counts {
 					key := column.OccurrenceID + "\x00" + count.Leaf
 					publicColumn := count.Leaf
-					if column.OccurrenceID != authoringv2.RootOccurrenceID {
-						publicColumn = safeName(column.OccurrenceID) + "__" + count.Leaf
-					}
 					if existing, ok := countEmissions[key]; ok {
 						emitted[existing].AuthoredColumns = append(emitted[existing].AuthoredColumns, column.Column)
 						contract.Columns[existing].AuthoredColumns = append(contract.Columns[existing].AuthoredColumns, column.Column)
@@ -312,7 +302,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingAlias, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
 	if err := bundle.Validate(); err != nil {
@@ -498,19 +488,6 @@ func semanticAlias(occurrenceID string) string {
 	// authored public-column prefix even when an older client encoded route
 	// ancestry into the occurrence ID itself.
 	return safeName(occurrenceID)
-}
-
-func semanticColumnLeaf(column, occurrenceID string) (string, error) {
-	if occurrenceID == authoringv2.RootOccurrenceID {
-		return column, nil
-	}
-	// The traversal alias retains this complete globally unique occurrence ID;
-	// strip it here so physical lowering can add it exactly once.
-	prefix := safeName(occurrenceID) + "__"
-	if !strings.HasPrefix(column, prefix) || strings.TrimPrefix(column, prefix) == "" {
-		return "", fmt.Errorf("column for occurrence %q must begin with %q", occurrenceID, prefix)
-	}
-	return strings.TrimPrefix(column, prefix), nil
 }
 
 func semanticFieldCandidate(snapshot capability.Snapshot, nodeID, fieldPath string) (capability.Candidate, bool) {

@@ -597,34 +597,50 @@ export const GuidedGraphWorkspace = ({
                           Row start
                         </span>
                       ) : (
-                        <select
-                          aria-label={`Relationship for ${occurrence.resourceType} occurrence`}
-                          title="Relationship used to reach this query occurrence"
-                          className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
-                          value={occurrence.incomingEdgeId ?? ''}
-                          disabled={
-                            disabled ||
-                            (editableEdgesByOccurrence.get(
-                              occurrence.occurrenceId,
-                            )?.length ?? 0) < 2
-                          }
-                          onChange={(event) =>
-                            onChangeEdge(
-                              occurrence.occurrenceId,
-                              event.currentTarget.value,
-                            )
-                          }
-                        >
-                          {(
-                            editableEdgesByOccurrence.get(
-                              occurrence.occurrenceId,
-                            ) ?? []
-                          ).map((edge) => (
-                            <option key={edge.edgeId} value={edge.edgeId}>
-                              {edge.label}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            aria-label={`Relationship for ${occurrence.resourceType} occurrence`}
+                            title="Relationship used to reach this query occurrence"
+                            className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
+                            value={occurrence.incomingEdgeId ?? ''}
+                            disabled={
+                              disabled ||
+                              (editableEdgesByOccurrence.get(
+                                occurrence.occurrenceId,
+                              )?.length ?? 0) < 2
+                            }
+                            onChange={(event) =>
+                              onChangeEdge(
+                                occurrence.occurrenceId,
+                                event.currentTarget.value,
+                              )
+                            }
+                          >
+                            {(
+                              editableEdgesByOccurrence.get(
+                                occurrence.occurrenceId,
+                              ) ?? []
+                            ).map((edge) => (
+                              <option key={edge.edgeId} value={edge.edgeId}>
+                                {edge.label}
+                              </option>
+                            ))}
+                          </select>
+                          {occurrence.depth === 1 &&
+                            catalogNodeById.get(occurrence.nodeId)
+                              ?.rowRootEligible ? (
+                              <button
+                                type="button"
+                                aria-label={`Make each ${occurrence.resourceType} one row`}
+                                title={`Use ${occurrence.resourceType} as the row start`}
+                                className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
+                                disabled={disabled}
+                                onClick={() => onChangeBase(occurrence.nodeId)}
+                              >
+                                Make rows
+                              </button>
+                            ) : null}
+                        </>
                       )}
                     </div>
                     {occurrence.occurrenceId !== 'base' && (

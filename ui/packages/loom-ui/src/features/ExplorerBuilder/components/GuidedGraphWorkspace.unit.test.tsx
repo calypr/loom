@@ -409,6 +409,7 @@ describe('GuidedGraphWorkspace', () => {
     };
     const onSelectOccurrence = vi.fn();
     const onChangeEdge = vi.fn();
+    const onChangeBase = vi.fn();
 
     render(
       <GuidedGraphWorkspace
@@ -418,7 +419,7 @@ describe('GuidedGraphWorkspace', () => {
         disabled={false}
         onSelectOccurrence={onSelectOccurrence}
         onSetBase={vi.fn()}
-        onChangeBase={vi.fn()}
+        onChangeBase={onChangeBase}
         onAppendEdge={vi.fn()}
         onChangeEdge={onChangeEdge}
         onTruncate={vi.fn()}
@@ -437,6 +438,10 @@ describe('GuidedGraphWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Patient' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Patient' }));
     expect(onSelectOccurrence).toHaveBeenCalledWith('patient');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Make each Patient one row' }),
+    );
+    expect(onChangeBase).toHaveBeenCalledWith('node-patient');
     fireEvent.change(
       screen.getByRole('combobox', {
         name: 'Relationship for Patient occurrence',

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -79,10 +78,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 				// membership because the semi-join remains before SORT/LIMIT.
 				if physicalNodeNeedsMaterializedSet(child) {
 					childSetIndex++
-					childProjectionPrefix := child.Alias
-					if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
-						childProjectionPrefix = projectionPrefix + "__" + child.Alias
-					}
+					childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 					childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
 					set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 					if err != nil {
@@ -132,10 +128,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 			// subquery preserves the parent row grain while allowing typed child
 			// filters and projections to be applied before materialization.
 			childSetIndex++
-			childProjectionPrefix := child.Alias
-			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && projectionPrefix != "" {
-				childProjectionPrefix = projectionPrefix + "__" + child.Alias
-			}
+			childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 			childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
 			set, projections, err := buildOptionalChildPhysicalSet(&physical, childSetIndex, parent, parentVariable, child, childProjectionPrefix, policy, childBindings, lowerer)
 			if err != nil {

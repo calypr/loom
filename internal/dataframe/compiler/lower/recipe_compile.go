@@ -239,10 +239,7 @@ func validateSemanticOutputNames(output semantic.OutputPlan) error {
 			}
 		}
 		for _, child := range node.Children {
-			childPrefix := child.Alias
-			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
-				childPrefix = prefix + "__" + child.Alias
-			}
+			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
 			if err := walk(child, childPrefix); err != nil {
 				return err
 			}

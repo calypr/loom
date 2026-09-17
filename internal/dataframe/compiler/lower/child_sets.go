@@ -92,7 +92,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projection.Name = projectionPrefix + "__" + field.Name
+		projection.Name = traversalColumnName(projectionPrefix, field.Name)
 		projections = append(projections, projection)
 	}
 	for _, aggregate := range child.Aggregates {
@@ -100,11 +100,11 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		name := aggregateProjectionName(aggregate, projectionPrefix+"__")
+		name := aggregateProjectionName(aggregate, traversalColumnNamePrefix(projectionPrefix))
 		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	for _, pivot := range child.Pivots {
-		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, projectionPrefix+"__")
+		pivotProjections, err := physicalPivotProjections(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, pivot, traversalColumnNamePrefix(projectionPrefix))
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
@@ -115,7 +115,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		if err != nil {
 			return ir.PhysicalSet{}, nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: projectionPrefix + "__" + slice.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(projectionPrefix, slice.Name), Expression: &expression})
 	}
 	// A traversal-time projection is the production form of selector reuse. It
 	// computes selector arrays in the original child subquery and removes the

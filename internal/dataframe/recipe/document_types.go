@@ -89,17 +89,19 @@ func (n RootColumnNaming) Normalized() RootColumnNaming {
 // TraversalColumnNaming controls how traversal aliases contribute to public
 // output column names. PATH is the backwards-compatible recipe behavior and
 // includes every ancestor alias. ALIAS treats each traversal alias as a
-// globally scoped output namespace, which is useful for authoring systems that
-// allocate stable, globally unique occurrence IDs.
+// globally scoped output namespace. EXACT emits the authored field name
+// without coupling it to the traversal position; callers must provide globally
+// unique field names.
 type TraversalColumnNaming string
 
 const (
 	TraversalColumnNamingPath  TraversalColumnNaming = "PATH"
 	TraversalColumnNamingAlias TraversalColumnNaming = "ALIAS"
+	TraversalColumnNamingExact TraversalColumnNaming = "EXACT"
 )
 
 func (n TraversalColumnNaming) Valid() bool {
-	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias
+	return n == "" || n == TraversalColumnNamingPath || n == TraversalColumnNamingAlias || n == TraversalColumnNamingExact
 }
 
 func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {

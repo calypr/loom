@@ -95,11 +95,8 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false)
 		}
 		for _, child := range node.Children {
-			childPrefix := child.Alias
-			if output.TraversalColumnNaming != recipe.TraversalColumnNamingAlias && prefix != "" {
-				childPrefix = strings.TrimSuffix(prefix, "__") + "__" + child.Alias
-			}
-			addNode(child, childPrefix+"__")
+			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
+			addNode(child, traversalColumnNamePrefix(childPrefix))
 		}
 	}
 	addNode(output.Root, "")

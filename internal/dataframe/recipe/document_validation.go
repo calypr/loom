@@ -56,7 +56,7 @@ func (b Bundle) Validate() error {
 			}
 		}
 		if !output.TraversalColumnNaming.Valid() {
-			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH or ALIAS")
+			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH, ALIAS, or EXACT")
 		}
 		if !output.RootColumnNaming.Valid() {
 			return validationError("invalid_root_column_naming", path+".rootColumnNaming", "must be PREFIXED or EXACT")

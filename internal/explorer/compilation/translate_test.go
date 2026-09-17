@@ -462,7 +462,7 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	if got := result.Bundle.Outputs[0].Traversals[0].Alias; got != "encounter" {
 		t.Fatalf("traversal alias = %q", got)
 	}
-	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingAlias {
+	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingExact {
 		t.Fatalf("traversal column naming = %q", got)
 	}
 	if got := result.Bundle.Outputs[0].RootColumnNaming; got != recipe.RootColumnNamingExact {
@@ -501,7 +501,7 @@ func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *te
 	if len(traversals) != 2 || traversals[0].Alias != "encounter_a" || traversals[1].Alias != "encounter_b" {
 		t.Fatalf("sibling traversals = %#v", traversals)
 	}
-	if traversals[0].Fields[0].Name != "code" || traversals[1].Fields[0].Name != "code" {
+	if traversals[0].Fields[0].Name != "encounter_a__code" || traversals[1].Fields[0].Name != "encounter_b__code" {
 		t.Fatalf("sibling fields = %#v", traversals)
 	}
 
@@ -537,10 +537,6 @@ func TestSemanticObservationPivotFreezesOnlyAuthoredComponentColumns(t *testing.
 func TestSemanticNestedOccurrenceUsesGloballyScopedAlias(t *testing.T) {
 	if got := semanticAlias("patient__condition"); got != "patient__condition" {
 		t.Fatalf("nested alias = %q", got)
-	}
-	leaf, err := semanticColumnLeaf("patient__condition__code_coding_code", "patient__condition")
-	if err != nil || leaf != "code_coding_code" {
-		t.Fatalf("nested physical leaf = %q, %v", leaf, err)
 	}
 }
 

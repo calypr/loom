@@ -183,6 +183,10 @@ func TestTraversalColumnNamingValidation(t *testing.T) {
 	if _, err := Parse([]byte(valid)); err != nil {
 		t.Fatal(err)
 	}
+	exact := strings.Replace(valid, `"ALIAS"`, `"EXACT"`, 1)
+	if _, err := Parse([]byte(exact)); err != nil {
+		t.Fatal(err)
+	}
 
 	invalidMode := strings.Replace(valid, `"ALIAS"`, `"LOCAL"`, 1)
 	if _, err := Parse([]byte(invalidMode)); err == nil || !strings.Contains(err.Error(), "invalid_traversal_column_naming") {

@@ -285,6 +285,50 @@ func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *tes
 	}
 }
 
+func TestTraversalColumnNamingExactKeepsAuthoredNamesAcrossNestedTraversals(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "exact-traversals",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+			TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+			Traversals: []recipe.Traversal{{
+				Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional,
+				Fields: []recipe.Field{{Name: "stable_patient_id", Expr: recipe.Expression{Select: "occ_parent.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional,
+					Fields: []recipe.Field{{Name: "stable_condition_id", Expr: recipe.Expression{Select: "occ_child.id"}}},
+				}},
+			}},
+		}},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]bool{}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if !column.Internal {
+			public[column.Name] = true
+		}
+	}
+	if !public["stable_patient_id"] || !public["stable_condition_id"] {
+		t.Fatalf("exact traversal public columns = %#v", public)
+	}
+	if public["occ_parent__stable_patient_id"] || public["occ_child__stable_condition_id"] {
+		t.Fatalf("exact traversal columns unexpectedly encoded route position: %#v", public)
+	}
+}
+
 func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
