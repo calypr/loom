@@ -39,6 +39,8 @@ type fakeStore struct {
 	revision           int64
 	order              *[]string
 	selection          *explorer.SelectionRevision
+	selectionMembers   []explorer.SelectionMember
+	memberVisits       int
 }
 
 func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
@@ -110,6 +112,30 @@ func (f *fakeStore) GetSelection(context.Context, string, string) (*explorer.Sel
 	}
 	selection := *f.selection
 	return &selection, nil
+}
+
+func (f *fakeStore) VisitSelectionMembers(_ context.Context, _, _ string, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+	f.memberVisits++
+	if limit <= 0 {
+		limit = len(f.selectionMembers)
+	}
+	start := 0
+	for start < len(f.selectionMembers) && f.selectionMembers[start].Ref.ID <= after {
+		start++
+	}
+	last := after
+	count := 0
+	for _, member := range f.selectionMembers[start:] {
+		if count == limit {
+			break
+		}
+		if err := visit(member); err != nil {
+			return last, err
+		}
+		last = member.Ref.ID
+		count++
+	}
+	return last, nil
 }
 
 func (f *fakeStore) GetRevision(context.Context, string) (*explorer.Revision, error) {

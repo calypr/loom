@@ -102,7 +102,7 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {
 		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
 	}
-	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.MaterializeReceipt != nil
+	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
 	if native && (receipt.ReceiptFormatVersion != explorer.CurrentReceiptFormatVersion || receipt.CompilerContractVersion != explorer.CurrentCompilerContractVersion) {
 		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported compiler contract", nil, nil)
 	}

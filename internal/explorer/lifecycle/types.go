@@ -57,6 +57,11 @@ type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.Com
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
+// PopulationMappingExecutor is the narrow lifecycle-to-execution adapter.
+// Lifecycle supplies the validated receipt, scope bindings, and immutable
+// selected IDs; execution owns compiler witness interpretation.
+type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
+
 // SelectionReferenceValidator resolves explicit references against the
 // authorized active generation. It must verify both resource existence and
 // auth_resource_path before lifecycle persists any member or exclusion.
@@ -100,6 +105,7 @@ type Config struct {
 
 	CompileReceipt     ReceiptCompiler
 	PreviewReceipt     ReceiptPreviewer
+	PopulationMapping  PopulationMappingExecutor
 	MaterializeReceipt ReceiptMaterializer
 	ReceiptLookup      ReceiptReader
 
@@ -174,6 +180,52 @@ type PreviewResult struct {
 	Receipt *explorer.CompilationReceipt
 	Columns []explorer.EmittedColumn
 	Summary dataframeexecution.PreviewSummary
+}
+
+type PopulationMappingRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	Cursor     string
+	Limit      int
+}
+
+type PopulationMappingBinding struct {
+	ReceiptID           string
+	OutputID            string
+	Project             string
+	ExplorerID          string
+	Generation          string
+	ScopeDigest         string
+	SelectionRevisionID string
+	MembershipDigest    string
+	ResourceType        string
+}
+
+type PopulationMappingCounts struct {
+	Selected    int64
+	Mapped      int64
+	Unmapped    int64
+	EmittedRows int64
+}
+
+type PopulationMappingDiagnostic struct {
+	Code    string
+	Message string
+}
+
+type PopulationMappingReport struct {
+	Binding     PopulationMappingBinding
+	Status      dataframeexecution.PopulationMappingStatus
+	Counts      *PopulationMappingCounts
+	Unmapped    []explorer.ResourceRef
+	NextCursor  string
+	Diagnostics []PopulationMappingDiagnostic
+}
+
+type PopulationMappingResult struct {
+	Report PopulationMappingReport
 }
 
 type PublishRequest struct {

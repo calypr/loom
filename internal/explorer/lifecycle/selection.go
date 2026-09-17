@@ -131,12 +131,15 @@ type SelectionPublishedReader interface {
 }
 
 type selectionCursor struct {
-	Version    int    `json:"version"`
-	Project    string `json:"project"`
-	RevisionID string `json:"revisionId"`
-	Generation string `json:"generation"`
-	Scope      string `json:"scope"`
-	MemberKey  string `json:"memberKey"`
+	Version          int    `json:"version"`
+	Project          string `json:"project"`
+	RevisionID       string `json:"revisionId"`
+	Generation       string `json:"generation"`
+	Scope            string `json:"scope"`
+	MemberKey        string `json:"memberKey"`
+	ReceiptID        string `json:"receiptId,omitempty"`
+	OutputID         string `json:"outputId,omitempty"`
+	MembershipDigest string `json:"membershipDigest,omitempty"`
 }
 
 func (s *Service) createSelectionResolved(ctx context.Context, req selectionCreateRequest) (SelectionCreateResult, error) {
