@@ -21,6 +21,10 @@ the draft unchanged and returns a typed conflict or unresolved reference.
 The traversal control exposes each eligible direct child as a row-start choice.
 Semantic recipes use exact authored traversal column names so feature identity
 does not depend on where an occurrence currently sits in the route.
+When more than one route occurrence or inverse FHIR relationship is valid, the
+Builder presents the alternatives in a repair panel. The user's choice is sent
+through another read-only assessment; mutation remains disabled until that
+assessment returns a complete proposal.
 
 Independent sibling feature occurrences may now traverse the same catalog relationship without sharing occurrence identity or predicate scope. Reusing that relationship again along one root-to-leaf branch remains rejected when the route policy disallows repeated edges. Two optional count contributors with different predicates survive authoring, semantic compilation, physical lowering, and AQL rendering as two contributor sets.
 
@@ -93,7 +97,6 @@ browser journey reconciled and previewed successfully.
 B04 remains in progress. This slice does not yet provide:
 
 - selection variants and exclusions that create a new immutable starting collection;
-- ambiguity repair controls for choosing among multiple valid inverse relationships;
 - live exact-mapping assertions for both direct and reversed population routes;
 - typed authoring and literal Arango execution of independent contributor predicates, plus required population-match and predicate-aware sharing rules;
 - support for compatible rebases deeper than one direct child;
@@ -106,7 +109,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | Issue | Status | Proven | Still required |
 | --- | --- | --- | --- |
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
-| `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies an unambiguous direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Add an ambiguity-choice repair control and support compatible deeper rebases if the product journey requires them. |
+| `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies a direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, explicit occurrence and inverse-edge ambiguity choices, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Support compatible deeper rebases if the product journey requires them. |
 | `ML-B04-03` | In progress | Sibling occurrences reuse one relationship with distinct stable IDs. Two optional count contributors retain different scalar predicates through semantic compilation, physical lowering, and AQL rendering. Repeats within one branch remain rejected, including edge updates that would collide with a descendant. | Add typed predicate authoring, required population matching, predicate-aware traversal sharing, and literal Arango execution proving the two counts differ without dropping the root row. |
 | `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded unmatched-resource list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
@@ -135,6 +138,12 @@ column naming. The complete recipe, semantic, compiler, Explorer, and server
 package gate passed, as did OpenAPI ownership, all 140 UI tests, and the
 production build. The retained Docker/browser report is
 `.artifacts/loom-dev/row-rebase-ui-1789673863601.json`.
+
+Commit `60cf4945` adds the ambiguity repair panel. Focused domain tests cover
+duplicate eligible occurrences and multiple inverse edges; the complete
+Explorer/server package gate, all 141 UI tests, TypeScript compilation, and the
+production build pass. This repair branch is unit-proven because the local
+fixture has one unambiguous inverse relationship.
 
 The B04 performance gate has no result. B02 selection-storage measurements do
 not replace the required sparse-versus-dense population-plan comparison or the
