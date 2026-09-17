@@ -32,6 +32,7 @@ import { PreviewTable } from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
+import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -1202,29 +1203,37 @@ const BuilderWorkspaceContent = ({
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {table ? (
-              <PopulationPanel
-                catalog={state.catalog}
-                table={table}
-                selection={activePopulationSelection}
-                loading={populationSelectionLoading || activePopulationSelectionLoading}
-                error={populationVariantError ?? populationSelectionError}
-                project={projectId}
-                explorerId={state.explorerId}
-                authResourcePath={authResourcePath}
-                receiptId={state.receipt?.receiptId}
-                disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                onAttach={(edgeIds) => void applyCommands([{
-                  type: 'SET_TABLE_POPULATION',
-                  outputId: table.outputId,
-                  selectionRevisionId: activePopulationSelection?.id,
-                  edgeIds: [...edgeIds],
-                }])}
-                onClear={() => void applyCommands([{
-                  type: 'CLEAR_TABLE_POPULATION',
-                  outputId: table.outputId,
-                }])}
-                onExclude={(ref, edgeIds) => void excludePopulationMember(ref, edgeIds)}
-              />
+              <div className="grid gap-3 lg:grid-cols-2">
+                <RowDefinitionPanel
+                  catalog={state.catalog}
+                  table={table}
+                  disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                />
+                <PopulationPanel
+                  catalog={state.catalog}
+                  table={table}
+                  selection={activePopulationSelection}
+                  loading={populationSelectionLoading || activePopulationSelectionLoading}
+                  error={populationVariantError ?? populationSelectionError}
+                  project={projectId}
+                  explorerId={state.explorerId}
+                  authResourcePath={authResourcePath}
+                  receiptId={state.receipt?.receiptId}
+                  disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onAttach={(edgeIds) => void applyCommands([{
+                    type: 'SET_TABLE_POPULATION',
+                    outputId: table.outputId,
+                    selectionRevisionId: activePopulationSelection?.id,
+                    edgeIds: [...edgeIds],
+                  }])}
+                  onClear={() => void applyCommands([{
+                    type: 'CLEAR_TABLE_POPULATION',
+                    outputId: table.outputId,
+                  }])}
+                  onExclude={(ref, edgeIds) => void excludePopulationMember(ref, edgeIds)}
+                />
+              </div>
             ) : null}
             <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">
               <GuidedGraphWorkspace
