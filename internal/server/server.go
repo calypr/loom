@@ -339,11 +339,16 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure local workspace writeback: %w", err)
 	}
+	populationMappingCursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
+	if err != nil {
+		return fmt.Errorf("configure population mapping cursor signing: %w", err)
+	}
 	lifecycleConfig := lifecycle.Config{
-		SelectionMembersCollection:  explorerarango.SelectionMembersCollection,
-		SelectionSourceResolver:     published.SelectionSourceAdapter{Reader: materializationReader},
-		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
-		CompileReceipt:              compileReceipt,
+		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,
+		PopulationMappingCursorCodec: populationMappingCursorCodec,
+		SelectionSourceResolver:      published.SelectionSourceAdapter{Reader: materializationReader},
+		SelectionReferenceValidator:  explorerStore.ValidateSelectionReferences,
+		CompileReceipt:               compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)

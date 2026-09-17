@@ -24,7 +24,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" {
 		return PopulationMappingResult{}, malformed("populationMapping", "receiptId and outputId are required", nil)
 	}
-	if s.config.Capability.ForExecution == nil || s.config.PopulationMapping == nil {
+	if s.config.Capability.ForExecution == nil || s.config.PopulationMapping == nil || s.config.PopulationMappingCursorCodec == nil {
 		return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping is not configured", nil)
 	}
 	limit := request.Limit
@@ -34,9 +34,16 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	if limit > MaxPopulationMappingLimit {
 		return PopulationMappingResult{}, unprocessable("populationMapping", "INVALID_POPULATION_MAPPING_LIMIT", "limit must be between 1 and 1000", nil)
 	}
-	cursor, err := decodeSelectionCursor(request.Cursor)
-	if err != nil {
-		return PopulationMappingResult{}, malformed("populationMapping", "cursor is invalid", err)
+	var cursor *PopulationMappingCursor
+	if strings.TrimSpace(request.Cursor) != "" {
+		if s.config.PopulationMappingCursorCodec == nil {
+			return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping cursor signing is not configured", nil)
+		}
+		decoded, err := s.config.PopulationMappingCursorCodec.Decode(request.Cursor)
+		if err != nil {
+			return PopulationMappingResult{}, malformed("populationMapping", "cursor is invalid", err)
+		}
+		cursor = &decoded
 	}
 	if cursor != nil && (cursor.ReceiptID != strings.TrimSpace(request.ReceiptID) || cursor.OutputID != strings.TrimSpace(request.OutputID)) {
 		return PopulationMappingResult{}, conflict("populationMapping", "POPULATION_MAPPING_CURSOR_STALE", "population mapping cursor is stale", nil, nil)
@@ -116,7 +123,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	}
 	if executed.HasMoreUnmapped && len(result.Unmapped) > 0 {
 		last := result.Unmapped[len(result.Unmapped)-1].ID
-		next, encodeErr := encodeSelectionCursor(selectionCursor{Version: 1, Project: projectid.Canonical(receipt.Project), RevisionID: selection.ID, Generation: selection.Generation, Scope: selection.ScopeDigest, MemberKey: last, ReceiptID: receipt.ID, OutputID: request.OutputID, MembershipDigest: selection.MembershipDigest})
+		next, encodeErr := s.config.PopulationMappingCursorCodec.Encode(PopulationMappingCursor{Version: 1, ReceiptID: receipt.ID, OutputID: request.OutputID, Project: projectid.Canonical(receipt.Project), ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: selection.ScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: selection.MembershipDigest, ResourceType: selection.ResourceType, MemberKey: last})
 		if encodeErr != nil {
 			return PopulationMappingResult{}, internal("populationMapping", "POPULATION_MAPPING_CURSOR", "population mapping cursor could not be created", encodeErr)
 		}
@@ -194,6 +201,6 @@ func incompletePopulationReport(receipt *explorer.CompilationReceipt, outputID s
 	return PopulationMappingReport{Binding: populationMappingBinding(receipt, outputID, selection), Status: dataframeexecution.PopulationMappingIncomplete, Diagnostics: []PopulationMappingDiagnostic{{Code: "INCOMPLETE", Message: "population mapping did not finish within the request limits"}}}
 }
 
-func populationCursorMatches(cursor selectionCursor, receipt *explorer.CompilationReceipt, selection *explorer.SelectionRevision) bool {
-	return cursor.ReceiptID == receipt.ID && cursor.OutputID != "" && cursor.MembershipDigest == selection.MembershipDigest && cursor.RevisionID == selection.ID && cursor.Generation == selection.Generation && cursor.Scope == selection.ScopeDigest
+func populationCursorMatches(cursor PopulationMappingCursor, receipt *explorer.CompilationReceipt, selection *explorer.SelectionRevision) bool {
+	return cursor.ReceiptID == receipt.ID && cursor.OutputID != "" && cursor.Project == projectid.Canonical(receipt.Project) && cursor.ExplorerID == receipt.ExplorerID && cursor.MembershipDigest == selection.MembershipDigest && cursor.SelectionRevisionID == selection.ID && cursor.Generation == selection.Generation && cursor.ScopeDigest == selection.ScopeDigest && cursor.ResourceType == selection.ResourceType
 }

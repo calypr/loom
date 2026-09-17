@@ -174,3 +174,14 @@ func TestInvalidRequiredDataframeSelectorsEnvironmentIsRejected(t *testing.T) {
 		t.Fatalf("invalid selector environment = %v", err)
 	}
 }
+
+func TestPopulationMappingCursorSecretFromEnvironment(t *testing.T) {
+	t.Setenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET", "configured-population-cursor-secret")
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.PopulationMappingCursorSecret != "configured-population-cursor-secret" {
+		t.Fatalf("population mapping cursor secret = %q", cfg.Server.PopulationMappingCursorSecret)
+	}
+}

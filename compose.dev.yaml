@@ -29,6 +29,8 @@ services:
       - loom_dev_clickhouse_data:/var/lib/clickhouse
 
   loom-api:
+    environment:
+      LOOM_POPULATION_MAPPING_CURSOR_SECRET: ${LOOM_POPULATION_MAPPING_CURSOR_SECRET:?set LOOM_POPULATION_MAPPING_CURSOR_SECRET}
     build:
       context: ${LOOM_DEV_SOURCE_ROOT:-.}
       dockerfile: Dockerfile.dev

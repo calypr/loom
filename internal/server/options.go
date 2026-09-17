@@ -20,19 +20,20 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                     string                      `yaml:"listen"`
-	URL                        string                      `yaml:"url"`
-	Database                   string                      `yaml:"database"`
-	Schema                     string                      `yaml:"schema"`
-	ClickHouse                 ClickHouseConfig            `yaml:"clickhouse"`
-	Dataframer                 DataframerConfig            `yaml:"dataframer"`
-	RecipeBatchRows            int                         `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes           int                         `yaml:"recipe_batch_bytes"`
-	RecipeQueryPageRows        int                         `yaml:"recipe_query_page_rows"`
-	AllowUnauthenticated       bool                        `yaml:"allow_unauthenticated"`
-	RequiredDataframeSelectors []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
-	LocalWorkspaceWriteback    string                      `yaml:"local_workspace_writeback"`
-	LocalWorkspaceProject      string                      `yaml:"local_workspace_project"`
+	Listen                        string                      `yaml:"listen"`
+	URL                           string                      `yaml:"url"`
+	Database                      string                      `yaml:"database"`
+	Schema                        string                      `yaml:"schema"`
+	ClickHouse                    ClickHouseConfig            `yaml:"clickhouse"`
+	Dataframer                    DataframerConfig            `yaml:"dataframer"`
+	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes              int                         `yaml:"recipe_batch_bytes"`
+	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
+	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
+	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
+	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
+	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
 }
 
 type ClickHouseConfig struct {
@@ -189,6 +190,9 @@ func applyEnvironment(cfg Config) (Config, error) {
 	}
 	if cfg.Auth.Basic.Password == "" {
 		cfg.Auth.Basic.Password = os.Getenv("LOOM_AUTH_BASIC_PASSWORD")
+	}
+	if cfg.Server.PopulationMappingCursorSecret == "" {
+		cfg.Server.PopulationMappingCursorSecret = os.Getenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET")
 	}
 	if raw := strings.TrimSpace(os.Getenv("LOOM_REQUIRED_DATAFRAME_SELECTORS")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.Server.RequiredDataframeSelectors); err != nil {

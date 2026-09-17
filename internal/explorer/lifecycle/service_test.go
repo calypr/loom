@@ -214,6 +214,7 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 }
 
 func testConfig(snapshot capability.Snapshot) Config {
+	cursorCodec, _ := NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
 	return Config{Capability: CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
@@ -222,7 +223,7 @@ func testConfig(snapshot capability.Snapshot) Config {
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
 			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
 		},
-	}}
+	}, PopulationMappingCursorCodec: cursorCodec}
 }
 
 func completedTestSelection(snapshot capability.Snapshot, resourceType string) *explorer.SelectionRevision {

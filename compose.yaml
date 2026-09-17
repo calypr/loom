@@ -30,6 +30,8 @@ services:
 
   loom-api:
     image: ${LOOM_API_IMAGE:-loom-demo-api:local}
+    environment:
+      LOOM_POPULATION_MAPPING_CURSOR_SECRET: ${LOOM_POPULATION_MAPPING_CURSOR_SECRET:?set LOOM_POPULATION_MAPPING_CURSOR_SECRET}
     build:
       context: ${LOOM_API_BUILD_CONTEXT:-.}
     command:

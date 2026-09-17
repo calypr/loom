@@ -1,7 +1,10 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -68,10 +71,57 @@ func TestPopulationMappingRejectsCrossOutputCursorBeforeReadingMembers(t *testin
 		return dataframeexecution.PopulationMappingResult{}, nil
 	}
 	service := newTestService(t, store, config)
-	_, err := service.PopulationMapping(context.Background(), PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "other", Cursor: "bad", Limit: 10})
+	cursor, err := config.PopulationMappingCursorCodec.Encode(PopulationMappingCursor{Version: 1, ReceiptID: receipt.ID, OutputID: "patients", Project: "project-a", ExplorerID: "patients", Generation: selection.Generation, ScopeDigest: selection.ScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: selection.MembershipDigest, ResourceType: selection.ResourceType, MemberKey: "file-001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.PopulationMapping(context.Background(), PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "other", Cursor: cursor, Limit: 10})
 	if err == nil || store.memberVisits != 0 {
 		t.Fatalf("cross-output cursor err=%v, member visits=%d", err, store.memberVisits)
 	}
+}
+
+func TestPopulationMappingRejectsTamperedCursorBeforeReadingMembers(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
+	receipt := populationTestReceipt(snapshot)
+	selection := completedTestSelection(snapshot, "Specimen")
+	selection.MemberCount = 3
+	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorer.SelectionMember{
+		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
+		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
+		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
+	}}
+	config := testConfig(snapshot)
+	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
+		return dataframeexecution.PopulationMappingResult{Status: dataframeexecution.PopulationMappingComplete, SelectedCount: 3, MappedCount: 2, UnmappedCount: 1, EmittedRows: 1, UnmappedMemberIDs: []string{"file-004"}, HasMoreUnmapped: true}, nil
+	}
+	service := newTestService(t, store, config)
+	first, err := service.PopulationMapping(context.Background(), PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
+	if err != nil || first.Report.NextCursor == "" {
+		t.Fatalf("first population report = %#v, err=%v", first.Report, err)
+	}
+	store.memberVisits = 0
+	tampered := tamperPopulationCursorMemberKey(t, first.Report.NextCursor)
+	_, err = service.PopulationMapping(context.Background(), PopulationMappingRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Cursor: tampered, Limit: 1})
+	if err == nil || store.memberVisits != 0 {
+		t.Fatalf("tampered cursor err=%v, member visits=%d", err, store.memberVisits)
+	}
+}
+
+func tamperPopulationCursorMemberKey(t *testing.T, cursor string) string {
+	parts := strings.Split(cursor, ".")
+	if len(parts) != 2 {
+		t.Fatalf("cursor parts = %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(payload, []byte(`"memberKey":"file-004"`)) {
+		t.Fatalf("cursor payload did not contain expected member key: %s", payload)
+	}
+	payload = bytes.Replace(payload, []byte(`"memberKey":"file-004"`), []byte(`"memberKey":"file-005"`), 1)
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + parts[1]
 }
 
 func TestPopulationMappingIncompleteHasNoCounts(t *testing.T) {

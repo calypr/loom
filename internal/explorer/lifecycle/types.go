@@ -103,11 +103,12 @@ type Config struct {
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
 
-	CompileReceipt     ReceiptCompiler
-	PreviewReceipt     ReceiptPreviewer
-	PopulationMapping  PopulationMappingExecutor
-	MaterializeReceipt ReceiptMaterializer
-	ReceiptLookup      ReceiptReader
+	CompileReceipt               ReceiptCompiler
+	PreviewReceipt               ReceiptPreviewer
+	PopulationMapping            PopulationMappingExecutor
+	PopulationMappingCursorCodec PopulationMappingCursorCodec
+	MaterializeReceipt           ReceiptMaterializer
+	ReceiptLookup                ReceiptReader
 
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator
