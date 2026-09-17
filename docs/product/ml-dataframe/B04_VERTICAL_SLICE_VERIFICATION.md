@@ -10,6 +10,8 @@ The explicit **Check selected-resource coverage** action now runs a receipt-boun
 
 `SET_TABLE_ROOT` no longer deletes configured routes, columns, filters, actions, or population state. A same-root command is a no-op. A nontrivial root change returns `ROOT_REBASE_REQUIRED` before the draft compare-and-swap.
 
+Independent sibling feature occurrences may now traverse the same catalog relationship without sharing occurrence identity or predicate scope. Reusing that relationship again along one root-to-leaf branch remains rejected when the route policy disallows repeated edges. Two optional count contributors with different predicates survive authoring, semantic compilation, physical lowering, and AQL rendering as two contributor sets.
+
 ## Executable evidence
 
 The full Go suite passed:
@@ -64,7 +66,7 @@ B04 remains in progress. This slice does not yet provide:
 - selection variants and exclusions that create a new immutable starting collection;
 - an explicit row-definition control and assess/apply rebase flow for changing row grain without silently deleting compatible features;
 - live exact-mapping assertions for both direct and reversed population routes;
-- independent contributor-scoped relationship occurrences;
+- typed authoring and literal Arango execution of independent contributor predicates, plus required population-match and predicate-aware sharing rules;
 - a checked nontrivial root rebase that preserves compatible features;
 - a density benchmark that compares target scans with membership-driven traversal.
 
@@ -76,7 +78,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | --- | --- | --- | --- |
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
 | `ML-B04-02` | In progress | A same-root command preserves the table. An unsafe root change returns `ROOT_REBASE_REQUIRED` before draft persistence. | Assess a proposed row change, identify affected features, and atomically apply an unambiguous rebase without changing stable feature IDs. |
-| `ML-B04-03` | Not started | None. | Add independent contributor-scoped occurrences, typed predicates, required population matching, and predicate-aware traversal sharing. |
+| `ML-B04-03` | In progress | Sibling occurrences reuse one relationship with distinct stable IDs. Two optional count contributors retain different scalar predicates through semantic compilation, physical lowering, and AQL rendering. Repeats within one branch remain rejected, including edge updates that would collide with a descendant. | Add typed predicate authoring, required population matching, predicate-aware traversal sharing, and literal Arango execution proving the two counts differ without dropping the root row. |
 | `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded unmatched-resource list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
 The current focused Go package gate passes. The UI boundary check, TypeScript
@@ -85,6 +87,11 @@ test compilation, and all 134 UI tests pass. The live API rerun produced
 produced `.artifacts/loom-dev/population-row-ui-1789600065099.html` after the
 driver learned to clear retained population state before attachment. These
 artifacts prove the implemented slice, not the missing acceptance criteria.
+
+Commit `7074790d` passed the focused contributor-scope regressions and the full
+B04 backend package gate covering Explorer, recipe execution, semantic planning,
+physical compilation, AQL rendering, and the server. This is unit-level proof;
+it does not replace the missing literal Arango execution or browser journey.
 
 The B04 performance gate has no result. B02 selection-storage measurements do
 not replace the required sparse-versus-dense population-plan comparison or the
