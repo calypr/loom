@@ -18,6 +18,9 @@ and capability snapshot. Applying that proposal atomically preserves feature
 keys, columns, filters, actions, and population selection while rebasing the
 route. A stale proposal or an absent or ambiguous inverse relationship leaves
 the draft unchanged and returns a typed conflict or unresolved reference.
+The traversal control exposes each eligible direct child as a row-start choice.
+Semantic recipes use exact authored traversal column names so feature identity
+does not depend on where an occurrence currently sits in the route.
 
 Independent sibling feature occurrences may now traverse the same catalog relationship without sharing occurrence identity or predicate scope. Reusing that relationship again along one root-to-leaf branch remains rejected when the route policy disallows repeated edges. Two optional count contributors with different predicates survive authoring, semantic compilation, physical lowering, and AQL rendering as two contributor sets.
 
@@ -54,6 +57,16 @@ The population browser probe proved these user-visible results:
 
 The retained DOM evidence is `.artifacts/loom-dev/population-row-ui-1789594635734.html`.
 
+The row-rebase browser probe started with Patient rows and an Observation
+child, clicked **Make rows** for Observation, accepted the assessed change, and
+then ran Preview. The row-change assessment, command, reconcile, and preview
+requests all returned 200. Observation became the root with Patient beneath it;
+all four feature keys and the configured gender filter were identical before
+and after the rebase.
+
+- Report: `.artifacts/loom-dev/row-rebase-ui-1789673863601.json`
+- DOM evidence: `.artifacts/loom-dev/row-rebase-ui-1789673863601.html`
+
 The integrated 2026-09-17 rerun used three selected files: linked files 001 and
 002 plus unlinked file 004. The API returned
 `selected=3, mapped=2, unmapped=1, emittedRows=1` and only file 004. The
@@ -68,6 +81,13 @@ and cleared the report after reload while preserving the population.
 
 The first live Preview returned zero rows. Stored FHIR documents used the legacy hyphenated project ID, while selection members used the canonical slash form. The physical semijoin had reused the FHIR project bind for selection members. Runtime bindings now carry separate FHIR-storage and selection-storage project identities. The same live probe passed after the fix.
 
+The first live row rebase applied successfully but reconcile rejected the old
+root features because public column keys encoded their former occurrence
+prefix. Traversal lowering now supports `EXACT` authored names, and semantic
+Builder recipes use it under translation version `authoring-v2-native-8`.
+Feature keys therefore remain stable when their occurrences move. The replayed
+browser journey reconciled and previewed successfully.
+
 ## Remaining B04 work
 
 B04 remains in progress. This slice does not yet provide:
@@ -76,7 +96,7 @@ B04 remains in progress. This slice does not yet provide:
 - ambiguity repair controls for choosing among multiple valid inverse relationships;
 - live exact-mapping assertions for both direct and reversed population routes;
 - typed authoring and literal Arango execution of independent contributor predicates, plus required population-match and predicate-aware sharing rules;
-- a live Docker/browser row-rebase journey and support for compatible rebases deeper than one direct child;
+- support for compatible rebases deeper than one direct child;
 - a density benchmark that compares target scans with membership-driven traversal.
 
 ## Acceptance audit on 2026-09-16
@@ -86,7 +106,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | Issue | Status | Proven | Still required |
 | --- | --- | --- | --- |
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
-| `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies an unambiguous direct-child rebase. Unit and HTTP-route tests prove stable feature IDs, preserved selection/filters/actions, read-only assessment, and no mutation after stale or unresolved proposals. | Prove the journey in the live Docker browser stack, add an ambiguity-choice repair control, and support compatible deeper rebases if the product journey requires them. |
+| `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies an unambiguous direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Add an ambiguity-choice repair control and support compatible deeper rebases if the product journey requires them. |
 | `ML-B04-03` | In progress | Sibling occurrences reuse one relationship with distinct stable IDs. Two optional count contributors retain different scalar predicates through semantic compilation, physical lowering, and AQL rendering. Repeats within one branch remain rejected, including edge updates that would collide with a descendant. | Add typed predicate authoring, required population matching, predicate-aware traversal sharing, and literal Arango execution proving the two counts differ without dropping the root row. |
 | `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded unmatched-resource list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
@@ -109,6 +129,12 @@ row change, applies the returned proposal through the command endpoint, verifies
 the new row root and stable feature key, and rejects replay of the stale
 proposal. This is API/UI unit proof; live Docker/browser evidence is still
 required.
+
+Commit `03cb2a80` adds the reachable traversal control and exact traversal
+column naming. The complete recipe, semantic, compiler, Explorer, and server
+package gate passed, as did OpenAPI ownership, all 140 UI tests, and the
+production build. The retained Docker/browser report is
+`.artifacts/loom-dev/row-rebase-ui-1789673863601.json`.
 
 The B04 performance gate has no result. B02 selection-storage measurements do
 not replace the required sparse-versus-dense population-plan comparison or the
