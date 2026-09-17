@@ -21,6 +21,10 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const OWNED_SERVICES = new Set(['arangodb', 'clickhouse', 'loom-api', 'loom-ui']);
 
 const requiredFixtureFiles = ['Patient.ndjson', 'Observation.ndjson', 'recipe.json'];
+const BOOTSTRAP_EXPLORER_NAME = 'loom-dev-bootstrap';
+const BOOTSTRAP_EXPLORER_TITLE = 'Loom dev bootstrap';
+const BOOTSTRAP_TABLE_TITLE = 'Patients';
+const BOOTSTRAP_SEED_VERSION = 'v1';
 const DEFAULT_PORT_REGISTRY = join(tmpdir(), 'loom-dev-port-registry.json');
 const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
@@ -249,7 +253,7 @@ export const commandEnvironment = (target) => ({
   LOOM_DEV_HOST: target.host,
   LOOM_DEV_API_PORT: String(target.apiPort),
   LOOM_DEV_UI_PORT: String(target.uiPort),
-  LOOM_DEV_EXPLORER: 'loom-dev-bootstrap',
+  LOOM_DEV_EXPLORER: BOOTSTRAP_EXPLORER_NAME,
   LOOM_POPULATION_MAPPING_CURSOR_SECRET: target.populationMappingCursorSecret,
 });
 
@@ -307,7 +311,7 @@ const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
           const separator = entry.indexOf('=');
           return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
         }));
-        if (environment.VITE_LOOM_PROJECT !== target.fixtureProject || environment.VITE_LOOM_EXPLORER !== 'loom-dev-bootstrap') {
+        if (environment.VITE_LOOM_PROJECT !== target.fixtureProject || environment.VITE_LOOM_EXPLORER !== BOOTSTRAP_EXPLORER_NAME) {
           throw new Error('development UI defaults do not target this session fixture and bootstrap Explorer');
         }
       }
@@ -394,7 +398,104 @@ const assertFreshProject = async (target) => {
   if (generation.status !== 404) throw new Error(`verification generation preflight returned HTTP ${generation.status}`);
 };
 
-const seedFixture = async (target, { requireFresh = false } = {}) => {
+const bootstrapAuthoringURL = (target, explorerId) => `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2`;
+
+export const bootstrapWorkspaceNeedsSeed = (state) => {
+  if (!state || state.draftVersion === undefined) return false;
+  if (state.lifecycleState === 'NEW' && state.workspace === null && state.draftVersion === 0) return true;
+  const documents = state.workspace?.documents;
+  return state.lifecycleState === 'READY'
+    && state.draftVersion === 1
+    && Array.isArray(documents)
+    && documents.length === 1
+    && documents[0]?.output?.title === BOOTSTRAP_TABLE_TITLE
+    && (documents[0]?.columns?.length ?? 0) === 0;
+};
+
+export const bootstrapSeedPlan = (state) => {
+  const catalog = state?.catalog;
+  const root = catalog?.nodes?.find((node) => node.rowRootEligible && node.resourceType === 'Patient');
+  if (!root?.nodeId) throw new Error('development fixture catalog has no eligible Patient root');
+  const normalizedPath = (candidate) => String(candidate?.fieldPath ?? '').replace(/^root\./, '');
+  const candidates = ['id', 'name[].family', 'gender'].map((path) => catalog.candidates?.find((candidate) => candidate.nodeId === root.nodeId && normalizedPath(candidate) === path));
+  if (!candidates[0]?.candidateId) throw new Error('development fixture catalog has no Patient id candidate');
+  return {
+    createTable: !(state.workspace?.documents?.length === 1 && state.workspace.documents[0]?.output?.title === BOOTSTRAP_TABLE_TITLE),
+    rootNodeId: root.nodeId,
+    candidates: candidates.filter(Boolean),
+  };
+};
+
+const applyBootstrapCommands = async (target, explorerId, state, commandId, commands) => {
+  const { response, value } = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/commands`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      commandId,
+      semanticsVersion: 3,
+      snapshotToken: state.catalog.snapshotToken,
+      expectedDraftVersion: state.draftVersion,
+      ...(state.draftDigest ? { expectedDraftDigest: state.draftDigest } : {}),
+      commands,
+    }),
+    timeout: 30000,
+  });
+  if (!response.ok) throw new Error(`fixture bootstrap authoring command returned HTTP ${response.status}: ${JSON.stringify(value).slice(0, 500)}`);
+  return value;
+};
+
+const seedBootstrapWorkspace = async (target, explorerId) => {
+  const builder = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/builder`, { timeout: 30000 });
+  if (!builder.response.ok) throw new Error(`fixture bootstrap Builder returned HTTP ${builder.response.status}`);
+  if (!bootstrapWorkspaceNeedsSeed(builder.value)) {
+    return { seeded: false, draftVersion: builder.value.draftVersion, workspace: builder.value.workspace };
+  }
+
+  const plan = bootstrapSeedPlan(builder.value);
+  let state = builder.value;
+  let workspace = state.workspace;
+  let outputID = workspace?.documents?.[0]?.output?.id;
+  if (plan.createTable) {
+    const created = await applyBootstrapCommands(
+      target,
+      explorerId,
+      state,
+      `loom-dev-bootstrap-${target.fixtureProject}-${BOOTSTRAP_SEED_VERSION}-table`,
+      [{ type: 'CREATE_TABLE', title: BOOTSTRAP_TABLE_TITLE, rootNodeId: plan.rootNodeId }],
+    );
+    state = { ...state, ...created };
+    workspace = created.workspace;
+    outputID = created.results?.find((result) => result.type === 'TABLE_CREATED')?.outputId;
+    if (!outputID) throw new Error('fixture bootstrap table command returned no output identity');
+  }
+
+  const existingColumns = new Set((workspace?.documents?.find((document) => document.output?.id === outputID)?.columns ?? []).map((column) => `${column.occurrenceId}:${column.source?.field?.path ?? ''}`));
+  const commands = plan.candidates
+    .filter((candidate) => !existingColumns.has(`base:${String(candidate.fieldPath ?? '').replace(/^root\./, '')}`))
+    .map((candidate) => ({
+      type: 'ADD_COLUMN',
+      outputId: outputID,
+      occurrenceId: 'base',
+      candidateId: candidate.candidateId,
+      projectionMode: candidate.defaultProjectionMode,
+      initialPresentation: 'TABLE',
+      title: candidate.label,
+    }));
+  if (commands.length > 0) {
+    const completed = await applyBootstrapCommands(
+      target,
+      explorerId,
+      state,
+      `loom-dev-bootstrap-${target.fixtureProject}-${BOOTSTRAP_SEED_VERSION}-columns`,
+      commands,
+    );
+    workspace = completed.workspace;
+    state = { ...state, ...completed };
+  }
+  return { seeded: true, draftVersion: state.draftVersion, workspace };
+};
+
+const seedFixture = async (target, { requireFresh = false, populateBootstrap = true } = {}) => {
   if (requireFresh) await assertFreshProject(target);
   const statusURL = `${target.apiUrl}/api/v1/datasets/${encodeURIComponent(target.fixtureProject)}/generations/${encodeURIComponent(target.fixtureGeneration)}`;
   const status = await request(statusURL, { timeout: 5000 });
@@ -415,13 +516,12 @@ const seedFixture = async (target, { requireFresh = false } = {}) => {
   const explorersURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
   const list = await requestJSON(explorersURL, { timeout: 30000 });
   if (!list.response.ok || !Array.isArray(list.value)) throw new Error(`fixture Explorer list returned HTTP ${list.response.status}`);
-  const bootstrapTitle = 'Loom dev bootstrap';
-  let bootstrap = list.value.find((explorer) => explorer.title === bootstrapTitle);
+  let bootstrap = list.value.find((explorer) => explorer.title === BOOTSTRAP_EXPLORER_TITLE);
   if (!bootstrap) {
-    const created = await requestJSON(explorersURL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'loom-dev-bootstrap', title: bootstrapTitle }), timeout: 30000 });
+    const created = await requestJSON(explorersURL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: BOOTSTRAP_EXPLORER_NAME, title: BOOTSTRAP_EXPLORER_TITLE }), timeout: 30000 });
     if (created.response.status === 409) {
       const retry = await requestJSON(explorersURL, { timeout: 30000 });
-      bootstrap = retry.value.find((explorer) => explorer.title === bootstrapTitle);
+      bootstrap = retry.value.find((explorer) => explorer.title === BOOTSTRAP_EXPLORER_TITLE);
     } else if (created.response.ok) {
       bootstrap = created.value;
     } else {
@@ -429,7 +529,8 @@ const seedFixture = async (target, { requireFresh = false } = {}) => {
     }
   }
   if (!bootstrap?.explorerId) throw new Error('fixture bootstrap Explorer has no stable identity');
-  return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId };
+  const bootstrapWorkspace = populateBootstrap ? await seedBootstrapWorkspace(target, bootstrap.explorerId) : undefined;
+  return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId, bootstrapWorkspace };
 };
 
 const ensureDev = async (target, report, rebuild = false) => {
@@ -456,7 +557,8 @@ const ensureDev = async (target, report, rebuild = false) => {
   report.timings.startup_ms = Date.now() - started;
   report.target.fixtureSeed = seed.reused ? 'reused' : 'seeded';
   report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-  writeJSON(join(target.artifacts, 'dev-session.json'), { ...target, fixtureSeed: report.target.fixtureSeed, bootstrapExplorerId: seed.bootstrapExplorerId });
+  report.target.bootstrapWorkspace = seed.bootstrapWorkspace?.seeded ? 'seeded' : 'reused';
+  writeJSON(join(target.artifacts, 'dev-session.json'), { ...target, fixtureSeed: report.target.fixtureSeed, bootstrapExplorerId: seed.bootstrapExplorerId, bootstrapWorkspace: report.target.bootstrapWorkspace });
   return seed;
 };
 
@@ -1109,11 +1211,11 @@ const doctor = async (target) => {
   const ui = await request(target.uiUrl, { timeout: 5000 });
   const generation = await request(`${target.apiUrl}/api/v1/datasets/${encodeURIComponent(target.fixtureProject)}/generations/${encodeURIComponent(target.fixtureGeneration)}`, { timeout: 5000 });
   const explorers = await requestJSON(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`, { timeout: 30000 });
-  const bootstrap = Array.isArray(explorers.value) ? explorers.value.find((explorer) => explorer.title === 'Loom dev bootstrap') : undefined;
+  const bootstrap = Array.isArray(explorers.value) ? explorers.value.find((explorer) => explorer.title === BOOTSTRAP_EXPLORER_TITLE) : undefined;
   const builder = bootstrap?.explorerId
-    ? await request(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(bootstrap.explorerId)}/authoring/v2/builder`, { timeout: 30000 })
+    ? await requestJSON(`${bootstrapAuthoringURL(target, bootstrap.explorerId)}/builder`, { timeout: 30000 })
     : undefined;
-  return { api: api.status, ui: ui.status, generation: generation.status, builder: builder?.status ?? 404, bootstrapExplorerId: bootstrap?.explorerId, composeProject: target.composeProject, project: target.fixtureProject, generationName: target.fixtureGeneration, buildBarrier };
+  return { api: api.status, ui: ui.status, generation: generation.status, builder: builder?.response.status ?? 404, builderState: builder?.response.ok ? builder.value : undefined, bootstrapExplorerId: bootstrap?.explorerId, composeProject: target.composeProject, project: target.fixtureProject, generationName: target.fixtureGeneration, buildBarrier };
 };
 
 const cleanup = async (target, purge = false) => {
@@ -1152,9 +1254,11 @@ const main = async (argv) => {
       recordAssertion(report, 'fixture-generation-present', 200, result.generation);
       recordAssertion(report, 'fixture-bootstrap-builder-loads', 200, result.builder);
       recordAssertion(report, 'fixture-bootstrap-has-owned-identity', true, Boolean(result.bootstrapExplorerId));
+      recordAssertion(report, 'fixture-bootstrap-has-editable-workspace', true, Boolean(result.builderState?.workspace?.documents?.length));
       recordAssertion(report, 'development-build-is-fresh', true, result.buildBarrier >= 0);
       report.timings.api_build_barrier_ms = result.buildBarrier;
       report.target.bootstrapExplorerId = result.bootstrapExplorerId;
+      report.target.bootstrapWorkspace = result.builderState?.workspace?.documents?.length ? 'present' : 'missing';
       report.status = 'ready';
       writeJSON(join(target.artifacts, 'report.json'), report);
       console.log('DEV_DOCTOR_PASSED');
@@ -1167,7 +1271,7 @@ const main = async (argv) => {
       activeReport = verificationReport;
       verificationReport.timings.startup_ms = report.timings.startup_ms;
       verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true });
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
       if (seed.reused || !seed.fresh) throw new Error(`verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
       verificationReport.target.fixtureSeed = 'seeded';
       verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;

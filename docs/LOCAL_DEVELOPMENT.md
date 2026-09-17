@@ -29,9 +29,11 @@ make dev
 
 The command starts ArangoDB, ClickHouse, the Air-watched Go server, and the
 Vite server. The first run builds the development images. Later runs attach to
-the same services and reuse the seeded generation. The loader posts the two
-fixture files to the real generation API only when the target generation does
-not exist.
+the same services and reuse the seeded generation and the editable bootstrap
+workspace. The loader posts the fixture files to the real generation API only
+when the target generation does not exist, then initializes the bootstrap
+Explorer with a Patient table and literal fixture fields when it is still a
+new, empty draft.
 
 Open `http://127.0.0.1:3180` for manual exploration. Use
 `http://127.0.0.1:8180` for the API. Change `LOOM_DEV_API_PORT` and
@@ -71,9 +73,11 @@ Viewer, applies the gender filter, clicks `Download CSV`, parses the exact
 physical-column CSV, reloads Viewer, and checks that the published data remains
 available.
 
-The stable `loom_dev_fixture` project and `loom-dev-bootstrap` Explorer are
-used by `make dev` and Doctor. Verification projects are retained because the
-backend has no Explorer-delete operation. `make dev-down` stops services;
+The stable per-worktree `loom_dev_<hash>` project and `loom-dev-bootstrap`
+Explorer are used by `make dev` and Doctor. Verification projects are retained
+because the backend has no Explorer-delete operation; their bootstrap
+Explorers remain empty so each verification run authors its own new Explorer.
+`make dev-down` stops services;
 `node scripts/loom-dev.mjs dev-down --purge` removes the exact development
 volumes and their retained per-run projects.
 

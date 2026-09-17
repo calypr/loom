@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);
@@ -24,6 +24,46 @@ test('development session defaults to isolated names, ports, and fixture', () =>
   } finally {
     rmSync(registryRoot, { recursive: true, force: true });
   }
+});
+
+test('bootstrap seeding is limited to a new or interrupted default draft', () => {
+  const catalog = {
+    nodes: [{ nodeId: 'patient', resourceType: 'Patient', rowRootEligible: true }],
+    candidates: [],
+  };
+  assert.equal(bootstrapWorkspaceNeedsSeed({ lifecycleState: 'NEW', draftVersion: 0, workspace: null, catalog }), true);
+  assert.equal(bootstrapWorkspaceNeedsSeed({ lifecycleState: 'READY', draftVersion: 1, workspace: { documents: [{ output: { title: 'Patients' }, columns: [] }] }, catalog }), true);
+  assert.equal(bootstrapWorkspaceNeedsSeed({ lifecycleState: 'READY', draftVersion: 2, workspace: { documents: [] }, catalog }), false);
+  assert.equal(bootstrapWorkspaceNeedsSeed({ lifecycleState: 'READY', draftVersion: 2, workspace: { documents: [{ output: { title: 'Patients' }, columns: [] }] }, catalog }), false);
+});
+
+test('bootstrap seed plan uses the current Patient catalog, never transient project identities', () => {
+  const state = {
+    lifecycleState: 'NEW',
+    draftVersion: 0,
+    workspace: null,
+    catalog: {
+      nodes: [
+        { nodeId: 'patient', resourceType: 'Patient', rowRootEligible: true },
+        { nodeId: 'observation', resourceType: 'Observation', rowRootEligible: true },
+      ],
+      candidates: [
+        { candidateId: 'patient-id-current', nodeId: 'patient', fieldPath: 'root.id', defaultProjectionMode: 'SCALAR', label: 'id' },
+        { candidateId: 'patient-family-current', nodeId: 'patient', fieldPath: 'root.name[].family', defaultProjectionMode: 'INDEXED', label: 'name[].family' },
+        { candidateId: 'patient-gender-current', nodeId: 'patient', fieldPath: 'gender', defaultProjectionMode: 'SCALAR', label: 'gender' },
+        { candidateId: 'observation-id-current', nodeId: 'observation', fieldPath: 'id', defaultProjectionMode: 'SCALAR', label: 'id' },
+      ],
+    },
+  };
+  const plan = bootstrapSeedPlan(state);
+  assert.equal(plan.createTable, true);
+  assert.equal(plan.rootNodeId, 'patient');
+  assert.deepEqual(plan.candidates.map((candidate) => candidate.candidateId), [
+    'patient-id-current',
+    'patient-family-current',
+    'patient-gender-current',
+  ]);
+  assert.equal(JSON.stringify(plan).includes('loom_dev_verify_'), false);
 });
 
 test('default development sessions separate worktree identities and ports', () => {
