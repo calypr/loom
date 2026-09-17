@@ -129,7 +129,6 @@ browser journey reconciled and previewed successfully.
 
 B04 remains in progress. This slice does not yet provide:
 
-- an explicit row-definition control and another non-file-root live journey;
 - live exact-mapping assertions for both direct and reversed population routes;
 - a visible Builder contributor editor and its Preview/Publish/Viewer/reload journey, tracked in B05;
 - support for compatible rebases deeper than one direct child;
@@ -144,7 +143,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
 | `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies a direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, explicit occurrence and inverse-edge ambiguity choices, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Support compatible deeper rebases if the product journey requires them. |
 | `ML-B04-03` | Done | Sibling occurrences reuse one relationship with distinct stable IDs. Semantics v4 adds catalog-bound contributor predicates, explicit set/clear commands, deterministic legacy migration, and one canonical typed filter through semantic and physical lowering. Real Arango execution returns independent counts `1` and `2` while retaining an unmatched optional root as `0` and `0`; changing one route to required removes only that unmatched root. The live browser loop persists both **Required match** and **Optional feature** through the command API. | The visible contributor-value editor and its Preview/Publish/Viewer/reload journey are B05, not unfinished B04 predicate separation. |
-| `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage, and can remove an unmatched source by deriving and attaching a new immutable selection revision. The live DOM journey proves the revised two-member selection maps 2/2, re-previews, clears stale coverage, and survives reload. | Add an explicit row-definition control and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
+| `ML-B04-04` | Done | Builder attaches or clears a supplied selection, previews constrained rows, displays exact resulting/unmapped coverage, and removes an unmatched source by deriving and attaching a new immutable selection revision. A separate **One row per** control exposes safe authored-route choices through the existing assess/apply command path. Live DOM evidence proves the repaired file-to-Specimen collection maps 2/2 and survives reload; a second journey changes Specimen rows to Observation rows, preserves feature keys, previews, and survives reload without Patient or DocumentReference input. | Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
 The full Go suite, OpenAPI ownership check, production UI build, all 143 UI
 tests, development doctor, and 12.7-second integrated fast loop pass. The live
@@ -153,7 +152,11 @@ The browser rerun produced
 `.artifacts/loom-dev/population-row-ui-1789687551236.html`. These artifacts
 prove attachment, preview, exact coverage, immutable exclusion repair, and
 reload persistence for the file-to-Specimen journey; they do not prove the
-remaining row-definition and second-journey acceptance criteria.
+remaining B04-01 and B04-02 acceptance criteria. The explicit row-definition
+journey produced
+`.artifacts/loom-dev/row-definition-ui-1789688249673.json` and its HTML
+snapshot. All 145 UI tests, the production UI build, and the 12.3-second
+integrated fast loop pass at `eac02b30`.
 
 Commit `7074790d` established sibling contributor scopes. The current semantics
 v4 implementation extends that slice with strict catalog-bound authoring,
