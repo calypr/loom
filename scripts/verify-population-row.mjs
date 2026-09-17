@@ -40,6 +40,11 @@ async function command(commands) {
   return result;
 }
 
+for (const document of builder.workspace?.documents ?? []) {
+  await command([{ type: 'DELETE_TABLE', outputId: document.output.id }]);
+}
+assert.equal(builder.workspace?.documents.length ?? 0, 0, 'population verification must own the only authored table');
+
 async function preview(outputId) {
   const compiled = await json(`${authoring}/reconcile`, {
     snapshotToken: builder.catalog.snapshotToken,

@@ -23,6 +23,7 @@ const downloads = mkdtempSync(join(tmpdir(), 'loom-population-ui-'));
 const browser = await launchBrowser(downloads);
 const browserFailures = [];
 const requestURLs = new Map();
+const authoringResponses = [];
 browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
   browserFailures.push(exceptionDetails.exception?.description ?? exceptionDetails.text ?? 'browser exception');
 });
@@ -30,6 +31,7 @@ browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
   requestURLs.set(requestId, request.url);
 });
 browser.cdp.on('Network.responseReceived', ({ response }) => {
+  if (response.url.includes('/authoring/v2/')) authoringResponses.push(`${response.status} ${new URL(response.url).pathname}`);
   if (response.status >= 400) browserFailures.push(`${response.status} ${response.url}`);
 });
 browser.cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }) => {
@@ -47,19 +49,19 @@ try {
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.')`);
   }
   await browserEval(browser.cdp, `clickButton('Use selected resources');`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per DocumentReference.')`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per Specimen.')`);
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
   await browserEval(browser.cdp, `clickButton('Preview');`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-file-001') && document.body.innerText.includes('dev-file-002')`, 60_000);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-specimen-001')`, 60_000);
   const previewText = await browserEval(browser.cdp, `return document.body.innerText;`);
-  assert.equal(previewText.includes('dev-file-003'), false, 'preview included a file outside the attached selection');
+  assert.equal(previewText.includes('dev-specimen-002'), false, 'preview included a specimen outside the attached selection');
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Check selected-resource coverage' && !button.disabled))`);
   await browserEval(browser.cdp, `clickButton('Check selected-resource coverage');`);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected · 2 produce rows · 1 needs attention')`, 60_000);
   const reportText = await browserEval(browser.cdp, `return document.body.innerText;`);
   assert.equal(reportText.includes('DocumentReference/dev-file-004'), true, 'coverage report omitted the bounded unmatched resource');
   await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per DocumentReference.')`, 60_000);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per Specimen.')`, 60_000);
   const reloadedText = await browserEval(browser.cdp, `return document.body.innerText;`);
   assert.equal(reloadedText.includes('3 selected · 2 produce rows · 1 needs attention'), false, 'reload displayed stale coverage evidence');
   await snapshot(browser.cdp, artifact);
@@ -68,7 +70,7 @@ try {
     assertions: [
       'Builder loads the immutable selection handoff',
       'the DOM control attaches the selection',
-      'Preview contains only selected file rows',
+      'Preview contains only the specimen reached from selected files',
       'coverage report maps two files and returns only unlinked file 004',
       'reload clears stale coverage evidence',
       'the attached population survives a full reload',
@@ -77,7 +79,7 @@ try {
 } catch (error) {
   await snapshot(browser.cdp, artifact);
   const reason = error instanceof Error ? error.message : String(error);
-  throw new Error(`${reason}; browser failures: ${browserFailures.slice(-5).join(' | ') || 'none'}`);
+  throw new Error(`${reason}; authoring responses: ${authoringResponses.slice(-12).join(' | ') || 'none'}; browser failures: ${browserFailures.slice(-5).join(' | ') || 'none'}`);
 } finally {
   await browser.close();
   rmSync(downloads, { recursive: true, force: true });
