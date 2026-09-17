@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePopulationMappingMutation } from '../../../react';
 import type { PopulationMappingResponse } from '../../../api';
 import type { SelectionRevision } from '../../../selection';
@@ -83,14 +83,31 @@ export const PopulationPanel = ({
   const [checkPopulation, checkStatus] = usePopulationMappingMutation();
   const [coverage, setCoverage] = useState<PopulationMappingResponse>();
   const [coverageError, setCoverageError] = useState<string>();
+  const reportRequestEpoch = useRef(0);
   const attached = table.document.population;
   useEffect(() => {
+    reportRequestEpoch.current += 1;
     setCoverage(undefined);
     setCoverageError(undefined);
-  }, [attached?.selectionRevisionId, table.outputId, receiptId]);
+    return () => {
+      reportRequestEpoch.current += 1;
+    };
+  }, [attached?.selectionRevisionId, table.outputId, receiptId, project, explorerId, selection?.id, selection?.project, selection?.generation, selection?.scopeDigest, selection?.membershipDigest]);
   const checkCoverage = () => {
-    if (!receiptId || !project || !explorerId || !attached) return;
+    if (!receiptId || !project || !explorerId || !attached || !selection) return;
     setCoverageError(undefined);
+    const requestEpoch = ++reportRequestEpoch.current;
+    const expectedBinding = {
+      receiptId,
+      outputId: table.outputId,
+      project: selection.project,
+      explorerId,
+      generation: selection.generation,
+      scopeDigest: selection.scopeDigest,
+      selectionRevisionId: selection.id,
+      membershipDigest: selection.membershipDigest,
+      resourceType: selection.resourceType,
+    };
     void checkPopulation({
       project,
       explorerId,
@@ -98,7 +115,16 @@ export const PopulationPanel = ({
       receiptId,
       outputId: table.outputId,
       limit: 100,
-    }).unwrap().then(setCoverage).catch((error: unknown) => {
+    }).unwrap().then((report) => {
+      if (requestEpoch !== reportRequestEpoch.current) return;
+      const bindingMatches = Object.entries(expectedBinding).every(([key, value]) => report.binding[key as keyof typeof report.binding] === value);
+      if (!bindingMatches) {
+        setCoverageError('Coverage check returned a stale report.');
+        return;
+      }
+      setCoverage(report);
+    }).catch((error: unknown) => {
+      if (requestEpoch !== reportRequestEpoch.current) return;
       setCoverageError(error instanceof Error ? error.message : 'Coverage check failed.');
     });
   };
@@ -126,7 +152,7 @@ export const PopulationPanel = ({
             <button type="button" disabled={disabled} onClick={onClear} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50 disabled:opacity-40">
               Use all authorized rows
             </button>
-            {receiptId ? (
+            {receiptId && selection ? (
               <button type="button" disabled={disabled || checkStatus.isLoading} onClick={checkCoverage} className="rounded-md border border-indigo-400 bg-white px-3 py-2 font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-40">
                 {checkStatus.isLoading ? 'Checking selected-resource coverage…' : 'Check selected-resource coverage'}
               </button>
@@ -159,6 +185,7 @@ export const PopulationPanel = ({
               {coverage.unmapped.map((ref) => <li key={`${ref.resourceType}:${ref.id}`}>{ref.resourceType}/{ref.id}</li>)}
             </ul>
           ) : <p className="mt-1 text-slate-600">All selected resources produce rows.</p>}
+          {coverage.nextCursor ? <p className="mt-1 text-slate-600">Showing first {coverage.unmapped.length.toLocaleString()} unmatched resources; more available.</p> : null}
         </div>
       ) : coverage?.status === 'INCOMPLETE' ? (
         <p role="status" className="mt-2 text-amber-800">Coverage check incomplete; exact counts are unavailable.</p>

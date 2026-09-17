@@ -197,6 +197,13 @@ func (h *explorerHTTPHandlers) populationMappingDirect(ctx context.Context, proj
 	if err != nil {
 		return result, err
 	}
+	result.Binding = loomapi.PopulationMappingBinding{
+		ReceiptId: value.Report.Binding.ReceiptID, OutputId: value.Report.Binding.OutputID,
+		Project: value.Report.Binding.Project, ExplorerId: value.Report.Binding.ExplorerID,
+		Generation: value.Report.Binding.Generation, ScopeDigest: value.Report.Binding.ScopeDigest,
+		SelectionRevisionId: value.Report.Binding.SelectionRevisionID, MembershipDigest: value.Report.Binding.MembershipDigest,
+		ResourceType: value.Report.Binding.ResourceType,
+	}
 	result.Status = loomapi.PopulationMappingResponseStatus(value.Report.Status)
 	result.Unmapped = make([]loomapi.SelectionResourceRef, 0, len(value.Report.Unmapped))
 	for _, ref := range value.Report.Unmapped {

@@ -1645,11 +1645,26 @@ components:
         mapped: {type: integer, format: int64, minimum: 0}
         unmapped: {type: integer, format: int64, minimum: 0}
         emittedRows: {type: integer, format: int64, minimum: 0}
+    PopulationMappingBinding:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, project, explorerId, generation, scopeDigest, selectionRevisionId, membershipDigest, resourceType]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        project: {type: string, minLength: 1}
+        explorerId: {type: string, minLength: 1}
+        generation: {type: string, minLength: 1}
+        scopeDigest: {type: string, minLength: 1}
+        selectionRevisionId: {type: string, minLength: 1}
+        membershipDigest: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
     PopulationMappingResponse:
       type: object
       additionalProperties: false
-      required: [status, unmapped, diagnostics]
+      required: [binding, status, unmapped, diagnostics]
       properties:
+        binding: {$ref: '#/components/schemas/PopulationMappingBinding'}
         status: {type: string, enum: [COMPLETE, INCOMPLETE]}
         counts:
           nullable: true

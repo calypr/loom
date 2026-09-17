@@ -102,7 +102,19 @@ const populationMappingCountsSchema = z.object({
   unmapped: z.number().int().nonnegative(),
   emittedRows: z.number().int().nonnegative(),
 }).strict();
+const populationMappingBindingSchema = z.object({
+  receiptId: z.string().min(1),
+  outputId: z.string().min(1),
+  project: z.string().min(1),
+  explorerId: z.string().min(1),
+  generation: z.string().min(1),
+  scopeDigest: z.string().min(1),
+  selectionRevisionId: z.string().min(1),
+  membershipDigest: z.string().min(1),
+  resourceType: z.string().min(1),
+}).strict();
 export const populationMappingResponseSchema = z.object({
+  binding: populationMappingBindingSchema,
   status: z.enum(['COMPLETE', 'INCOMPLETE']),
   counts: populationMappingCountsSchema.nullable().optional(),
   unmapped: z.array(resourceRefSchema),
