@@ -62,6 +62,6 @@ The UI suite passed 131 tests across 22 files, including type and package-bounda
 
 After extension integration, the browser journey passed all 25 assertions in 12.352s. Evidence is `.artifacts/loom-dev/6d7df93d6a37/mu4hrsbx-9f75d55c/report.json`. The UI suite passed 132 tests across 22 files. `go test ./... -count=1`, OpenAPI ownership, and dataframe package-boundary checks passed. The full Go run used local listener permissions, resolving the worker's sandbox-only acceptance failures.
 
-B02 still needs selection attachment to feed the membership digest into compilation identity alongside B04's typed population constraint. Storage/API verification alone does not prove that remaining compiler integration.
+B02's remaining compilation binding was completed by the B04 population slice. Reconcile resolves the immutable selection revision and membership digest into `ResolvedInputsDigest`, the recipe digest, and the receipt-bound population constraint. `scripts/verify-population-row.mjs` proves that different population memberships produce different receipt IDs, while the population coverage endpoint revalidates the same selection, generation, and authorization identities before execution.
 
 No remote branch, production service, or canonical demo was changed.

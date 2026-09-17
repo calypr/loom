@@ -61,7 +61,8 @@ The first live Preview returned zero rows. Stored FHIR documents used the legacy
 
 B04 remains in progress. This slice does not yet provide:
 
-- user-authored repair actions beyond the bounded unmatched-resource list;
+- selection variants and exclusions that create a new immutable starting collection;
+- an explicit row-definition control and assess/apply rebase flow for changing row grain without silently deleting compatible features;
 - live exact-mapping assertions for both direct and reversed population routes;
 - independent contributor-scoped relationship occurrences;
 - a checked nontrivial root rebase that preserves compatible features;
@@ -76,7 +77,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | `ML-B04-01` | In progress | Ordinary execution uses a bounded existence semijoin. The explicit receipt-bound report computes final-row witnesses, exact counts, and a bounded unmatched page; live evidence maps two selected files to one Specimen and returns only unlinked file 004. | Prove exact mappings for both direct and reversed routes and complete the sparse/dense performance gate. |
 | `ML-B04-02` | In progress | A same-root command preserves the table. An unsafe root change returns `ROOT_REBASE_REQUIRED` before draft persistence. | Assess a proposed row change, identify affected features, and atomically apply an unambiguous rebase without changing stable feature IDs. |
 | `ML-B04-03` | Not started | None. | Add independent contributor-scoped occurrences, typed predicates, required population matching, and predicate-aware traversal sharing. |
-| `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded repair list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, repair actions, and another non-file-root journey. |
+| `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, previews constrained rows, displays exact resulting/unmapped coverage with a bounded unmatched-resource list, and clears stale evidence on reload. | Add selection variants and exclusions, an explicit row-definition control, and another non-file-root journey. Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
 The current focused Go package gate passes. The UI boundary check, TypeScript
 test compilation, and all 134 UI tests pass. The live API rerun produced
