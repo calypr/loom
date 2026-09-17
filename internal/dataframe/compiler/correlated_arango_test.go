@@ -285,4 +285,24 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 			t.Fatalf("patient %s row=%#v, want registered=%v cancelled=%v; all rows=%#v", id, row, want[0], want[1], rows)
 		}
 	}
+
+	root.Children[0].MatchMode = spec.TraversalMatchRequired
+	requiredPhysical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	requiredRendered, err := aql.RenderPhysicalPlan(requiredPhysical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requiredRows := []map[string]any{}
+	if err := client.QueryRows(ctx, requiredRendered.Query, 100, requiredRendered.BindVars, func(row map[string]any) error {
+		requiredRows = append(requiredRows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute required-match query: %v\n%s", err, requiredRendered.Query)
+	}
+	if len(requiredRows) != 1 || requiredRows[0]["patient_id"] != "p1" || requiredRows[0]["registered_count"] != float64(1) || requiredRows[0]["cancelled_count"] != float64(2) {
+		t.Fatalf("required-match rows=%#v, want only p1 with independent contributor counts 1 and 2", requiredRows)
+	}
 }

@@ -1135,6 +1135,7 @@ components:
         occurrenceId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
         relationship: {type: string}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
         children:
           type: array
           items: {$ref: '#/components/schemas/RouteNode'}
@@ -1366,7 +1367,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1378,6 +1379,7 @@ components:
         parentOccurrenceId: {type: string, minLength: 1}
         occurrenceId: {type: string, minLength: 1}
         edgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
         candidateId: {type: string, minLength: 1}
         projectionMode: {$ref: '#/components/schemas/ProjectionMode'}
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}

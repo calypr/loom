@@ -56,6 +56,7 @@ export const GuidedGraphWorkspace = ({
   onChangeBase,
   onAppendEdge,
   onChangeEdge,
+  onChangeMatchMode,
   onTruncate,
   onTableToolbarHostChange,
 }: {
@@ -72,6 +73,10 @@ export const GuidedGraphWorkspace = ({
     nodeId: string,
   ) => void;
   readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
+  readonly onChangeMatchMode: (
+    occurrenceId: string,
+    matchMode: 'OPTIONAL' | 'REQUIRED',
+  ) => void;
   readonly onTruncate: (occurrenceId: string) => void;
   readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
 }) => {
@@ -161,6 +166,7 @@ export const GuidedGraphWorkspace = ({
         resourceType: catalogNodeById.get(occurrence.nodeId)?.resourceType ?? occurrence.nodeId,
         incomingEdgeId: occurrence.incomingEdgeId,
         relationship: occurrence.relationship,
+        matchMode: occurrence.matchMode,
         parentId: occurrence.parentId,
         depth: occurrence.depth,
       })),
@@ -626,6 +632,25 @@ export const GuidedGraphWorkspace = ({
                               </option>
                             ))}
                           </select>
+                          <button
+                            type="button"
+                            aria-label={`${occurrence.matchMode === 'REQUIRED' ? 'Keep' : 'Require'} ${occurrence.resourceType} match`}
+                            title={occurrence.matchMode === 'REQUIRED' ? 'Keep rows even when this relationship has no match' : 'Keep only rows with a match for this relationship'}
+                            className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
+                            disabled={disabled}
+                            onClick={() =>
+                              onChangeMatchMode(
+                                occurrence.occurrenceId,
+                                occurrence.matchMode === 'REQUIRED'
+                                  ? 'OPTIONAL'
+                                  : 'REQUIRED',
+                              )
+                            }
+                          >
+                            {occurrence.matchMode === 'REQUIRED'
+                              ? 'Required match'
+                              : 'Optional feature'}
+                          </button>
                           {occurrence.depth === 1 &&
                             catalogNodeById.get(occurrence.nodeId)
                               ?.rowRootEligible ? (

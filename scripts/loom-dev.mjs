@@ -844,6 +844,13 @@ const fetchExplorerState = async (target, explorerId) => {
   return value;
 };
 
+const fetchBuilderState = async (target, explorerId) => {
+  const url = `${bootstrapAuthoringURL(target, explorerId)}/builder`;
+  const { response, value } = await requestJSON(url, { timeout: 30000 });
+  if (!response.ok) throw new Error(`Builder state read failed: HTTP ${response.status}`);
+  return value;
+};
+
 const normalizeRows = (rows, columns) => (Array.isArray(rows) ? rows : []).map((row) => {
   if (Array.isArray(row)) return Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null]));
   if (row && typeof row === 'object' && Array.isArray(row.values)) return Object.fromEntries(columns.map((column, index) => [column, row.values[index] ?? null]));
@@ -927,6 +934,15 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `clickContains('.react-flow__node', 'Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Observation columns')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
+    await browserEval(cdp, `clickButton('Require Observation match');`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Keep Observation match"]'))`);
+    const requiredBuilder = await fetchBuilderState(target, explorerId);
+    recordAssertion(report, 'builder-required-match-persists-route-intent', 'REQUIRED', requiredBuilder.workspace.documents[0].route.children[0].matchMode);
+    await browserEval(cdp, `clickButton('Keep Observation match');`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
+    const optionalBuilder = await fetchBuilderState(target, explorerId);
+    recordAssertion(report, 'builder-optional-match-restores-feature-only-route', 'OPTIONAL', optionalBuilder.workspace.documents[0].route.children[0].matchMode);
     await browserEval(cdp, `setInput('Search columns', 'valueQuantity.value')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add valueQuantity.value to table"]'))`);
     await browserEval(cdp, `clickCandidate('valueQuantity.value', 'to table')`);

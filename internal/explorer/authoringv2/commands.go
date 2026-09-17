@@ -23,6 +23,7 @@ const (
 	CommandClearTablePopulation   = "CLEAR_TABLE_POPULATION"
 	CommandAddRoute               = "ADD_ROUTE"
 	CommandUpdateRouteEdge        = "UPDATE_ROUTE_EDGE"
+	CommandSetRouteMatchMode      = "SET_ROUTE_MATCH_MODE"
 	CommandRemoveRoute            = "REMOVE_ROUTE"
 	CommandAddColumn              = "ADD_COLUMN"
 	CommandAddColumnSource        = "ADD_COLUMN_SOURCE"
@@ -74,6 +75,7 @@ type Command struct {
 	ParentOccurrenceID  string                `json:"parentOccurrenceId,omitempty"`
 	OccurrenceID        string                `json:"occurrenceId,omitempty"`
 	EdgeID              string                `json:"edgeId,omitempty"`
+	MatchMode           RouteMatchMode        `json:"matchMode,omitempty"`
 	CandidateID         string                `json:"candidateId,omitempty"`
 	ProjectionMode      string                `json:"projectionMode,omitempty"`
 	InitialPresentation string                `json:"initialPresentation,omitempty"`
@@ -205,6 +207,13 @@ func (c Command) validate() error {
 	case CommandUpdateRouteEdge:
 		if !required(c.OutputID, c.OccurrenceID, c.EdgeID) || c.OccurrenceID == RootOccurrenceID {
 			return fmt.Errorf("UPDATE_ROUTE_EDGE requires a non-root occurrenceId and edgeId")
+		}
+	case CommandSetRouteMatchMode:
+		if !required(c.OutputID, c.OccurrenceID, string(c.MatchMode)) || c.OccurrenceID == RootOccurrenceID {
+			return fmt.Errorf("SET_ROUTE_MATCH_MODE requires a non-root occurrenceId and matchMode")
+		}
+		if c.MatchMode != RouteMatchOptional && c.MatchMode != RouteMatchRequired {
+			return fmt.Errorf("SET_ROUTE_MATCH_MODE matchMode must be OPTIONAL or REQUIRED")
 		}
 	case CommandRemoveRoute:
 		if !required(c.OutputID, c.OccurrenceID) || c.OccurrenceID == RootOccurrenceID {
@@ -466,6 +475,18 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
 		}
 		occurrence.Relationship = edge.Label
+		result.OccurrenceID = occurrence.OccurrenceID
+		return result, nil
+	case CommandSetRouteMatchMode:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID)
+		if occurrence == nil || occurrence.OccurrenceID == RootOccurrenceID {
+			return result, fmt.Errorf("non-root route occurrence %q was not found", command.OccurrenceID)
+		}
+		occurrence.MatchMode = command.MatchMode.Normalized()
 		result.OccurrenceID = occurrence.OccurrenceID
 		return result, nil
 	case CommandRemoveRoute:

@@ -24,6 +24,7 @@ export interface DerivedOccurrence {
   readonly nodeId: string;
   readonly incomingEdgeId?: string;
   readonly relationship?: string;
+  readonly matchMode: 'OPTIONAL' | 'REQUIRED';
   readonly parentId?: string;
   readonly depth: number;
   readonly resourceType: string;
@@ -78,6 +79,7 @@ export const derivedOccurrences = (
       nodeId: node.nodeId,
       incomingEdgeId: edge?.edgeId,
       relationship: route.relationship,
+      matchMode: route.matchMode ?? 'OPTIONAL',
       parentId,
       depth,
       resourceType: route.resourceType,

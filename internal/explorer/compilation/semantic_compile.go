@@ -490,7 +490,11 @@ func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]sema
 	for _, child := range children {
 		occurrence := occurrences[child.OccurrenceID]
 		node := nodes[child.OccurrenceID]
-		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: recipe.MatchOptional, Fields: node.fields, Pivots: node.pivots, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
+		matchMode := recipe.MatchOptional
+		if child.MatchMode.Normalized() == authoringv2.RouteMatchRequired {
+			matchMode = recipe.MatchRequired
+		}
+		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
 	}
 	return result
 }

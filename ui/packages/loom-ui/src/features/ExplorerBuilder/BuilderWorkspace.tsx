@@ -1206,6 +1206,17 @@ const BuilderWorkspaceContent = ({
                     },
                   ]);
                 }}
+                onChangeMatchMode={(occurrenceId, matchMode) => {
+                  if (!table) return;
+                  void applyCommands([
+                    {
+                      type: 'SET_ROUTE_MATCH_MODE',
+                      outputId: table.outputId,
+                      occurrenceId,
+                      matchMode,
+                    },
+                  ]);
+                }}
                 onTruncate={(occurrenceId) => {
                   if (!table) return;
                   const subtree = routeNode(table.document.route, occurrenceId);

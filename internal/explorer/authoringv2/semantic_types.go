@@ -22,10 +22,31 @@ type ExplorerMetadata struct {
 // is empty only for the root; every child names the relationship from its
 // parent. Resource identities are stable FHIR resource types, not catalog IDs.
 type RouteNode struct {
-	OccurrenceID string      `json:"occurrenceId"`
-	ResourceType string      `json:"resourceType"`
-	Relationship string      `json:"relationship,omitempty"`
-	Children     []RouteNode `json:"children,omitempty"`
+	OccurrenceID string         `json:"occurrenceId"`
+	ResourceType string         `json:"resourceType"`
+	Relationship string         `json:"relationship,omitempty"`
+	MatchMode    RouteMatchMode `json:"matchMode,omitempty"`
+	Children     []RouteNode    `json:"children,omitempty"`
+}
+
+// RouteMatchMode distinguishes row-defining relationships from feature-only
+// relationships. Empty is the legacy OPTIONAL default.
+type RouteMatchMode string
+
+const (
+	RouteMatchOptional RouteMatchMode = "OPTIONAL"
+	RouteMatchRequired RouteMatchMode = "REQUIRED"
+)
+
+func (m RouteMatchMode) Valid() bool {
+	return m == "" || m == RouteMatchOptional || m == RouteMatchRequired
+}
+
+func (m RouteMatchMode) Normalized() RouteMatchMode {
+	if m == RouteMatchRequired {
+		return RouteMatchRequired
+	}
+	return RouteMatchOptional
 }
 
 type ColumnSource struct {
@@ -400,6 +421,12 @@ func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
 		}
 		if _, duplicate := occurrences[node.OccurrenceID]; duplicate {
 			return fmt.Errorf("duplicate route occurrence id %q", node.OccurrenceID)
+		}
+		if !node.MatchMode.Valid() {
+			return fmt.Errorf("%s.matchMode is unsupported", path)
+		}
+		if node.OccurrenceID == RootOccurrenceID && node.MatchMode != "" {
+			return fmt.Errorf("route root cannot declare matchMode")
 		}
 		occurrences[node.OccurrenceID] = node
 		for i, child := range node.Children {

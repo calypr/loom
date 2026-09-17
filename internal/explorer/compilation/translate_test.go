@@ -114,6 +114,51 @@ func TestCompileContributorUsesCatalogCandidateIdentityAndResolvedSelector(t *te
 	}
 }
 
+func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", MatchMode: authoringv2.RouteMatchRequired,
+		}}},
+		Columns: []authoringv2.Column{{
+			Column: "observation_count", Label: "Observations", OccurrenceID: "observation",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+		}},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traversal := compiled.Bundle.Outputs[0].Traversals[0]
+	if traversal.MatchMode != recipe.MatchRequired {
+		t.Fatalf("matchMode=%q, want REQUIRED", traversal.MatchMode)
+	}
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(physical.Outputs) != 1 || physical.Outputs[0].Plan.RequiredMatchReuseCount != 0 {
+		t.Fatalf("physical required route=%#v", physical.Outputs)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "required_0_node_0") || !strings.Contains(rendered.Query, "LENGTH(") {
+		t.Fatalf("required route did not lower to root existence match:\n%s", rendered.Query)
+	}
+}
+
 func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.T) {
 	document := authoringv2.Document{
 		Kind:             authoringv2.Kind,

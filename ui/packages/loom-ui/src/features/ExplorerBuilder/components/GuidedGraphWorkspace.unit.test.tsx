@@ -170,6 +170,7 @@ const renderGraph = (currentTable: DraftTable) =>
       onChangeBase={vi.fn()}
       onAppendEdge={vi.fn()}
       onChangeEdge={vi.fn()}
+      onChangeMatchMode={vi.fn()}
       onTruncate={vi.fn()}
     />,
   );
@@ -276,6 +277,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={vi.fn()}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
       />,
     );
@@ -305,6 +307,7 @@ describe('GuidedGraphWorkspace', () => {
       onChangeBase: vi.fn(),
       onAppendEdge: vi.fn(),
       onChangeEdge: vi.fn(),
+      onChangeMatchMode: vi.fn(),
       onTruncate: vi.fn(),
     };
     const view = render(
@@ -409,6 +412,7 @@ describe('GuidedGraphWorkspace', () => {
     };
     const onSelectOccurrence = vi.fn();
     const onChangeEdge = vi.fn();
+    const onChangeMatchMode = vi.fn();
     const onChangeBase = vi.fn();
 
     render(
@@ -422,6 +426,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={onChangeBase}
         onAppendEdge={vi.fn()}
         onChangeEdge={onChangeEdge}
+        onChangeMatchMode={onChangeMatchMode}
         onTruncate={vi.fn()}
       />,
     );
@@ -452,6 +457,10 @@ describe('GuidedGraphWorkspace', () => {
       'patient',
       'specimen-patient-participant',
     );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Require Patient match' }),
+    );
+    expect(onChangeMatchMode).toHaveBeenCalledWith('patient', 'REQUIRED');
   });
 
   it('inspects an existing resource when another relationship can add a new occurrence', async () => {
@@ -524,6 +533,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={onAppendEdge}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
       />,
     );
@@ -555,6 +565,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={onAppendEdge}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
         onTableToolbarHostChange={onTableToolbarHostChange}
       />,

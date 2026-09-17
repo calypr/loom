@@ -189,6 +189,7 @@ export type ExplorerBuilderRouteNode = {
   occurrenceId: string;
   resourceType: string;
   relationship?: string;
+  matchMode?: 'OPTIONAL' | 'REQUIRED';
   children?: ExplorerBuilderRouteNode[];
 };
 const explorerPopulationStepSchema = z.object({
@@ -206,6 +207,7 @@ export const explorerBuilderRouteNodeSchema: z.ZodType<ExplorerBuilderRouteNode>
         occurrenceId: opaqueIdSchema,
         resourceType: opaqueIdSchema,
         relationship: z.string().optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
         children: z.array(explorerBuilderRouteNodeSchema).optional(),
       })
       .strict(),
@@ -513,6 +515,7 @@ export const explorerBuilderCommandSchema = z
       'CLEAR_TABLE_POPULATION',
       'ADD_ROUTE',
       'UPDATE_ROUTE_EDGE',
+      'SET_ROUTE_MATCH_MODE',
       'REMOVE_ROUTE',
       'ADD_COLUMN',
       'ADD_COLUMN_SOURCE',
@@ -531,6 +534,7 @@ export const explorerBuilderCommandSchema = z
     parentOccurrenceId: opaqueIdSchema.optional(),
     occurrenceId: opaqueIdSchema.optional(),
     edgeId: opaqueIdSchema.optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
     candidateId: opaqueIdSchema.optional(),
     projectionMode: projectionModeSchema.optional(),
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),

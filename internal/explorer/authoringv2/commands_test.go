@@ -316,6 +316,38 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 	}
 }
 
+func TestApplyCommandsSetsRouteMatchModeWithoutChangingFeatureState(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, routes, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurrenceID := routes[0].OccurrenceID
+
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "required", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchRequired}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchRequired {
+		t.Fatalf("matchMode=%q, want REQUIRED", got)
+	}
+	updated, _, err = ApplyCommands(updated, commandCatalog(), "optional", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchOptional}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchOptional {
+		t.Fatalf("matchMode=%q, want OPTIONAL", got)
+	}
+	_, _, err = ApplyCommands(updated, commandCatalog(), "root", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}})
+	if err == nil || !strings.Contains(err.Error(), "non-root") {
+		t.Fatalf("root match-mode error=%v", err)
+	}
+}
+
 func TestApplyCommandsRejectsRouteUpdateThatRepeatsADescendantEdge(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.RoutePolicy.AllowRepeatedEdges = false
