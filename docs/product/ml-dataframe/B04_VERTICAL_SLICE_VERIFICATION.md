@@ -49,8 +49,8 @@ The first live Preview returned zero rows. Stored FHIR documents used the legacy
 
 B04 remains in progress. This slice does not yet provide:
 
-- exact matched-member provenance such as `__loom_population_members`;
 - unmapped selected-resource counts and repair controls;
+- a live exact-mapping assertion for direct and reversed population routes;
 - independent contributor-scoped relationship occurrences;
 - a checked nontrivial root rebase that preserves compatible features;
 - a density benchmark that compares target scans with membership-driven traversal.
@@ -61,7 +61,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 
 | Issue | Status | Proven | Still required |
 | --- | --- | --- | --- |
-| `ML-B04-01` | In progress | The compiler applies direct and reversed population semijoins. The saved live evidence maps two selected files to one Specimen. | Retain matched member IDs, report unmapped members, and prove both directions through live Preview. |
+| `ML-B04-01` | In progress | The compiler applies direct and reversed population semijoins, computes one sorted/deduplicated matched-member set per row, and retains it in the hidden `__loom_population_members` projection. Unit coverage includes shared targets and paged plans; saved live evidence maps two selected files to one Specimen. | Report unmapped members and prove exact direct and reversed mappings through live Preview. |
 | `ML-B04-02` | In progress | A same-root command preserves the table. An unsafe root change returns `ROOT_REBASE_REQUIRED` before draft persistence. | Assess a proposed row change, identify affected features, and atomically apply an unambiguous rebase without changing stable feature IDs. |
 | `ML-B04-03` | Not started | None. | Add independent contributor-scoped occurrences, typed predicates, required population matching, and predicate-aware traversal sharing. |
 | `ML-B04-04` | In progress | Builder attaches and clears one supplied selection, chooses a unique route, previews constrained rows, and reloads the attachment. | Add selection variants and exclusions, an explicit row-definition control, resulting and unmapped counts, and a live non-file-root journey. |
