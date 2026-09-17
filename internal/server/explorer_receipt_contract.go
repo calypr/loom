@@ -36,7 +36,12 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, capability.ErrStaleSnapshot
 	}
-	workspace := authoringv2.MigrateLosslessDefaults(request.Workspace, authoringV2Catalog(snapshot, request.ExplorerID)).NormalizePresentationOrders()
+	catalog := authoringV2Catalog(snapshot, request.ExplorerID)
+	workspace, err := authoringv2.MigrateLegacyContributors(request.Workspace, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("migrate legacy contributor predicates: %w", err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
 	intentDigest, err := workspace.Digest()
 	if err != nil {
 		return nil, err

@@ -286,13 +286,12 @@ func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &gender, PredicateEquals: "female"}},
+		Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("female")}}}}},
 		Children: []semantic.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &status, PredicateEquals: "available"}},
+			Aggregates: []semantic.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &spec.TypedFilter{FieldRef: "Specimen.status", Selector: "status", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("available")}}}}},
 		}},
 	},
 	})
@@ -306,7 +305,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	if strings.Count(rendered.Query, "FOR __loom_physical_aggregate_item") < 2 {
 		t.Fatalf("aggregate predicates did not render per-item filters:\n%s", rendered.Query)
 	}
-	if rendered.BindVars["aggregate_root_female_count_predicate_equals"] != "female" || rendered.BindVars["aggregate_child_set_1_available_count_predicate_equals"] != "available" {
+	if rendered.BindVars["aggregate_root_female_count_predicate_value"] != "female" || rendered.BindVars["aggregate_child_set_1_available_count_predicate_value"] != "available" {
 		t.Fatalf("predicate binds missing: %#v", rendered.BindVars)
 	}
 }

@@ -86,6 +86,16 @@ func (value *AggregateSource) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+func (value *ContributorPredicate) UnmarshalJSON(raw []byte) error {
+	type wire ContributorPredicate
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ContributorPredicate(decoded)
+	return nil
+}
+
 func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	type wire LookupSource
 	var decoded wire
@@ -104,16 +114,6 @@ func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 		return errors.New("legacy lookup requires match")
 	}
 	*value = LookupSource(decoded)
-	return nil
-}
-
-func (value *SourceWhere) UnmarshalJSON(raw []byte) error {
-	type wire SourceWhere
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	*value = SourceWhere(decoded)
 	return nil
 }
 

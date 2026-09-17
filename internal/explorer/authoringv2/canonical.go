@@ -24,6 +24,10 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		}
 		for j := range n.Documents[i].Columns {
 			n.Documents[i].Columns[j].Source = n.Documents[i].Columns[j].Source.Normalized()
+			if n.Documents[i].Columns[j].Contributor != nil {
+				contributor := n.Documents[i].Columns[j].Contributor.Normalized()
+				n.Documents[i].Columns[j].Contributor = &contributor
+			}
 		}
 	}
 	n.Tabs = append([]Tab(nil), w.Tabs...)
@@ -263,14 +267,10 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 		return out, nil
 	} else {
-		// A legacy flat source is accepted only while decoding a persisted
-		// pre-v3 workspace. New mutation requests never use this path.
-		var version struct {
-			SemanticsVersion int `json:"semanticsVersion"`
-		}
-		if json.Unmarshal(raw, &version) != nil || version.SemanticsVersion >= CurrentSemanticsVersion {
-			return out, err
-		}
+		// Legacy source wires are accepted only by persisted-draft decoding.
+		// New mutation requests use the current ColumnSource decoder and never
+		// enter this compatibility path. Workspace.Validate below still rejects
+		// future semantics versions after a successful legacy decode.
 		migrated, migrationErr := decodePersistedLegacyWorkspace(raw)
 		if migrationErr != nil {
 			return out, err
@@ -311,14 +311,15 @@ type persistedDocumentWire struct {
 }
 
 type persistedColumnWire struct {
-	Column       string              `json:"column"`
-	Label        string              `json:"label"`
-	LogicalType  string              `json:"logicalType,omitempty"`
-	OccurrenceID string              `json:"occurrenceId"`
-	Source       json.RawMessage     `json:"source"`
-	Table        *TablePresentation  `json:"table,omitempty"`
-	Filter       *FilterPresentation `json:"filter,omitempty"`
-	Chart        *ChartPresentation  `json:"chart,omitempty"`
+	Column       string                `json:"column"`
+	Label        string                `json:"label"`
+	LogicalType  string                `json:"logicalType,omitempty"`
+	OccurrenceID string                `json:"occurrenceId"`
+	Source       json.RawMessage       `json:"source"`
+	Contributor  *ContributorPredicate `json:"contributor,omitempty"`
+	Table        *TablePresentation    `json:"table,omitempty"`
+	Filter       *FilterPresentation   `json:"filter,omitempty"`
+	Chart        *ChartPresentation    `json:"chart,omitempty"`
 }
 
 type legacyColumnSource struct {
@@ -350,7 +351,7 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 			if err != nil {
 				return Workspace{}, fmt.Errorf("documents[%d].columns[%d].source: %w", documentIndex, columnIndex, err)
 			}
-			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
+			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Contributor: column.Contributor, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
 		}
 		out.Documents = append(out.Documents, converted)
 	}
@@ -363,9 +364,36 @@ func decodePersistedSource(raw json.RawMessage) (ColumnSource, error) {
 		return current, nil
 	}
 	var legacy legacyColumnSource
-	if err := strictDecode(raw, &legacy); err != nil {
-		return ColumnSource{}, err
+	if err := strictDecode(raw, &legacy); err == nil {
+		return decodeLegacyFlatSource(legacy)
 	}
+	// The first v3 draft wire used nested source payloads and a nested where.
+	// Keep that wire private to persisted-draft migration; AggregateSource's
+	// current decoder deliberately rejects where on writable requests.
+	var nested struct {
+		Kind      string       `json:"kind"`
+		Field     *FieldSource `json:"field,omitempty"`
+		Aggregate *struct {
+			Operation      string       `json:"operation"`
+			Path           string       `json:"path,omitempty"`
+			Where          *SourceWhere `json:"where,omitempty"`
+			RequiredValues []string     `json:"requiredValues,omitempty"`
+		} `json:"aggregate,omitempty"`
+		Lookup *LookupSource `json:"lookup,omitempty"`
+	}
+	if nestedErr := strictDecode(raw, &nested); nestedErr != nil {
+		return ColumnSource{}, nestedErr
+	}
+	if nested.Aggregate == nil || nested.Aggregate.Where == nil {
+		return ColumnSource{}, fmt.Errorf("source is not a supported legacy wire")
+	}
+	return ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{
+		Operation: strings.ToUpper(strings.TrimSpace(nested.Aggregate.Operation)), Path: nested.Aggregate.Path,
+		Where: nested.Aggregate.Where, RequiredValues: append([]string(nil), nested.Aggregate.RequiredValues...),
+	}}, nil
+}
+
+func decodeLegacyFlatSource(legacy legacyColumnSource) (ColumnSource, error) {
 	mode := strings.ToUpper(strings.TrimSpace(legacy.ProjectionMode))
 	if mode == "" {
 		mode = "FIRST"

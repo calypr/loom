@@ -30,7 +30,7 @@ let builder = await json(`${authoring}/builder`);
 async function command(commands) {
   const result = await json(`${authoring}/commands`, {
     commandId: randomUUID(),
-    semanticsVersion: 3,
+    semanticsVersion: 4,
     snapshotToken: builder.catalog.snapshotToken,
     expectedDraftVersion: builder.draftVersion,
     expectedDraftDigest: builder.draftDigest,

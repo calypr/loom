@@ -114,6 +114,11 @@ type ResolvedPopulation struct {
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
+	var migrationErr error
+	workspace, migrationErr = authoringv2.MigrateLegacyContributors(workspace, wire)
+	if migrationErr != nil {
+		return WorkspaceResult{}, fail("intent", "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", "$.workspace", migrationErr.Error(), nil, migrationErr)
+	}
 	workspace = authoringv2.MigrateLosslessDefaults(workspace, wire)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)

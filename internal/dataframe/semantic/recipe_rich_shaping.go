@@ -406,13 +406,14 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			semanticAggregate.ValueKind = expression.KindBoolean
 		}
 		if input.Where != nil {
-			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
-			if err != nil {
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			if typedErr != nil {
+				return nil, typedErr
+			}
+			if err := validateAggregatePredicate(*typedPredicate, path+".where"); err != nil {
 				return nil, err
 			}
-			semanticAggregate.Predicate = predicate
-			semanticAggregate.PredicateEquals = equals
-			semanticAggregate.PredicateKind = kind
+			semanticAggregate.Predicate = typedPredicate
 		}
 		out = append(out, semanticAggregate)
 	}
@@ -466,10 +467,15 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 			semanticSlice.Fields = append(semanticSlice.Fields, semanticField)
 		}
 		if input.Where != nil {
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			if typedErr != nil {
+				return nil, typedErr
+			}
 			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
 			if err != nil {
 				return nil, err
 			}
+			semanticSlice.TypedPredicate = typedPredicate
 			semanticSlice.Predicate = predicate
 			semanticSlice.PredicateEquals = equals
 			semanticSlice.PredicateKind = kind
@@ -566,6 +572,38 @@ func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *r
 		}
 	default:
 		return nil, "", "", fmt.Errorf("%s operator %s is not representable by canonical aggregate/slice predicates", path, filter.Operator)
+	}
+}
+
+// lowerRecipeTypedPredicate is the lossless semantic boundary for a rich
+// shaping predicate. Keeping the complete TypedFilter here avoids silently
+// dropping a quantifier or value kind when later compiler stages consume it.
+func lowerRecipeTypedPredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.TypedFilter, error) {
+	if input == nil {
+		return nil, nil
+	}
+	filters, err := LowerRecipeFiltersForAlias(resourceType, alias, []recipe.Filter{*input})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if len(filters) != 1 {
+		return nil, fmt.Errorf("%s must contain exactly one predicate", path)
+	}
+	filter := filters[0]
+	return &filter, nil
+}
+
+func validateAggregatePredicate(filter spec.TypedFilter, path string) error {
+	switch filter.Operator {
+	case spec.FilterExists:
+		return nil
+	case spec.FilterEquals:
+		if len(filter.Values) != 1 || (filter.Values[0].Kind != spec.FilterString && filter.Values[0].Kind != spec.FilterCode) {
+			return fmt.Errorf("%s equality predicate supports only STRING and CODE values", path)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s operator %s is not representable by canonical aggregate predicates", path, filter.Operator)
 	}
 }
 

@@ -45,15 +45,36 @@ type FieldSource struct {
 }
 
 type AggregateSource struct {
-	Operation      string       `json:"operation"`
-	Path           string       `json:"path,omitempty"`
-	Where          *SourceWhere `json:"where,omitempty"`
+	Operation string `json:"operation"`
+	Path      string `json:"path,omitempty"`
+	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
+	// It is deliberately omitted from the current authoring JSON contract;
+	// writable contributor intent lives on Column.Contributor instead.
+	Where          *SourceWhere `json:"-"`
 	RequiredValues []string     `json:"requiredValues,omitempty"`
 }
 
 type SourceWhere struct {
 	Path   string `json:"path"`
 	Equals string `json:"equals"`
+}
+
+// UnmarshalJSON keeps the current aggregate source shape closed. Persisted
+// legacy sources are decoded by decodePersistedSource, which is the only
+// compatibility boundary allowed to interpret wherePath/whereEquals or a
+// nested where object.
+func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
+	type wire struct {
+		Operation      string   `json:"operation"`
+		Path           string   `json:"path,omitempty"`
+		RequiredValues []string `json:"requiredValues,omitempty"`
+	}
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, RequiredValues: append([]string(nil), decoded.RequiredValues...)}
+	return nil
 }
 
 type LookupSource struct {
@@ -210,14 +231,129 @@ const (
 )
 
 type Column struct {
-	Column       string              `json:"column"`
-	Label        string              `json:"label"`
-	LogicalType  string              `json:"logicalType,omitempty"`
-	OccurrenceID string              `json:"occurrenceId"`
-	Source       ColumnSource        `json:"source"`
-	Table        *TablePresentation  `json:"table,omitempty"`
-	Filter       *FilterPresentation `json:"filter,omitempty"`
-	Chart        *ChartPresentation  `json:"chart,omitempty"`
+	Column       string                `json:"column"`
+	Label        string                `json:"label"`
+	LogicalType  string                `json:"logicalType,omitempty"`
+	OccurrenceID string                `json:"occurrenceId"`
+	Source       ColumnSource          `json:"source"`
+	Contributor  *ContributorPredicate `json:"contributor,omitempty"`
+	Table        *TablePresentation    `json:"table,omitempty"`
+	Filter       *FilterPresentation   `json:"filter,omitempty"`
+	Chart        *ChartPresentation    `json:"chart,omitempty"`
+}
+
+// ContributorPredicate is catalog intent scoped to one aggregate feature.
+// CandidateID is resolved against the occurrence's pinned catalog at compile
+// time; callers never provide a selector or AQL expression.
+type ContributorPredicate struct {
+	CandidateID string                `json:"candidateId"`
+	Operator    ContributorOperator   `json:"operator"`
+	Quantifier  ContributorQuantifier `json:"quantifier,omitempty"`
+	Value       *ContributorValue     `json:"value,omitempty"`
+}
+
+type ContributorOperator string
+
+const (
+	ContributorExists ContributorOperator = "EXISTS"
+	ContributorEquals ContributorOperator = "EQUALS"
+)
+
+func (op ContributorOperator) Valid() bool {
+	return op == ContributorExists || op == ContributorEquals
+}
+
+type ContributorQuantifier string
+
+const ContributorAny ContributorQuantifier = "ANY"
+
+func (q ContributorQuantifier) Valid() bool {
+	return q == "" || q == ContributorAny
+}
+
+type ContributorValueKind string
+
+const (
+	ContributorString    ContributorValueKind = "STRING"
+	ContributorValueCode ContributorValueKind = "CODE"
+)
+
+func (kind ContributorValueKind) Valid() bool {
+	return kind == ContributorString || kind == ContributorValueCode
+}
+
+type ContributorValue struct {
+	Kind   ContributorValueKind `json:"kind"`
+	String *string              `json:"string,omitempty"`
+	Code   *ContributorCode     `json:"code,omitempty"`
+}
+
+type ContributorCode struct {
+	Code string `json:"code"`
+}
+
+func (v ContributorValue) Validate() error {
+	if !v.Kind.Valid() {
+		return fmt.Errorf("unsupported contributor value kind %q", v.Kind)
+	}
+	if (v.String == nil) == (v.Code == nil) {
+		return fmt.Errorf("contributor value requires exactly one STRING or CODE member")
+	}
+	switch v.Kind {
+	case ContributorString:
+		if v.String == nil {
+			return fmt.Errorf("STRING contributor value requires string")
+		}
+	case ContributorValueCode:
+		if v.Code == nil || strings.TrimSpace(v.Code.Code) == "" {
+			return fmt.Errorf("CODE contributor value requires a non-empty code")
+		}
+	}
+	return nil
+}
+
+func (p ContributorPredicate) Validate() error {
+	if strings.TrimSpace(p.CandidateID) == "" || p.CandidateID != strings.TrimSpace(p.CandidateID) {
+		return fmt.Errorf("contributor candidateId is required")
+	}
+	if !p.Operator.Valid() {
+		return fmt.Errorf("unsupported contributor operator %q", p.Operator)
+	}
+	if !p.Quantifier.Valid() {
+		return fmt.Errorf("unsupported contributor quantifier %q", p.Quantifier)
+	}
+	switch p.Operator {
+	case ContributorExists:
+		if p.Value != nil {
+			return fmt.Errorf("EXISTS contributor predicate does not accept value")
+		}
+	case ContributorEquals:
+		if p.Value == nil {
+			return fmt.Errorf("EQUALS contributor predicate requires value")
+		}
+		if err := p.Value.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p ContributorPredicate) Normalized() ContributorPredicate {
+	n := p
+	n.CandidateID = strings.TrimSpace(n.CandidateID)
+	if n.Value != nil {
+		value := *n.Value
+		if value.String != nil {
+			stringValue := *value.String
+			value.String = &stringValue
+		}
+		if value.Code != nil {
+			code := *value.Code
+			value.Code = &code
+		}
+		n.Value = &value
+	}
+	return n
 }
 
 type FixedFilter struct {
@@ -424,6 +560,14 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if column.Contributor != nil {
+			if column.Source.Kind != SourceAggregate {
+				return fmt.Errorf("%s.contributor is only supported for aggregate sources", path)
+			}
+			if err := column.Contributor.Validate(); err != nil {
+				return fmt.Errorf("%s.contributor: %w", path, err)
+			}
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {
 			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {

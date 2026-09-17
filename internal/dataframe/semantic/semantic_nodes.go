@@ -64,22 +64,24 @@ type SemanticPivot struct {
 }
 
 type SemanticAggregate struct {
-	Name            string
-	OutputName      string
-	Operation       string
-	FieldRef        string
-	Selector        *spec.Selector
-	Predicate       *spec.Selector
-	PredicateEquals string
-	PredicateKind   spec.FilterValueKind
-	ValueMode       string
-	RequiredValues  []string
-	ValueKind       expression.ValueKind
+	Name       string
+	OutputName string
+	Operation  string
+	FieldRef   string
+	// Predicate is the complete canonical typed contributor predicate. It is
+	// retained until physical lowering so operator, quantifier, kind, and value
+	// cannot diverge across compiler stages.
+	Predicate      *spec.TypedFilter
+	Selector       *spec.Selector
+	ValueMode      string
+	RequiredValues []string
+	ValueKind      expression.ValueKind
 }
 
 type SemanticSlice struct {
 	Name            string
 	Limit           int
+	TypedPredicate  *spec.TypedFilter
 	Predicate       *spec.Selector
 	PredicateEquals string
 	PredicateKind   spec.FilterValueKind

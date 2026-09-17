@@ -72,7 +72,8 @@ func TestLowerRecipeAggregatesMapsSelectorWhereAndOperation(t *testing.T) {
 	if len(aggregates) != 1 || aggregates[0].Selector == nil || aggregates[0].Predicate == nil {
 		t.Fatalf("aggregate selectors missing: %#v", aggregates)
 	}
-	if aggregates[0].Operation != string(recipe.AggregateCountDistinct) || aggregates[0].PredicateEquals != want {
+	predicate := aggregates[0].Predicate
+	if aggregates[0].Operation != string(recipe.AggregateCountDistinct) || predicate.FieldRef != "Patient.gender" || predicate.Selector != "gender" || predicate.FieldKind != spec.FilterString || predicate.Operator != spec.FilterEquals || predicate.Repeated || len(predicate.Values) != 1 || predicate.Values[0].String == nil || *predicate.Values[0].String != want {
 		t.Fatalf("aggregate = %#v", aggregates[0])
 	}
 }
@@ -120,7 +121,7 @@ func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(aggregates) != 1 || aggregates[0].PredicateKind != spec.FilterCode || aggregates[0].PredicateEquals != code {
+	if len(aggregates) != 1 || aggregates[0].Predicate.FieldKind != spec.FilterCode || aggregates[0].Predicate.Values[0].Code == nil || aggregates[0].Predicate.Values[0].Code.Code != code {
 		t.Fatalf("aggregate = %#v", aggregates)
 	}
 }

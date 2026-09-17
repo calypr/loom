@@ -1164,17 +1164,41 @@ components:
       properties:
         operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, EXISTS, CONTAINS_ALL]}
         path: {type: string}
-        where: {$ref: '#/components/schemas/SourceWhere'}
         requiredValues:
           type: array
           items: {type: string}
-    SourceWhere:
+    ContributorPredicate:
       type: object
       additionalProperties: false
-      required: [path]
+      required: [candidateId, operator]
       properties:
-        path: {type: string, minLength: 1}
-        equals: {type: string}
+        candidateId: {type: string, minLength: 1}
+        operator: {type: string, enum: [EXISTS, EQUALS]}
+        quantifier: {type: string, enum: [ANY]}
+        value: {$ref: '#/components/schemas/ContributorValue'}
+    ContributorValue:
+      oneOf:
+        - $ref: '#/components/schemas/ContributorStringValue'
+        - $ref: '#/components/schemas/ContributorCodeValue'
+    ContributorStringValue:
+      type: object
+      additionalProperties: false
+      required: [kind, string]
+      properties:
+        kind: {type: string, enum: [STRING]}
+        string: {type: string}
+    ContributorCodeValue:
+      type: object
+      additionalProperties: false
+      required: [kind, code]
+      properties:
+        kind: {type: string, enum: [CODE]}
+        code:
+          type: object
+          additionalProperties: false
+          required: [code]
+          properties:
+            code: {type: string, minLength: 1}
     LookupSource:
       type: object
       additionalProperties: false
@@ -1247,6 +1271,7 @@ components:
         logicalType: {type: string}
         occurrenceId: {type: string, minLength: 1}
         source: {$ref: '#/components/schemas/ColumnSource'}
+        contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         table: {$ref: '#/components/schemas/TablePresentation'}
         filter: {$ref: '#/components/schemas/FilterPresentation'}
         chart: {$ref: '#/components/schemas/ChartPresentation'}
@@ -1341,7 +1366,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1358,6 +1383,7 @@ components:
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
         columnValue: {$ref: '#/components/schemas/Column'}
+        contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         source: {$ref: '#/components/schemas/ColumnSource'}
         rowChange: {$ref: '#/components/schemas/RowChangeProposal'}
         outputIds:

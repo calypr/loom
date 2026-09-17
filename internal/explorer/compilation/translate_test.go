@@ -87,6 +87,33 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 	}
 }
 
+func TestCompileContributorUsesCatalogCandidateIdentityAndResolvedSelector(t *testing.T) {
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+			{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"},
+		}},
+		Columns: []authoringv2.Column{{
+			Column: "registered_count", Label: "Registered", OccurrenceID: "observation",
+			Source:      authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+			Contributor: &authoringv2.ContributorPredicate{CandidateID: "c_observation_status", Operator: authoringv2.ContributorEquals, Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: stringPtr("registered")}},
+		}},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Bundle.Outputs) != 1 || len(compiled.Bundle.Outputs[0].Traversals) != 1 || len(compiled.Bundle.Outputs[0].Traversals[0].Aggregates) != 1 {
+		t.Fatalf("compiled contributor shape = %#v", compiled.Bundle.Outputs)
+	}
+	where := compiled.Bundle.Outputs[0].Traversals[0].Aggregates[0].Where
+	if where == nil || where.FieldRef != "c_observation_status" || where.Select != compiled.Bundle.Outputs[0].Traversals[0].Alias+".status" || where.Operator != recipe.FilterEquals || len(where.Values) != 1 || where.Values[0].String == nil || *where.Values[0].String != "registered" {
+		t.Fatalf("compiled contributor filter = %#v", where)
+	}
+}
+
 func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.T) {
 	document := authoringv2.Document{
 		Kind:             authoringv2.Kind,
@@ -139,6 +166,8 @@ func contributorSnapshot() capability.Snapshot {
 	}
 	return capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, nil)
 }
+
+func stringPtr(value string) *string { return &value }
 
 func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
 	if got := wireProjectionMode(capability.ProjectionArray); got != "ALL" {

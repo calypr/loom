@@ -12,30 +12,32 @@ import (
 )
 
 const (
-	CommandCreateTable          = "CREATE_TABLE"
-	CommandDuplicateTable       = "DUPLICATE_TABLE"
-	CommandDeleteTable          = "DELETE_TABLE"
-	CommandRenameTable          = "RENAME_TABLE"
-	CommandReorderTables        = "REORDER_TABLES"
-	CommandSetTableRoot         = "SET_TABLE_ROOT"
-	CommandApplyTableRootRebase = "APPLY_TABLE_ROOT_REBASE"
-	CommandSetTablePopulation   = "SET_TABLE_POPULATION"
-	CommandClearTablePopulation = "CLEAR_TABLE_POPULATION"
-	CommandAddRoute             = "ADD_ROUTE"
-	CommandUpdateRouteEdge      = "UPDATE_ROUTE_EDGE"
-	CommandRemoveRoute          = "REMOVE_ROUTE"
-	CommandAddColumn            = "ADD_COLUMN"
-	CommandAddColumnSource      = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn         = "UPDATE_COLUMN"
-	CommandUpdateColumnSource   = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn         = "REMOVE_COLUMN"
-	CommandResultTableCreated   = "TABLE_CREATED"
-	CommandResultTableChanged   = "TABLE_CHANGED"
-	CommandResultRouteAdded     = "ROUTE_ADDED"
-	CommandResultColumnAdded    = "COLUMN_ADDED"
-	InitialPresentationTable    = "TABLE"
-	InitialPresentationFilter   = "FILTER"
-	InitialPresentationChart    = "CHART"
+	CommandCreateTable            = "CREATE_TABLE"
+	CommandDuplicateTable         = "DUPLICATE_TABLE"
+	CommandDeleteTable            = "DELETE_TABLE"
+	CommandRenameTable            = "RENAME_TABLE"
+	CommandReorderTables          = "REORDER_TABLES"
+	CommandSetTableRoot           = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase   = "APPLY_TABLE_ROOT_REBASE"
+	CommandSetTablePopulation     = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation   = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute               = "ADD_ROUTE"
+	CommandUpdateRouteEdge        = "UPDATE_ROUTE_EDGE"
+	CommandRemoveRoute            = "REMOVE_ROUTE"
+	CommandAddColumn              = "ADD_COLUMN"
+	CommandAddColumnSource        = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn           = "UPDATE_COLUMN"
+	CommandSetColumnContributor   = "SET_COLUMN_CONTRIBUTOR"
+	CommandClearColumnContributor = "CLEAR_COLUMN_CONTRIBUTOR"
+	CommandUpdateColumnSource     = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn           = "REMOVE_COLUMN"
+	CommandResultTableCreated     = "TABLE_CREATED"
+	CommandResultTableChanged     = "TABLE_CHANGED"
+	CommandResultRouteAdded       = "ROUTE_ADDED"
+	CommandResultColumnAdded      = "COLUMN_ADDED"
+	InitialPresentationTable      = "TABLE"
+	InitialPresentationFilter     = "FILTER"
+	InitialPresentationChart      = "CHART"
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
@@ -62,24 +64,25 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                string             `json:"type"`
-	OutputID            string             `json:"outputId,omitempty"`
-	SourceOutputID      string             `json:"sourceOutputId,omitempty"`
-	Title               string             `json:"title,omitempty"`
-	RootNodeID          string             `json:"rootNodeId,omitempty"`
-	SelectionRevisionID string             `json:"selectionRevisionId,omitempty"`
-	EdgeIDs             []string           `json:"edgeIds,omitempty"`
-	ParentOccurrenceID  string             `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID        string             `json:"occurrenceId,omitempty"`
-	EdgeID              string             `json:"edgeId,omitempty"`
-	CandidateID         string             `json:"candidateId,omitempty"`
-	ProjectionMode      string             `json:"projectionMode,omitempty"`
-	InitialPresentation string             `json:"initialPresentation,omitempty"`
-	Column              string             `json:"column,omitempty"`
-	ColumnValue         *Column            `json:"columnValue,omitempty"`
-	Source              *ColumnSource      `json:"source,omitempty"`
-	RowChange           *RowChangeProposal `json:"rowChange,omitempty"`
-	OutputIDs           []string           `json:"outputIds,omitempty"`
+	Type                string                `json:"type"`
+	OutputID            string                `json:"outputId,omitempty"`
+	SourceOutputID      string                `json:"sourceOutputId,omitempty"`
+	Title               string                `json:"title,omitempty"`
+	RootNodeID          string                `json:"rootNodeId,omitempty"`
+	SelectionRevisionID string                `json:"selectionRevisionId,omitempty"`
+	EdgeIDs             []string              `json:"edgeIds,omitempty"`
+	ParentOccurrenceID  string                `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID        string                `json:"occurrenceId,omitempty"`
+	EdgeID              string                `json:"edgeId,omitempty"`
+	CandidateID         string                `json:"candidateId,omitempty"`
+	ProjectionMode      string                `json:"projectionMode,omitempty"`
+	InitialPresentation string                `json:"initialPresentation,omitempty"`
+	Column              string                `json:"column,omitempty"`
+	ColumnValue         *Column               `json:"columnValue,omitempty"`
+	Contributor         *ContributorPredicate `json:"contributor,omitempty"`
+	Source              *ColumnSource         `json:"source,omitempty"`
+	RowChange           *RowChangeProposal    `json:"rowChange,omitempty"`
+	OutputIDs           []string              `json:"outputIds,omitempty"`
 }
 
 func (c *Command) UnmarshalJSON(raw []byte) error {
@@ -218,6 +221,17 @@ func (c Command) validate() error {
 		if !required(c.OutputID, c.Column) || c.ColumnValue == nil {
 			return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
 		}
+	case CommandSetColumnContributor:
+		if !required(c.OutputID, c.Column) || c.Contributor == nil {
+			return fmt.Errorf("SET_COLUMN_CONTRIBUTOR requires outputId, column, and contributor")
+		}
+		if err := c.Contributor.Validate(); err != nil {
+			return fmt.Errorf("contributor: %w", err)
+		}
+	case CommandClearColumnContributor:
+		if !required(c.OutputID, c.Column) {
+			return fmt.Errorf("CLEAR_COLUMN_CONTRIBUTOR requires outputId and column")
+		}
 	case CommandAddColumnSource:
 		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
 			return fmt.Errorf("ADD_COLUMN_SOURCE requires outputId, occurrenceId, and source")
@@ -249,6 +263,10 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 	if err != nil {
 		return Workspace{}, nil, err
 	}
+	working, err = MigrateLegacyContributors(working, catalog)
+	if err != nil {
+		return Workspace{}, nil, err
+	}
 	working = MigrateLosslessDefaults(working, catalog)
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
@@ -259,6 +277,9 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 		results = append(results, result)
 	}
 	working = working.NormalizePresentationOrders()
+	if err := validateWorkspaceContributors(working, catalog); err != nil {
+		return Workspace{}, nil, err
+	}
 	if err := (BuilderState{APIVersion: APIVersion, Kind: StateKind, LifecycleState: LifecycleReady, Workspace: &working, Catalog: catalog}).Validate(); err != nil {
 		return Workspace{}, nil, err
 	}
@@ -555,6 +576,42 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 				return result, fmt.Errorf("column label is required")
 			}
 			current.Label, current.Table, current.Filter, current.Chart = value.Label, value.Table, value.Filter, value.Chart
+			if value.Contributor != nil {
+				contributor := value.Contributor.Normalized()
+				current.Contributor = &contributor
+			}
+			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
+		}
+		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandSetColumnContributor:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		for i := range workspace.Documents[document].Columns {
+			current := &workspace.Documents[document].Columns[i]
+			if current.Column != command.Column {
+				continue
+			}
+			contributor := command.Contributor.Normalized()
+			if err := ValidateContributorForCatalog(workspace.Documents[document], catalog, current.OccurrenceID, current.Source, contributor); err != nil {
+				return result, err
+			}
+			current.Contributor = &contributor
+			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
+		}
+		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandClearColumnContributor:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		for i := range workspace.Documents[document].Columns {
+			current := &workspace.Documents[document].Columns[i]
+			if current.Column != command.Column {
+				continue
+			}
+			current.Contributor = nil
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
@@ -677,6 +734,25 @@ func cloneWorkspace(value Workspace) (Workspace, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Workspace{}, err
 	}
+	// SourceWhere is a private persisted-draft compatibility payload and is
+	// intentionally omitted from current JSON. Preserve it for transactional
+	// legacy migration and frozen in-memory callers while keeping it unwritable.
+	for documentIndex := range value.Documents {
+		if documentIndex >= len(result.Documents) {
+			break
+		}
+		for columnIndex := range value.Documents[documentIndex].Columns {
+			if columnIndex >= len(result.Documents[documentIndex].Columns) {
+				break
+			}
+			where := value.Documents[documentIndex].Columns[columnIndex].Source.Aggregate
+			if where == nil || where.Where == nil || result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate == nil {
+				continue
+			}
+			legacyWhere := *where.Where
+			result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate.Where = &legacyWhere
+		}
+	}
 	return result, nil
 }
 
@@ -723,6 +799,76 @@ func catalogCandidate(catalog CatalogSnapshot, id string) (CatalogCandidate, boo
 		}
 	}
 	return CatalogCandidate{}, false
+}
+
+func validateWorkspaceContributors(workspace Workspace, catalog CatalogSnapshot) error {
+	for documentIndex := range workspace.Documents {
+		document := workspace.Documents[documentIndex]
+		for columnIndex := range document.Columns {
+			column := document.Columns[columnIndex]
+			if column.Contributor == nil {
+				continue
+			}
+			if err := ValidateContributorForCatalog(document, catalog, column.OccurrenceID, column.Source, *column.Contributor); err != nil {
+				return fmt.Errorf("documents[%d].columns[%d].contributor: %w", documentIndex, columnIndex, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateContributorForCatalog proves one authored contributor against the
+// pinned occurrence and catalog. It is shared by command application and the
+// compilation boundary so a stale/foreign candidate cannot become a recipe
+// selector.
+func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
+	if source.Kind != SourceAggregate || source.Aggregate == nil {
+		return fmt.Errorf("contributor is only supported for aggregate sources")
+	}
+	if err := predicate.Validate(); err != nil {
+		return err
+	}
+	occurrence := findRoute(&document.Route, occurrenceID)
+	if occurrence == nil {
+		return fmt.Errorf("occurrence %q was not found", occurrenceID)
+	}
+	candidate, ok := catalogCandidate(catalog, predicate.CandidateID)
+	if !ok {
+		return fmt.Errorf("contributor candidate %q was not found", predicate.CandidateID)
+	}
+	node, ok := catalogNode(catalog, candidate.NodeID)
+	if !ok || node.ResourceType != occurrence.ResourceType {
+		return fmt.Errorf("contributor candidate %q does not belong to occurrence %q", predicate.CandidateID, occurrenceID)
+	}
+	path := strings.TrimPrefix(strings.Trim(strings.TrimSpace(candidate.FieldPath), "."), "root.")
+	canonical := fhirschema.CanonicalizePath(path)
+	field, ok := fhirschema.LookupField(occurrence.ResourceType, canonical)
+	if !ok {
+		return fmt.Errorf("contributor candidate %q selector %q is not present in generated FHIR schema", predicate.CandidateID, candidate.FieldPath)
+	}
+	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(occurrence.ResourceType, canonical)
+	if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
+		return fmt.Errorf("contributor candidate %q selector %q is not a supported scalar", predicate.CandidateID, candidate.FieldPath)
+	}
+	repeated := metadata.Repeated || strings.Contains(field.Path, "[]")
+	if repeated {
+		if predicate.Quantifier != ContributorAny {
+			return fmt.Errorf("repeated contributor candidate %q requires explicit ANY quantifier", predicate.CandidateID)
+		}
+	} else if predicate.Quantifier != "" {
+		return fmt.Errorf("scalar contributor candidate %q forbids quantifier", predicate.CandidateID)
+	}
+	if predicate.Operator != ContributorEquals {
+		return nil
+	}
+	wantKind := ContributorString
+	if strings.EqualFold(strings.TrimSpace(candidate.LogicalType), "code") || canonical == "code" || strings.HasSuffix(canonical, ".code") {
+		wantKind = ContributorValueCode
+	}
+	if predicate.Value == nil || predicate.Value.Kind != wantKind {
+		return fmt.Errorf("contributor candidate %q requires %s value", predicate.CandidateID, wantKind)
+	}
+	return nil
 }
 
 func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {

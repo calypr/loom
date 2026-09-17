@@ -26,7 +26,7 @@ for (const system of ['urn:study:A', 'urn:study:B']) {
 }
 async function command(commands) {
   const result = await json(`${authoring}/commands`, {
-    commandId: randomUUID(), semanticsVersion: 3, snapshotToken: builder.catalog.snapshotToken,
+    commandId: randomUUID(), semanticsVersion: 4, snapshotToken: builder.catalog.snapshotToken,
     expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands,
   });
   builder = await json(`${authoring}/builder`);
@@ -42,7 +42,7 @@ for (const [kind, path, match] of [
   ['codingBySystem', 'code.coding[]', 'urn:study:A'],
 ]) {
   const rejected = await json(`${authoring}/commands`, {
-    commandId: randomUUID(), semanticsVersion: 3, snapshotToken: builder.catalog.snapshotToken,
+    commandId: randomUUID(), semanticsVersion: 4, snapshotToken: builder.catalog.snapshotToken,
     expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest,
     commands: [{ type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Legacy ambiguous lookup', source: { kind, lookup: { path, match } } }],
   }, 422);

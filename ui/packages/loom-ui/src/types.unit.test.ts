@@ -110,4 +110,23 @@ describe('explorerBuilderCommandSchema', () => {
       edgeId: 'specimen-patient-participant',
     });
   });
+
+  it('accepts explicit contributor set and clear commands', () => {
+    const contributor = {
+      candidateId: 'observation-status',
+      operator: 'EQUALS',
+      quantifier: 'ANY',
+      value: { kind: 'STRING', string: 'registered' },
+    };
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'SET_COLUMN_CONTRIBUTOR', outputId: 'patients', column: 'registered_count', contributor,
+    })).toMatchObject({ type: 'SET_COLUMN_CONTRIBUTOR', contributor });
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'CLEAR_COLUMN_CONTRIBUTOR', outputId: 'patients', column: 'registered_count',
+    })).toEqual({ type: 'CLEAR_COLUMN_CONTRIBUTOR', outputId: 'patients', column: 'registered_count' });
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'SET_COLUMN_CONTRIBUTOR', outputId: 'patients', column: 'registered_count',
+      contributor: { ...contributor, value: { kind: 'CODE', code: { system: 'urn:system', code: 'registered' } } },
+    }).success).toBe(false);
+  });
 });

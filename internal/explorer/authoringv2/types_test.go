@@ -41,3 +41,40 @@ func TestEmptyBuilderStateAndBackendLeakage(t *testing.T) {
 		}
 	}
 }
+
+func TestContributorPredicateValidationUsesCatalogCardinalityAndKind(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Columns = append(document.Columns, Column{Column: "count", Label: "Count", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}})
+	catalog := commandCatalog()
+	validString := ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("active")}}
+	if err := ValidateContributorForCatalog(document, catalog, RootOccurrenceID, document.Columns[1].Source, validString); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name      string
+		predicate ContributorPredicate
+		want      string
+	}{
+		{"exists value", ContributorPredicate{CandidateID: "patient-id", Operator: ContributorExists, Value: validString.Value}, "does not accept value"},
+		{"equals missing value", ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals}, "requires value"},
+		{"scalar any", ContributorPredicate{CandidateID: "patient-id", Operator: ContributorExists, Quantifier: ContributorAny}, "scalar contributor candidate"},
+		{"wrong value kind", ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorValueCode, Code: &ContributorCode{Code: "active"}}}, "requires STRING"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateContributorForCatalog(document, catalog, RootOccurrenceID, document.Columns[1].Source, tc.predicate); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want substring %q", err, tc.want)
+			}
+		})
+	}
+	repeatedCatalog := catalog
+	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}})
+	repeated := ContributorPredicate{CandidateID: "patient-family", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("Smith")}}
+	if err := ValidateContributorForCatalog(document, repeatedCatalog, RootOccurrenceID, document.Columns[1].Source, repeated); err == nil || !strings.Contains(err.Error(), "requires explicit ANY") {
+		t.Fatalf("repeated predicate error=%v", err)
+	}
+	repeated.Quantifier = ContributorAny
+	if err := ValidateContributorForCatalog(document, repeatedCatalog, RootOccurrenceID, document.Columns[1].Source, repeated); err != nil {
+		t.Fatalf("repeated ANY predicate rejected: %v", err)
+	}
+}

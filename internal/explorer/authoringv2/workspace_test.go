@@ -204,6 +204,13 @@ func TestDecodeWorkspaceRejectsUnknownNestedSourceFields(t *testing.T) {
 	}
 }
 
+func TestDecodeWorkspaceRejectsLegacyAggregateWhereAtCurrentSemantics(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":"active"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "not writable") {
+		t.Fatalf("error=%v, want current semantics aggregate where rejection", err)
+	}
+}
+
 func TestDecodeWorkspaceRejectsUnsupportedFutureSemanticsVersion(t *testing.T) {
 	w := workspaceDocument("patients")
 	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion + 1, Explorer: ExplorerMetadata{Title: "Future"}, Documents: []Document{w}, Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}}

@@ -75,7 +75,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commandBody := fmt.Sprintf(`{"commandId":"apply-row-change","semanticsVersion":3,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","rowChange":%s}]}`, snapshot.Token, digest, proposal)
+	commandBody := fmt.Sprintf(`{"commandId":"apply-row-change","semanticsVersion":4,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_TABLE_ROOT_REBASE","rowChange":%s}]}`, snapshot.Token, digest, proposal)
 	applied := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", commandBody)
 	if applied.StatusCode != http.StatusOK {
 		t.Fatalf("apply status=%d body=%s", applied.StatusCode, applied.Body)

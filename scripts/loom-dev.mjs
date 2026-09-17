@@ -432,7 +432,7 @@ const applyBootstrapCommands = async (target, explorerId, state, commandId, comm
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       commandId,
-      semanticsVersion: 3,
+      semanticsVersion: 4,
       snapshotToken: state.catalog.snapshotToken,
       expectedDraftVersion: state.draftVersion,
       ...(state.draftDigest ? { expectedDraftDigest: state.draftDigest } : {}),

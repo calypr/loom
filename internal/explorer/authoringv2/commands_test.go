@@ -80,6 +80,49 @@ func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	}
 }
 
+func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, added, err := ApplyCommands(workspace, catalog, "aggregate", []Command{{
+		Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID,
+		Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columnID := added[0].Column
+	predicate := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("active")}}
+	set := Command{Type: CommandSetColumnContributor, OutputID: outputID, Column: columnID, Contributor: predicate}
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-contributor", []Command{set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Columns[0].Contributor == nil || workspace.Documents[0].Columns[0].Contributor.CandidateID != "patient-id" {
+		t.Fatalf("contributor was not set: %#v", workspace.Documents[0].Columns[0].Contributor)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-contributor-retry", []Command{set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Columns[0].Contributor != nil {
+		t.Fatalf("contributor was not cleared: %#v", workspace.Documents[0].Columns[0].Contributor)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor-retry", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
+
 func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.RoutePolicy.AllowRepeatedEdges = false

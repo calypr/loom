@@ -226,24 +226,12 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		aggregatePhysical.Value = &value
 	}
 	if aggregate.Predicate != nil {
-		leftSource := source
-		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
-			leftSource = ir.PhysicalValue{Variable: source.Variable, Path: []string{"payload"}}
+		bindPrefix := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate"
+		predicate, err := lowerTypedPredicate(physical, resourceType, source, *aggregate.Predicate, bindPrefix)
+		if err != nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q predicate: %w", aggregate.Name, err)
 		}
-		left := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *aggregate.Predicate, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Predicate)}}
-		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}
-		if aggregate.PredicateEquals != "" {
-			comparison.Operator = "EQUALS"
-			comparison.ValueKind = aggregate.PredicateKind
-			if comparison.ValueKind == "" {
-				comparison.ValueKind = spec.FilterString
-			}
-			key := "aggregate_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(aggregate.Name) + "_predicate_equals"
-			physical.BindVars[key] = aggregate.PredicateEquals
-			comparison.Right = &ir.PhysicalValue{BindKey: key}
-		}
-		aggregatePhysical.Predicate = &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: comparison}
+		aggregatePhysical.Predicate = predicate
 	}
 	cardinality := ir.PhysicalScalarCardinality
 	nullBehavior := ir.PhysicalEmptyOnNull
@@ -283,7 +271,14 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		Sort:         &ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: source.Variable, Path: []string{"_key"}}},
 		Projections:  make([]ir.PhysicalExpressionProjection, 0, len(slice.Fields)),
 	}
-	if slice.Predicate != nil {
+	if slice.TypedPredicate != nil {
+		bindPrefix := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_predicate"
+		predicate, err := lowerTypedPredicate(physical, resourceType, source, *slice.TypedPredicate, bindPrefix)
+		if err != nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("slice %q predicate: %w", slice.Name, err)
+		}
+		physicalSlice.Predicate = predicate
+	} else if slice.Predicate != nil {
 		left := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 			Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: *slice.Predicate, ExecutionMode: selectorExecutionMode(resourceType, *slice.Predicate)}}
 		comparison := &ir.PhysicalPredicate{Operator: "EXISTS", LeftExpression: &left}

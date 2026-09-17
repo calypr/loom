@@ -1,9 +1,36 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":""}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	workspace, err := DecodeWorkspace([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := commandCatalog()
+	migrated, err := MigrateLegacyContributors(workspace, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := migrated.Documents[0].Columns[0]
+	if migrated.SemanticsVersion != CurrentSemanticsVersion || column.Source.Aggregate.Where != nil || column.Contributor == nil {
+		t.Fatalf("migrated workspace = %#v", migrated)
+	}
+	if column.Contributor.Operator != ContributorExists || column.Contributor.Value != nil {
+		t.Fatalf("legacy empty equals did not become EXISTS: %#v", column.Contributor)
+	}
+	if len(migrated.MigrationDecisions) != 1 {
+		t.Fatalf("migration decisions = %#v", migrated.MigrationDecisions)
+	}
+	if _, err := json.Marshal(migrated); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	visible := true

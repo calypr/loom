@@ -197,6 +197,22 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
+			var contributorWhere *recipe.Filter
+			if column.Contributor != nil {
+				catalog := catalogFromCapability(snapshot, explorerID)
+				if err := authoringv2.ValidateContributorForCatalog(document, catalog, column.OccurrenceID, column.Source, *column.Contributor); err != nil {
+					return Result{}, fail("intent", "INVALID_CONTRIBUTOR_PREDICATE", fmt.Sprintf("$.columns[%d].contributor", index), err.Error(), map[string]any{"candidateId": column.Contributor.CandidateID}, err)
+				}
+				candidate, found := capabilityCandidate(snapshot, occurrence.graph.ID, column.Contributor.CandidateID)
+				if !found {
+					return Result{}, fail("intent", "STALE_CONTRIBUTOR_CANDIDATE", fmt.Sprintf("$.columns[%d].contributor.candidateId", index), "contributor candidate is not present on the resolved capability node", map[string]any{"candidateId": column.Contributor.CandidateID}, nil)
+				}
+				where, whereErr := contributorRecipeFilter(occurrence.graph.ResourceType, alias, candidate, *column.Contributor)
+				if whereErr != nil {
+					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].contributor", index), whereErr.Error(), nil, whereErr)
+				}
+				contributorWhere = &where
+			}
 			if column.Source.Aggregate != nil {
 				if path := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root."); path != "" {
 					if _, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path); !found {
@@ -210,7 +226,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 					}
 				}
 			}
-			aggregate, aggregateType, aggregateErr := semanticAggregate(column, alias, occurrence.graph.ResourceType)
+			aggregate, aggregateType, aggregateErr := semanticAggregate(column, alias, occurrence.graph.ResourceType, contributorWhere)
 			if aggregateErr != nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), aggregateErr.Error(), nil, aggregateErr)
 			}
@@ -549,7 +565,7 @@ func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType str
 	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: column.Source.LookupMatch()}}, nil
 }
 
-func semanticAggregate(column authoringv2.Column, alias, resourceType string) (recipe.Aggregate, string, error) {
+func semanticAggregate(column authoringv2.Column, alias, resourceType string, contributorWhere *recipe.Filter) (recipe.Aggregate, string, error) {
 	if column.Source.Aggregate == nil {
 		return recipe.Aggregate{}, "", fmt.Errorf("aggregate payload is required")
 	}
@@ -565,7 +581,9 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string) (r
 		path := strings.Trim(strings.TrimSpace(source.Path), ".")
 		aggregate.Expr = &recipe.Expression{Select: alias + "." + path}
 	}
-	if source.Where != nil && strings.TrimSpace(source.Where.Path) != "" {
+	if contributorWhere != nil {
+		aggregate.Where = contributorWhere
+	} else if source.Where != nil && strings.TrimSpace(source.Where.Path) != "" {
 		wherePath := strings.Trim(strings.TrimSpace(source.Where.Path), ".")
 		where := &recipe.Filter{Select: alias + "." + wherePath, FieldRef: column.Column}
 		if strings.TrimSpace(source.Where.Equals) == "" {
@@ -618,6 +636,47 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string) (r
 		return recipe.Aggregate{}, "", fmt.Errorf("unsupported aggregate operation %q", source.Operation)
 	}
 	return aggregate, logicalType, nil
+}
+
+func capabilityCandidate(snapshot capability.Snapshot, nodeID, candidateID string) (capability.Candidate, bool) {
+	for _, candidate := range snapshot.Candidates {
+		if candidate.ID == candidateID && candidate.NodeID == nodeID {
+			return candidate, true
+		}
+	}
+	return capability.Candidate{}, false
+}
+
+func contributorRecipeFilter(resourceType, alias string, candidate capability.Candidate, predicate authoringv2.ContributorPredicate) (recipe.Filter, error) {
+	path := strings.TrimPrefix(strings.Trim(strings.TrimSpace(candidate.FieldPath), "."), "root.")
+	selector, err := spec.ParseSelector(path)
+	if err != nil {
+		return recipe.Filter{}, fmt.Errorf("contributor candidate %q selector: %w", candidate.ID, err)
+	}
+	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath())
+	if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
+		return recipe.Filter{}, fmt.Errorf("contributor candidate %q selector %q is not a supported scalar", candidate.ID, candidate.FieldPath)
+	}
+	where := recipe.Filter{Select: alias + "." + selector.CanonicalPath(), FieldRef: candidate.ID}
+	where.Operator = recipe.FilterOperator(predicate.Operator)
+	where.Quantifier = recipe.ArrayQuantifier(predicate.Quantifier)
+	if predicate.Value != nil {
+		value := recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+		switch predicate.Value.Kind {
+		case authoringv2.ContributorString:
+			stringValue := *predicate.Value.String
+			value.String = &stringValue
+		case authoringv2.ContributorValueCode:
+			value.Code = &recipe.CodeValue{Code: predicate.Value.Code.Code}
+		default:
+			return recipe.Filter{}, fmt.Errorf("unsupported contributor value kind %q", predicate.Value.Kind)
+		}
+		where.Values = []recipe.FilterValue{value}
+	}
+	if err := where.Validate(); err != nil {
+		return recipe.Filter{}, fmt.Errorf("contributor candidate %q: %w", candidate.ID, err)
+	}
+	return where, nil
 }
 
 func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {

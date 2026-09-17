@@ -8,7 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 3;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 4;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -159,9 +159,23 @@ const aggregateColumnSourceSchema = z
         'CONTAINS_ALL',
       ]),
       path: opaqueIdSchema.optional(),
-      where: z.object({ path: opaqueIdSchema, equals: z.string() }).strict().optional(),
       requiredValues: z.array(z.string()).optional(),
     }).strict(),
+  })
+  .strict();
+const contributorValueSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({
+    kind: z.literal('CODE'),
+    code: z.object({ code: z.string().min(1) }).strict(),
+  }).strict(),
+]);
+const contributorPredicateSchema = z
+  .object({
+    candidateId: opaqueIdSchema,
+    operator: z.enum(['EXISTS', 'EQUALS']),
+    quantifier: z.literal('ANY').optional(),
+    value: contributorValueSchema.optional(),
   })
   .strict();
 export const explorerColumnSourceSchema = z.union([
@@ -203,6 +217,7 @@ export const explorerBuilderColumnSchema = z
     logicalType: z.string().optional(),
     occurrenceId: opaqueIdSchema,
     source: explorerColumnSourceSchema,
+    contributor: contributorPredicateSchema.optional(),
     table: explorerTablePresentationSchema.optional(),
     filter: explorerFilterPresentationSchema.optional(),
     chart: explorerChartPresentationSchema.optional(),
@@ -503,6 +518,8 @@ export const explorerBuilderCommandSchema = z
       'ADD_COLUMN_SOURCE',
       'UPDATE_COLUMN_SOURCE',
       'UPDATE_COLUMN',
+      'SET_COLUMN_CONTRIBUTOR',
+      'CLEAR_COLUMN_CONTRIBUTOR',
       'REMOVE_COLUMN',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -519,6 +536,7 @@ export const explorerBuilderCommandSchema = z
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
     column: opaqueIdSchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
+    contributor: contributorPredicateSchema.optional(),
     source: explorerColumnSourceSchema.optional(),
     rowChange: rowChangeProposalSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),

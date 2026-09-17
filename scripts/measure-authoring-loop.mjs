@@ -46,7 +46,7 @@ async function sample(target, index) {
   const start = performance.now();
   const command = await json(`${target.base}/commands`, {
     commandId: `timing-${randomUUID()}`,
-    ...(builder.workspace.semanticsVersion >= 3 ? { semanticsVersion: 3 } : {}),
+    ...(builder.workspace.semanticsVersion >= 4 ? { semanticsVersion: 4 } : {}),
     snapshotToken: builder.catalog.snapshotToken,
     expectedDraftVersion: builder.draftVersion,
     expectedDraftDigest: builder.draftDigest,

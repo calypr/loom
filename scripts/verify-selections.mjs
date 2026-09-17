@@ -51,7 +51,7 @@ assert.ok(filesNode, 'hostile fixture DocumentReference catalog is missing');
 
 async function command(commands) {
   const result = await json(`${authoring}/commands`, {
-    commandId: randomUUID(), semanticsVersion: 3, snapshotToken: builder.catalog.snapshotToken,
+    commandId: randomUUID(), semanticsVersion: 4, snapshotToken: builder.catalog.snapshotToken,
     expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands,
   });
   builder = await json(`${authoring}/builder`);

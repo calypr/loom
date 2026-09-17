@@ -3,6 +3,7 @@ package compiler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -174,5 +175,114 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_contributor_" + uuid.NewString()
+	patientKey := func(id string) string { return project + "_" + id }
+	document := func(key, resourceType string, payload map[string]any) json.RawMessage {
+		t.Helper()
+		raw, marshalErr := json.Marshal(map[string]any{
+			"_key": key, "id": payload["id"], "project": project, "project_id": project,
+			"resourceType": resourceType, "payload": payload,
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return raw
+	}
+	patients := []json.RawMessage{
+		document(patientKey("p1"), "Patient", map[string]any{"id": "p1", "resourceType": "Patient"}),
+		document(patientKey("p2"), "Patient", map[string]any{"id": "p2", "resourceType": "Patient"}),
+	}
+	observations := []json.RawMessage{}
+	edges := []json.RawMessage{}
+	for index, status := range []string{"registered", "cancelled", "cancelled"} {
+		observationKey := fmt.Sprintf("%s_o%d", project, index+1)
+		observations = append(observations, document(observationKey, "Observation", map[string]any{
+			"id": fmt.Sprintf("o%d", index+1), "resourceType": "Observation", "status": status,
+			"subject": map[string]any{"reference": "Patient/p1"},
+		}))
+		edge, marshalErr := json.Marshal(map[string]any{
+			"_key":  fmt.Sprintf("%s_e%d", project, index+1),
+			"_from": "Observation/" + observationKey, "_to": "Patient/" + patientKey("p1"),
+			"project": project, "project_id": project,
+			"label": "subject_Patient", "from_type": "Observation", "to_type": "Patient",
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		edges = append(edges, edge)
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", patients, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", observations, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+
+	predicate := func(value string) *spec.TypedFilter {
+		return &spec.TypedFilter{FieldRef: "observation-status", Selector: "status", FieldKind: spec.FilterString,
+			Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: &value}}}
+	}
+	root := semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Fields: []semantic.SemanticField{testSemanticField("patient_id", spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}, spec.ProjectionFirst)},
+		Children: []semantic.SemanticNode{
+			{Alias: "registered_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "registered_count", OutputName: "registered_count", Operation: "COUNT", Predicate: predicate("registered")}}},
+			{Alias: "cancelled_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "cancelled_count", OutputName: "cancelled_count", Operation: "COUNT", Predicate: predicate("cancelled")}}},
+		},
+	}
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered.BindVars["aggregate_child_set_1_registered_count_predicate_value"] != "registered" || rendered.BindVars["aggregate_child_set_2_cancelled_count_predicate_value"] != "cancelled" {
+		t.Fatalf("sibling contributor binds collided or disappeared: %#v", rendered.BindVars)
+	}
+	rows := []map[string]any{}
+	if err := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute contributor query: %v\n%s", err, rendered.Query)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%#v, want both Patient roots", rows)
+	}
+	byID := map[string]map[string]any{}
+	for _, row := range rows {
+		byID[fmt.Sprint(row["patient_id"])] = row
+	}
+	for id, want := range map[string][2]float64{"p1": {1, 2}, "p2": {0, 0}} {
+		row := byID[id]
+		if row == nil || row["registered_count"] != want[0] || row["cancelled_count"] != want[1] {
+			t.Fatalf("patient %s row=%#v, want registered=%v cancelled=%v; all rows=%#v", id, row, want[0], want[1], rows)
+		}
 	}
 }

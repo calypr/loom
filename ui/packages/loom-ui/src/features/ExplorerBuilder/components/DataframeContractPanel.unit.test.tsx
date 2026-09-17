@@ -13,7 +13,7 @@ const receipt: ExplorerBuilderCompileResult = {
   builder: {
     apiVersion: EXPLORER_AUTHORING_API_VERSION,
     kind: 'ExplorerBuilderWorkspace',
-    semanticsVersion: 3,
+    semanticsVersion: 4,
     explorer: { title: 'Test' },
     documents: [],
     tabs: [],

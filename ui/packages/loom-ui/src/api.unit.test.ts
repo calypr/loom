@@ -177,7 +177,7 @@ describe('Loom project paths', () => {
     ]);
     expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
       commandId: 'command-1',
-      semanticsVersion: 3,
+      semanticsVersion: 4,
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: 1,
       commands: [],
