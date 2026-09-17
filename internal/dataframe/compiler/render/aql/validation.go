@@ -158,6 +158,8 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		return nil
 	case ir.PhysicalPathSeedOp, ir.PhysicalPathExtendOp, ir.PhysicalGraphReturnOp:
 		return nil
+	case ir.PhysicalPopulationMappingReturnOp:
+		return nil
 	case ir.PhysicalUnnestOp:
 		if operation.Unnest == nil {
 			return fmt.Errorf("UNNEST requires a payload")

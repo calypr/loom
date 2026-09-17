@@ -94,15 +94,15 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 		if got := strings.Count(query, "FOR population_member IN @@population_members_collection"); got != 1 {
 			t.Fatalf("%s population member scan count = %d, want 1:\n%s", name, got, query)
 		}
-		if !strings.Contains(query, "FILTER LENGTH(__loom_population_members_value) > 0") {
-			t.Fatalf("%s query lost the population eligibility filter:\n%s", name, query)
+		if !strings.Contains(query, "FILTER LENGTH((") || !strings.Contains(query, "LIMIT 1") {
+			t.Fatalf("%s query lost the bounded population eligibility filter:\n%s", name, query)
+		}
+		if strings.Contains(query, "__loom_population_members_value") || strings.Contains(query, "__loom_population_members") {
+			t.Fatalf("%s ordinary page query materialized population provenance:\n%s", name, query)
 		}
 	}
-	if got := strings.Count(page.RowsQuery, "__loom_population_members_value"); got != 3 {
-		t.Fatalf("paged rows matched-member value references = %d, want LET/filter/RETURN:\n%s", got, page.RowsQuery)
-	}
 	filterIndex := strings.Index(page.RowsQuery, "root._key IN @"+RootPageKeysBind)
-	populationIndex := strings.Index(page.RowsQuery, "FILTER LENGTH(__loom_population_members_value) > 0")
+	populationIndex := strings.Index(page.RowsQuery, "FILTER LENGTH((")
 	if populationIndex < 0 || filterIndex < 0 || populationIndex > filterIndex {
 		t.Fatalf("population eligibility was not evaluated before selected-root paging:\n%s", page.RowsQuery)
 	}

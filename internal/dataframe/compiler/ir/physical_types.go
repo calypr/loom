@@ -26,6 +26,8 @@ type PhysicalPlan struct {
 	RequiredMatchReuseCount int
 }
 
+const PopulationMappingMembersVariable = "__loom_population_members_value"
+
 // PhysicalSource retains semantic provenance through physical optimization so
 // explain output and compiler errors can point back to user intent.
 type PhysicalSource struct {
@@ -63,27 +65,31 @@ const (
 	PhysicalPathExtendOp     PhysicalOperationKind = "PATH_EXTEND"
 	PhysicalGraphReturnOp    PhysicalOperationKind = "GRAPH_RETURN"
 	PhysicalCollectionScanOp PhysicalOperationKind = "COLLECTION_SCAN"
+	// PhysicalPopulationMappingReturnOp expands matched members only after the
+	// canonical final-row plan has completed. Its witness rows are internal.
+	PhysicalPopulationMappingReturnOp PhysicalOperationKind = "POPULATION_MAPPING_RETURN"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
 // be set. Source can be more specific than the plan-level provenance.
 type PhysicalOperation struct {
-	Kind           PhysicalOperationKind
-	Source         PhysicalSource
-	RootScan       *PhysicalRootScan
-	Traversal      *PhysicalTraversal
-	Filter         *PhysicalFilter
-	DerivedLet     *PhysicalDerivedLet
-	ExpressionLet  *PhysicalExpressionLet
-	Set            *PhysicalSet
-	Unnest         *PhysicalUnnest
-	Sort           *PhysicalSort
-	Limit          *PhysicalLimit
-	Return         *PhysicalReturn
-	PathSeed       *PhysicalPathSeed
-	PathExtend     *PhysicalPathExtend
-	GraphReturn    *PhysicalGraphReturn
-	CollectionScan *PhysicalCollectionScan
+	Kind                    PhysicalOperationKind
+	Source                  PhysicalSource
+	RootScan                *PhysicalRootScan
+	Traversal               *PhysicalTraversal
+	Filter                  *PhysicalFilter
+	DerivedLet              *PhysicalDerivedLet
+	ExpressionLet           *PhysicalExpressionLet
+	Set                     *PhysicalSet
+	Unnest                  *PhysicalUnnest
+	Sort                    *PhysicalSort
+	Limit                   *PhysicalLimit
+	Return                  *PhysicalReturn
+	PathSeed                *PhysicalPathSeed
+	PathExtend              *PhysicalPathExtend
+	GraphReturn             *PhysicalGraphReturn
+	CollectionScan          *PhysicalCollectionScan
+	PopulationMappingReturn *PhysicalPopulationMappingReturn
 }
 
 type PhysicalRootScan struct {

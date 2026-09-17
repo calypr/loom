@@ -156,7 +156,6 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	if err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	appendPopulationMemberProjection(&projections, output.Population)
 	projections = append(projections, returnProjections...)
 	physical.Operations = append(physical.Operations, physical.DeferredExpressionLets...)
 	physical.DeferredExpressionLets = nil

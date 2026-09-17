@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-func TestPopulationSemijoinDirectRootRendersIndexedMemberScan(t *testing.T) {
+func TestPopulationSemijoinDirectRootUsesBoundedExistsWithoutProvenance(t *testing.T) {
 	rendered := renderPopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -21,14 +21,18 @@ func TestPopulationSemijoinDirectRootRendersIndexedMemberScan(t *testing.T) {
 	})
 	for _, want := range []string{
 		"FOR root IN @@root_collection",
+		"LENGTH((",
 		"FOR population_member IN @@population_members_collection",
 		"population_member.selectionId == @population_selection_id",
 		"population_member.project == @population_project",
+		"population_member.generation == @dataset_generation",
 		"population_member.resourceType == @population_resource_type",
 		"population_member.id == root.id",
+		"LIMIT 1",
+		"RETURN @population_match",
 	} {
 		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("rendered population query is missing %q:\n%s", want, rendered.Query)
+			t.Fatalf("ordinary population query is missing %q:\n%s", want, rendered.Query)
 		}
 	}
 	if got := rendered.BindVars["@population_members_collection"]; got != "loom_explorer_selection_members" {
@@ -37,9 +41,12 @@ func TestPopulationSemijoinDirectRootRendersIndexedMemberScan(t *testing.T) {
 	if got := rendered.BindVars["population_project"]; got != "project/a" {
 		t.Fatalf("population project bind = %#v", got)
 	}
+	if strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
+		t.Fatalf("ordinary population query materialized provenance:\n%s", rendered.Query)
+	}
 }
 
-func TestPopulationSemijoinDirectRootRetainsHiddenMatchedMembers(t *testing.T) {
+func TestPopulationSemijoinDirectRootHasNoHiddenProvenanceColumn(t *testing.T) {
 	rendered, output := compilePopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -48,51 +55,22 @@ func TestPopulationSemijoinDirectRootRetainsHiddenMatchedMembers(t *testing.T) {
 			ResourceType: "Specimen",
 		},
 	})
-	for _, want := range []string{
-		"SORTED_UNIQUE((",
-		"SORT population_member.id",
-		"population_member.id == root.id",
-	} {
-		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("direct population provenance query is missing %q:\n%s", want, rendered.Query)
+	for _, column := range output.OutputSchema {
+		if column.Name == "__loom_population_members" || column.Name == "__loom_population_members_value" {
+			t.Fatalf("ordinary output schema contains population provenance: %#v", output.OutputSchema)
 		}
 	}
-	if len(output.OutputSchema) == 0 || output.OutputSchema[len(output.OutputSchema)-1].Name != "__loom_population_members" || !output.OutputSchema[len(output.OutputSchema)-1].Internal {
-		t.Fatalf("population member projection is not hidden in output schema: %#v", output.OutputSchema)
+	if strings.Contains(rendered.Query, "__loom_population_members") {
+		t.Fatalf("ordinary population query contains hidden provenance:\n%s", rendered.Query)
 	}
 }
 
-func TestPopulationSemijoinReusesOneMatchedMemberComputation(t *testing.T) {
+func TestPopulationSemijoinReversedRouteRemainsBoundedAndScoped(t *testing.T) {
 	rendered := renderPopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
 		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
-			ResourceType: "Specimen",
-		},
-	})
-	if got := strings.Count(rendered.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
-		t.Fatalf("population member collection scan count = %d, want 1:\n%s", got, rendered.Query)
-	}
-	if got := strings.Count(rendered.Query, "__loom_population_members_value"); got != 3 {
-		t.Fatalf("matched-member value references = %d, want LET/filter/RETURN:\n%s", got, rendered.Query)
-	}
-	for _, want := range []string{
-		"LET __loom_population_members_value = SORTED_UNIQUE((",
-		"FILTER LENGTH(__loom_population_members_value) > 0",
-	} {
-		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("shared population member value is missing %q:\n%s", want, rendered.Query)
-		}
-	}
-}
-
-func TestPopulationSemijoinSpecimenDocumentReferenceSubjectRouteRendersInboundTraversal(t *testing.T) {
-	rendered := renderPopulationRecipe(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-documents", MembershipDigest: "sha256:members", MemberCount: 1,
+			SelectionRevisionID: "selection-documents", MembershipDigest: "sha256:members", MemberCount: 2,
 			ResourceType: "DocumentReference",
 			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
 		},
@@ -101,92 +79,22 @@ func TestPopulationSemijoinSpecimenDocumentReferenceSubjectRouteRendersInboundTr
 		"FOR population_node_0, population_edge_0 IN 1..1 INBOUND root @@population_route_0_edge_collection",
 		"population_edge_0.label == @population_route_0_label",
 		"population_node_0.resourceType == @population_route_0_target_type",
-		"population_member.id == population_node_0.id",
-	} {
-		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("rendered routed population query is missing %q:\n%s", want, rendered.Query)
-		}
-	}
-}
-
-func TestPopulationSemijoinReversedRouteRetainsMatchedMembersAtTerminalNode(t *testing.T) {
-	rendered := renderPopulationRecipe(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-documents", MembershipDigest: "sha256:members", MemberCount: 2,
-			ResourceType: "DocumentReference",
-			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
-		},
-	})
-	for _, want := range []string{
-		"FOR population_node_0, population_edge_0 IN 1..1 INBOUND root @@population_route_0_edge_collection",
-		"population_member.id == population_node_0.id",
-		"SORTED_UNIQUE((",
-	} {
-		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("reversed population provenance query is missing %q:\n%s", want, rendered.Query)
-		}
-	}
-	if got := strings.Count(rendered.Query, "FOR population_node_0, population_edge_0 IN 1..1 INBOUND root"); got != 1 {
-		t.Fatalf("population route traversal count = %d, want 1:\n%s", got, rendered.Query)
-	}
-	if got := strings.Count(rendered.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
-		t.Fatalf("population member collection scan count = %d, want 1:\n%s", got, rendered.Query)
-	}
-}
-
-func TestPopulationSemijoinProvenanceDeduplicatesSharedTargets(t *testing.T) {
-	rendered := renderPopulationRecipe(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-documents", MembershipDigest: "sha256:members", MemberCount: 3,
-			ResourceType: "DocumentReference",
-			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
-		},
-	})
-	if !strings.Contains(rendered.Query, "SORTED_UNIQUE((") {
-		t.Fatalf("shared-target provenance is not sorted and unique:\n%s", rendered.Query)
-	}
-}
-
-func TestPopulationSemijoinProvenanceExcludesNonmatchingMembers(t *testing.T) {
-	rendered := renderPopulationRecipe(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-documents", MembershipDigest: "sha256:members", MemberCount: 2,
-			ResourceType: "DocumentReference",
-			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
-		},
-	})
-	for _, want := range []string{
 		"population_member.selectionId == @population_selection_id",
 		"population_member.project == @population_project",
 		"population_member.generation == @dataset_generation",
 		"population_member.resourceType == @population_resource_type",
 		"population_member.id == population_node_0.id",
+		"LIMIT 1",
 	} {
 		if !strings.Contains(rendered.Query, want) {
-			t.Fatalf("nonmatching member filter is missing %q:\n%s", want, rendered.Query)
+			t.Fatalf("ordinary reversed population query is missing %q:\n%s", want, rendered.Query)
 		}
 	}
-}
-
-func TestPopulationSemijoinProvenanceOrdersMembersDeterministically(t *testing.T) {
-	rendered := renderPopulationRecipe(t, recipe.Output{
-		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		Population: &recipe.PopulationConstraint{
-			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
-			ResourceType: "Specimen",
-		},
-	})
-	sortIndex := strings.Index(rendered.Query, "SORT population_member.id")
-	returnIndex := strings.Index(rendered.Query, "RETURN population_member.id")
-	if sortIndex < 0 || returnIndex < 0 || sortIndex > returnIndex {
-		t.Fatalf("population provenance member order is not deterministic:\n%s", rendered.Query)
+	if got := strings.Count(rendered.Query, "LIMIT 1"); got != 1 {
+		t.Fatalf("bounded reversed member match count = %d, want 1:\n%s", got, rendered.Query)
+	}
+	if strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
+		t.Fatalf("ordinary reversed population query materialized provenance:\n%s", rendered.Query)
 	}
 }
 

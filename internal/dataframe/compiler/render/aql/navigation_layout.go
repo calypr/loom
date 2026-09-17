@@ -21,14 +21,20 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires ROOT_SCAN as the first operation")
 	}
 	last := len(plan.Operations) - 1
-	if plan.Operations[last].Kind != ir.PhysicalReturnOp {
-		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires RETURN as the final operation")
+	if plan.Operations[last].Kind != ir.PhysicalReturnOp && plan.Operations[last].Kind != ir.PhysicalPopulationMappingReturnOp {
+		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires RETURN or POPULATION_MAPPING_RETURN as the final operation")
 	}
 
 	layout := physicalNavigationRenderLayout{
 		root:      *plan.Operations[0].RootScan,
 		rootScope: append([]ir.PhysicalOperation(nil), plan.Operations[1:5]...),
-		returnOp:  *plan.Operations[last].Return,
+	}
+	if plan.Operations[last].Kind == ir.PhysicalReturnOp {
+		returnOp := *plan.Operations[last].Return
+		layout.returnOp = &returnOp
+	} else {
+		mappingReturn := *plan.Operations[last].PopulationMappingReturn
+		layout.mappingReturn = &mappingReturn
 	}
 	rootScopeVariable, err := validateGenericNavigationScopeBlock(layout.rootScope, layout.root.Variable, "", layout.root.Variable)
 	if err != nil {
@@ -119,8 +125,10 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 			reductionVariables[operation.Set.Reduction.Variable] = struct{}{}
 		}
 	}
-	if err := validateNavigationReturnScope(layout.returnOp, layout.root.Variable, rootScopeVariable, unnestVariables, reductionVariables); err != nil {
-		return physicalNavigationRenderLayout{}, err
+	if layout.returnOp != nil {
+		if err := validateNavigationReturnScope(*layout.returnOp, layout.root.Variable, rootScopeVariable, unnestVariables, reductionVariables); err != nil {
+			return physicalNavigationRenderLayout{}, err
+		}
 	}
 	return layout, nil
 }

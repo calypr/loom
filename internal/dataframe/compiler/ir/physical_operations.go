@@ -89,6 +89,20 @@ type PhysicalGraphReturn struct {
 	LimitBindKey string
 }
 
+// PhysicalPopulationMappingReturn is an internal final-row witness terminal.
+// Members must be the matched selected-member array for the current root row;
+// RowID is evaluated in the final row scope. The renderer emits one witness
+// row per (member, rowID) pair without changing the ordinary return schema.
+type PhysicalPopulationMappingReturn struct {
+	Members PhysicalExpression
+	RowID   PhysicalExpression
+}
+
+const (
+	PhysicalPopulationMappingMemberField = "__loom_population_member"
+	PhysicalPopulationMappingRowIDField  = "__loom_population_row_id"
+)
+
 // PhysicalUnnestJoinMode controls the row-preservation contract for a
 // cardinality-changing operation. The renderer chooses the equivalent AQL
 // shape; this IR never stores a query fragment.

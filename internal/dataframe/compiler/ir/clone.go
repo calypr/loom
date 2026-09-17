@@ -94,6 +94,10 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 				canonicalizePhysicalExpression(operation.Return.Projections[projection].Expression)
 			}
 		}
+		if operation.PopulationMappingReturn != nil {
+			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.Members)
+			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.RowID)
+		}
 		if operation.PathExtend != nil {
 			canonicalizePhysicalOperations(operation.PathExtend.Scope)
 		}
@@ -280,6 +284,12 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.CollectionScan != nil {
 		collectionCopy := *operation.CollectionScan
 		copy.CollectionScan = &collectionCopy
+	}
+	if operation.PopulationMappingReturn != nil {
+		mappingCopy := *operation.PopulationMappingReturn
+		mappingCopy.Members = clonePhysicalExpression(operation.PopulationMappingReturn.Members)
+		mappingCopy.RowID = clonePhysicalExpression(operation.PopulationMappingReturn.RowID)
+		copy.PopulationMappingReturn = &mappingCopy
 	}
 	return copy
 }

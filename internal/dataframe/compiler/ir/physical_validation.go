@@ -160,6 +160,11 @@ func (p PhysicalPlan) Validate() error {
 				return fmt.Errorf("operation %d graph return: %w", i, err)
 			}
 			graphReturns++
+		case PhysicalPopulationMappingReturnOp:
+			if err := validatePhysicalPopulationMappingReturn(*operation.PopulationMappingReturn, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d population mapping return: %w", i, err)
+			}
+			returns++
 		case PhysicalReturnOp:
 			returns++
 			seenNames := map[string]bool{}
@@ -178,7 +183,7 @@ func (p PhysicalPlan) Validate() error {
 		return fmt.Errorf("physical plan requires exactly one root scan")
 	}
 	if returns+graphReturns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN or GRAPH_RETURN")
+		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, or POPULATION_MAPPING_RETURN")
 	}
 	return nil
 }
@@ -519,6 +524,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.CollectionScan != nil {
 		payloads++
 	}
+	if operation.PopulationMappingReturn != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -535,7 +543,8 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalPathSeedOp && operation.PathSeed != nil) ||
 		(operation.Kind == PhysicalPathExtendOp && operation.PathExtend != nil) ||
 		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil) ||
-		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil)
+		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
+		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}
@@ -665,4 +674,20 @@ func validatePhysicalProjection(projection PhysicalProjection, defined map[strin
 		return validatePhysicalExpression(*projection.Expression, defined, bindVars)
 	}
 	return validatePhysicalValue(projection.Value, defined, bindVars)
+}
+
+func validatePhysicalPopulationMappingReturn(terminal PhysicalPopulationMappingReturn, defined map[string]bool, bindVars map[string]any) error {
+	if terminal.Members.Cardinality != PhysicalArrayCardinality || terminal.Members.NullBehavior != PhysicalEmptyOnNull {
+		return fmt.Errorf("mapping members must be an EMPTY_ON_NULL array expression")
+	}
+	if err := validatePhysicalExpression(terminal.Members, defined, bindVars); err != nil {
+		return fmt.Errorf("mapping members: %w", err)
+	}
+	if terminal.RowID.Cardinality != PhysicalScalarCardinality {
+		return fmt.Errorf("mapping row identity must be scalar")
+	}
+	if err := validatePhysicalExpression(terminal.RowID, defined, bindVars); err != nil {
+		return fmt.Errorf("mapping row identity: %w", err)
+	}
+	return nil
 }

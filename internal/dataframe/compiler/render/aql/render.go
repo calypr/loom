@@ -115,11 +115,19 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		}
 		lines = append(lines, line...)
 	}
-	returnExpression, err := renderer.renderReturn(layout.returnOp)
-	if err != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("render RETURN: %w", err)
+	if layout.mappingReturn != nil {
+		mappingLines, mappingErr := renderer.renderPopulationMappingReturn(*layout.mappingReturn)
+		if mappingErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render population mapping RETURN: %w", mappingErr)
+		}
+		lines = append(lines, mappingLines...)
+	} else {
+		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
+		if returnErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render RETURN: %w", returnErr)
+		}
+		lines = append(lines, "RETURN "+returnExpression)
 	}
-	lines = append(lines, "RETURN "+returnExpression)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{
 		Query:    query,
@@ -217,7 +225,8 @@ type physicalNavigationRenderLayout struct {
 	rootWindow     []ir.PhysicalOperation
 	unnests        []ir.PhysicalUnnest
 	postWindow     []physicalNavigationRenderItem
-	returnOp       ir.PhysicalReturn
+	returnOp       *ir.PhysicalReturn
+	mappingReturn  *ir.PhysicalPopulationMappingReturn
 }
 
 type physicalNavigationRenderItem struct {
