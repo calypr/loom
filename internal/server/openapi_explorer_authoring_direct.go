@@ -62,7 +62,7 @@ func (h *explorerHTTPHandlers) getAuthoringCapabilityDirect(ctx context.Context,
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
 	}
-	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.Preview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.RowChange, loomapi.Preview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
 }
 
 func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Context, project, explorerID string, body *loomapi.SearchExplorerCandidatesJSONRequestBody) (loomapi.CandidateSearchResponse, error) {
@@ -121,6 +121,49 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 		return result, err
 	}
 	return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
+}
+
+func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Context, project, explorerID string, body *loomapi.AssessExplorerRowChangeJSONRequestBody) (loomapi.RowChangeAssessmentResponse, error) {
+	var result loomapi.RowChangeAssessmentResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("row-change", errors.New("request body is required"))
+	}
+	rootOccurrenceID := ""
+	if body.RootOccurrenceId != nil {
+		rootOccurrenceID = *body.RootOccurrenceId
+	}
+	routeRebase := []authoringv2.RouteRebaseChoice{}
+	if body.RouteRebase != nil {
+		converted, err := directAuthoringJSON[[]authoringv2.RouteRebaseChoice](*body.RouteRebase)
+		if err != nil {
+			return result, malformedRouteError("row-change", err)
+		}
+		routeRebase = converted
+	}
+	value, err := h.application.AssessRowChange(ctx, lifecycle.AssessRowChangeRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: body.OutputId,
+		RootNodeID: body.RootNodeId, RootOccurrenceID: rootOccurrenceID, RouteRebase: routeRebase,
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
+		authoringv2.RowChangeAssessment
+		SnapshotToken string           `json:"snapshotToken"`
+		DraftVersion  int64            `json:"draftVersion"`
+		DraftDigest   string           `json:"draftDigest"`
+		Diagnostics   []map[string]any `json:"diagnostics"`
+	}{
+		RowChangeAssessment: value.Assessment,
+		SnapshotToken:       value.SnapshotToken,
+		DraftVersion:        value.DraftVersion,
+		DraftDigest:         value.DraftDigest,
+		Diagnostics:         []map[string]any{},
+	})
 }
 
 func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
+  useAssessExplorerRowChangeMutation,
   useCreateExplorerAuthoringMutation,
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
@@ -167,6 +168,7 @@ const BuilderWorkspaceContent = ({
   const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
   const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
   const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
+  const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
   const [reconcileBuilder, reconcileStatus] =
     useReconcileExplorerBuilderV2Mutation();
   const [getSuggestions, suggestionsStatus] =
@@ -367,6 +369,67 @@ const BuilderWorkspaceContent = ({
   );
   const occurrence = occurrences.find(
     (candidate) => candidate.id === state.selectedOccurrenceId,
+  );
+
+  const changeTableRoot = useCallback(
+    async (nodeId: string) => {
+      const current = latestState.current;
+      const currentTable = selectedTable(current);
+      if (!currentTable) return;
+      try {
+        const assessment = await assessRowChange({
+          project: projectId,
+          explorerId: current.explorerId,
+          authResourcePath,
+          snapshotToken: current.catalog.snapshotToken,
+          draftVersion: serverDraft.current.version,
+          draftDigest: serverDraft.current.digest,
+          outputId: currentTable.outputId,
+          rootNodeId: nodeId,
+          requestId: `row-change-${window.crypto.randomUUID()}`,
+        }).unwrap();
+        if (assessment.status === 'NO_CHANGE') {
+          setMessage(undefined);
+          return;
+        }
+        if (assessment.status === 'BLOCKED') {
+          setMessage(
+            `Loom did not change the rows: ${assessment.unresolved
+              .map((reference) => reference.message)
+              .join(' ')}`,
+          );
+          return;
+        }
+        const target = current.catalog.nodes.find(
+          (node) => node.nodeId === nodeId,
+        )?.resourceType ?? 'the selected resource';
+        const featureCount = assessment.preservedFeatureKeys.length;
+        if (!window.confirm(
+          `Make each ${target} one row? Loom can preserve ${featureCount} configured ${featureCount === 1 ? 'feature' : 'features'}, the selected population, filters, and actions.`,
+        )) return;
+        await applyCommands([{
+          type: 'APPLY_TABLE_ROOT_REBASE',
+          rowChange: assessment.proposal,
+        }]);
+      } catch (error) {
+        const apiError = error as ExplorerAuthoringApiError;
+        if (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code)) {
+          const refreshed = await refetchBuilder({ reload: true });
+          if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
+        }
+        if (apiError.code !== 'CLIENT_CANCELLED') {
+          setMessage(apiError.message ?? 'Loom could not assess the row change.');
+        }
+      }
+    },
+    [
+      applyCommands,
+      assessRowChange,
+      authResourcePath,
+      projectId,
+      refetchBuilder,
+      syncBuilderData,
+    ],
   );
 
   const ensureSuggestions = useCallback(() => {
@@ -1036,8 +1099,9 @@ const BuilderWorkspaceContent = ({
                 table={table}
                 selectedOccurrenceId={state.selectedOccurrenceId}
                 disabled={
-                  state.reconciliation === 'pending' &&
-                  Boolean(table?.document.rootResourceType)
+                  rowChangeStatus.isLoading ||
+                  (state.reconciliation === 'pending' &&
+                    Boolean(table?.document.rootResourceType))
                 }
                 onSelectOccurrence={(occurrenceId) =>
                   dispatch({ type: 'selectOccurrence', occurrenceId })
@@ -1052,19 +1116,7 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
-                onChangeBase={(nodeId) =>
-                  table &&
-                  window.confirm(
-                    `Start a new query from ${state.catalog.nodes.find((node) => node.nodeId === nodeId)?.resourceType ?? 'this resource'}? This replaces the current ${occurrences.length}-node query and removes ${table.document.columns.length} configured columns from this local draft.`,
-                  ) &&
-                  void applyCommands([
-                    {
-                      type: 'SET_TABLE_ROOT',
-                      outputId: table.outputId,
-                      rootNodeId: nodeId,
-                    },
-                  ])
-                }
+                onChangeBase={(nodeId) => void changeTableRoot(nodeId)}
                 onAppendEdge={(parentOccurrenceId, edgeId) => {
                   if (!table) return;
                   const edge = state.catalog.edges.find(

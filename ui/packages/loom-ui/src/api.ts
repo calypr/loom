@@ -8,6 +8,7 @@ import {
   explorerAuthoringCapabilitiesSchema,
   explorerBuilderCommandsResultSchema,
   explorerBuilderSuggestionsResultSchema,
+  rowChangeAssessmentSchema,
   type ExplorerBuilderCatalog,
   type ExplorerBuilderCommand,
   type ExplorerBuilderCompileResult,
@@ -16,6 +17,7 @@ import {
   type ExplorerBuilderSuggestionsResult,
   type ExplorerBuilderWorkspace,
   type ExplorerRuntimeV1,
+  type RowChangeAssessment,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import { z } from 'zod';
@@ -66,6 +68,20 @@ export interface ApplyExplorerBuilderCommandsArgs extends ExplorerAuthoringState
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest?: string;
   readonly commands: ReadonlyArray<ExplorerBuilderCommand>;
+  readonly requestId?: string;
+}
+
+export interface AssessExplorerRowChangeArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  readonly outputId: string;
+  readonly rootNodeId: string;
+  readonly rootOccurrenceId?: string;
+  readonly routeRebase?: ReadonlyArray<{
+    readonly occurrenceId: string;
+    readonly edgeId: string;
+  }>;
   readonly requestId?: string;
 }
 
@@ -268,6 +284,10 @@ export interface LoomClient {
     args: ApplyExplorerBuilderCommandsArgs,
     signal?: AbortSignal,
   ) => Promise<ReturnType<typeof explorerBuilderCommandsResultSchema.parse>>;
+  readonly assessRowChange: (
+    args: AssessExplorerRowChangeArgs,
+    signal?: AbortSignal,
+  ) => Promise<RowChangeAssessment>;
   readonly reconcile: (
     args: ReconcileExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -741,6 +761,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return value;
   };
+  const assessRowChange = (args: AssessExplorerRowChangeArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/row-change'), withJson({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.draftVersion,
+      draftDigest: args.draftDigest,
+      outputId: args.outputId,
+      rootNodeId: args.rootNodeId,
+      ...(args.rootOccurrenceId ? { rootOccurrenceId: args.rootOccurrenceId } : {}),
+      ...(args.routeRebase ? { routeRebase: args.routeRebase } : {}),
+    }, signal, args.requestId)).then((value) => rowChangeAssessmentSchema.parse(value));
   const reconcile = (args: ReconcileExplorerBuilderArgs, signal?: AbortSignal) =>
     request(durableAuthoringPath(args, '/reconcile'), withJson({ snapshotToken: args.snapshotToken, draftVersion: args.draftVersion, draftDigest: args.draftDigest }, signal, args.requestId)).then(assertExplorerBuilderCompileResult);
   const suggestions = (args: ExplorerCandidateSuggestionsArgs, signal?: AbortSignal) =>
@@ -878,6 +908,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     getCapability,
     getExplorer,
     applyCommands,
+    assessRowChange,
     reconcile,
     suggestions,
     preview,

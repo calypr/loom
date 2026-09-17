@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
 import type {
   ApplyExplorerBuilderCommandsArgs,
+  AssessExplorerRowChangeArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
@@ -172,6 +173,11 @@ export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoring
 export const useApplyExplorerBuilderCommandsV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<ApplyExplorerBuilderCommandsArgs, Awaited<ReturnType<LoomClient['applyCommands']>>>((args, signal) => client.applyCommands(args, signal));
+};
+
+export const useAssessExplorerRowChangeMutation = () => {
+  const client = useLoomClient();
+  return useMutation<AssessExplorerRowChangeArgs, Awaited<ReturnType<LoomClient['assessRowChange']>>>((args, signal) => client.assessRowChange(args, signal));
 };
 
 export const useReconcileExplorerBuilderV2Mutation = () => {

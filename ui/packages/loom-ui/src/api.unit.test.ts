@@ -43,6 +43,49 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('parses and posts a draft-bound row-change assessment', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 4,
+      draftDigest: 'digest-4',
+      status: 'READY',
+      currentRootResourceType: 'Patient',
+      candidateRootResourceType: 'Encounter',
+      preservedFeatureKeys: ['patient_id'],
+      proposal: {
+        outputId: 'patients',
+        rootNodeId: 'n_encounter',
+        rootOccurrenceId: 'encounter',
+        sourceDocumentDigest: 'document-4',
+        routeRebase: [{ occurrenceId: 'base', edgeId: 'encounter-patient' }],
+        preservedFeatureKeys: ['patient_id'],
+      },
+      unresolved: [],
+      diagnostics: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.assessRowChange({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 4,
+      draftDigest: 'digest-4',
+      outputId: 'patients',
+      rootNodeId: 'n_encounter',
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/row-change',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'digest-4', outputId: 'patients', rootNodeId: 'n_encounter' }),
+      }),
+    );
+  });
+
   it('sends Calypr authorization scope only on durable Explorer mutations', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify({ error: { code: 'TEST_STOP', message: 'stop after transport' } }), {
@@ -76,6 +119,7 @@ describe('Loom project paths', () => {
     }));
     await ignoreFailure(client.publish({ ...scope, receiptId: 'receipt-1' }));
     await ignoreFailure(client.suggestions({ ...scope, snapshotToken: 'snapshot-1', nodeId: 'Patient' }));
+    await ignoreFailure(client.assessRowChange({ ...scope, snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'digest-1', outputId: 'patients', rootNodeId: 'Patient' }));
     await ignoreFailure(client.preview({ ...scope, receiptId: 'receipt-1', outputId: 'patients' }));
 
     const urls = fetch.mock.calls.map(([url]) => String(url));
@@ -88,6 +132,7 @@ describe('Loom project paths', () => {
     ]);
     expect(urls.slice(4)).toEqual([
       '/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/suggestions',
+      '/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/row-change',
       '/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/preview',
     ]);
   });

@@ -4,6 +4,7 @@ import { vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
+  useAssessExplorerRowChangeMutation,
   useCreateExplorerAuthoringMutation,
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
@@ -11,6 +12,7 @@ import {
   useGetExplorerBuilderStateV2Query,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
+  usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
@@ -18,6 +20,7 @@ import BuilderWorkspace from './BuilderWorkspace';
 
 vi.mock('../../react', () => ({
   useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
   useCreateExplorerAuthoringMutation: vi.fn(),
   useDeleteExplorerAuthoringMutation: vi.fn(),
   useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
@@ -25,6 +28,7 @@ vi.mock('../../react', () => ({
   useGetExplorerBuilderStateV2Query: vi.fn(),
   useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
   usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
   usePublishExplorerAuthoringV2Mutation: vi.fn(),
   useReconcileExplorerBuilderV2Mutation: vi.fn(),
 }));
@@ -68,17 +72,24 @@ vi.mock('./components/BuilderToolbar', () => ({
 vi.mock('./components/GuidedGraphWorkspace', () => ({
   GuidedGraphWorkspace: ({
     onChangeEdge,
+    onChangeBase,
   }: {
     readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
+    readonly onChangeBase: (nodeId: string) => void;
   }) => (
-    <button
-      type="button"
-      onClick={() =>
-        onChangeEdge('patient-subject', 'specimen-patient-participant')
-      }
-    >
-      Change relationship
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          onChangeEdge('patient-subject', 'specimen-patient-participant')
+        }
+      >
+        Change relationship
+      </button>
+      <button type="button" onClick={() => onChangeBase('patient-node')}>
+        Change rows
+      </button>
+    </>
   ),
 }));
 
@@ -244,6 +255,7 @@ const abortableRequest = <T,>() => {
 
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
+  let assessRowChange: Mock;
   let reconcile: Mock;
   let preview: Mock;
   let publish: Mock;
@@ -265,6 +277,25 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         diagnostics: [],
       }),
     );
+    assessRowChange = vi.fn().mockReturnValue(resolvedRequest({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      status: 'READY',
+      currentRootResourceType: 'Specimen',
+      candidateRootResourceType: 'Patient',
+      preservedFeatureKeys: ['specimen_identifier'],
+      proposal: {
+        outputId: 'specimens',
+        rootNodeId: 'patient-node',
+        rootOccurrenceId: 'patient-subject',
+        sourceDocumentDigest: 'sha256:document-1',
+        routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
+        preservedFeatureKeys: ['specimen_identifier'],
+      },
+      unresolved: [],
+      diagnostics: [],
+    }));
     reconcile = vi.fn().mockReturnValue(resolvedRequest(receipt));
     preview = vi.fn().mockReturnValue(
       resolvedRequest({
@@ -297,12 +328,20 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       applyCommands,
       { isLoading: false },
     ]);
+    (useAssessExplorerRowChangeMutation as Mock).mockReturnValue([
+      assessRowChange,
+      { isLoading: false },
+    ]);
     (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
       reconcile,
       { isLoading: false },
     ]);
     (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
       preview,
+      { isLoading: false },
+    ]);
+    (usePopulationMappingMutation as Mock).mockReturnValue([
+      vi.fn(),
       { isLoading: false },
     ]);
     (usePublishExplorerAuthoringV2Mutation as Mock).mockReturnValue([
@@ -341,6 +380,35 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+  });
+
+  it('assesses and applies a row change without destructive reset', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
+
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledWith(expect.objectContaining({
+      outputId: 'specimens',
+      rootNodeId: 'patient-node',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+    })));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'APPLY_TABLE_ROOT_REBASE',
+        rowChange: expect.objectContaining({
+          outputId: 'specimens',
+          preservedFeatureKeys: ['specimen_identifier'],
+        }),
+      }],
+    })));
   });
 
   it('cancels a stale preview when a patient column changes', async () => {

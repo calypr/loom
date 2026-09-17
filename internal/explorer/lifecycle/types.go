@@ -165,6 +165,25 @@ type ReconcileRequest struct {
 	DraftDigest   string
 }
 
+type AssessRowChangeRequest struct {
+	Project          string
+	ExplorerID       string
+	SnapshotToken    string
+	DraftVersion     int64
+	DraftDigest      string
+	OutputID         string
+	RootNodeID       string
+	RootOccurrenceID string
+	RouteRebase      []authoringv2.RouteRebaseChoice
+}
+
+type AssessRowChangeResult struct {
+	SnapshotToken string
+	DraftVersion  int64
+	DraftDigest   string
+	Assessment    authoringv2.RowChangeAssessment
+}
+
 type PreviewRequest struct {
 	Project    string
 	ExplorerID string

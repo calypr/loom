@@ -151,6 +151,33 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: assessExplorerRowChange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessRowChangeRequest'
+      responses:
+        '200':
+          description: Read-only assessment of one row-root change against an exact draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RowChangeAssessmentResponse'
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -992,7 +1019,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, suggestions, preview, publish, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, rowChange, preview, publish, commands, reconcile]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -1314,7 +1341,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1332,9 +1359,80 @@ components:
         column: {type: string, minLength: 1}
         columnValue: {$ref: '#/components/schemas/Column'}
         source: {$ref: '#/components/schemas/ColumnSource'}
+        rowChange: {$ref: '#/components/schemas/RowChangeProposal'}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    RouteRebaseChoice:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, edgeId]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        edgeId: {type: string, minLength: 1}
+    RowChangeProposal:
+      type: object
+      additionalProperties: false
+      required: [outputId, rootNodeId, rootOccurrenceId, sourceDocumentDigest, routeRebase, preservedFeatureKeys]
+      properties:
+        outputId: {type: string, minLength: 1}
+        rootNodeId: {type: string, minLength: 1}
+        rootOccurrenceId: {type: string, minLength: 1}
+        sourceDocumentDigest: {type: string, minLength: 1}
+        routeRebase:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/RouteRebaseChoice'}
+        preservedFeatureKeys:
+          type: array
+          items: {type: string, minLength: 1}
+    AssessRowChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, rootNodeId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        rootNodeId: {type: string, minLength: 1}
+        rootOccurrenceId: {type: string, minLength: 1}
+        routeRebase:
+          type: array
+          items: {$ref: '#/components/schemas/RouteRebaseChoice'}
+    RowChangeUnresolvedReference:
+      type: object
+      additionalProperties: false
+      required: [kind, id, code, message]
+      properties:
+        kind: {type: string, enum: [route, column]}
+        id: {type: string, minLength: 1}
+        code: {type: string, minLength: 1}
+        message: {type: string, minLength: 1}
+        alternatives:
+          type: array
+          items: {type: string, minLength: 1}
+    RowChangeAssessmentResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, status, currentRootResourceType, candidateRootResourceType, preservedFeatureKeys, unresolved, diagnostics]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        status: {type: string, enum: [READY, BLOCKED, NO_CHANGE]}
+        currentRootResourceType: {type: string, minLength: 1}
+        candidateRootResourceType: {type: string, minLength: 1}
+        proposal: {$ref: '#/components/schemas/RowChangeProposal'}
+        preservedFeatureKeys:
+          type: array
+          items: {type: string, minLength: 1}
+        unresolved:
+          type: array
+          items: {$ref: '#/components/schemas/RowChangeUnresolvedReference'}
+        diagnostics:
+          type: array
+          items: {$ref: '#/components/schemas/Diagnostic'}
     CommandResult:
       type: object
       additionalProperties: false

@@ -197,6 +197,39 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 	}
 }
 
+func (r *HTTPRoutes) AssessExplorerRowChange(ctx context.Context, request loomapi.AssessExplorerRowChangeRequestObject) (loomapi.AssessExplorerRowChangeResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "assessExplorerRowChange", explorerUnavailable("row-change", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("assessExplorerRowChange", status)
+	}
+	value, err := r.explorer.assessAuthoringRowChangeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.AssessExplorerRowChange200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "assessExplorerRowChange", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.AssessExplorerRowChange400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.AssessExplorerRowChange403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.AssessExplorerRowChange404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.AssessExplorerRowChange409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.AssessExplorerRowChange422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.AssessExplorerRowChange500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("assessExplorerRowChange", status)
+	}
+}
+
 func (r *HTTPRoutes) ReconcileExplorerBuilder(ctx context.Context, request loomapi.ReconcileExplorerBuilderRequestObject) (loomapi.ReconcileExplorerBuilderResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)

@@ -430,6 +430,57 @@ export const explorerBuilderStateSchema = z
   });
 export type ExplorerBuilderState = z.infer<typeof explorerBuilderStateSchema>;
 
+export const routeRebaseChoiceSchema = z
+  .object({
+    occurrenceId: opaqueIdSchema,
+    edgeId: opaqueIdSchema,
+  })
+  .strict();
+export const rowChangeProposalSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    rootNodeId: opaqueIdSchema,
+    rootOccurrenceId: opaqueIdSchema,
+    sourceDocumentDigest: opaqueIdSchema,
+    routeRebase: z.array(routeRebaseChoiceSchema).min(1),
+    preservedFeatureKeys: z.array(opaqueIdSchema),
+  })
+  .strict();
+const rowChangeAssessmentBaseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  currentRootResourceType: opaqueIdSchema,
+  candidateRootResourceType: opaqueIdSchema,
+  preservedFeatureKeys: z.array(opaqueIdSchema),
+  diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+});
+const rowChangeUnresolvedReferenceSchema = z
+  .object({
+    kind: z.enum(['route', 'column']),
+    id: opaqueIdSchema,
+    code: opaqueIdSchema,
+    message: z.string().min(1),
+    alternatives: z.array(opaqueIdSchema).optional(),
+  })
+  .strict();
+export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('READY'),
+    proposal: rowChangeProposalSchema,
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
+  }).strict(),
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('BLOCKED'),
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).min(1),
+  }).strict(),
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('NO_CHANGE'),
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
+  }).strict(),
+]);
+export type RowChangeAssessment = z.infer<typeof rowChangeAssessmentSchema>;
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -439,6 +490,7 @@ export const explorerBuilderCommandSchema = z
       'RENAME_TABLE',
       'REORDER_TABLES',
       'SET_TABLE_ROOT',
+      'APPLY_TABLE_ROOT_REBASE',
       'SET_TABLE_POPULATION',
       'CLEAR_TABLE_POPULATION',
       'ADD_ROUTE',
@@ -465,6 +517,7 @@ export const explorerBuilderCommandSchema = z
     column: opaqueIdSchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
     source: explorerColumnSourceSchema.optional(),
+    rowChange: rowChangeProposalSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
   })
   .strict();
