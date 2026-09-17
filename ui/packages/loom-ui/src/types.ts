@@ -455,7 +455,7 @@ const rowChangeAssessmentBaseSchema = z.object({
   preservedFeatureKeys: z.array(opaqueIdSchema),
   diagnostics: z.array(explorerAuthoringDiagnosticSchema),
 });
-const rowChangeUnresolvedReferenceSchema = z
+export const rowChangeUnresolvedReferenceSchema = z
   .object({
     kind: z.enum(['route', 'column']),
     id: opaqueIdSchema,
@@ -464,6 +464,9 @@ const rowChangeUnresolvedReferenceSchema = z
     alternatives: z.array(opaqueIdSchema).optional(),
   })
   .strict();
+export type RowChangeUnresolvedReference = z.infer<
+  typeof rowChangeUnresolvedReferenceSchema
+>;
 export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
   rowChangeAssessmentBaseSchema.extend({
     status: z.literal('READY'),

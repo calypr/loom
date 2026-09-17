@@ -411,6 +411,55 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     })));
   });
 
+  it('reassesses an ambiguous row change with the relationship chosen by the user', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const ready = assessRowChange().unwrap();
+    assessRowChange
+      .mockReturnValueOnce(resolvedRequest({
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'sha256:draft-1',
+        status: 'BLOCKED',
+        currentRootResourceType: 'Specimen',
+        candidateRootResourceType: 'Patient',
+        preservedFeatureKeys: ['specimen_identifier'],
+        unresolved: [{
+          kind: 'route',
+          id: 'base',
+          code: 'AMBIGUOUS_ROUTE_REBASE_EDGE',
+          message: 'Choose the relationship to the previous rows.',
+          alternatives: ['patient-specimen', 'patient-subject'],
+        }],
+        diagnostics: [],
+      }))
+      .mockReturnValueOnce({ unwrap: vi.fn(() => ready), abort: vi.fn() });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use patient-specimen' }));
+
+    await waitFor(() => expect(assessRowChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rootNodeId: 'patient-node',
+        routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
+      }),
+    ));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commands: [expect.objectContaining({
+          type: 'APPLY_TABLE_ROOT_REBASE',
+        })],
+      }),
+    ));
+  });
+
   it('cancels a stale preview when a patient column changes', async () => {
     const pendingPreview = abortableRequest<never>();
     (usePreviewExplorerAuthoringV2Mutation as Mock).mockImplementation(() => {

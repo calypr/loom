@@ -113,6 +113,32 @@ func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
 	}
 }
 
+func TestAssessRowChangeRequiresAnExplicitOccurrenceWhenTheRouteHasDuplicates(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children = append(
+		workspace.Documents[0].Route.Children,
+		RouteNode{OccurrenceID: "encounter-followup", ResourceType: "Encounter", Relationship: "encounters"},
+	)
+	catalog := rowChangeCatalog()
+
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "AMBIGUOUS_ROW_ROOT_OCCURRENCE" || !reflect.DeepEqual(assessment.Unresolved[0].Alternatives, []string{"encounter", "encounter-followup"}) {
+		t.Fatalf("ambiguous occurrence assessment=%#v", assessment)
+	}
+
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter", RootOccurrenceID: "encounter-followup",
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil || assessment.Proposal.RootOccurrenceID != "encounter-followup" {
+		t.Fatalf("resolved occurrence assessment=%#v err=%v", assessment, err)
+	}
+}
+
 func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := rowChangeCatalog()

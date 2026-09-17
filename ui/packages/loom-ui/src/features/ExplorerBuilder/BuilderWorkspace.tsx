@@ -21,6 +21,8 @@ import type {
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
   ExplorerBuilderState,
+  RowChangeAssessment,
+  RowChangeUnresolvedReference,
 } from '../../types';
 import { BuilderToolbar } from './components/BuilderToolbar';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
@@ -28,6 +30,7 @@ import { ColumnSelector } from './components/ColumnSelector';
 import { PreviewTable } from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
+import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -102,6 +105,20 @@ type PreviewRequest = {
   readonly outputId: string;
   readonly limit: PreviewLimit;
   readonly receiptRefreshes: number;
+};
+
+type RowChangeResolution = {
+  readonly rootOccurrenceId?: string;
+  readonly routeRebase?: ReadonlyArray<{
+    readonly occurrenceId: string;
+    readonly edgeId: string;
+  }>;
+};
+
+type PendingRowChange = {
+  readonly nodeId: string;
+  readonly resolution: RowChangeResolution;
+  readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
 };
 
 const builderDataKeyFor = (
@@ -215,6 +232,8 @@ const BuilderWorkspaceContent = ({
     [authResourcePath, builderDataKey, projectId, selectedExplorerId],
   );
   const [message, setMessage] = useState<string>();
+  const [pendingRowChange, setPendingRowChange] =
+    useState<PendingRowChange>();
   const [lastPublished, setLastPublished] = useState<{
     readonly ownerKey: string;
     readonly draftDigest: string;
@@ -372,7 +391,7 @@ const BuilderWorkspaceContent = ({
   );
 
   const changeTableRoot = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, resolution: RowChangeResolution = {}) => {
       const current = latestState.current;
       const currentTable = selectedTable(current);
       if (!currentTable) return;
@@ -386,20 +405,29 @@ const BuilderWorkspaceContent = ({
           draftDigest: serverDraft.current.digest,
           outputId: currentTable.outputId,
           rootNodeId: nodeId,
+          ...resolution,
           requestId: `row-change-${window.crypto.randomUUID()}`,
         }).unwrap();
         if (assessment.status === 'NO_CHANGE') {
+          setPendingRowChange(undefined);
           setMessage(undefined);
           return;
         }
         if (assessment.status === 'BLOCKED') {
-          setMessage(
-            `Loom did not change the rows: ${assessment.unresolved
-              .map((reference) => reference.message)
-              .join(' ')}`,
+          const actionable = assessment.unresolved.some(
+            (reference) => (reference.alternatives?.length ?? 0) > 0,
           );
+          setPendingRowChange(
+            actionable ? { nodeId, resolution, assessment } : undefined,
+          );
+          setMessage(actionable
+            ? undefined
+            : `Loom did not change the rows: ${assessment.unresolved
+                .map((reference) => reference.message)
+                .join(' ')}`);
           return;
         }
+        setPendingRowChange(undefined);
         const target = current.catalog.nodes.find(
           (node) => node.nodeId === nodeId,
         )?.resourceType ?? 'the selected resource';
@@ -430,6 +458,31 @@ const BuilderWorkspaceContent = ({
       refetchBuilder,
       syncBuilderData,
     ],
+  );
+
+  const resolveRowChange = useCallback(
+    (
+      reference: RowChangeUnresolvedReference,
+      alternative: string,
+    ) => {
+      if (!pendingRowChange) return;
+      const resolution = reference.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE'
+        ? {
+            ...pendingRowChange.resolution,
+            rootOccurrenceId: alternative,
+          }
+        : {
+            ...pendingRowChange.resolution,
+            routeRebase: [
+              ...(pendingRowChange.resolution.routeRebase ?? []).filter(
+                (choice) => choice.occurrenceId !== reference.id,
+              ),
+              { occurrenceId: reference.id, edgeId: alternative },
+            ],
+          };
+      void changeTableRoot(pendingRowChange.nodeId, resolution);
+    },
+    [changeTableRoot, pendingRowChange],
   );
 
   const ensureSuggestions = useCallback(() => {
@@ -1026,6 +1079,16 @@ const BuilderWorkspaceContent = ({
             ) : null}
           </section>
         )}
+        {pendingRowChange && table ? (
+          <RowChangeRepairPanel
+            unresolved={pendingRowChange.assessment.unresolved}
+            catalog={state.catalog}
+            table={table}
+            disabled={rowChangeStatus.isLoading}
+            onChoose={resolveRowChange}
+            onCancel={() => setPendingRowChange(undefined)}
+          />
+        ) : null}
         {state.tables.length === 0 ? (
           <section className="rounded-xl border border-blue-200 bg-white px-6 py-12 text-center shadow-sm">
             <h2 className="text-xl font-semibold text-slate-900">
