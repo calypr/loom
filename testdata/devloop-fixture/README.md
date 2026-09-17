@@ -24,7 +24,8 @@ references Specimen 002; file 004 has no specimen. They have no Patient dependen
 Literal population expectations:
 
 - Selecting files 001, 002, and 003 with exclusion 002 retains exactly 001 and 003.
-- Selecting files 001 and 002 yields exactly one specimen, 001, with two sources.
+- Selecting files 001, 002, and unlinked 004 yields exactly one specimen, 001,
+  with two mapped sources and one unmatched source.
 - Excluding file 002 leaves the same specimen with one source.
 - File 004 remains an explicit unmatched source, not a fabricated specimen row.
 

@@ -23,6 +23,7 @@ import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
 import {
   selectionPageSchema,
   selectionRevisionSchema,
+  resourceRefSchema,
   type ResourceRef,
   type SelectionPage,
   type SelectionRevision,
@@ -81,6 +82,34 @@ export interface PreviewExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
   readonly requestId?: string;
 }
+
+export interface PopulationMappingArgs extends ExplorerAuthoringStateArgs {
+  readonly receiptId: string;
+  readonly outputId: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+const populationMappingDiagnosticSchema = z.object({
+  severity: z.string(),
+  stage: z.string(),
+  code: z.string(),
+  message: z.string(),
+}).strict();
+const populationMappingCountsSchema = z.object({
+  selected: z.number().int().nonnegative(),
+  mapped: z.number().int().nonnegative(),
+  unmapped: z.number().int().nonnegative(),
+  emittedRows: z.number().int().nonnegative(),
+}).strict();
+export const populationMappingResponseSchema = z.object({
+  status: z.enum(['COMPLETE', 'INCOMPLETE']),
+  counts: populationMappingCountsSchema.nullable().optional(),
+  unmapped: z.array(resourceRefSchema),
+  nextCursor: z.string().min(1).optional(),
+  diagnostics: z.array(populationMappingDiagnosticSchema),
+}).strict();
+export type PopulationMappingResponse = z.infer<typeof populationMappingResponseSchema>;
 
 export interface PublishExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
@@ -239,6 +268,10 @@ export interface LoomClient {
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
   ) => Promise<ExplorerBuilderPreviewResult>;
+  readonly populationMapping: (
+    args: PopulationMappingArgs,
+    signal?: AbortSignal,
+  ) => Promise<PopulationMappingResponse>;
   readonly publish: (
     args: PublishExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -702,6 +735,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(authoringPath(args, '/suggestions'), withJson({ snapshotToken: args.snapshotToken, nodeId: args.nodeId, ...(args.query ? { query: args.query } : {}) }, signal, args.requestId)).then((value) => explorerBuilderSuggestionsResultSchema.parse(value));
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
+  const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/population-mapping'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.cursor === undefined ? {} : { cursor: args.cursor }), ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal)).then((value) => populationMappingResponseSchema.parse(value));
   const publish = async (args: PublishExplorerBuilderArgs, signal?: AbortSignal) => {
     const result = assertExplorerBuilderPublishResult(
       await request(
@@ -834,6 +869,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     reconcile,
     suggestions,
     preview,
+    populationMapping,
     publish,
     createExplorer,
     deleteExplorer,

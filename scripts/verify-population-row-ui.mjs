@@ -40,21 +40,28 @@ browser.cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }
 try {
   await navigate(browser.cdp, url);
   await snapshot(browser.cdp, artifact);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 selected DocumentReference resources are ready to constrain this table.') || [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Use all authorized rows')`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.') || [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Use all authorized rows')`);
   const alreadyAttached = await browserEval(browser.cdp, `return Boolean(buttonByName('Use all authorized rows'));`);
   if (alreadyAttached) {
     await browserEval(browser.cdp, `clickButton('Use all authorized rows');`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 selected DocumentReference resources are ready to constrain this table.')`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.')`);
   }
   await browserEval(browser.cdp, `clickButton('Use selected resources');`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 DocumentReference resources constrain one row per DocumentReference.')`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per DocumentReference.')`);
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
   await browserEval(browser.cdp, `clickButton('Preview');`);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-file-001') && document.body.innerText.includes('dev-file-002')`, 60_000);
   const previewText = await browserEval(browser.cdp, `return document.body.innerText;`);
   assert.equal(previewText.includes('dev-file-003'), false, 'preview included a file outside the attached selection');
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Check selected-resource coverage' && !button.disabled))`);
+  await browserEval(browser.cdp, `clickButton('Check selected-resource coverage');`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 selected · 2 produce rows · 1 needs attention')`, 60_000);
+  const reportText = await browserEval(browser.cdp, `return document.body.innerText;`);
+  assert.equal(reportText.includes('DocumentReference/dev-file-004'), true, 'coverage report omitted the bounded unmatched resource');
   await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 DocumentReference resources constrain one row per DocumentReference.')`, 60_000);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('3 DocumentReference resources constrain one row per DocumentReference.')`, 60_000);
+  const reloadedText = await browserEval(browser.cdp, `return document.body.innerText;`);
+  assert.equal(reloadedText.includes('3 selected · 2 produce rows · 1 needs attention'), false, 'reload displayed stale coverage evidence');
   await snapshot(browser.cdp, artifact);
   console.log(JSON.stringify({
     evidence: artifact,
@@ -62,6 +69,8 @@ try {
       'Builder loads the immutable selection handoff',
       'the DOM control attaches the selection',
       'Preview contains only selected file rows',
+      'coverage report maps two files and returns only unlinked file 004',
+      'reload clears stale coverage evidence',
       'the attached population survives a full reload',
     ],
   }, null, 2));

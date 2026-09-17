@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { usePopulationMappingMutation } from '../../../react';
+import type { PopulationMappingResponse } from '../../../api';
 import type { SelectionRevision } from '../../../selection';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
@@ -53,6 +55,10 @@ export const PopulationPanel = ({
   loading,
   error,
   disabled,
+  project,
+  explorerId,
+  authResourcePath,
+  receiptId,
   onAttach,
   onClear,
 }: {
@@ -62,6 +68,10 @@ export const PopulationPanel = ({
   readonly loading: boolean;
   readonly error?: string;
   readonly disabled: boolean;
+  readonly project?: string;
+  readonly explorerId?: string;
+  readonly authResourcePath?: string;
+  readonly receiptId?: string;
   readonly onAttach: (edgeIds: ReadonlyArray<string>) => void;
   readonly onClear: () => void;
 }) => {
@@ -70,7 +80,28 @@ export const PopulationPanel = ({
     [catalog, selection, table.document.rootResourceType],
   );
   const [pathIndex, setPathIndex] = useState(0);
+  const [checkPopulation, checkStatus] = usePopulationMappingMutation();
+  const [coverage, setCoverage] = useState<PopulationMappingResponse>();
+  const [coverageError, setCoverageError] = useState<string>();
   const attached = table.document.population;
+  useEffect(() => {
+    setCoverage(undefined);
+    setCoverageError(undefined);
+  }, [attached?.selectionRevisionId, table.outputId, receiptId]);
+  const checkCoverage = () => {
+    if (!receiptId || !project || !explorerId || !attached) return;
+    setCoverageError(undefined);
+    void checkPopulation({
+      project,
+      explorerId,
+      authResourcePath,
+      receiptId,
+      outputId: table.outputId,
+      limit: 100,
+    }).unwrap().then(setCoverage).catch((error: unknown) => {
+      setCoverageError(error instanceof Error ? error.message : 'Coverage check failed.');
+    });
+  };
   return (
     <section aria-label="Starting collection" className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -91,9 +122,16 @@ export const PopulationPanel = ({
           {error ? <p role="alert" className="mt-1 text-red-700">{error}</p> : null}
         </div>
         {attached ? (
-          <button type="button" disabled={disabled} onClick={onClear} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50 disabled:opacity-40">
-            Use all authorized rows
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" disabled={disabled} onClick={onClear} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50 disabled:opacity-40">
+              Use all authorized rows
+            </button>
+            {receiptId ? (
+              <button type="button" disabled={disabled || checkStatus.isLoading} onClick={checkCoverage} className="rounded-md border border-indigo-400 bg-white px-3 py-2 font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-40">
+                {checkStatus.isLoading ? 'Checking selected-resource coverage…' : 'Check selected-resource coverage'}
+              </button>
+            ) : null}
+          </div>
         ) : selection && paths.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             {paths.length > 1 ? (
@@ -112,6 +150,19 @@ export const PopulationPanel = ({
           <p role="alert" className="font-medium text-amber-800">No supported path connects {table.document.rootResourceType} rows to {selection.resourceType}.</p>
         ) : null}
       </div>
+      {coverageError ? <p role="alert" className="mt-2 text-red-700">{coverageError}</p> : null}
+      {coverage?.status === 'COMPLETE' && coverage.counts ? (
+        <div className="mt-3 border-t border-indigo-200 pt-3" data-testid="population-coverage-report">
+          <p className="font-semibold">{coverage.counts.selected.toLocaleString()} selected · {coverage.counts.mapped.toLocaleString()} produce rows · {coverage.counts.unmapped.toLocaleString()} needs attention</p>
+          {coverage.unmapped.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-slate-700">
+              {coverage.unmapped.map((ref) => <li key={`${ref.resourceType}:${ref.id}`}>{ref.resourceType}/{ref.id}</li>)}
+            </ul>
+          ) : <p className="mt-1 text-slate-600">All selected resources produce rows.</p>}
+        </div>
+      ) : coverage?.status === 'INCOMPLETE' ? (
+        <p role="status" className="mt-2 text-amber-800">Coverage check incomplete; exact counts are unavailable.</p>
+      ) : null}
     </section>
   );
 };

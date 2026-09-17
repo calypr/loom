@@ -83,6 +83,14 @@ await command([{
 const selected = await preview(outputId);
 assert.deepEqual(selected.result.rows.map((row) => row[idColumn]), ['dev-specimen-001']);
 assert.equal(selected.result.rows.length, 1, 'two files for one specimen must not duplicate the specimen row');
+const coverage = await json(`${authoring}/population-mapping`, {
+  receiptId: selected.compiled.receiptId,
+  outputId,
+  limit: 10,
+});
+assert.equal(coverage.status, 'COMPLETE');
+assert.deepEqual(coverage.counts, { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 });
+assert.deepEqual(coverage.unmapped.map((ref) => ref.id), ['dev-file-004']);
 
 await command([{ type: 'CLEAR_TABLE_POPULATION', outputId }]);
 const unrestricted = await preview(outputId);
@@ -111,6 +119,7 @@ const artifact = {
   outputId,
   relationship: populationEdge.label,
   selected: { receiptId: selected.compiled.receiptId, rows: selected.result.rows },
+  coverage,
   unrestricted: { receiptId: unrestricted.compiled.receiptId, rows: unrestricted.result.rows },
   empty: { receiptId: empty.compiled.receiptId, rows: empty.result.rows },
 };
@@ -121,6 +130,7 @@ console.log(JSON.stringify({
   evidence: path,
   assertions: [
     'two selected files map to one deduplicated Specimen row',
+    'selected=3, mapped=2, unmapped=1, emittedRows=1 and only file 004 is returned',
     'no population preserves the resource-first workflow',
     'an empty immutable selection produces zero rows',
     'population membership changes receipt identity',

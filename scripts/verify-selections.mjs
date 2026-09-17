@@ -75,20 +75,19 @@ async function publish() {
 
 const firstPublication = await publish();
 const ref = (id) => ({ project: target.project, generation: builder.catalog.generation, resourceType: 'DocumentReference', id });
-const selectedIDs = ['dev-file-001', 'dev-file-002'];
+const selectedIDs = ['dev-file-001', 'dev-file-002', 'dev-file-004'];
 const request = {
   snapshotToken: builder.catalog.snapshotToken, idempotencyKey: randomUUID(),
-  source: { kind: 'resources', resources: { refs: [...selectedIDs, 'dev-file-003'].map(ref) } },
-  exclusions: [ref('dev-file-003')],
+  source: { kind: 'resources', resources: { refs: selectedIDs.map(ref) } },
 };
 const started = performance.now();
 const explicit = await json(`${base}/selections`, request, 201);
 const expectedRefs = selectedIDs.map((id) => ({ ...ref(id), project: target.project.replace('-', '/') }));
 evidence.timings.explicit_ms = performance.now() - started;
 assert.equal(explicit.complete, true);
-assert.equal(explicit.memberCount, 2);
+assert.equal(explicit.memberCount, 3);
 assert.equal((await json(`${base}/selections`, request, 201)).id, explicit.id);
-evidence.assertions.push('explicit selection excludes exactly one of three files and replays idempotently');
+evidence.assertions.push('explicit selection contains two linked files and one unlinked file and replays idempotently');
 
 async function members(selection) {
   const refs = [];
@@ -110,8 +109,8 @@ const matching = await json(`${base}/selections`, {
   snapshotToken: builder.catalog.snapshotToken, idempotencyKey: randomUUID(),
   source: { kind: 'publishedOutput', publishedOutput: {
     revisionId: firstPublication.revisionId, outputId,
-    filters: [{ column: idColumn, op: 'IN', value: [...selectedIDs, 'dev-file-003'] }],
-  } }, exclusions: [ref('dev-file-003')],
+    filters: [{ column: idColumn, op: 'IN', value: selectedIDs }],
+  } },
 }, 201);
 assert.equal(matching.source.revisionId, firstPublication.revisionId);
 assert.deepEqual(await members(matching), expectedRefs);

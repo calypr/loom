@@ -1013,6 +1013,10 @@ const BuilderWorkspaceContent = ({
                 selection={populationSelection}
                 loading={populationSelectionLoading}
                 error={populationSelectionError}
+                project={projectId}
+                explorerId={state.explorerId}
+                authResourcePath={authResourcePath}
+                receiptId={state.receipt?.receiptId}
                 disabled={populationSelectionLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
                 onAttach={(edgeIds) => void applyCommands([{
                   type: 'SET_TABLE_POPULATION',

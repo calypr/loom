@@ -1,7 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from './api';
+import { createLoomClient, populationMappingResponseSchema } from './api';
 
 describe('Loom project paths', () => {
+  it('parses a bounded population coverage report', () => {
+    expect(populationMappingResponseSchema.parse({
+      status: 'COMPLETE',
+      counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
+      unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
+      diagnostics: [],
+    })).toEqual({
+      status: 'COMPLETE',
+      counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
+      unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
+      diagnostics: [],
+    });
+  });
+
+  it('posts population coverage checks with the receipt and output binding', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      status: 'COMPLETE',
+      counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
+      unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
+      diagnostics: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.populationMapping({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      authResourcePath: '/programs/NCPI/projects/acceptance',
+      receiptId: 'receipt-1',
+      outputId: 'patients',
+      cursor: 'cursor-1',
+      limit: 100,
+    })).resolves.toMatchObject({ status: 'COMPLETE', counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 } });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/population-mapping',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ receiptId: 'receipt-1', outputId: 'patients', cursor: 'cursor-1', limit: 100 }) }),
+    );
+  });
+
   it('sends Calypr authorization scope only on durable Explorer mutations', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify({ error: { code: 'TEST_STOP', message: 'stop after transport' } }), {

@@ -8,6 +8,7 @@ import type {
   ExplorerAuthoringStateArgs,
   ExplorerCandidateSuggestionsArgs,
   PreviewExplorerBuilderArgs,
+  PopulationMappingArgs,
   PublishExplorerBuilderArgs,
   ReconcileExplorerBuilderArgs,
 } from './api';
@@ -186,6 +187,14 @@ export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
 export const usePreviewExplorerAuthoringV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<PreviewExplorerBuilderArgs, Awaited<ReturnType<LoomClient['preview']>>>((args, signal) => client.preview(args, signal));
+};
+
+export const usePopulationMappingMutation = () => {
+  const client = useContext(LoomClientContext);
+  return useMutation<PopulationMappingArgs, Awaited<ReturnType<LoomClient['populationMapping']>>>((args, signal) => {
+    if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
+    return client.populationMapping(args, signal);
+  });
 };
 
 export const usePublishExplorerAuthoringV2Mutation = () => {
