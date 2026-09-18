@@ -47,3 +47,12 @@ type Store interface {
 	GetSelection(context.Context, string, string) (*SelectionRevision, error)
 	VisitSelectionMembers(context.Context, string, string, string, int, func(SelectionMember) error) (string, error)
 }
+
+// InterpretationRepository is intentionally narrower than Store. Lifecycle
+// code that resolves an exact interpretation revision should not depend on
+// unrelated Explorer draft, receipt, or publication methods.
+type InterpretationRepository interface {
+	ListInterpretationLibraries(context.Context, string) ([]InterpretationLibrary, error)
+	GetInterpretationRevision(context.Context, string, InterpretationRevisionID) (*InterpretationRevision, error)
+	CreateInterpretationRevision(context.Context, InterpretationRevision, *InterpretationRevisionID) (*InterpretationRevision, error)
+}

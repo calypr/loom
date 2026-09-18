@@ -4,11 +4,13 @@ package arango
 import store "github.com/calypr/loom/internal/store/arango"
 
 const (
-	ExplorersCollection           = "loom_explorers"
-	RevisionsCollection           = "loom_explorer_revisions"
-	CompilationReceiptsCollection = "loom_explorer_compilation_receipts"
-	SelectionsCollection          = "loom_explorer_selections"
-	SelectionMembersCollection    = "loom_explorer_selection_members"
+	ExplorersCollection               = "loom_explorers"
+	RevisionsCollection               = "loom_explorer_revisions"
+	CompilationReceiptsCollection     = "loom_explorer_compilation_receipts"
+	SelectionsCollection              = "loom_explorer_selections"
+	SelectionMembersCollection        = "loom_explorer_selection_members"
+	InterpretationLibrariesCollection = "loom_explorer_interpretation_libraries"
+	InterpretationRevisionsCollection = "loom_explorer_interpretation_revisions"
 	// LegacyRepositoryConfigsCollection is read only. It remains in bootstrap
 	// for one compatibility window so startup can migrate old default-owner
 	// pointers into loom_explorers; no current workflow writes it.
@@ -36,6 +38,8 @@ func CollectionSpecs() []store.CollectionSpec {
 			{"selectionId", "project", "generation", "resourceType", "id"},
 			{"selectionId", "memberKey"},
 		}},
+		{Name: InterpretationLibrariesCollection, Indexes: [][]string{{"project", "id"}, {"project", "headRevisionId"}}},
+		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
 	}
