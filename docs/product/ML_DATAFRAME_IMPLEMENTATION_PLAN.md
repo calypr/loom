@@ -223,14 +223,14 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Extend feature policy types, existing recipe aggregates/slices, `dataframe/expression`, semantic checks, physical ordering/reduction, and output contract derivation.
-- [ ] Add focused feature-editor components under the existing `ExplorerBuilder` directory. Keep FHIR policy out of UI reducers and HTTP handlers.
+- [x] Extend feature policy types, existing recipe aggregates/slices, `dataframe/expression`, semantic checks, physical ordering/reduction, and output contract derivation.
+- [x] Add focused feature-editor components under the existing `ExplorerBuilder` directory. Keep FHIR policy out of UI reducers and HTTP handlers.
 
 **Build.**
 
 - [x] ML-B05-01. Expose require-one, collect, distinct, count, count-distinct, exists, min, max, and contains-all with exact resource-versus-value count semantics. Separate related-record reduction from nested field projection. Preserve nulls and association evidence. Enforce require-one and invalid-transform failures during execution now, using existing materialization failure handling; do not wait for B07's aggregate quality reports to prevent unsafe activation.
 - [x] ML-B05-02. Implement latest/earliest/first-ordered using explicit timestamp, anchor, bounds, inclusivity, precision, and tie policy. Extend typed IR and rendering together. Unknown anchors and unsupported precision cannot silently select a record.
-- [ ] ML-B05-03. Implement approved unit normalization with dimensional checks and pinned conversion rules. Retain original value/unit in evidence. Unknown or incompatible units remain unresolved. Test identity, linear, and affine conversions without implicit display-label matching.
+- [x] ML-B05-03. Implement approved unit normalization with dimensional checks and pinned conversion rules. Retain original value/unit in evidence. Unknown or incompatible units remain unresolved. Test identity, linear, and affine conversions without implicit display-label matching.
 - [ ] ML-B05-04. Replace remaining `WherePath`/`WhereEquals` writes with typed contributor predicates. Wire feature controls and exact-meaning summaries. Reject unsupported combinations before save; leave valid but data-ambiguous definitions editable and block unsafe publication with explicit reasons.
 
 **You see.**
