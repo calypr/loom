@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { RowDefinitionPanel } from './RowDefinitionPanel';
@@ -13,10 +13,12 @@ const catalog: ExplorerBuilderCatalog = {
   nodes: [
     { nodeId: 'specimen', resourceType: 'Specimen', rowRootEligible: true, populated: true, documentCount: 2 },
     { nodeId: 'observation', resourceType: 'Observation', rowRootEligible: true, populated: true, documentCount: 4 },
+    { nodeId: 'encounter', resourceType: 'Encounter', rowRootEligible: true, populated: true, documentCount: 3 },
     { nodeId: 'subject', resourceType: 'Patient', rowRootEligible: false, populated: true, documentCount: 2 },
   ],
   edges: [
     { edgeId: 'specimen-observation', fromNodeId: 'specimen', toNodeId: 'observation', label: 'observations' },
+    { edgeId: 'observation-encounter', fromNodeId: 'observation', toNodeId: 'encounter', label: 'encounter' },
     { edgeId: 'specimen-patient', fromNodeId: 'specimen', toNodeId: 'subject', label: 'subject' },
   ],
   candidates: [],
@@ -31,7 +33,9 @@ const table: DraftTable = {
     route: {
       occurrenceId: 'base', resourceType: 'Specimen',
       children: [
-        { occurrenceId: 'labs', resourceType: 'Observation', relationship: 'observations' },
+        { occurrenceId: 'labs', resourceType: 'Observation', relationship: 'observations', children: [
+          { occurrenceId: 'visit', resourceType: 'Encounter', relationship: 'encounter' },
+        ] },
         { occurrenceId: 'patient', resourceType: 'Patient', relationship: 'subject' },
       ],
     },
@@ -39,14 +43,17 @@ const table: DraftTable = {
   },
 };
 
+afterEach(cleanup);
+
 describe('RowDefinitionPanel', () => {
-  it('offers the current root and eligible direct relationships as explicit row choices', () => {
+  it('offers every eligible authored occurrence as an explicit row choice', () => {
     const onChange = vi.fn();
     render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={onChange} />);
 
     const select = screen.getByRole('combobox', { name: 'One row per' });
     expect(screen.getByRole('option', { name: 'Specimen' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Observation via observations' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Encounter via encounter' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /Patient/ })).toBeNull();
 
     fireEvent.change(select, { target: { value: 'labs' } });
@@ -60,6 +67,6 @@ describe('RowDefinitionPanel', () => {
     } as DraftTable;
     render(<RowDefinitionPanel catalog={catalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
     expect(screen.getByRole('combobox', { name: 'One row per' })).toBeDisabled();
-    expect(screen.getByText(/Add a directly related resource/)).toBeTruthy();
+    expect(screen.getByText(/Add a related resource/)).toBeTruthy();
   });
 });

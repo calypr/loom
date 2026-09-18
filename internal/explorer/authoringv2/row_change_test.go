@@ -85,6 +85,73 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 	}
 }
 
+func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children[0].MatchMode = RouteMatchRequired
+	workspace.Documents[0].Route.Children[0].Children = []RouteNode{
+		{OccurrenceID: "followup", ResourceType: "Encounter", Relationship: "revisits"},
+		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", MatchMode: RouteMatchOptional},
+	}
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, Column{
+		Column: "observation_id", Label: "Observation ID", OccurrenceID: "observation",
+		Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}},
+	})
+	catalog := rowChangeCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+		CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
+	)
+
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("deep assessment=%#v", assessment)
+	}
+	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{
+		{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"},
+		{OccurrenceID: "encounter", EdgeID: "observation-encounter"},
+	}) {
+		t.Fatalf("deep route choices=%#v", assessment.Proposal.RouteRebase)
+	}
+
+	rebased, err := ApplyRowChange(workspace.Documents[0], catalog, *assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebased.RootResourceType != "Observation" || rebased.Route.OccurrenceID != RootOccurrenceID {
+		t.Fatalf("deep root=%#v", rebased.Route)
+	}
+	if len(rebased.Route.Children) != 1 || rebased.Route.Children[0].OccurrenceID != "encounter" || rebased.Route.Children[0].Relationship != "encounter" || rebased.Route.Children[0].MatchMode != RouteMatchOptional {
+		t.Fatalf("deep encounter route=%#v", rebased.Route)
+	}
+	encounterChildren := rebased.Route.Children[0].Children
+	if len(encounterChildren) != 2 || encounterChildren[0].OccurrenceID != "followup" {
+		t.Fatalf("deep rebase lost the off-path Encounter branch: %#v", encounterChildren)
+	}
+	patient := encounterChildren[1]
+	if patient.OccurrenceID != "observation" || patient.ResourceType != "Patient" || patient.Relationship != "patient" || patient.MatchMode != RouteMatchRequired {
+		t.Fatalf("deep patient route=%#v", patient)
+	}
+	occurrences := map[string]string{}
+	for _, column := range rebased.Columns {
+		occurrences[column.Column] = column.OccurrenceID
+	}
+	if !reflect.DeepEqual(occurrences, map[string]string{"patient_id": "observation", "encounter_id": "encounter", "observation_id": RootOccurrenceID}) {
+		t.Fatalf("deep column occurrences=%#v", occurrences)
+	}
+	if rebased.Population == nil || !reflect.DeepEqual(rebased.Population.Route, []PopulationRouteStep{
+		{ResourceType: "Encounter", Relationship: "encounter"},
+		{ResourceType: "Patient", Relationship: "patient"},
+	}) {
+		t.Fatalf("deep population route=%#v", rebased.Population)
+	}
+}
+
 func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	catalog := commandCatalog()

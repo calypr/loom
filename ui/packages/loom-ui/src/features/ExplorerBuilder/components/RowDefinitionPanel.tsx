@@ -25,7 +25,7 @@ export const RowDefinitionPanel = ({
       catalog.nodes.filter((node) => node.rowRootEligible).map((node) => node.nodeId),
     );
     return derivedOccurrences(table, catalog)
-      .filter((occurrence) => occurrence.depth <= 1 && eligibleNodeIds.has(occurrence.nodeId))
+      .filter((occurrence) => eligibleNodeIds.has(occurrence.nodeId))
       .map((occurrence) => ({
         occurrenceId: occurrence.id,
         nodeId: occurrence.nodeId,
@@ -64,7 +64,7 @@ export const RowDefinitionPanel = ({
         </label>
       </div>
       {choices.length === 1 ? (
-        <p className="mt-2 text-xs text-slate-500">Add a directly related resource to make another row definition available.</p>
+        <p className="mt-2 text-xs text-slate-500">Add a related resource to make another row definition available.</p>
       ) : (
         <p className="mt-2 text-xs text-slate-500">Loom checks whether the current features, filters, actions, and starting collection can be preserved before changing rows.</p>
       )}

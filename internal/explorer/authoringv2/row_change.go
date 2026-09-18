@@ -60,9 +60,9 @@ type RowChangeAssessment struct {
 	Unresolved                []RowChangeUnresolvedReference `json:"unresolved"`
 }
 
-// AssessRowChange is read-only. The first supported non-trivial rebase promotes
-// one direct child occurrence to the root. This covers a useful row-grain
-// change without guessing how to rewrite an arbitrary graph path.
+// AssessRowChange is read-only. It promotes an authored descendant occurrence
+// to the root only when every relationship on the existing root-to-descendant
+// path has one explicit or unambiguous inverse catalog edge.
 func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
 	documentIndex := documentIndex(&workspace, request.OutputID)
 	node, nodeOK := catalogNode(catalog, request.RootNodeID)
@@ -82,25 +82,34 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		return assessment, nil
 	}
 
-	candidates := directChildOccurrences(document.Route, node.ResourceType)
+	candidates := routeOccurrences(document.Route, node.ResourceType)
 	selected, unresolved := selectRootOccurrence(candidates, request.RootOccurrenceID, node.ResourceType)
 	if unresolved != nil {
 		assessment.Unresolved = append(assessment.Unresolved, *unresolved)
 		return assessment, nil
 	}
 
-	reverseEdges := catalogEdgesBetween(catalog, request.RootNodeID, document.RootResourceType)
-	choice, unresolved := selectReverseEdge(reverseEdges, request.RouteRebase, document.Route.OccurrenceID)
-	if unresolved != nil {
-		assessment.Unresolved = append(assessment.Unresolved, *unresolved)
-		return assessment, nil
+	path, ok := routePath(document.Route, selected.OccurrenceID)
+	if !ok || len(path) < 2 {
+		return RowChangeAssessment{}, fmt.Errorf("selected row occurrence path was not found")
+	}
+	routeRebase := make([]RouteRebaseChoice, 0, len(path)-1)
+	for index := 0; index < len(path)-1; index++ {
+		parent, child := path[index], path[index+1]
+		reverseEdges := catalogEdgesBetweenResourceTypes(catalog, child.ResourceType, parent.ResourceType)
+		choice, unresolved := selectReverseEdge(reverseEdges, request.RouteRebase, parent.OccurrenceID)
+		if unresolved != nil {
+			assessment.Unresolved = append(assessment.Unresolved, *unresolved)
+			return assessment, nil
+		}
+		routeRebase = append(routeRebase, RouteRebaseChoice{OccurrenceID: parent.OccurrenceID, EdgeID: choice.ID})
 	}
 	proposal := RowChangeProposal{
 		OutputID:             request.OutputID,
 		RootNodeID:           request.RootNodeID,
 		RootOccurrenceID:     selected.OccurrenceID,
 		SourceDocumentDigest: documentDigest(document),
-		RouteRebase:          []RouteRebaseChoice{{OccurrenceID: document.Route.OccurrenceID, EdgeID: choice.ID}},
+		RouteRebase:          routeRebase,
 		PreservedFeatureKeys: append([]string(nil), assessment.PreservedFeatureKeys...),
 	}
 	if _, err := applyRowChange(document, catalog, proposal); err != nil {
@@ -140,40 +149,56 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 		return Document{}, err
 	}
 	document = cloned
-	if len(proposal.RouteRebase) != 1 || proposal.RouteRebase[0].OccurrenceID != RootOccurrenceID {
-		return Document{}, fmt.Errorf("row rebase requires exactly one explicit inverse edge for the previous root")
+	path, ok := routePath(document.Route, proposal.RootOccurrenceID)
+	if !ok || len(path) < 2 {
+		return Document{}, fmt.Errorf("row root occurrence %q is not an authored descendant", proposal.RootOccurrenceID)
 	}
-	edge, ok := catalogEdge(catalog, proposal.RouteRebase[0].EdgeID)
-	if !ok {
-		return Document{}, fmt.Errorf("row rebase edge %q was not found", proposal.RouteRebase[0].EdgeID)
+	choices := make(map[string]CatalogEdge, len(proposal.RouteRebase))
+	for _, choice := range proposal.RouteRebase {
+		if _, duplicate := choices[choice.OccurrenceID]; duplicate {
+			return Document{}, fmt.Errorf("row rebase repeats inverse edge choice for occurrence %q", choice.OccurrenceID)
+		}
+		edge, found := catalogEdge(catalog, choice.EdgeID)
+		if !found {
+			return Document{}, fmt.Errorf("row rebase edge %q was not found", choice.EdgeID)
+		}
+		choices[choice.OccurrenceID] = edge
 	}
-	rootIndex := -1
-	for index := range document.Route.Children {
-		if document.Route.Children[index].OccurrenceID == proposal.RootOccurrenceID {
-			rootIndex = index
-			break
+	if len(choices) != len(path)-1 {
+		return Document{}, fmt.Errorf("row rebase requires one explicit inverse edge for every path relationship")
+	}
+	for index := 0; index < len(path)-1; index++ {
+		parent, child := path[index], path[index+1]
+		edge, found := choices[parent.OccurrenceID]
+		if !found {
+			return Document{}, fmt.Errorf("row rebase has no inverse edge for occurrence %q", parent.OccurrenceID)
+		}
+		from, fromOK := catalogNode(catalog, edge.FromNodeID)
+		to, toOK := catalogNode(catalog, edge.ToNodeID)
+		if !fromOK || !toOK || from.ResourceType != child.ResourceType || to.ResourceType != parent.ResourceType {
+			return Document{}, fmt.Errorf("row rebase edge %q does not invert occurrence %q", edge.ID, parent.OccurrenceID)
 		}
 	}
-	if rootIndex < 0 {
-		return Document{}, fmt.Errorf("row root occurrence %q is not a direct child", proposal.RootOccurrenceID)
-	}
-	selected := document.Route.Children[rootIndex]
-	from, fromOK := catalogNode(catalog, edge.FromNodeID)
-	to, toOK := catalogNode(catalog, edge.ToNodeID)
-	if !fromOK || !toOK || from.ResourceType != selected.ResourceType || to.ResourceType != document.RootResourceType {
-		return Document{}, fmt.Errorf("row rebase edge %q does not invert the previous root relationship", edge.ID)
-	}
 
-	previousRoot := document.Route
-	previousRoot.OccurrenceID = selected.OccurrenceID
-	previousRoot.Relationship = edge.Label
-	previousRoot.Children = append([]RouteNode(nil), document.Route.Children[:rootIndex]...)
-	previousRoot.Children = append(previousRoot.Children, document.Route.Children[rootIndex+1:]...)
+	selected := path[len(path)-1]
+	reversed := path[0]
+	reversed.OccurrenceID = selected.OccurrenceID
+	reversed.Relationship = choices[path[0].OccurrenceID].Label
+	reversed.MatchMode = path[1].MatchMode
+	reversed.Children = routeChildrenWithout(path[0], path[1].OccurrenceID)
+	for index := 1; index < len(path)-1; index++ {
+		parent := path[index]
+		parent.Relationship = choices[parent.OccurrenceID].Label
+		parent.MatchMode = path[index+1].MatchMode
+		parent.Children = append(routeChildrenWithout(parent, path[index+1].OccurrenceID), reversed)
+		reversed = parent
+	}
 
 	newRoot := selected
 	newRoot.OccurrenceID = RootOccurrenceID
 	newRoot.Relationship = ""
-	newRoot.Children = append(append([]RouteNode(nil), selected.Children...), previousRoot)
+	newRoot.MatchMode = ""
+	newRoot.Children = append(append([]RouteNode(nil), selected.Children...), reversed)
 
 	for index := range document.Columns {
 		switch document.Columns[index].OccurrenceID {
@@ -186,7 +211,11 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	document.RootResourceType = selected.ResourceType
 	document.Route = newRoot
 	if document.Population != nil {
-		document.Population.Route = append([]PopulationRouteStep{{ResourceType: previousRoot.ResourceType, Relationship: edge.Label}}, document.Population.Route...)
+		prefix := make([]PopulationRouteStep, 0, len(path)-1)
+		for index := len(path) - 2; index >= 0; index-- {
+			prefix = append(prefix, PopulationRouteStep{ResourceType: path[index].ResourceType, Relationship: choices[path[index].OccurrenceID].Label})
+		}
+		document.Population.Route = append(prefix, document.Population.Route...)
 	}
 	if err := validateRebasedRoute(document, catalog); err != nil {
 		return Document{}, err
@@ -194,14 +223,38 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	return document, nil
 }
 
-func directChildOccurrences(route RouteNode, resourceType string) []RouteNode {
+func routeOccurrences(route RouteNode, resourceType string) []RouteNode {
 	result := []RouteNode{}
 	for _, child := range route.Children {
 		if child.ResourceType == resourceType {
 			result = append(result, child)
 		}
+		result = append(result, routeOccurrences(child, resourceType)...)
 	}
 	return result
+}
+
+func routePath(route RouteNode, occurrenceID string) ([]RouteNode, bool) {
+	if route.OccurrenceID == occurrenceID {
+		return []RouteNode{route}, true
+	}
+	for _, child := range route.Children {
+		path, found := routePath(child, occurrenceID)
+		if found {
+			return append([]RouteNode{route}, path...), true
+		}
+	}
+	return nil, false
+}
+
+func routeChildrenWithout(route RouteNode, occurrenceID string) []RouteNode {
+	children := make([]RouteNode, 0, len(route.Children))
+	for _, child := range route.Children {
+		if child.OccurrenceID != occurrenceID {
+			children = append(children, child)
+		}
+	}
+	return children
 }
 
 func selectRootOccurrence(candidates []RouteNode, requested, resourceType string) (RouteNode, *RowChangeUnresolvedReference) {
@@ -211,7 +264,7 @@ func selectRootOccurrence(candidates []RouteNode, requested, resourceType string
 				return candidate, nil
 			}
 		}
-		return RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: requested, Code: "ROW_ROOT_OCCURRENCE_NOT_FOUND", Message: "the selected row occurrence is not a direct child with the requested resource type"}
+		return RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: requested, Code: "ROW_ROOT_OCCURRENCE_NOT_FOUND", Message: "the selected row occurrence is not an authored descendant with the requested resource type"}
 	}
 	if len(candidates) == 1 {
 		return candidates[0], nil
@@ -221,21 +274,19 @@ func selectRootOccurrence(candidates []RouteNode, requested, resourceType string
 		alternatives = append(alternatives, candidate.OccurrenceID)
 	}
 	sort.Strings(alternatives)
-	code, message := "ROW_ROOT_OCCURRENCE_NOT_FOUND", "the requested resource type is not a direct child of the current row root"
+	code, message := "ROW_ROOT_OCCURRENCE_NOT_FOUND", "the requested resource type is not an authored descendant of the current row root"
 	if len(candidates) > 1 {
 		code, message = "AMBIGUOUS_ROW_ROOT_OCCURRENCE", "several route occurrences can become the row root; choose one explicitly"
 	}
 	return RouteNode{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: resourceType, Code: code, Message: message, Alternatives: alternatives}
 }
 
-func catalogEdgesBetween(catalog CatalogSnapshot, fromNodeID, toResourceType string) []CatalogEdge {
+func catalogEdgesBetweenResourceTypes(catalog CatalogSnapshot, fromResourceType, toResourceType string) []CatalogEdge {
 	result := []CatalogEdge{}
 	for _, edge := range catalog.Edges {
-		if edge.FromNodeID != fromNodeID {
-			continue
-		}
-		to, ok := catalogNode(catalog, edge.ToNodeID)
-		if ok && to.ResourceType == toResourceType {
+		from, fromOK := catalogNode(catalog, edge.FromNodeID)
+		to, toOK := catalogNode(catalog, edge.ToNodeID)
+		if fromOK && toOK && from.ResourceType == fromResourceType && to.ResourceType == toResourceType {
 			result = append(result, edge)
 		}
 	}

@@ -109,20 +109,81 @@ try {
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-pair-001')`, 60_000);
   await browser.cdp.send('Page.reload', { ignoreCache: true });
   await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+
+  builder = await json(`${authoring}/builder`);
+  await command([{ type: 'DELETE_TABLE', outputId }]);
+  const documentNode = builder.catalog.nodes.find((node) => node.resourceType === 'DocumentReference' && node.rowRootEligible);
+  assert.ok(documentNode, 'fixture lacks a row-eligible DocumentReference resource');
+  const fileToSpecimen = builder.catalog.edges.find((edge) => edge.fromNodeId === documentNode.nodeId && edge.toNodeId === specimenNode.nodeId && edge.populated !== false);
+  const specimenToFile = builder.catalog.edges.find((edge) => edge.fromNodeId === specimenNode.nodeId && edge.toNodeId === documentNode.nodeId && edge.populated !== false);
+  assert.ok(fileToSpecimen && specimenToFile, 'fixture lacks a bidirectional DocumentReference/Specimen route');
+  const deepCreated = await command([{ type: 'CREATE_TABLE', title: 'File-derived observations', rootNodeId: documentNode.nodeId }]);
+  const deepOutputId = deepCreated.results.find((result) => result.type === 'TABLE_CREATED')?.outputId;
+  assert.ok(deepOutputId, 'deep CREATE_TABLE returned no output ID');
+  await command([{ type: 'SET_TABLE_POPULATION', outputId: deepOutputId, selectionRevisionId: source.selections.explicit.id, edgeIds: [] }]);
+  const specimenRoute = await command([{ type: 'ADD_ROUTE', outputId: deepOutputId, parentOccurrenceId: 'base', edgeId: fileToSpecimen.edgeId }]);
+  const specimenOccurrenceId = specimenRoute.results.find((result) => result.type === 'ROUTE_ADDED')?.occurrenceId;
+  assert.ok(specimenOccurrenceId, 'deep ADD_ROUTE returned no Specimen occurrence ID');
+  const observationRoute = await command([{ type: 'ADD_ROUTE', outputId: deepOutputId, parentOccurrenceId: specimenOccurrenceId, edgeId: forwardEdge.edgeId }]);
+  const deepObservationOccurrenceId = observationRoute.results.find((result) => result.type === 'ROUTE_ADDED')?.occurrenceId;
+  assert.ok(deepObservationOccurrenceId, 'deep ADD_ROUTE returned no Observation occurrence ID');
+  await command([
+    { type: 'ADD_COLUMN_SOURCE', outputId: deepOutputId, occurrenceId: 'base', title: 'File ID', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+    { type: 'ADD_COLUMN_SOURCE', outputId: deepOutputId, occurrenceId: specimenOccurrenceId, title: 'Specimen ID', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+    { type: 'ADD_COLUMN_SOURCE', outputId: deepOutputId, occurrenceId: deepObservationOccurrenceId, title: 'Observation ID', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+  ]);
+  const deepBefore = builder;
+  const deepOriginal = deepBefore.workspace.documents.find((document) => document.output.id === deepOutputId);
+  assert.ok(deepOriginal, 'deep row-definition table disappeared before rebase');
+  assert.equal(deepOriginal.population?.selectionRevisionId, source.selections.explicit.id, 'deep journey did not attach the file selection');
+  const deepFeatureKeys = deepOriginal.columns.map((column) => column.column);
+
+  await browser.cdp.send('Page.reload', { ignoreCache: true });
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('select[aria-label="One row per"] option')].find((option) => option.textContent.includes('Observation')))`, 60_000);
+  await browserEval(browser.cdp, `
+    const select = document.querySelector('select[aria-label="One row per"]');
+    const option = [...select.options].find((candidate) => candidate.textContent.includes('Observation'));
+    select.value = option.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  `);
+  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+  const deepAfter = await json(`${authoring}/builder`);
+  const deepRebased = deepAfter.workspace.documents.find((document) => document.output.id === deepOutputId);
+  assert.ok(deepRebased, 'deep row-defined table disappeared');
+  assert.equal(deepRebased.rootResourceType, 'Observation');
+  assert.equal(deepRebased.route.children?.[0]?.resourceType, 'Specimen');
+  assert.equal(deepRebased.route.children?.[0]?.children?.[0]?.resourceType, 'DocumentReference');
+  assert.equal(deepRebased.population?.selectionRevisionId, source.selections.explicit.id, 'deep row change lost the immutable selection');
+  assert.deepEqual(deepRebased.population?.route.map((step) => step.resourceType), ['Specimen', 'DocumentReference'], 'deep row change did not extend the population route through both former ancestors');
+  assert.deepEqual(deepRebased.columns.map((column) => column.column), deepFeatureKeys, 'deep row change replaced stable feature keys');
+  assert.equal(deepAfter.draftVersion, deepBefore.draftVersion + 1, 'deep row definition must create exactly one draft version');
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+  await browserEval(browser.cdp, `clickButton('Preview');`);
+  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-pair-001')`, 60_000);
+  await browser.cdp.send('Page.reload', { ignoreCache: true });
+  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
   assert.equal(browserFailures.length, 0, `browser failures: ${browserFailures.join(' | ')}`);
   await snapshot(browser.cdp, htmlPath);
 
   const evidence = {
-    status: 'passed', scenario: 'explicit-row-definition-without-patient-or-files',
-    target, outputId,
+    status: 'passed', scenario: 'explicit-shallow-and-deep-row-definition',
+    target, outputId, deepOutputId,
     before: { draftVersion: before.draftVersion, rootResourceType: original.rootResourceType, featureKeys },
     after: { draftVersion: after.draftVersion, rootResourceType: rebased.rootResourceType, featureKeys: rebased.columns.map((column) => column.column) },
+    deep: {
+      before: { draftVersion: deepBefore.draftVersion, rootResourceType: deepOriginal.rootResourceType, featureKeys: deepFeatureKeys },
+      after: { draftVersion: deepAfter.draftVersion, rootResourceType: deepRebased.rootResourceType, featureKeys: deepRebased.columns.map((column) => column.column) },
+    },
     assertions: [
       'Builder exposes an explicit One row per control outside the graph',
       'Specimen rows change to Observation rows without Patient or DocumentReference input',
       'stable Specimen and Observation feature keys survive the row change',
       'Preview returns fixture Observation rows',
       'the Observation row definition survives a full reload',
+      'the same control promotes an Observation two authored relationships below DocumentReference',
+      'the deep rebase preserves File, Specimen, and Observation feature keys and reverses both route edges',
+      'the immutable file selection survives with a two-step population route to Observation rows',
+      'Preview and reload succeed after the deep row rebase',
     ],
     authoringResponses, evidencePaths: [htmlPath],
   };
