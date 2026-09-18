@@ -247,16 +247,16 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Ten-feature preview latency and traversal count.
-- [ ] Probe. Interleave existing feature baseline/head queries; separately run the new reduction/time/unit fixture.
-- [ ] Baseline. Record old supported-feature timings before changes. Do not compare unlike old/new temporal scenarios.
-- [ ] Rule. Investigate a repeated existing-path median regression over 20 percent. Require exact values under sharing and small-fixture new-policy preview within the 30-second warm loop.
+- [x] Metric. Ten-feature preview latency and traversal count.
+- [x] Probe. Interleave existing feature baseline/head queries; separately run the new reduction/time/unit fixture.
+- [x] Baseline. Record old supported-feature timings before changes. Do not compare unlike old/new temporal scenarios.
+- [x] Rule. Investigate a repeated existing-path median regression over 20 percent. Require exact values under sharing and small-fixture new-policy preview within the 30-second warm loop.
 
 **Review gate.** None. No mandatory operator interaction review. Root checks semantics and the absence of duplicate evaluators.
 
 **Merge.**
 
-- [ ] Record verified source-policy behavior and deleted legacy filter writes before B06.
+- [x] Record verified source-policy behavior and deleted legacy filter writes before B06.
 
 ## Save and apply reusable interpretation revisions (B06)
 
