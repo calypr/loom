@@ -125,11 +125,10 @@ Builder recipes use it under translation version `authoring-v2-native-8`.
 Feature keys therefore remain stable when their occurrences move. The replayed
 browser journey reconciled and previewed successfully.
 
-## Remaining B04 work
+## B04 completion
 
-B04 remains in progress only on deeper compatible row rebases in `ML-B04-02`.
-The visible Builder contributor editor and its Preview/Publish/Viewer/reload
-journey remain B05 work.
+All B04 work is complete. The visible Builder contributor editor and its
+Preview/Publish/Viewer/reload journey remain B05 work.
 
 ## Acceptance audit on 2026-09-16
 
@@ -138,7 +137,7 @@ The superseding B01-B08 plan classifies this work as a partial B04 slice.
 | Issue | Status | Proven | Still required |
 | --- | --- | --- | --- |
 | `ML-B04-01` | Done | Ordinary execution starts from indexed immutable membership, joins the selected resource, reverses the authored route, deduplicates target keys, and restores the root under project, generation, and authorization scope. Population mapping groups exact member witnesses per final row from the same typed root source. Live API evidence proves direct Specimen selection and two-files-to-one-Specimen mapping, while DOM evidence proves attach, Preview, repair, and reload. The Arango profile completed with zero full scans: sparse membership-driven execution took `0.000711s` versus `0.559086s`, and dense execution took `0.096020s` versus `0.800020s`. | None. |
-| `ML-B04-02` | In progress | Builder requests a draft-bound assessment and atomically applies a direct-child rebase. Unit and HTTP-route tests prove preserved selection/filters/actions, read-only assessment, explicit occurrence and inverse-edge ambiguity choices, and no mutation after stale or unresolved proposals. The live browser journey proves the real control, stable feature keys and filter, successful reconcile, and Preview after Patient-to-Observation rebase. | Support compatible deeper rebases if the product journey requires them. |
+| `ML-B04-02` | Done | Builder requests a draft-bound assessment and atomically applies a rebase from any eligible authored descendant. The path algorithm requires an explicit or unambiguous inverse edge at every hop, preserves off-path branches and match modes, swaps only the old and new root occurrence identities, extends an attached population route, and retains feature keys, filters, and actions. Stale or unresolved proposals do not mutate the draft. The live DOM journey promotes Observation through the authored `DocumentReference -> Specimen -> Observation` path, preserves all three feature keys and the immutable file selection with a two-step population route, previews fixture rows, and survives reload. | None. |
 | `ML-B04-03` | Done | Sibling occurrences reuse one relationship with distinct stable IDs. Semantics v4 adds catalog-bound contributor predicates, explicit set/clear commands, deterministic legacy migration, and one canonical typed filter through semantic and physical lowering. Real Arango execution returns independent counts `1` and `2` while retaining an unmatched optional root as `0` and `0`; changing one route to required removes only that unmatched root. The live browser loop persists both **Required match** and **Optional feature** through the command API. | The visible contributor-value editor and its Preview/Publish/Viewer/reload journey are B05, not unfinished B04 predicate separation. |
 | `ML-B04-04` | Done | Builder attaches or clears a supplied selection, previews constrained rows, displays exact resulting/unmapped coverage, and removes an unmatched source by deriving and attaching a new immutable selection revision. A separate **One row per** control exposes safe authored-route choices through the existing assess/apply command path. Live DOM evidence proves the repaired file-to-Specimen collection maps 2/2 and survives reload; a second journey changes Specimen rows to Observation rows, preserves feature keys, previews, and survives reload without Patient or DocumentReference input. | Semantic interpretation repair remains B06; reason-specific repair navigation remains B07. |
 
@@ -148,8 +147,7 @@ API rerun produced `.artifacts/loom-dev/population-row-1789687540076.json`.
 The browser rerun produced
 `.artifacts/loom-dev/population-row-ui-1789687551236.html`. These artifacts
 prove attachment, preview, exact coverage, immutable exclusion repair, and
-reload persistence for the file-to-Specimen journey; they do not prove the
-remaining B04-02 acceptance criteria. The explicit row-definition
+reload persistence for the file-to-Specimen journey. The explicit row-definition
 journey produced
 `.artifacts/loom-dev/row-definition-ui-1789688249673.json` and its HTML
 snapshot. All 145 UI tests, the production UI build, and the 12.3-second
@@ -167,6 +165,19 @@ Builder through Viewer journey. Current evidence is retained at
 `.artifacts/loom-dev/population-row-1789690186299.json`,
 `.artifacts/loom-dev/population-row-ui-1789690198116.html`, and
 `.artifacts/loom-dev/population-profile-1789690200.json`.
+
+Commit `37233c06` closes B04-02 and therefore B04. The row-definition selector
+now exposes every eligible occurrence in the authored route. Assessment finds
+the exact root-to-occurrence path and resolves one inverse catalog edge for
+each relationship before it produces an immutable proposal. Apply verifies
+that proposal against the unchanged document digest, reverses the path without
+discarding side branches, and preserves the attached selection by extending
+its population route. The live evidence at
+`.artifacts/loom-dev/row-definition-ui-1789691724832.json` and its HTML snapshot
+proves both the earlier shallow no-file journey and the deep file-derived
+journey through Preview and reload. The repository Go tests, the 27-test
+localhost acceptance package, all 145 UI tests, both production UI builds,
+`dev-doctor`, and `verify-fast` pass.
 
 Commit `7074790d` established sibling contributor scopes. The current semantics
 v4 implementation extends that slice with strict catalog-bound authoring,

@@ -182,27 +182,27 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Extend authoring commands and row intent, `explorer/compilation`, recipe output constraints, semantic planning, membership lowering, and compiler scope validation.
-- [ ] Add proposed `population.go` and `row_change.go` in the relevant existing packages. Wire collection and row controls into the existing Builder and Viewer selection handoff.
+- [x] Extend authoring commands and row intent, `explorer/compilation`, recipe output constraints, semantic planning, membership lowering, and compiler scope validation.
+- [x] Add proposed `population.go` and `row_change.go` in the relevant existing packages. Wire collection and row controls into the existing Builder and Viewer selection handoff.
 
 **Build.**
 
 - [x] ML-B04-01. Compile the immutable selection as a typed membership semijoin, retaining target row grain. Test direct and reversed paths, shared target resources, missing links, and exact selection-to-row trace mapping. Preserve project/generation/auth constraints at every step.
-- [ ] ML-B04-02. Replace root reset with assess-and-apply row changes. Preserve selection and stable features when rebasing is unambiguous. Return explicit affected-feature errors otherwise. Apply atomically under the existing draft digest.
+- [x] ML-B04-02. Replace root reset with assess-and-apply row changes. Preserve selection and stable features when rebasing is unambiguous. Return explicit affected-feature errors otherwise. Apply atomically under the existing draft digest.
 - [x] ML-B04-03. Allow independent relationship occurrences with contributor predicates, while retaining route bounds. Distinguish population eligibility from optional feature matching. Update traversal-sharing identity to include semantic scope and predicates.
 - [x] ML-B04-04. Add checked/all-matching/exclusion controls and the row-definition control using the existing command queue. Show selection size, resulting rows, and unmapped sources. Prove a file-to-specimen journey and a non-file-root journey without Patient.
 
 **You see.**
 
-- [ ] Selecting F1 and F2 yields one specimen S1, with both files still traceable. Adding unrelated files does not enlarge this saved selection. Changing rows does not silently erase features.
+- [x] Selecting F1 and F2 yields one specimen S1, with both files still traceable. Adding unrelated files does not enlarge this saved selection. Changing rows does not silently erase features.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/recipe/... ./internal/dataframe/semantic/... ./internal/dataframe/compiler/... ./internal/server` and `rtk proxy npm --prefix ui test`. Include separate predicates through the same relationship and failed rebase preserving the exact old draft digest.
+- [x] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/recipe/... ./internal/dataframe/semantic/... ./internal/dataframe/compiler/... ./internal/server` and `rtk proxy npm --prefix ui test`. Include separate predicates through the same relationship and failed rebase preserving the exact old draft digest.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Extend and run `verify-fast` for file selection, shared-specimen deduplication, explicit empty/unmapped handling, independent feature scopes, and a Specimen-root start with no DocumentReference requirement. Assert API membership and DOM row values, then reload.
+- [x] Extend and run `verify-fast` for file selection, shared-specimen deduplication, explicit empty/unmapped handling, independent feature scopes, and a Specimen-root start with no DocumentReference requirement. Assert API membership and DOM row values, then reload.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
@@ -215,7 +215,7 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Merge.**
 
-- [ ] Record the first complete selection-to-row user journey and its exact receipt before B05.
+- [x] Record the first complete selection-to-row user journey and its exact receipt before B05.
 
 ## Author deliberate reductions, time windows, and units (B05)
 
