@@ -141,7 +141,7 @@ remain where they are during B06; they are not relocated merely for symmetry.
 
 ```go
 type FeatureInterpretation struct {
-	Kind   FeatureInterpretationKind
+	Kind   FeatureInterpretationKind // PINNED is the only non-nil variant
 	Pinned *PinnedInterpretation
 }
 
@@ -150,9 +150,12 @@ type PinnedInterpretation struct {
 }
 ```
 
-`INLINE` permits the existing source and contributor meaning. `PINNED` requires
-one revision ID and forbids conflicting inline semantic overrides. Presentation
-metadata remains feature-local and is never part of an interpretation.
+Nil is the single inline state. A non-nil `PINNED` value requires one revision
+ID; there is no second explicit-inline representation with identical behavior.
+The existing source remains a valid structural anchor for applicability, while
+the resolved human definition is the sole executable source/contributor
+meaning. Presentation metadata remains feature-local and is never part of an
+interpretation.
 
 During reconcile, lifecycle collects distinct exact revision IDs, loads each
 once, validates project and applicability against the retained authorized

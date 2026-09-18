@@ -357,6 +357,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	lifecycleConfig := lifecycle.Config{
 		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,
+		InterpretationRepository:     explorerStore,
 		PopulationMappingCursorCodec: populationMappingCursorCodec,
 		SelectionSourceResolver:      published.SelectionSourceAdapter{Reader: materializationReader},
 		SelectionReferenceValidator:  explorerStore.ValidateSelectionReferences,

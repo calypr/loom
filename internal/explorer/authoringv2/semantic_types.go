@@ -300,9 +300,42 @@ type Column struct {
 	OccurrenceID string                `json:"occurrenceId"`
 	Source       ColumnSource          `json:"source"`
 	Contributor  *ContributorPredicate `json:"contributor,omitempty"`
-	Table        *TablePresentation    `json:"table,omitempty"`
-	Filter       *FilterPresentation   `json:"filter,omitempty"`
-	Chart        *ChartPresentation    `json:"chart,omitempty"`
+	// Interpretation is nil for the existing inline meaning. A non-nil value
+	// is a closed authoring reference: PINNED names one immutable revision and
+	// never follows a mutable library head.
+	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
+	Table          *TablePresentation     `json:"table,omitempty"`
+	Filter         *FilterPresentation    `json:"filter,omitempty"`
+	Chart          *ChartPresentation     `json:"chart,omitempty"`
+}
+
+// FeatureInterpretationKind is deliberately closed so a pinned column cannot
+// smuggle a second interpretation language into the workspace.
+type FeatureInterpretationKind string
+
+const (
+	FeatureInterpretationPinned FeatureInterpretationKind = "PINNED"
+)
+
+type FeatureInterpretation struct {
+	Kind   FeatureInterpretationKind `json:"kind"`
+	Pinned *PinnedInterpretation     `json:"pinned,omitempty"`
+}
+
+type PinnedInterpretation struct {
+	RevisionID string `json:"revisionId"`
+}
+
+func (i FeatureInterpretation) Validate() error {
+	switch i.Kind {
+	case FeatureInterpretationPinned:
+		if i.Pinned == nil || strings.TrimSpace(i.Pinned.RevisionID) == "" || i.Pinned.RevisionID != strings.TrimSpace(i.Pinned.RevisionID) {
+			return fmt.Errorf("pinned interpretation requires an exact revisionId")
+		}
+	default:
+		return fmt.Errorf("unsupported interpretation kind %q", i.Kind)
+	}
+	return nil
 }
 
 // ContributorPredicate is catalog intent scoped to one aggregate feature.
@@ -675,6 +708,14 @@ func (d Document) validateSemantic() error {
 			}
 			if err := column.Contributor.Validate(); err != nil {
 				return fmt.Errorf("%s.contributor: %w", path, err)
+			}
+		}
+		if column.Interpretation != nil {
+			if err := column.Interpretation.Validate(); err != nil {
+				return fmt.Errorf("%s.interpretation: %w", path, err)
+			}
+			if column.Interpretation.Kind == FeatureInterpretationPinned && column.Contributor != nil {
+				return fmt.Errorf("%s.contributor must be omitted when interpretation is PINNED", path)
 			}
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {

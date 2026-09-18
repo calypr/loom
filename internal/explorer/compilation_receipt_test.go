@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 func testReceipt() CompilationReceipt {
@@ -155,6 +156,56 @@ func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T) {
+	r := testReceipt()
+	if !ReceiptContractSupportedForExecution(r) {
+		t.Fatal("current receipt was not executable")
+	}
+	r.ReceiptFormatVersion = 3
+	r.CompilerContractVersion = "loom.explorer.compiler/v13"
+	if !ReceiptContractSupportedForExecution(r) {
+		t.Fatal("immediately previous receipt was not executable")
+	}
+	r.CompilerContractVersion = "loom.explorer.compiler/v12"
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("older receipt was executable")
+	}
+}
+
+func TestCompilationReceiptPreservesAndAuthenticatesFrozenInterpretation(t *testing.T) {
+	revision, err := PrepareInterpretationRevision(InterpretationRevision{
+		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "frozen", CreatedAt: time.Unix(1, 0).UTC(),
+		Rules: []InterpretationRule{{ID: "rule", Match: InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: InterpretationFeatureDefinition{Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := testReceipt()
+	receipt.ReceiptFormatVersion = 3
+	receipt.CompilerContractVersion = "loom.explorer.compiler/v13"
+	receipt.ResolvedInterpretations = []ResolvedInterpretation{{OutputID: "out", Column: "value", OccurrenceID: "base", Revision: revision, SelectedRuleID: "rule", Definition: revision.Rules[0].Definition}}
+	receipt.CompilationKey, err = CompilationKey(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = ReceiptID(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("valid frozen historical receipt rejected: %v", err)
+	}
+	receipt.ResolvedInterpretations[0].Revision.Project = "project-b"
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("cross-project frozen interpretation was accepted")
+	}
+	receipt.ResolvedInterpretations[0].Revision.Project = "project-a"
+	receipt.ResolvedInterpretations[0].Definition.Source.Field.Path = "name.family"
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("tampered frozen interpretation was accepted")
 	}
 }
 

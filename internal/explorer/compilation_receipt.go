@@ -15,18 +15,21 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 const (
 	// CompilationReceiptFormatVersion changes when the persisted receipt shape
 	// or its execution invariants change incompatibly.
-	CompilationReceiptFormatVersion = 3
+	CompilationReceiptFormatVersion       = 4
+	legacyCompilationReceiptFormatVersion = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion       = "loom.explorer.compiler/v13"
-	legacyCompilationReceiptCompilerContractVersion = "loom.explorer.compiler/v12"
-	legacyCompilationReceiptOlderContractVersion    = "loom.explorer.compiler/v11"
-	legacyCompilationReceiptV10ContractVersion      = "loom.explorer.compiler/v10"
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v14"
+	legacyCompilationReceiptB06CompilerContractVersion = "loom.explorer.compiler/v13"
+	legacyCompilationReceiptCompilerContractVersion    = "loom.explorer.compiler/v12"
+	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
+	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
 
 	// Short aliases make the current contract convenient for repositories and
 	// callers that do not need to distinguish the receipt prefix.
@@ -39,6 +42,16 @@ const (
 // resolved recipe artifact. Such a receipt cannot be safely upgraded by an
 // execution request because doing so would reinterpret authoring intent.
 var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
+
+// ReceiptContractSupportedForExecution distinguishes read compatibility from
+// execution compatibility. The immediately previous v3/v13 artifact is
+// executable because it already contains a complete frozen recipe; older
+// historical contracts remain readable for migration/inspection but must be
+// recompiled before native execution.
+func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
+	return (r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion) ||
+		(r.ReceiptFormatVersion == legacyCompilationReceiptFormatVersion && r.CompilerContractVersion == legacyCompilationReceiptB06CompilerContractVersion)
+}
 
 // CompilationArtifactDigest returns the content identity used for canonical
 // JSON artifacts embedded in a receipt, such as the public output contract.
@@ -59,30 +72,31 @@ func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 // compatibility; Bundle is the resolved recipe used by execution. Neither
 // field contains a physical IR or rendered query.
 type CompilationReceipt struct {
-	ID                       string            `json:"id"`
-	ReceiptFormatVersion     int               `json:"receiptFormatVersion"`
-	CompilerContractVersion  string            `json:"compilerContractVersion"`
-	Project                  string            `json:"project"`
-	ExplorerID               string            `json:"explorerId"`
-	IntentDigest             string            `json:"intentDigest"`
-	ResolvedInputsDigest     string            `json:"resolvedInputsDigest,omitempty"`
-	SnapshotToken            string            `json:"snapshotToken"`
-	AuthorizationScopeDigest string            `json:"authorizationScopeDigest,omitempty"`
-	CapabilitySchemaDigest   string            `json:"capabilitySchemaDigest,omitempty"`
-	ShapeDigest              string            `json:"shapeDigest,omitempty"`
-	SourceGeneration         string            `json:"sourceGeneration"`
-	CompilationKey           string            `json:"compilationKey,omitempty"`
-	RecipeDigest             string            `json:"recipeDigest"`
-	ResolvedRecipeDigest     string            `json:"resolvedRecipeDigest,omitempty"`
-	ResolvedSchemaDigest     string            `json:"resolvedSchemaDigest,omitempty"`
-	OutputContractDigest     string            `json:"outputContractDigest,omitempty"`
-	NormalizedBundle         json.RawMessage   `json:"normalizedBundle"`
-	Bundle                   recipe.Bundle     `json:"compiledRecipe"`
-	CompiledConfig           json.RawMessage   `json:"compiledConfig,omitempty"`
-	PublicOutputContract     json.RawMessage   `json:"publicOutputContract,omitempty"`
-	IdentityMappings         []IdentityMapping `json:"identityMappings"`
-	EmittedColumns           []EmittedColumn   `json:"emittedColumns"`
-	OutputFingerprints       map[string]string `json:"outputFingerprints,omitempty"`
+	ID                       string                   `json:"id"`
+	ReceiptFormatVersion     int                      `json:"receiptFormatVersion"`
+	CompilerContractVersion  string                   `json:"compilerContractVersion"`
+	Project                  string                   `json:"project"`
+	ExplorerID               string                   `json:"explorerId"`
+	IntentDigest             string                   `json:"intentDigest"`
+	ResolvedInputsDigest     string                   `json:"resolvedInputsDigest,omitempty"`
+	ResolvedInterpretations  []ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+	SnapshotToken            string                   `json:"snapshotToken"`
+	AuthorizationScopeDigest string                   `json:"authorizationScopeDigest,omitempty"`
+	CapabilitySchemaDigest   string                   `json:"capabilitySchemaDigest,omitempty"`
+	ShapeDigest              string                   `json:"shapeDigest,omitempty"`
+	SourceGeneration         string                   `json:"sourceGeneration"`
+	CompilationKey           string                   `json:"compilationKey,omitempty"`
+	RecipeDigest             string                   `json:"recipeDigest"`
+	ResolvedRecipeDigest     string                   `json:"resolvedRecipeDigest,omitempty"`
+	ResolvedSchemaDigest     string                   `json:"resolvedSchemaDigest,omitempty"`
+	OutputContractDigest     string                   `json:"outputContractDigest,omitempty"`
+	NormalizedBundle         json.RawMessage          `json:"normalizedBundle"`
+	Bundle                   recipe.Bundle            `json:"compiledRecipe"`
+	CompiledConfig           json.RawMessage          `json:"compiledConfig,omitempty"`
+	PublicOutputContract     json.RawMessage          `json:"publicOutputContract,omitempty"`
+	IdentityMappings         []IdentityMapping        `json:"identityMappings"`
+	EmittedColumns           []EmittedColumn          `json:"emittedColumns"`
+	OutputFingerprints       map[string]string        `json:"outputFingerprints,omitempty"`
 	// OutputColumnProvenance is the durable publication behavior for every
 	// compiler output column. Recipe Discovered flags are compiler-local and
 	// intentionally do not cross the authoring recipe JSON boundary.
@@ -117,39 +131,41 @@ type CompilationWarning struct {
 // this permits a repository lookup before doing the expensive compilation.
 func CompilationKey(r CompilationReceipt) (string, error) {
 	identity := struct {
-		ReceiptFormatVersion    int    `json:"receiptFormatVersion"`
-		CompilerContractVersion string `json:"compilerContractVersion"`
-		Project                 string `json:"project"`
-		ExplorerID              string `json:"explorerId"`
-		IntentDigest            string `json:"intentDigest"`
-		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
-		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
-		SnapshotToken           string `json:"snapshotToken"`
-		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
-		CapabilitySchema        string `json:"capabilitySchemaDigest,omitempty"`
-		ShapeDigest             string `json:"shapeDigest,omitempty"`
-		SourceGeneration        string `json:"sourceGeneration"`
+		ReceiptFormatVersion    int                      `json:"receiptFormatVersion"`
+		CompilerContractVersion string                   `json:"compilerContractVersion"`
+		Project                 string                   `json:"project"`
+		ExplorerID              string                   `json:"explorerId"`
+		IntentDigest            string                   `json:"intentDigest"`
+		ResolvedInputsDigest    string                   `json:"resolvedInputsDigest,omitempty"`
+		ResolvedInterpretations []ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+		NormalizedBundle        []byte                   `json:"normalizedBundle,omitempty"`
+		SnapshotToken           string                   `json:"snapshotToken"`
+		AuthorizationScope      string                   `json:"authorizationScopeDigest,omitempty"`
+		CapabilitySchema        string                   `json:"capabilitySchemaDigest,omitempty"`
+		ShapeDigest             string                   `json:"shapeDigest,omitempty"`
+		SourceGeneration        string                   `json:"sourceGeneration"`
 	}{}
 	normalized, err := canonicalRaw(r.NormalizedBundle)
 	if err != nil {
 		return "", fmt.Errorf("canonical normalized bundle: %w", err)
 	}
 	identity = struct {
-		ReceiptFormatVersion    int    `json:"receiptFormatVersion"`
-		CompilerContractVersion string `json:"compilerContractVersion"`
-		Project                 string `json:"project"`
-		ExplorerID              string `json:"explorerId"`
-		IntentDigest            string `json:"intentDigest"`
-		ResolvedInputsDigest    string `json:"resolvedInputsDigest,omitempty"`
-		NormalizedBundle        []byte `json:"normalizedBundle,omitempty"`
-		SnapshotToken           string `json:"snapshotToken"`
-		AuthorizationScope      string `json:"authorizationScopeDigest,omitempty"`
-		CapabilitySchema        string `json:"capabilitySchemaDigest,omitempty"`
-		ShapeDigest             string `json:"shapeDigest,omitempty"`
-		SourceGeneration        string `json:"sourceGeneration"`
+		ReceiptFormatVersion    int                      `json:"receiptFormatVersion"`
+		CompilerContractVersion string                   `json:"compilerContractVersion"`
+		Project                 string                   `json:"project"`
+		ExplorerID              string                   `json:"explorerId"`
+		IntentDigest            string                   `json:"intentDigest"`
+		ResolvedInputsDigest    string                   `json:"resolvedInputsDigest,omitempty"`
+		ResolvedInterpretations []ResolvedInterpretation `json:"resolvedInterpretations,omitempty"`
+		NormalizedBundle        []byte                   `json:"normalizedBundle,omitempty"`
+		SnapshotToken           string                   `json:"snapshotToken"`
+		AuthorizationScope      string                   `json:"authorizationScopeDigest,omitempty"`
+		CapabilitySchema        string                   `json:"capabilitySchemaDigest,omitempty"`
+		ShapeDigest             string                   `json:"shapeDigest,omitempty"`
+		SourceGeneration        string                   `json:"sourceGeneration"`
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
-		r.IntentDigest, r.ResolvedInputsDigest, normalized, r.SnapshotToken,
+		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
 		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration,
 	}
 	return digestIdentity("compile_", identity)
@@ -171,24 +187,25 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		return "", fmt.Errorf("canonical public output contract: %w", err)
 	}
 	identity := struct {
-		CompilationKey       string                       `json:"compilationKey"`
-		RecipeDigest         string                       `json:"recipeDigest"`
-		ResolvedRecipeDigest string                       `json:"resolvedRecipeDigest,omitempty"`
-		ResolvedSchemaDigest string                       `json:"resolvedSchemaDigest,omitempty"`
-		OutputContractDigest string                       `json:"outputContractDigest,omitempty"`
-		Bundle               recipe.Bundle                `json:"compiledRecipe"`
-		CompiledConfig       []byte                       `json:"compiledConfig,omitempty"`
-		PublicOutputContract []byte                       `json:"publicOutputContract,omitempty"`
-		Mappings             []IdentityMapping            `json:"identityMappings"`
-		Emissions            []EmittedColumn              `json:"emittedColumns"`
-		Fingerprints         map[string]string            `json:"outputFingerprints,omitempty"`
-		ColumnProvenance     map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
-		Warnings             []CompilationWarning         `json:"warnings,omitempty"`
+		CompilationKey          string                       `json:"compilationKey"`
+		RecipeDigest            string                       `json:"recipeDigest"`
+		ResolvedRecipeDigest    string                       `json:"resolvedRecipeDigest,omitempty"`
+		ResolvedSchemaDigest    string                       `json:"resolvedSchemaDigest,omitempty"`
+		OutputContractDigest    string                       `json:"outputContractDigest,omitempty"`
+		Bundle                  recipe.Bundle                `json:"compiledRecipe"`
+		CompiledConfig          []byte                       `json:"compiledConfig,omitempty"`
+		PublicOutputContract    []byte                       `json:"publicOutputContract,omitempty"`
+		Mappings                []IdentityMapping            `json:"identityMappings"`
+		Emissions               []EmittedColumn              `json:"emittedColumns"`
+		Fingerprints            map[string]string            `json:"outputFingerprints,omitempty"`
+		ColumnProvenance        map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
+		ResolvedInterpretations []ResolvedInterpretation     `json:"resolvedInterpretations,omitempty"`
+		Warnings                []CompilationWarning         `json:"warnings,omitempty"`
 	}{
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
-		r.OutputFingerprints, r.OutputColumnProvenance, r.Warnings,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings,
 	}
 	return digestIdentity("receipt_", identity)
 }
@@ -218,10 +235,10 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 
 // Validate checks that a receipt is a supported, executable artifact.
 func (r CompilationReceipt) Validate() error {
-	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion {
+	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {
@@ -230,7 +247,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.Bundle.RecipeSchemaVersion <= 0 {
 		return ErrReceiptRecompileRequired
 	}
-	if r.ReceiptFormatVersion == CompilationReceiptFormatVersion {
+	if r.ReceiptFormatVersion == CompilationReceiptFormatVersion || r.ReceiptFormatVersion == legacyCompilationReceiptFormatVersion {
 		required := []struct {
 			name  string
 			value string
@@ -295,6 +312,9 @@ func (r CompilationReceipt) Validate() error {
 			}
 		}
 	}
+	if err := validateResolvedInterpretations(r.Project, r.ResolvedInterpretations); err != nil {
+		return err
+	}
 	if r.ID != "" {
 		if err := r.ValidateID(); err != nil {
 			return err
@@ -330,6 +350,46 @@ func validateOutputColumnProvenance(values map[string]map[string]string) error {
 			if strings.TrimSpace(column) == "" || (provenance != "EXPLICIT" && provenance != "DISCOVERED") {
 				return fmt.Errorf("receipt output column provenance is invalid for %q/%q", output, column)
 			}
+		}
+	}
+	return nil
+}
+
+func validateResolvedInterpretations(project string, values []ResolvedInterpretation) error {
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		if strings.TrimSpace(value.OutputID) == "" || strings.TrimSpace(value.Column) == "" || strings.TrimSpace(value.OccurrenceID) == "" {
+			return fmt.Errorf("receipt resolved interpretation %d requires outputId, column, and occurrenceId", index)
+		}
+		key := value.OutputID + "\x00" + value.Column + "\x00" + value.OccurrenceID
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("receipt resolved interpretations contain duplicate %q", key)
+		}
+		seen[key] = struct{}{}
+		if err := value.Revision.Validate(); err != nil {
+			return fmt.Errorf("receipt resolved interpretation %q has invalid revision: %w", key, err)
+		}
+		if projectid.Canonical(value.Revision.Project) != projectid.Canonical(project) {
+			return fmt.Errorf("receipt resolved interpretation %q belongs to a different project", key)
+		}
+		if value.SelectedRuleID == "" {
+			return fmt.Errorf("receipt resolved interpretation %q is missing selectedRuleId", key)
+		}
+		found := false
+		for _, rule := range value.Revision.Rules {
+			if rule.ID != value.SelectedRuleID {
+				continue
+			}
+			found = true
+			left, leftErr := json.Marshal(rule.Definition)
+			right, rightErr := json.Marshal(value.Definition)
+			if leftErr != nil || rightErr != nil || string(left) != string(right) {
+				return fmt.Errorf("receipt resolved interpretation %q selected definition mismatch", key)
+			}
+			break
+		}
+		if !found {
+			return fmt.Errorf("receipt resolved interpretation %q selected rule %q is absent", key, value.SelectedRuleID)
 		}
 	}
 	return nil

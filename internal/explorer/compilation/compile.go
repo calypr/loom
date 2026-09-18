@@ -111,6 +111,11 @@ type ResolvedPopulation struct {
 	Route               []authoringv2.PopulationRouteStep `json:"route,omitempty"`
 }
 
+// ResolvedInterpretation is an alias of the receipt-safe explorer domain
+// value. Keeping the canonical value in explorer avoids a package cycle while
+// preserving a single shape for lifecycle, compilation, and receipts.
+type ResolvedInterpretation = explorer.ResolvedInterpretation
+
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
@@ -127,9 +132,20 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	if err := validateResolvedPopulationCoverage(workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", "$.resolvedInputs.populations", err.Error(), nil, err)
 	}
+	if err := validateResolvedInterpretationCoverage(project, snapshot, workspace, resolvedInputs); err != nil {
+		return WorkspaceResult{}, fail("intent", "INTERPRETATION_INPUT_MISMATCH", "$.resolvedInputs.interpretations", err.Error(), nil, err)
+	}
 	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
 	if err != nil {
 		return WorkspaceResult{}, fail("intent", "RESOLVED_INPUTS_DIGEST_FAILED", "$.workspace", "resolved input identity could not be calculated", nil, err)
+	}
+	// Keep the authored workspace (including exact PINNED references) in the
+	// result and receipt. Effective definitions are applied only to this clone;
+	// the source suggestion and inline anchor can therefore never win over a
+	// resolved human definition during compilation.
+	effectiveWorkspace := applyResolvedInterpretations(workspace, resolvedInputs)
+	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &effectiveWorkspace, Catalog: wire}).Validate(); err != nil {
+		return WorkspaceResult{}, fail("intent", "INVALID_RESOLVED_INTERPRETATION", "$.resolvedInputs.interpretations", err.Error(), nil, err)
 	}
 	result := WorkspaceResult{
 		Workspace:            workspace,
@@ -144,7 +160,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		Presentations:    []PresentationConfig{},
 		OutputContracts:  []explorer.PublicOutputContract{},
 	}
-	for i, document := range workspace.Documents {
+	for i, document := range effectiveWorkspace.Documents {
 		population, hasResolvedPopulation := resolvedInputs.PopulationFor(document.Output.ID)
 		if document.Population == nil {
 			if hasResolvedPopulation {
@@ -238,12 +254,174 @@ func validateResolvedPopulation(document authoringv2.Document, resolved Resolved
 	return nil
 }
 
+func validateResolvedInterpretationCoverage(project string, snapshot capability.Snapshot, workspace authoringv2.Workspace, inputs ResolvedInputs) error {
+	type expectedInterpretation struct {
+		document authoringv2.Document
+		column   authoringv2.Column
+	}
+	expected := make(map[string]expectedInterpretation)
+	for _, document := range workspace.Documents {
+		for _, column := range document.Columns {
+			if column.Interpretation == nil || column.Interpretation.Kind != authoringv2.FeatureInterpretationPinned {
+				continue
+			}
+			key := interpretationKey(document.Output.ID, column.Column, column.OccurrenceID)
+			expected[key] = expectedInterpretation{document: document, column: column}
+		}
+	}
+	seen := make(map[string]struct{}, len(inputs.Interpretations))
+	for index, resolved := range inputs.Interpretations {
+		key := interpretationKey(resolved.OutputID, resolved.Column, resolved.OccurrenceID)
+		if strings.TrimSpace(resolved.OutputID) == "" || strings.TrimSpace(resolved.Column) == "" || strings.TrimSpace(resolved.OccurrenceID) == "" {
+			return fmt.Errorf("resolvedInputs.interpretations[%d] requires outputId, column, and occurrenceId", index)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("resolvedInputs.interpretations contains duplicate %q", key)
+		}
+		seen[key] = struct{}{}
+		entry, known := expected[key]
+		if !known {
+			return fmt.Errorf("resolved interpretation %q has no matching pinned column", key)
+		}
+		if err := validateResolvedInterpretation(resolved, entry.column); err != nil {
+			return fmt.Errorf("resolved interpretation %q: %w", key, err)
+		}
+		if projectid.Canonical(resolved.Revision.Project) != projectid.Canonical(project) {
+			return fmt.Errorf("resolved interpretation %q belongs to a different project", key)
+		}
+		candidate, err := structuralCandidate(entry.document, entry.column, snapshot)
+		if err != nil {
+			return fmt.Errorf("resolved interpretation %q structural candidate: %w", key, err)
+		}
+		if !resolved.Revision.Applicability.Matches(candidate) {
+			return fmt.Errorf("resolved interpretation %q is not applicable to the exact capability snapshot", key)
+		}
+		rule, err := resolved.Revision.SelectRule(candidate)
+		if err != nil {
+			return fmt.Errorf("resolved interpretation %q rule selection: %w", key, err)
+		}
+		if rule.ID != resolved.SelectedRuleID || !definitionEqual(rule.Definition, resolved.Definition) {
+			return fmt.Errorf("resolved interpretation %q does not contain the exact selected rule", key)
+		}
+	}
+	for key := range expected {
+		if _, resolved := seen[key]; !resolved {
+			return fmt.Errorf("pinned column %q has no resolved interpretation", key)
+		}
+	}
+	return nil
+}
+
+func validateResolvedInterpretation(resolved ResolvedInterpretation, column authoringv2.Column) error {
+	if resolved.Revision.ID == "" || resolved.SelectedRuleID == "" {
+		return fmt.Errorf("revision and selectedRuleId are required")
+	}
+	if resolved.Revision.Project == "" {
+		return fmt.Errorf("revision project is required")
+	}
+	if err := resolved.Revision.Validate(); err != nil {
+		return fmt.Errorf("revision is invalid: %w", err)
+	}
+	if column.Interpretation == nil || column.Interpretation.Pinned == nil || string(resolved.Revision.ID) != strings.TrimSpace(column.Interpretation.Pinned.RevisionID) {
+		return fmt.Errorf("revision does not match pinned authoring reference")
+	}
+	for _, rule := range resolved.Revision.Rules {
+		if rule.ID == resolved.SelectedRuleID {
+			if !definitionEqual(rule.Definition, resolved.Definition) {
+				return fmt.Errorf("selected definition does not match selected rule")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("selected rule %q is not present in revision", resolved.SelectedRuleID)
+}
+
+func interpretationKey(outputID, column, occurrenceID string) string {
+	return outputID + "\x00" + column + "\x00" + occurrenceID
+}
+
+func cloneResolvedInterpretation(input ResolvedInterpretation) ResolvedInterpretation {
+	out := input
+	out.Revision.Applicability.ResourceTypes = append([]string(nil), input.Revision.Applicability.ResourceTypes...)
+	out.Revision.Applicability.SourceProfiles = append([]string(nil), input.Revision.Applicability.SourceProfiles...)
+	out.Revision.Applicability.SourceCanonical = append([]string(nil), input.Revision.Applicability.SourceCanonical...)
+	out.Revision.Applicability.LogicalTypes = append([]string(nil), input.Revision.Applicability.LogicalTypes...)
+	out.Revision.Applicability.Cardinalities = append([]string(nil), input.Revision.Applicability.Cardinalities...)
+	out.Revision.Applicability.SchemaDigests = append([]string(nil), input.Revision.Applicability.SchemaDigests...)
+	out.Revision.Rules = append([]explorer.InterpretationRule(nil), input.Revision.Rules...)
+	for index := range out.Revision.Rules {
+		out.Revision.Rules[index].Match.ExtensionURLPath = append([]string(nil), input.Revision.Rules[index].Match.ExtensionURLPath...)
+		if input.Revision.Rules[index].Priority != nil {
+			priority := *input.Revision.Rules[index].Priority
+			out.Revision.Rules[index].Priority = &priority
+		}
+		out.Revision.Rules[index].Definition = cloneInterpretationDefinition(input.Revision.Rules[index].Definition)
+	}
+	out.Definition = cloneInterpretationDefinition(input.Definition)
+	if input.Revision.ParentRevisionID != nil {
+		value := *input.Revision.ParentRevisionID
+		out.Revision.ParentRevisionID = &value
+	}
+	if input.Revision.ParentDigest != nil {
+		value := *input.Revision.ParentDigest
+		out.Revision.ParentDigest = &value
+	}
+	return out
+}
+
+func cloneInterpretationDefinition(input explorer.InterpretationFeatureDefinition) explorer.InterpretationFeatureDefinition {
+	out := input
+	out.Source = input.Source.Normalized()
+	if input.Contributor != nil {
+		value := input.Contributor.Normalized()
+		out.Contributor = &value
+	}
+	return out
+}
+
+func definitionEqual(left, right explorer.InterpretationFeatureDefinition) bool {
+	leftRaw, leftErr := json.Marshal(cloneInterpretationDefinition(left))
+	rightRaw, rightErr := json.Marshal(cloneInterpretationDefinition(right))
+	return leftErr == nil && rightErr == nil && string(leftRaw) == string(rightRaw)
+}
+
+func applyResolvedInterpretations(workspace authoringv2.Workspace, inputs ResolvedInputs) authoringv2.Workspace {
+	effective := workspace.NormalizePresentationOrders()
+	byKey := make(map[string]ResolvedInterpretation, len(inputs.Interpretations))
+	for _, input := range inputs.Interpretations {
+		byKey[interpretationKey(input.OutputID, input.Column, input.OccurrenceID)] = input
+	}
+	for documentIndex := range effective.Documents {
+		document := &effective.Documents[documentIndex]
+		for columnIndex := range document.Columns {
+			column := &document.Columns[columnIndex]
+			input, ok := byKey[interpretationKey(document.Output.ID, column.Column, column.OccurrenceID)]
+			if !ok {
+				continue
+			}
+			column.Source = input.Definition.Source.Normalized()
+			if input.Definition.Contributor == nil {
+				column.Contributor = nil
+			} else {
+				value := input.Definition.Contributor.Normalized()
+				column.Contributor = &value
+			}
+			// The effective clone is inline by construction. The authored result
+			// retains the PINNED reference; keeping it here would make validation
+			// mistake the resolved human definition for an inline override.
+			column.Interpretation = nil
+		}
+	}
+	return effective
+}
+
 // ResolvedInputs is the explicit compile-only seam for resolved external
 // values. B01 has no external values, so callers pass the zero value. The
 // normalized workspace meaning is supplied separately to the digest function;
 // it is not duplicated inside this seam.
 type ResolvedInputs struct {
-	Populations []ResolvedPopulation `json:"populations,omitempty"`
+	Populations     []ResolvedPopulation     `json:"populations,omitempty"`
+	Interpretations []ResolvedInterpretation `json:"interpretations,omitempty"`
 }
 
 func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool) {
@@ -292,7 +470,7 @@ func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.S
 }
 
 func (r ResolvedInputs) Canonical() ResolvedInputs {
-	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...)}
+	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]ResolvedInterpretation(nil), r.Interpretations...)}
 	for index := range copy.Populations {
 		copy.Populations[index].Route = append([]authoringv2.PopulationRouteStep(nil), copy.Populations[index].Route...)
 	}
@@ -301,6 +479,19 @@ func (r ResolvedInputs) Canonical() ResolvedInputs {
 			return copy.Populations[i].OutputID < copy.Populations[j].OutputID
 		}
 		return copy.Populations[i].SelectionRevisionID < copy.Populations[j].SelectionRevisionID
+	})
+	for index := range copy.Interpretations {
+		copy.Interpretations[index] = cloneResolvedInterpretation(copy.Interpretations[index])
+	}
+	sort.SliceStable(copy.Interpretations, func(i, j int) bool {
+		left, right := copy.Interpretations[i], copy.Interpretations[j]
+		if left.OutputID != right.OutputID {
+			return left.OutputID < right.OutputID
+		}
+		if left.Column != right.Column {
+			return left.Column < right.Column
+		}
+		return left.OccurrenceID < right.OccurrenceID
 	})
 	return copy
 }

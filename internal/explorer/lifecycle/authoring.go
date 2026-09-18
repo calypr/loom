@@ -28,7 +28,10 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, func(workspace authoringv2.Workspace) error {
-		_, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
+		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
+			return validationErr
+		}
+		_, validationErr := s.resolveWorkspaceInterpretations(ctx, project, workspace, snapshot)
 		return validationErr
 	})
 	switch {
@@ -64,6 +67,11 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	if err != nil {
 		return nil, unprocessable("population", "INVALID_POPULATION", err.Error(), err)
 	}
+	resolvedInterpretations, err := s.resolveWorkspaceInterpretations(ctx, request.Project, workspace, snapshot)
+	if err != nil {
+		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
+	}
+	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
 	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection})
 	if err != nil {
 		var compileErr *explorercompilation.Error

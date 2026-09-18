@@ -28,6 +28,14 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 				contributor := n.Documents[i].Columns[j].Contributor.Normalized()
 				n.Documents[i].Columns[j].Contributor = &contributor
 			}
+			if n.Documents[i].Columns[j].Interpretation != nil {
+				interpretation := *n.Documents[i].Columns[j].Interpretation
+				if interpretation.Pinned != nil {
+					pinned := *interpretation.Pinned
+					interpretation.Pinned = &pinned
+				}
+				n.Documents[i].Columns[j].Interpretation = &interpretation
+			}
 		}
 	}
 	n.Tabs = append([]Tab(nil), w.Tabs...)
@@ -311,15 +319,16 @@ type persistedDocumentWire struct {
 }
 
 type persistedColumnWire struct {
-	Column       string                `json:"column"`
-	Label        string                `json:"label"`
-	LogicalType  string                `json:"logicalType,omitempty"`
-	OccurrenceID string                `json:"occurrenceId"`
-	Source       json.RawMessage       `json:"source"`
-	Contributor  *ContributorPredicate `json:"contributor,omitempty"`
-	Table        *TablePresentation    `json:"table,omitempty"`
-	Filter       *FilterPresentation   `json:"filter,omitempty"`
-	Chart        *ChartPresentation    `json:"chart,omitempty"`
+	Column         string                 `json:"column"`
+	Label          string                 `json:"label"`
+	LogicalType    string                 `json:"logicalType,omitempty"`
+	OccurrenceID   string                 `json:"occurrenceId"`
+	Source         json.RawMessage        `json:"source"`
+	Contributor    *ContributorPredicate  `json:"contributor,omitempty"`
+	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
+	Table          *TablePresentation     `json:"table,omitempty"`
+	Filter         *FilterPresentation    `json:"filter,omitempty"`
+	Chart          *ChartPresentation     `json:"chart,omitempty"`
 }
 
 type legacyColumnSource struct {
@@ -351,7 +360,7 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 			if err != nil {
 				return Workspace{}, fmt.Errorf("documents[%d].columns[%d].source: %w", documentIndex, columnIndex, err)
 			}
-			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Contributor: column.Contributor, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
+			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Contributor: column.Contributor, Interpretation: column.Interpretation, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
 		}
 		out.Documents = append(out.Documents, converted)
 	}

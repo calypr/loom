@@ -113,6 +113,19 @@ type InterpretationFeatureDefinition struct {
 	Contributor *authoringv2.ContributorPredicate `json:"contributor,omitempty"`
 }
 
+// ResolvedInterpretation is the immutable, occurrence-scoped result of
+// resolving one pinned feature against one exact capability snapshot. It is
+// kept in the explorer domain so receipts can freeze it without creating an
+// import cycle with the compilation package.
+type ResolvedInterpretation struct {
+	OutputID       string                          `json:"outputId"`
+	Column         string                          `json:"column"`
+	OccurrenceID   string                          `json:"occurrenceId"`
+	Revision       InterpretationRevision          `json:"revision"`
+	SelectedRuleID InterpretationRuleID            `json:"selectedRuleId"`
+	Definition     InterpretationFeatureDefinition `json:"definition"`
+}
+
 func NewInterpretationLibraryID(raw string) (InterpretationLibraryID, error) {
 	if err := validateInterpretationID(raw, "library"); err != nil {
 		return "", err

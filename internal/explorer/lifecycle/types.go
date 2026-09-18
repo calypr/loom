@@ -98,6 +98,10 @@ type Config struct {
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection string
 	Capability                 CapabilityResolver
+	// InterpretationRepository resolves exact immutable revision IDs. It is
+	// intentionally narrow so lifecycle cannot accidentally depend on heads or
+	// unrelated Explorer persistence methods.
+	InterpretationRepository explorer.InterpretationRepository
 	// SelectionSourceResolver resolves an exact immutable published revision
 	// after Capability.ForExecution has established project and scope.
 	SelectionSourceResolver     SelectionSourceResolver
