@@ -123,6 +123,12 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render population mapping RETURN: %w", mappingErr)
 		}
 		lines = append(lines, mappingLines...)
+	} else if layout.traceReturn != nil {
+		traceLines, traceErr := renderer.renderCellTraceReturn(*layout.traceReturn)
+		if traceErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render cell trace RETURN: %w", traceErr)
+		}
+		lines = append(lines, traceLines...)
 	} else {
 		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
 		if returnErr != nil {
@@ -283,6 +289,7 @@ type physicalNavigationRenderLayout struct {
 	postWindow     []physicalNavigationRenderItem
 	returnOp       *ir.PhysicalReturn
 	mappingReturn  *ir.PhysicalPopulationMappingReturn
+	traceReturn    *ir.PhysicalCellTraceReturn
 }
 
 type physicalNavigationRenderItem struct {

@@ -146,7 +146,13 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 		}
 		next = encodeBoundCursor(fmt.Sprint(last["__loom_row_id"]), sortValue, binding)
 	}
+	rowIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
+		rowID := strings.TrimSpace(fmt.Sprint(row["__loom_row_id"]))
+		if rowID == "" {
+			return Page{}, fmt.Errorf("published row is missing its stable identity")
+		}
+		rowIDs = append(rowIDs, rowID)
 		delete(row, "__loom_total")
 		delete(row, "__loom_row_id")
 		for _, column := range queryColumns {
@@ -155,7 +161,7 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 			}
 		}
 	}
-	return Page{Materialization: materialization, Columns: columns, Rows: rows, TotalCount: total, HasNext: hasNext, NextCursor: next}, nil
+	return Page{Materialization: materialization, Columns: columns, Rows: rows, RowIDs: rowIDs, TotalCount: total, HasNext: hasNext, NextCursor: next}, nil
 }
 
 // Stream scans one published table without retaining all rows in memory.

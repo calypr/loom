@@ -282,6 +282,7 @@ export interface LoomFacetResult {
 export interface LoomOutputResult {
   readonly columns: ReadonlyArray<string>;
   readonly rows: ReadonlyArray<Record<string, unknown>>;
+  readonly rowIds: ReadonlyArray<string>;
   readonly totalCount: number | null;
   readonly pageInfo: {
     readonly hasNextPage: boolean;
@@ -500,6 +501,7 @@ const graphQLConnectionSchema = z.object({
   materialization: graphQLMaterializationSchema.optional(),
   columns: z.array(z.string()),
   rows: z.array(graphQLRowSchema),
+  rowIds: z.array(z.string()).optional().transform((value) => value ?? []),
   totalCount: z.number().int().nonnegative().nullable(),
   pageInfo: z.object({
     hasNextPage: z.boolean(),
@@ -933,6 +935,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     return {
       columns,
       rows: shapeRows(connection.rows, columns),
+      rowIds: connection.rowIds,
       totalCount: connection.totalCount,
       pageInfo: { hasNextPage: pageInfo.hasNextPage, ...(endCursor ? { endCursor } : {}) },
       ...(materialization ? { materialization } : {}),

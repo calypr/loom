@@ -21,8 +21,8 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires ROOT_SCAN as the first operation")
 	}
 	last := len(plan.Operations) - 1
-	if plan.Operations[last].Kind != ir.PhysicalReturnOp && plan.Operations[last].Kind != ir.PhysicalPopulationMappingReturnOp {
-		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires RETURN or POPULATION_MAPPING_RETURN as the final operation")
+	if plan.Operations[last].Kind != ir.PhysicalReturnOp && plan.Operations[last].Kind != ir.PhysicalPopulationMappingReturnOp && plan.Operations[last].Kind != ir.PhysicalCellTraceReturnOp {
+		return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer requires RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN as the final operation")
 	}
 
 	layout := physicalNavigationRenderLayout{
@@ -32,9 +32,12 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	if plan.Operations[last].Kind == ir.PhysicalReturnOp {
 		returnOp := *plan.Operations[last].Return
 		layout.returnOp = &returnOp
-	} else {
+	} else if plan.Operations[last].Kind == ir.PhysicalPopulationMappingReturnOp {
 		mappingReturn := *plan.Operations[last].PopulationMappingReturn
 		layout.mappingReturn = &mappingReturn
+	} else {
+		traceReturn := *plan.Operations[last].CellTraceReturn
+		layout.traceReturn = &traceReturn
 	}
 	rootScopeVariable, err := validateGenericNavigationScopeBlock(layout.rootScope, layout.root.Variable, "", layout.root.Variable)
 	if err != nil {

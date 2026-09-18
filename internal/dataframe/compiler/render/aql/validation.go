@@ -166,6 +166,16 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		return nil
 	case ir.PhysicalPopulationMappingReturnOp:
 		return nil
+	case ir.PhysicalCellTraceReturnOp:
+		if operation.CellTraceReturn == nil {
+			return fmt.Errorf("cell trace return requires a payload")
+		}
+		for _, key := range []string{operation.CellTraceReturn.OffsetBindKey, operation.CellTraceReturn.LimitBindKey} {
+			if _, isCollection := collectionKeys[key]; isCollection {
+				return fmt.Errorf("cell trace bind key %q cannot be a collection bind", key)
+			}
+		}
+		return nil
 	case ir.PhysicalUnnestOp:
 		if operation.Unnest == nil {
 			return fmt.Errorf("UNNEST requires a payload")

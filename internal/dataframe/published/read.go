@@ -45,6 +45,7 @@ type Page struct {
 	Materialization Materialization
 	Columns         []string
 	Rows            []map[string]any
+	RowIDs          []string
 	TotalCount      int64
 	HasNext         bool
 	NextCursor      string

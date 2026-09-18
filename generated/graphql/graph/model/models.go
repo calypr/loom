@@ -373,6 +373,7 @@ type DataframeRowConnection struct {
 	Materialization *DataframeMaterialization `json:"materialization"`
 	Columns         []string                  `json:"columns"`
 	Rows            json.RawMessage           `json:"rows"`
+	RowIds          []string                  `json:"rowIds"`
 	TotalCount      *int                      `json:"totalCount,omitempty"`
 	PageInfo        *DataframePageInfo        `json:"pageInfo"`
 }

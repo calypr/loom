@@ -68,6 +68,11 @@ const (
 	// PhysicalPopulationMappingReturnOp expands matched members only after the
 	// canonical final-row plan has completed. Its witness rows are internal.
 	PhysicalPopulationMappingReturnOp PhysicalOperationKind = "POPULATION_MAPPING_RETURN"
+	// PhysicalCellTraceReturnOp replaces the public projection terminal for one
+	// bounded, receipt-backed explanation request. It evaluates the exact
+	// compiled value expression and exposes pre-reduction contributors without
+	// changing ordinary dataframe execution.
+	PhysicalCellTraceReturnOp PhysicalOperationKind = "CELL_TRACE_RETURN"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
@@ -90,6 +95,7 @@ type PhysicalOperation struct {
 	GraphReturn             *PhysicalGraphReturn
 	CollectionScan          *PhysicalCollectionScan
 	PopulationMappingReturn *PhysicalPopulationMappingReturn
+	CellTraceReturn         *PhysicalCellTraceReturn
 }
 
 type PhysicalRootScan struct {

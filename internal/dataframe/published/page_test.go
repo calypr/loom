@@ -160,7 +160,7 @@ func TestPageReusesCursorWithFreshNarrowedAuthorizationScope(t *testing.T) {
 	if len(queryer.args[0]) != 2 || !reflect.DeepEqual(queryer.args[0][0], []string{"path-a"}) || queryer.args[0][1] != "1" {
 		t.Fatalf("query args = %#v, want narrowed paths then cursor row id", queryer.args[0])
 	}
-	if len(page.Rows) != 1 || page.Rows[0]["__loom_row_id"] != nil {
-		t.Fatalf("page rows = %#v, want one sanitized row", page.Rows)
+	if len(page.Rows) != 1 || page.Rows[0]["__loom_row_id"] != nil || !reflect.DeepEqual(page.RowIDs, []string{"2"}) {
+		t.Fatalf("page rows/IDs = %#v/%#v, want one sanitized row with opaque sidecar identity", page.Rows, page.RowIDs)
 	}
 }

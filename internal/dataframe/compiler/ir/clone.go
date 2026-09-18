@@ -112,6 +112,13 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 				canonicalizePhysicalExpression(operation.PopulationMappingReturn.ExplicitIdentity)
 			}
 		}
+		if operation.CellTraceReturn != nil {
+			canonicalizePhysicalExpression(&operation.CellTraceReturn.Value)
+			for part := range operation.CellTraceReturn.IdentityParts {
+				canonicalizePhysicalExpression(&operation.CellTraceReturn.IdentityParts[part].Expression)
+			}
+			canonicalizePhysicalExpression(operation.CellTraceReturn.ExplicitIdentity)
+		}
 		if operation.PathExtend != nil {
 			canonicalizePhysicalOperations(operation.PathExtend.Scope)
 		}
@@ -333,6 +340,24 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			mappingCopy.ExplicitIdentity = &explicit
 		}
 		copy.PopulationMappingReturn = &mappingCopy
+	}
+	if operation.CellTraceReturn != nil {
+		traceCopy := *operation.CellTraceReturn
+		if operation.CellTraceReturn.Contribution != nil {
+			contribution := *operation.CellTraceReturn.Contribution
+			traceCopy.Contribution = &contribution
+		}
+		traceCopy.Value = clonePhysicalExpression(operation.CellTraceReturn.Value)
+		traceCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.CellTraceReturn.IdentityParts))
+		for index, part := range operation.CellTraceReturn.IdentityParts {
+			traceCopy.IdentityParts[index] = part
+			traceCopy.IdentityParts[index].Expression = clonePhysicalExpression(part.Expression)
+		}
+		if operation.CellTraceReturn.ExplicitIdentity != nil {
+			explicit := clonePhysicalExpression(*operation.CellTraceReturn.ExplicitIdentity)
+			traceCopy.ExplicitIdentity = &explicit
+		}
+		copy.CellTraceReturn = &traceCopy
 	}
 	return copy
 }

@@ -408,6 +408,17 @@ func run(ctx context.Context, serverConfig Config) error {
 			})
 			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
 		},
+		CellTrace: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+			if receipt == nil {
+				return dataframeexecution.CellTraceResult{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer receipt cell trace resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.CellTraceResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
+			}
+			return recipeEngine.CellTrace(ctx, resolved, request)
+		},
 		MaterializeReceipt: explorerReceiptMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
 			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,

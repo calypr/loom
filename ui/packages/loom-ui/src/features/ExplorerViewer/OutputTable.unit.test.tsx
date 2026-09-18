@@ -42,6 +42,7 @@ const runtime: ExplorerRuntimeV1 = {
 const result: LoomOutputResult = {
   columns: ['id'],
   rows: [{ id: 'patient-1' }],
+  rowIds: ['row-1'],
   totalCount: 1,
   pageInfo: { hasNextPage: false },
   facets: [],

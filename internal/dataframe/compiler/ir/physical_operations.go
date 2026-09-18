@@ -106,6 +106,39 @@ type PhysicalPopulationMappingIdentityPart struct {
 	Expression PhysicalExpression
 }
 
+// PhysicalCellTraceReturn is an internal evidence terminal. Value is the
+// exact final projection expression. The renderer derives bounded source
+// contributors only from this closed expression tree; it never evaluates the
+// FHIR document independently of the compiled plan.
+type PhysicalCellTraceReturn struct {
+	Value            PhysicalExpression
+	Contribution     *PhysicalCellTraceContribution
+	IdentityParts    []PhysicalPopulationMappingIdentityPart
+	ExplicitIdentity *PhysicalExpression
+	OffsetBindKey    string
+	LimitBindKey     string
+	OmissionCode     string
+}
+
+// PhysicalCellTraceContribution points at the pre-reduction projected set
+// already produced by canonical lowering. ValueField is compiler-generated,
+// never supplied by a request.
+type PhysicalCellTraceContribution struct {
+	SetVariable string
+	ValueField  string
+	Lossy       bool
+}
+
+const (
+	PhysicalCellTraceValueField            = "__loom_trace_value"
+	PhysicalCellTraceContributionsField    = "__loom_trace_contributions"
+	PhysicalCellTraceIdentityPartsField    = "__loom_trace_identity_parts"
+	PhysicalCellTraceExplicitIdentityField = "__loom_trace_explicit_identity"
+	PhysicalCellTraceStatusField           = "__loom_trace_status"
+	PhysicalCellTraceHasMoreField          = "__loom_trace_has_more"
+	PhysicalCellTraceOmissionField         = "__loom_trace_omission"
+)
+
 const (
 	PhysicalPopulationMappingMemberField           = "__loom_population_member"
 	PhysicalPopulationMappingIdentityPartsField    = "__loom_population_identity_parts"

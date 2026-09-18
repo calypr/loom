@@ -233,7 +233,7 @@ export const useLoomOutput = (
   const query = useQuery(
     (signal) => enabled
       ? client.queryOutput(request, signal)
-      : Promise.resolve({ columns: [], rows: [], totalCount: 0, pageInfo: { hasNextPage: false }, facets: [] }),
+      : Promise.resolve({ columns: [], rows: [], rowIds: [], totalCount: 0, pageInfo: { hasNextPage: false }, facets: [] }),
     [client, enabled, identity],
   );
   return enabled ? query : { data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: async () => ({}) };

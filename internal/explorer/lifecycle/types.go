@@ -62,6 +62,10 @@ type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe
 // selected IDs; execution owns compiler witness interpretation.
 type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
 
+// CellTraceExecutor explains one published cell from the immutable receipt
+// and authorization bindings validated by lifecycle.
+type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
+
 // SelectionReferenceValidator resolves explicit references against the
 // authorized active generation. It must verify both resource existence and
 // auth_resource_path before lifecycle persists any member or exclusion.
@@ -114,6 +118,7 @@ type Config struct {
 	PreviewReceipt               ReceiptPreviewer
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
+	CellTrace                    CellTraceExecutor
 	MaterializeReceipt           ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
 
@@ -348,6 +353,31 @@ type PopulationMappingReport struct {
 
 type PopulationMappingResult struct {
 	Report PopulationMappingReport
+}
+
+type CellTraceRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	RowID      string
+	Column     string
+	Offset     int
+	Limit      int
+}
+
+type CellTraceBinding struct {
+	ReceiptID   string `json:"receiptId"`
+	OutputID    string `json:"outputId"`
+	Project     string `json:"project"`
+	ExplorerID  string `json:"explorerId"`
+	Generation  string `json:"generation"`
+	ScopeDigest string `json:"scopeDigest"`
+}
+
+type CellTraceResult struct {
+	Binding CellTraceBinding                   `json:"binding"`
+	Trace   dataframeexecution.CellTraceResult `json:"trace"`
 }
 
 type PublishRequest struct {

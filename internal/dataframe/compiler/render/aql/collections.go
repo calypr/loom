@@ -396,42 +396,9 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	if aggregate == nil {
 		return "", fmt.Errorf("AGGREGATE expression is missing payload")
 	}
-	source, err := r.renderValue(aggregate.Source)
+	items, perItem, err := r.renderAggregateItems(aggregate)
 	if err != nil {
 		return "", err
-	}
-	items := source
-	if preparedVariable := aggregatePreparedVariable(aggregate); preparedVariable != "" {
-		items = preparedVariable
-	}
-	if aggregate.Source.Variable == "" || r.setVariables[aggregate.Source.Variable] == "" {
-		items = "[" + source + "]"
-	}
-	perItem := aggregate.Predicate != nil
-	if perItem {
-		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
-			return "", fmt.Errorf("aggregate predicate must be a comparison")
-		}
-		item := r.newInternalVariable("aggregate_item")
-		comparison := *aggregate.Predicate.Comparison
-		if comparison.LeftExpression == nil || comparison.LeftExpression.Extract == nil {
-			return "", fmt.Errorf("aggregate predicate must extract a selector")
-		}
-		left := *comparison.LeftExpression
-		extract := *left.Extract
-		if extract.Prepared == nil {
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
-		}
-		left.Extract = &extract
-		comparison.LeftExpression = &left
-		previousPreparedItem := r.preparedItem
-		r.preparedItem = item
-		predicate, err := r.renderPredicate(comparison)
-		r.preparedItem = previousPreparedItem
-		if err != nil {
-			return "", err
-		}
-		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
 	}
 	switch aggregate.Operation {
 	case ir.PhysicalCountAggregate:
@@ -498,6 +465,49 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 		return "LENGTH(" + required + ") == LENGTH(FOR " + item + " IN " + required + " FILTER POSITION(FLATTEN(" + values + "), " + item + ") RETURN 1)", nil
 	}
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
+}
+
+// renderAggregateItems is the single predicate/source lowering used by both
+// normal aggregate values and targeted cell traces.
+func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggregate) (string, bool, error) {
+	source, err := r.renderValue(aggregate.Source)
+	if err != nil {
+		return "", false, err
+	}
+	items := source
+	if preparedVariable := aggregatePreparedVariable(aggregate); preparedVariable != "" {
+		items = preparedVariable
+	}
+	if aggregate.Source.Variable == "" || r.setVariables[aggregate.Source.Variable] == "" {
+		items = "[" + source + "]"
+	}
+	perItem := aggregate.Predicate != nil
+	if perItem {
+		if aggregate.Predicate.Kind != ir.PhysicalComparisonPredicate || aggregate.Predicate.Comparison == nil {
+			return "", false, fmt.Errorf("aggregate predicate must be a comparison")
+		}
+		item := r.newInternalVariable("aggregate_item")
+		comparison := *aggregate.Predicate.Comparison
+		if comparison.LeftExpression == nil || comparison.LeftExpression.Extract == nil {
+			return "", false, fmt.Errorf("aggregate predicate must extract a selector")
+		}
+		left := *comparison.LeftExpression
+		extract := *left.Extract
+		if extract.Prepared == nil {
+			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+		}
+		left.Extract = &extract
+		comparison.LeftExpression = &left
+		previousPreparedItem := r.preparedItem
+		r.preparedItem = item
+		predicate, err := r.renderPredicate(comparison)
+		r.preparedItem = previousPreparedItem
+		if err != nil {
+			return "", false, err
+		}
+		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
+	}
+	return items, perItem, nil
 }
 
 func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.PhysicalAggregate, items string) (string, error) {

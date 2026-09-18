@@ -175,6 +175,11 @@ func (p PhysicalPlan) Validate() error {
 				return fmt.Errorf("operation %d population mapping return: %w", i, err)
 			}
 			returns++
+		case PhysicalCellTraceReturnOp:
+			if err := validatePhysicalCellTraceReturn(*operation.CellTraceReturn, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d cell trace return: %w", i, err)
+			}
+			returns++
 		case PhysicalReturnOp:
 			returns++
 			seenNames := map[string]bool{}
@@ -193,7 +198,7 @@ func (p PhysicalPlan) Validate() error {
 		return fmt.Errorf("physical plan requires exactly one root scan")
 	}
 	if returns+graphReturns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, or POPULATION_MAPPING_RETURN")
+		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN")
 	}
 	return nil
 }
@@ -622,6 +627,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.PopulationMappingReturn != nil {
 		payloads++
 	}
+	if operation.CellTraceReturn != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -639,7 +647,8 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalPathExtendOp && operation.PathExtend != nil) ||
 		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil) ||
 		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
-		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil)
+		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
+		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}
@@ -803,6 +812,51 @@ func validatePhysicalPopulationMappingReturn(terminal PhysicalPopulationMappingR
 		}
 		if err := validatePhysicalExpression(*terminal.ExplicitIdentity, defined, bindVars); err != nil {
 			return fmt.Errorf("mapping explicit identity: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined map[string]bool, bindVars map[string]any) error {
+	if err := validatePhysicalExpression(terminal.Value, defined, bindVars); err != nil {
+		return fmt.Errorf("trace value: %w", err)
+	}
+	if terminal.Contribution != nil {
+		if !defined[terminal.Contribution.SetVariable] {
+			return fmt.Errorf("trace contribution set %q is not defined", terminal.Contribution.SetVariable)
+		}
+		if !physicalPathPartPattern.MatchString(terminal.Contribution.ValueField) {
+			return fmt.Errorf("trace contribution field %q is invalid", terminal.Contribution.ValueField)
+		}
+	}
+	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" {
+		return fmt.Errorf("trace offset and limit binds are required")
+	}
+	offset, ok := bindVars[terminal.OffsetBindKey].(int)
+	if !ok || offset < 0 {
+		return fmt.Errorf("trace offset bind %q must be a non-negative int", terminal.OffsetBindKey)
+	}
+	limit, ok := bindVars[terminal.LimitBindKey].(int)
+	if !ok || limit <= 0 {
+		return fmt.Errorf("trace limit bind %q must be a positive int", terminal.LimitBindKey)
+	}
+	if len(terminal.IdentityParts) == 0 {
+		return fmt.Errorf("trace identity requires at least one ordered identity part")
+	}
+	for index, part := range terminal.IdentityParts {
+		if strings.TrimSpace(part.Name) == "" || part.Expression.Cardinality != PhysicalScalarCardinality {
+			return fmt.Errorf("trace identity part %d must have a name and scalar expression", index)
+		}
+		if err := validatePhysicalExpression(part.Expression, defined, bindVars); err != nil {
+			return fmt.Errorf("trace identity part %q: %w", part.Name, err)
+		}
+	}
+	if terminal.ExplicitIdentity != nil {
+		if terminal.ExplicitIdentity.Cardinality != PhysicalScalarCardinality {
+			return fmt.Errorf("trace explicit identity must be scalar")
+		}
+		if err := validatePhysicalExpression(*terminal.ExplicitIdentity, defined, bindVars); err != nil {
+			return fmt.Errorf("trace explicit identity: %w", err)
 		}
 	}
 	return nil
