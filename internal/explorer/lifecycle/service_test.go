@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -270,6 +271,25 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 	receipt.CompilationKey, _ = explorer.CompilationKey(*receipt)
 	receipt.ID, _ = explorer.ReceiptID(*receipt)
 	return receipt
+}
+
+func successfulTestExecution(receipt *explorer.CompilationReceipt, state string) Execution {
+	scopeDigest := "execution-scope"
+	outputs := make([]ExecutionOutput, 0, len(receipt.Bundle.Outputs))
+	reports := make([]publication.QualityReport, 0, len(receipt.Bundle.Outputs))
+	for _, output := range receipt.Bundle.Outputs {
+		outputs = append(outputs, ExecutionOutput{Name: output.Name, State: state})
+		reports = append(reports, publication.QualityReport{
+			ID: "quality-" + output.Name, ReceiptID: receipt.ID, Project: receipt.Project,
+			DatasetGeneration: receipt.SourceGeneration, ScopeDigest: scopeDigest,
+			Output: output.Name, PolicyVersion: publication.DefaultQualityPolicyVersion,
+			Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
+		})
+	}
+	return Execution{
+		ID: "execution-a", Project: receipt.Project, SourceGeneration: receipt.SourceGeneration,
+		ScopeDigest: scopeDigest, Outputs: outputs, QualityReports: reports,
+	}
 }
 
 func TestListGetCreateUseApplicationStore(t *testing.T) {
@@ -628,7 +648,7 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			}
 			config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
 			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
-				return Execution{ID: "execution-a", Outputs: []ExecutionOutput{{Name: "patients", State: "PUBLISHED"}}}, nil
+				return successfulTestExecution(base, "PUBLISHED"), nil
 			}
 			releaseErrors := append([]error(nil), test.releaseErrors...)
 			config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error {
@@ -729,7 +749,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	}
 	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
 		order = append(order, "materialize")
-		return Execution{ID: "execution-a", Outputs: []ExecutionOutput{{Name: "patients", State: "READY"}}}, nil
+		return successfulTestExecution(receipt, "READY"), nil
 	}
 	config.PersistPublishedWorkspace = func(_ context.Context, project, explorerID string, workspace []byte) error {
 		order = append(order, "writeback")
@@ -777,6 +797,44 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
 	if err == nil || store.published {
 		t.Fatalf("preparation failure published=%v, err=%v", store.published, err)
+	}
+}
+
+func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	for _, test := range []struct {
+		name   string
+		mutate func(*Execution)
+	}{
+		{name: "missing", mutate: func(execution *Execution) { execution.QualityReports = nil }},
+		{name: "incomplete", mutate: func(execution *Execution) { execution.QualityReports[0].Completeness = publication.QualityIncomplete }},
+		{name: "wrong receipt", mutate: func(execution *Execution) { execution.QualityReports[0].ReceiptID = "receipt-other" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeStore{receipt: receipt}
+			prepared := false
+			config := testConfig(snapshot)
+			config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+			config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+				prepared = true
+				return dataset.ProjectRelease{}, 0, nil
+			}
+			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+				execution := successfulTestExecution(receipt, "PUBLISHED")
+				test.mutate(&execution)
+				return execution, nil
+			}
+			service := newTestService(t, store, config)
+			_, err := service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
+			var lifecycleErr *Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUALITY_EVIDENCE_INVALID" {
+				t.Fatalf("quality gate error = %v", err)
+			}
+			if prepared || store.published {
+				t.Fatalf("invalid quality crossed activation boundary: prepared=%v published=%v", prepared, store.published)
+			}
+		})
 	}
 }
 

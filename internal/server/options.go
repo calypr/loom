@@ -29,6 +29,8 @@ type ServerConfig struct {
 	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
 	RecipeBatchBytes              int                         `yaml:"recipe_batch_bytes"`
 	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
+	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
+	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
 	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
 	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
 	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
@@ -71,6 +73,7 @@ func DefaultConfig() Config {
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: 25,
+			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -92,6 +95,8 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		recipeBatchRows         int
 		recipeBatchBytes        int
 		recipeQueryPageRows     int
+		recipeQualityMaxRows    int64
+		recipeQualityMaxKeys    int64
 		localWorkspaceWriteback string
 		localWorkspaceProject   string
 	)
@@ -110,6 +115,8 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.IntVar(&recipeBatchRows, "recipe-batch-rows", 1000, "maximum recipe materialization rows per ClickHouse batch")
 	fs.IntVar(&recipeBatchBytes, "recipe-batch-bytes", 4<<20, "maximum recipe materialization bytes per ClickHouse batch")
 	fs.IntVar(&recipeQueryPageRows, "recipe-query-page-rows", 25, "root documents per bounded dataframe query page; zero disables paging")
+	fs.Int64Var(&recipeQualityMaxRows, "recipe-quality-max-rows", 1_000_000, "maximum rows accepted by the full-population publication quality scan")
+	fs.Int64Var(&recipeQualityMaxKeys, "recipe-quality-max-distinct-keys", 1_000_000, "maximum distinct row identities retained by publication quality checks")
 	fs.StringVar(&localWorkspaceWriteback, "local-workspace-writeback", "", "exact local CONFIG workspace file updated after successful publication (no-auth development only)")
 	fs.StringVar(&localWorkspaceProject, "local-workspace-project", "", "only this project may update the local CONFIG workspace")
 	if err := fs.Parse(args); err != nil {
@@ -155,6 +162,8 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	cfg.Server.RecipeBatchRows = recipeBatchRows
 	cfg.Server.RecipeBatchBytes = recipeBatchBytes
 	cfg.Server.RecipeQueryPageRows = recipeQueryPageRows
+	cfg.Server.RecipeQualityMaxRows = recipeQualityMaxRows
+	cfg.Server.RecipeQualityMaxDistinctKeys = recipeQualityMaxKeys
 	cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
 	cfg.Server.LocalWorkspaceProject = localWorkspaceProject
 	if noAuth {
@@ -206,6 +215,9 @@ func (c Config) Validate() error {
 	cfg := c
 	if cfg.Server.RecipeQueryPageRows < 0 {
 		return errors.New("server.recipe_query_page_rows cannot be negative")
+	}
+	if cfg.Server.RecipeQualityMaxRows <= 0 || cfg.Server.RecipeQualityMaxDistinctKeys <= 0 {
+		return errors.New("server recipe quality limits must be positive")
 	}
 	if strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) != "" && !(cfg.Server.AllowUnauthenticated || cfg.Auth.AllowUnauthenticated) {
 		return errors.New("server.local_workspace_writeback requires unauthenticated local-development mode")

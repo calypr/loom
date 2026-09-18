@@ -165,6 +165,7 @@ type BundleExecution struct {
 	BundleIdentity
 	State            BundleState          `json:"state"`
 	Outputs          []BundleOutputRecord `json:"outputs,omitempty"`
+	QualityReports   []QualityReport      `json:"qualityReports,omitempty"`
 	CreatedAt        time.Time            `json:"createdAt"`
 	UpdatedAt        time.Time            `json:"updatedAt"`
 	ReadyAt          *time.Time           `json:"readyAt,omitempty"`

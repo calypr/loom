@@ -88,7 +88,7 @@ func recipeOutputUsesExactRootColumns(plan dataframeexecution.Resolved, outputNa
 	return false
 }
 
-func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int) (publication.BundleIdentity, error) {
+func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) (publication.BundleIdentity, error) {
 	streams, err := recipeEngine.Streams(ctx, full)
 	if err != nil {
 		return publication.BundleIdentity{}, err
@@ -137,7 +137,13 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		AuthScopeMode:     identity.AuthScopeMode,
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 	}
-	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{BatchRows: batchRows, BatchBytes: batchBytes})
+	_, err = publication.Publish(ctx, target, publicationIdentity, streamInputs, publication.Limits{
+		BatchRows: batchRows, BatchBytes: batchBytes,
+		Quality: publication.QualityPolicy{
+			Version: publication.DefaultQualityPolicyVersion, MaxRows: qualityMaxRows,
+			MaxDistinctKeys: qualityMaxDistinctKeys, RequireUniqueIdentity: true,
+		},
+	})
 	return identity, err
 }
 

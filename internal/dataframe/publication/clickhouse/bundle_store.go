@@ -343,6 +343,24 @@ func (t *clickHouseBundleTx) ExistingPublishedOutputs() []publication.PublishedO
 	return result
 }
 
+func (t *clickHouseBundleTx) ExistingQualityReports() []publication.QualityReport {
+	return publication.CloneQualityReports(t.execution.QualityReports)
+}
+
+func (t *clickHouseBundleTx) SetQualityReports(ctx context.Context, reports []publication.QualityReport) error {
+	if t.idempotent {
+		return nil
+	}
+	if t.closed {
+		return fmt.Errorf("ClickHouse publication transaction is closed")
+	}
+	if err := publication.ValidateQualityReports(t.execution.BundleIdentity, t.execution.Outputs, reports); err != nil {
+		return err
+	}
+	t.execution.QualityReports = publication.CloneQualityReports(reports)
+	return t.save(ctx)
+}
+
 func (t *clickHouseBundleTx) WriteBatch(ctx context.Context, output string, rows []map[string]any) error {
 	if t.checkpointUncertain {
 		return ErrBundleCheckpointUncertain

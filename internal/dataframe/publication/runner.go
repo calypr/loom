@@ -43,7 +43,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, errors.Join(cause, abortErr)
 	}
 	if tx.Idempotent() {
-		return Result{Outputs: tx.ExistingPublishedOutputs()}, nil
+		return Result{Outputs: tx.ExistingPublishedOutputs(), QualityReports: tx.ExistingQualityReports()}, nil
 	}
 	if metadataWriter, ok := tx.(SourceRowMetadataWriter); ok {
 		for _, output := range normalizedOutputs {
@@ -63,8 +63,10 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	}
 	stats := make(map[string]PublishedOutput, len(normalizedOutputs))
 	populated := make(map[string]map[string]bool, len(normalizedOutputs))
+	qualityReports := make([]QualityReport, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
 		stat := PublishedOutput{Name: output.Name}
+		quality := newQualityAccumulator(identity, output, limits.Quality)
 		batch := make([]map[string]any, 0, limits.BatchRows)
 		batchBytes := 0
 		populated[output.Name] = make(map[string]bool)
@@ -85,6 +87,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 			if err := validateRow(output.Columns, row, supportsObjects); err != nil {
 				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
+			}
+			if err := quality.observe(row); err != nil {
+				return err
 			}
 			for _, column := range output.Columns {
 				if column.Provenance != ColumnDiscovered || column.LoomOwned || column.IsIdentity {
@@ -117,6 +122,13 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		if err := flush(); err != nil {
 			return fail(fmt.Errorf("output %q final batch: %w", output.Name, err))
 		}
+		if quality != nil {
+			report, qualityErr := quality.complete()
+			if qualityErr != nil {
+				return fail(fmt.Errorf("output %q quality: %w", output.Name, qualityErr))
+			}
+			qualityReports = append(qualityReports, report)
+		}
 		stats[output.Name] = stat
 	}
 	retained := make([]OutputSchema, 0, len(normalizedOutputs))
@@ -137,6 +149,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err := tx.SetFinalSchemaDigest(finalDigest); err != nil {
 		return fail(fmt.Errorf("publication schema digest: %w", err))
 	}
+	if err := tx.SetQualityReports(ctx, qualityReports); err != nil {
+		return fail(fmt.Errorf("publication quality evidence: %w", err))
+	}
 	published, err := tx.Commit(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("publication commit: %w", err))
@@ -154,7 +169,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 		}
 	}
-	return Result{Outputs: published}, nil
+	return Result{Outputs: published, QualityReports: qualityReports}, nil
 }
 
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {

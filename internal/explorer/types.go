@@ -94,24 +94,25 @@ type Revision struct {
 	Project    string `json:"project"`
 	ExplorerID string `json:"explorerId"`
 	// Config is the exact immutable ExplorerConfigV2 packet for this revision.
-	Config               json.RawMessage     `json:"config,omitempty"`
-	AuthoringBundle      json.RawMessage     `json:"authoringBundle,omitempty"`
-	IntentDigest         string              `json:"intentDigest,omitempty"`
-	CompilationReceiptID string              `json:"compilationReceiptId,omitempty"`
-	PublicOutputContract json.RawMessage     `json:"publicOutputContract,omitempty"`
-	Recipe               recipe.Bundle       `json:"canonicalRecipe"`
-	RecipeDigest         string              `json:"recipeDigest"`
-	ResolvedSchemaDigest string              `json:"resolvedSchemaDigest"`
-	SourceGeneration     string              `json:"sourceGeneration"`
-	Materializations     []Materialization   `json:"materializations"`
-	EmittedColumns       []EmittedColumn     `json:"emittedColumns"`
-	Dataset              DatasetMetadata     `json:"dataset,omitempty"`
-	Publication          PublicationMetadata `json:"publication,omitempty"`
-	Diagnostics          []Diagnostic        `json:"diagnostics"`
-	Status               RevisionStatus      `json:"status"`
-	CreatedBy            string              `json:"createdBy,omitempty"`
-	CreatedAt            time.Time           `json:"createdAt"`
-	ReadyAt              *time.Time          `json:"readyAt,omitempty"`
-	ActivatedAt          *time.Time          `json:"activatedAt,omitempty"`
-	FailedAt             *time.Time          `json:"failedAt,omitempty"`
+	Config               json.RawMessage             `json:"config,omitempty"`
+	AuthoringBundle      json.RawMessage             `json:"authoringBundle,omitempty"`
+	IntentDigest         string                      `json:"intentDigest,omitempty"`
+	CompilationReceiptID string                      `json:"compilationReceiptId,omitempty"`
+	PublicOutputContract json.RawMessage             `json:"publicOutputContract,omitempty"`
+	Recipe               recipe.Bundle               `json:"canonicalRecipe"`
+	RecipeDigest         string                      `json:"recipeDigest"`
+	ResolvedSchemaDigest string                      `json:"resolvedSchemaDigest"`
+	SourceGeneration     string                      `json:"sourceGeneration"`
+	Materializations     []Materialization           `json:"materializations"`
+	EmittedColumns       []EmittedColumn             `json:"emittedColumns"`
+	Dataset              DatasetMetadata             `json:"dataset,omitempty"`
+	QualityReports       []publication.QualityReport `json:"qualityReports,omitempty"`
+	Publication          PublicationMetadata         `json:"publication,omitempty"`
+	Diagnostics          []Diagnostic                `json:"diagnostics"`
+	Status               RevisionStatus              `json:"status"`
+	CreatedBy            string                      `json:"createdBy,omitempty"`
+	CreatedAt            time.Time                   `json:"createdAt"`
+	ReadyAt              *time.Time                  `json:"readyAt,omitempty"`
+	ActivatedAt          *time.Time                  `json:"activatedAt,omitempty"`
+	FailedAt             *time.Time                  `json:"failedAt,omitempty"`
 }

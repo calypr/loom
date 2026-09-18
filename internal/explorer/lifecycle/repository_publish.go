@@ -59,10 +59,13 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", err.Error(), err)
 	}
+	if err := verifyActivationQuality(receipt, execution); err != nil {
+		return RepositoryPublishResult{}, unprocessable("repository_publish", "QUALITY_EVIDENCE_INVALID", err.Error(), err)
+	}
 	materialized := materializations(receipt.Bundle, execution)
 	datasetMetadata := datasetMetadataFromExecution(receipt.Bundle, request.Generation, receipt.ResolvedSchemaDigest, execution)
 	publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
-	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, publication)
+	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, execution.QualityReports, publication)
 	if err != nil {
 		return RepositoryPublishResult{}, internal("repository_publish", "PERSISTENCE_FAILED", fmt.Sprintf("persist Explorer lifecycle V2: %v", err), err)
 	}

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -75,6 +76,7 @@ type immutableRevision struct {
 	Materializations     []explorer.Materialization
 	EmittedColumns       []explorer.EmittedColumn
 	Dataset              explorer.DatasetMetadata
+	QualityReports       []publication.QualityReport
 }
 
 func revisionImmutableContent(value explorer.Revision) immutableRevision {
@@ -84,6 +86,7 @@ func revisionImmutableContent(value explorer.Revision) immutableRevision {
 		CompilationReceiptID: value.CompilationReceiptID, PublicOutputContract: append([]byte(nil), value.PublicOutputContract...), Recipe: value.Recipe,
 		RecipeDigest: value.RecipeDigest, ResolvedSchemaDigest: value.ResolvedSchemaDigest, SourceGeneration: value.SourceGeneration,
 		Materializations: append([]explorer.Materialization(nil), value.Materializations...), EmittedColumns: append([]explorer.EmittedColumn(nil), value.EmittedColumns...), Dataset: value.Dataset,
+		QualityReports: publication.CloneQualityReports(value.QualityReports),
 	}
 }
 

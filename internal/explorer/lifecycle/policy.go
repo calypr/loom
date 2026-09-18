@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -33,6 +34,32 @@ func verifyQueryableOutputs(bundle recipe.Bundle, execution Execution) error {
 		state := states[output.Name]
 		if state != "PUBLISHED" && state != "READY" && state != "ACTIVE" {
 			return fmt.Errorf("output %q is not queryable (state %q)", output.Name, state)
+		}
+	}
+	return nil
+}
+
+func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution Execution) error {
+	if receipt == nil {
+		return fmt.Errorf("compilation receipt is required")
+	}
+	if len(execution.QualityReports) == 0 {
+		return fmt.Errorf("publication produced no quality evidence")
+	}
+	outputs := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
+	for _, output := range execution.Outputs {
+		outputs = append(outputs, publication.BundleOutputRecord{Name: output.Name})
+	}
+	identity := publication.BundleIdentity{
+		ReceiptID: receipt.ID, Project: execution.Project,
+		DatasetGeneration: execution.SourceGeneration, ScopeDigest: execution.ScopeDigest,
+	}
+	if err := publication.ValidateQualityReports(identity, outputs, execution.QualityReports); err != nil {
+		return err
+	}
+	for _, report := range execution.QualityReports {
+		if report.PolicyVersion != publication.DefaultQualityPolicyVersion {
+			return fmt.Errorf("output %q uses unsupported quality policy %q", report.Output, report.PolicyVersion)
 		}
 	}
 	return nil

@@ -14,6 +14,8 @@ type fakeTx struct {
 	batches    [][]map[string]any
 	committed  bool
 	rolledBack bool
+	quality    []QualityReport
+	idempotent bool
 }
 
 func (t *fakeTx) WriteBatch(_ context.Context, _ string, rows []map[string]any) error {
@@ -27,8 +29,13 @@ func (t *fakeTx) Commit(context.Context) ([]PublishedOutput, error) {
 func (t *fakeTx) Abort(context.Context, error) error                   { t.rolledBack = true; return nil }
 func (t *fakeTx) FinalizeSchema(context.Context, []OutputSchema) error { return nil }
 func (t *fakeTx) SetFinalSchemaDigest(string) error                    { return nil }
-func (t *fakeTx) Idempotent() bool                                     { return false }
-func (t *fakeTx) ExistingPublishedOutputs() []PublishedOutput          { return nil }
+func (t *fakeTx) SetQualityReports(_ context.Context, reports []QualityReport) error {
+	t.quality = CloneQualityReports(reports)
+	return nil
+}
+func (t *fakeTx) Idempotent() bool                            { return t.idempotent }
+func (t *fakeTx) ExistingPublishedOutputs() []PublishedOutput { return nil }
+func (t *fakeTx) ExistingQualityReports() []QualityReport     { return CloneQualityReports(t.quality) }
 
 type fakeTarget struct {
 	tx      *fakeTx
@@ -291,5 +298,111 @@ func TestPublishHonorsCancellation(t *testing.T) {
 	}}, Limits{})
 	if !errors.Is(err, context.Canceled) || target.tx == nil || !target.tx.rolledBack {
 		t.Fatalf("expected cancellation rollback: err=%v tx=%#v", err, target.tx)
+	}
+}
+
+func TestPublishProducesReceiptBoundCompleteQualityReport(t *testing.T) {
+	target := &fakeTarget{}
+	identity := PublicationIdentity{
+		Name: "r", Project: "project-a", DatasetGeneration: "generation-a",
+		ReceiptID: "receipt-a", ScopeDigest: "scope-a",
+	}
+	result, err := Publish(context.Background(), target, identity, []OutputStream{{
+		Name: "patients",
+		Columns: []LogicalColumn{
+			{Name: "__loom_row_id", Kind: "string", IsIdentity: true, LoomOwned: true},
+			{Name: "gender", Kind: "string", Nullable: true},
+			{Name: "codes", Kind: "string", Repeated: true, Nullable: true},
+		},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			for _, row := range []map[string]any{
+				{"__loom_row_id": "row-1", "gender": "female", "codes": []any{}},
+				{"__loom_row_id": "row-2", "gender": nil},
+				{"__loom_row_id": "row-3", "gender": "male", "codes": []any{"a"}},
+			} {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}}, Limits{Quality: QualityPolicy{Version: "quality-v1", MaxRows: 10, MaxDistinctKeys: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !target.tx.committed || len(result.QualityReports) != 1 {
+		t.Fatalf("publication/result = committed:%v reports:%#v", target.tx.committed, result.QualityReports)
+	}
+	if len(target.tx.quality) != 1 || target.tx.quality[0].ID != result.QualityReports[0].ID {
+		t.Fatalf("quality evidence was not attached before commit: %#v", target.tx.quality)
+	}
+	report := result.QualityReports[0]
+	if report.ID == "" || report.ReceiptID != "receipt-a" || report.Project != "project-a" || report.DatasetGeneration != "generation-a" || report.ScopeDigest != "scope-a" || report.Output != "patients" || report.PolicyVersion != "quality-v1" || report.Completeness != QualityComplete || report.RowCount != 3 {
+		t.Fatalf("quality identity = %#v", report)
+	}
+	if report.KeyIntegrity.Missing != 0 || report.KeyIntegrity.Duplicate != 0 || report.KeyIntegrity.Distinct != 3 {
+		t.Fatalf("key integrity = %#v", report.KeyIntegrity)
+	}
+	columns := map[string]ColumnQuality{}
+	for _, column := range report.Columns {
+		columns[column.Column] = column
+	}
+	if columns["gender"] != (ColumnQuality{Column: "gender", Present: 2, RecordedNull: 1}) {
+		t.Fatalf("gender quality = %#v", columns["gender"])
+	}
+	if columns["codes"] != (ColumnQuality{Column: "codes", Present: 1, Missing: 1, EmptyArray: 1}) {
+		t.Fatalf("codes quality = %#v", columns["codes"])
+	}
+}
+
+type existingTarget struct{ tx *fakeTx }
+
+func (t *existingTarget) SupportsObjectValues() bool { return false }
+
+func (t *existingTarget) Begin(context.Context, PublicationIdentity, []OutputSchema) (Transaction, error) {
+	return t.tx, nil
+}
+
+func TestPublishIdempotentRetryReturnsDurableQualityEvidenceWithoutReadingStream(t *testing.T) {
+	report := QualityReport{ID: "quality-a", ReceiptID: "receipt-a", Output: "patients", PolicyVersion: "quality-v1", Completeness: QualityComplete, Verdict: QualityPassed}
+	target := &existingTarget{tx: &fakeTx{idempotent: true, quality: []QualityReport{report}}}
+	streamRead := false
+	result, err := Publish(context.Background(), target, PublicationIdentity{Name: "r"}, []OutputStream{{
+		Name: "patients", Columns: []LogicalColumn{{Name: "id", Kind: "string"}},
+		Stream: func(context.Context, func(map[string]any) error) error {
+			streamRead = true
+			return nil
+		},
+	}}, Limits{Quality: QualityPolicy{Version: "quality-v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamRead {
+		t.Fatal("idempotent retry reopened the source stream")
+	}
+	if len(result.QualityReports) != 1 || result.QualityReports[0].ID != report.ID {
+		t.Fatalf("idempotent quality evidence = %#v", result.QualityReports)
+	}
+}
+
+func TestPublishRejectsIncompleteQualityBeforeCommit(t *testing.T) {
+	target := &fakeTarget{}
+	_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "p", ReceiptID: "receipt-a"}, []OutputStream{{
+		Name: "patients", Columns: []LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			for _, id := range []string{"row-1", "row-2"} {
+				if err := visit(map[string]any{"__loom_row_id": id}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}}, Limits{Quality: QualityPolicy{Version: "quality-v1", MaxRows: 1, MaxDistinctKeys: 10}})
+	var incomplete *QualityIncompleteError
+	if !errors.As(err, &incomplete) || len(incomplete.Reports) != 1 || incomplete.Reports[0].Completeness != QualityIncomplete {
+		t.Fatalf("quality error = %#v, reports=%#v", err, incomplete)
+	}
+	if target.tx == nil || !target.tx.rolledBack || target.tx.committed {
+		t.Fatalf("incomplete quality did not abort before commit: %#v", target.tx)
 	}
 }

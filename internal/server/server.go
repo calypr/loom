@@ -408,7 +408,11 @@ func run(ctx context.Context, serverConfig Config) error {
 			})
 			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
 		},
-		MaterializeReceipt:        explorerReceiptMaterializer(recipeEngine, bundleTarget, publishedRegistry, degradation, logger, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes),
+		MaterializeReceipt: explorerReceiptMaterializer(
+			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
+			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
+			serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
+		),
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
 		ActivateRelease:           activateExplorerRelease,
 		PrepareRelease:            prepareExplorerRelease,

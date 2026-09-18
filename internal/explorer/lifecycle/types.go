@@ -72,11 +72,14 @@ type SelectionReferenceValidator func(context.Context, string, string, authscope
 type Execution struct {
 	ID                   string
 	Name                 string
+	Project              string
 	RecipeDigest         string
 	ResolvedSchemaDigest string
 	SourceGeneration     string
+	ScopeDigest          string
 	State                string
 	Outputs              []ExecutionOutput
+	QualityReports       []publication.QualityReport
 }
 
 type ExecutionOutput struct {

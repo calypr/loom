@@ -18,7 +18,7 @@ import (
 // explorerReceiptMaterializer keeps publication bound to the immutable
 // compilation receipt. The receipt is the only artifact crossing the HTTP to
 // execution boundary; its resolved recipe is lowered in memory by the execution package.
-func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) lifecycle.ReceiptMaterializer {
+func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {
 			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
@@ -48,7 +48,7 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 				return validationErr
 			}
 			var publishErr error
-			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, receipt.ID, sourceRows, batchRows, batchBytes)
+			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, receipt.ID, sourceRows, batchRows, batchBytes, qualityMaxRows, qualityMaxDistinctKeys)
 			return publishErr
 		})
 		if err != nil {
@@ -66,6 +66,12 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		if logger != nil {
 			logger.Info("Explorer receipt materialization complete", "project", bindings.Project, "execution", published.ID)
 		}
-		return lifecycle.Execution{ID: published.ID, Name: receipt.Bundle.Name, RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest, SourceGeneration: published.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
+		return lifecycle.Execution{
+			ID: published.ID, Name: receipt.Bundle.Name, Project: published.Project,
+			RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest,
+			SourceGeneration: published.DatasetGeneration, ScopeDigest: published.ScopeDigest,
+			State: string(published.State.Canonical()), Outputs: outputs,
+			QualityReports: publication.CloneQualityReports(published.QualityReports),
+		}, nil
 	}
 }

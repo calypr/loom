@@ -53,7 +53,19 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
 		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
-			return materialize(ctx, receipt.Bundle, bindings)
+			execution, err := materialize(ctx, receipt.Bundle, bindings)
+			if err != nil {
+				return lifecycle.Execution{}, err
+			}
+			execution.Project = receipt.Project
+			execution.ScopeDigest = "execution-scope"
+			execution.QualityReports = []publication.QualityReport{{
+				ID: "quality-patients", ReceiptID: receipt.ID, Project: receipt.Project,
+				DatasetGeneration: receipt.SourceGeneration, ScopeDigest: execution.ScopeDigest,
+				Output: "patients", PolicyVersion: publication.DefaultQualityPolicyVersion,
+				Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
+			}}
+			return execution, nil
 		},
 		ActivateRelease: activateRelease,
 	}

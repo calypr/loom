@@ -84,10 +84,12 @@ type Transaction interface {
 	WriteBatch(context.Context, string, []map[string]any) error
 	FinalizeSchema(context.Context, []OutputSchema) error
 	SetFinalSchemaDigest(string) error
+	SetQualityReports(context.Context, []QualityReport) error
 	Commit(context.Context) ([]PublishedOutput, error)
 	Abort(context.Context, error) error
 	Idempotent() bool
 	ExistingPublishedOutputs() []PublishedOutput
+	ExistingQualityReports() []QualityReport
 }
 
 // FinalSchemaDigest computes the versioned digest for the schema actually
@@ -130,6 +132,7 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 type Limits struct {
 	BatchRows  int
 	BatchBytes int
+	Quality    QualityPolicy
 }
 
 func (l Limits) normalized() Limits {
@@ -143,5 +146,6 @@ func (l Limits) normalized() Limits {
 }
 
 type Result struct {
-	Outputs []PublishedOutput
+	Outputs        []PublishedOutput
+	QualityReports []QualityReport
 }

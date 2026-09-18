@@ -756,6 +756,49 @@ func TestClickHouseBundleCandidateIsInvisibleUntilReadyPointerCAS(t *testing.T) 
 	}
 }
 
+func TestClickHouseBundlePublishesAndReplaysQualityEvidenceAtomically(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.BundleIdentity{
+		Name: "recipe-a", Project: "project-a", DatasetGeneration: "g1",
+		ReceiptID: "receipt-a", ScopeDigest: "scope-a",
+	}
+	tx, err := store.beginBundle(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "patients", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	report := publication.QualityReport{
+		ID: "quality-a", ReceiptID: identity.ReceiptID, Project: identity.Project,
+		DatasetGeneration: identity.DatasetGeneration, ScopeDigest: identity.ScopeDigest,
+		Output: "patients", PolicyVersion: "quality-v1",
+		Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
+	}
+	if err := tx.SetQualityReports(context.Background(), []publication.QualityReport{report}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := store.beginBundle(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retry.Idempotent() {
+		t.Fatal("published execution was not recognized as idempotent")
+	}
+	got := retry.ExistingQualityReports()
+	if len(got) != 1 || got[0].ID != report.ID {
+		t.Fatalf("replayed quality evidence = %#v", got)
+	}
+}
+
 func TestClickHouseBundleFailedCandidatePreservesOldPointer(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()
