@@ -99,13 +99,14 @@ func (e AuthoringCapabilityKind) Valid() bool {
 
 // Defines values for AuthoringCapabilityOperations.
 const (
-	Builder     AuthoringCapabilityOperations = "builder"
-	Commands    AuthoringCapabilityOperations = "commands"
-	Preview     AuthoringCapabilityOperations = "preview"
-	Publish     AuthoringCapabilityOperations = "publish"
-	Reconcile   AuthoringCapabilityOperations = "reconcile"
-	RowChange   AuthoringCapabilityOperations = "rowChange"
-	Suggestions AuthoringCapabilityOperations = "suggestions"
+	Builder               AuthoringCapabilityOperations = "builder"
+	Commands              AuthoringCapabilityOperations = "commands"
+	InterpretationPreview AuthoringCapabilityOperations = "interpretationPreview"
+	Preview               AuthoringCapabilityOperations = "preview"
+	Publish               AuthoringCapabilityOperations = "publish"
+	Reconcile             AuthoringCapabilityOperations = "reconcile"
+	RowChange             AuthoringCapabilityOperations = "rowChange"
+	Suggestions           AuthoringCapabilityOperations = "suggestions"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCapabilityOperations enum.
@@ -114,6 +115,8 @@ func (e AuthoringCapabilityOperations) Valid() bool {
 	case Builder:
 		return true
 	case Commands:
+		return true
+	case InterpretationPreview:
 		return true
 	case Preview:
 		return true
@@ -171,26 +174,27 @@ func (e AuthoringCommandMatchMode) Valid() bool {
 
 // Defines values for AuthoringCommandType.
 const (
-	ADDCOLUMN              AuthoringCommandType = "ADD_COLUMN"
-	ADDCOLUMNSOURCE        AuthoringCommandType = "ADD_COLUMN_SOURCE"
-	ADDROUTE               AuthoringCommandType = "ADD_ROUTE"
-	APPLYTABLEROOTREBASE   AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
-	CLEARCOLUMNCONTRIBUTOR AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
-	CLEARTABLEPOPULATION   AuthoringCommandType = "CLEAR_TABLE_POPULATION"
-	CREATETABLE            AuthoringCommandType = "CREATE_TABLE"
-	DELETETABLE            AuthoringCommandType = "DELETE_TABLE"
-	DUPLICATETABLE         AuthoringCommandType = "DUPLICATE_TABLE"
-	REMOVECOLUMN           AuthoringCommandType = "REMOVE_COLUMN"
-	REMOVEROUTE            AuthoringCommandType = "REMOVE_ROUTE"
-	RENAMETABLE            AuthoringCommandType = "RENAME_TABLE"
-	REORDERTABLES          AuthoringCommandType = "REORDER_TABLES"
-	SETCOLUMNCONTRIBUTOR   AuthoringCommandType = "SET_COLUMN_CONTRIBUTOR"
-	SETROUTEMATCHMODE      AuthoringCommandType = "SET_ROUTE_MATCH_MODE"
-	SETTABLEPOPULATION     AuthoringCommandType = "SET_TABLE_POPULATION"
-	SETTABLEROOT           AuthoringCommandType = "SET_TABLE_ROOT"
-	UPDATECOLUMN           AuthoringCommandType = "UPDATE_COLUMN"
-	UPDATECOLUMNSOURCE     AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
-	UPDATEROUTEEDGE        AuthoringCommandType = "UPDATE_ROUTE_EDGE"
+	ADDCOLUMN                    AuthoringCommandType = "ADD_COLUMN"
+	ADDCOLUMNSOURCE              AuthoringCommandType = "ADD_COLUMN_SOURCE"
+	ADDROUTE                     AuthoringCommandType = "ADD_ROUTE"
+	APPLYINTERPRETATIONCANDIDATE AuthoringCommandType = "APPLY_INTERPRETATION_CANDIDATE"
+	APPLYTABLEROOTREBASE         AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
+	CLEARCOLUMNCONTRIBUTOR       AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
+	CLEARTABLEPOPULATION         AuthoringCommandType = "CLEAR_TABLE_POPULATION"
+	CREATETABLE                  AuthoringCommandType = "CREATE_TABLE"
+	DELETETABLE                  AuthoringCommandType = "DELETE_TABLE"
+	DUPLICATETABLE               AuthoringCommandType = "DUPLICATE_TABLE"
+	REMOVECOLUMN                 AuthoringCommandType = "REMOVE_COLUMN"
+	REMOVEROUTE                  AuthoringCommandType = "REMOVE_ROUTE"
+	RENAMETABLE                  AuthoringCommandType = "RENAME_TABLE"
+	REORDERTABLES                AuthoringCommandType = "REORDER_TABLES"
+	SETCOLUMNCONTRIBUTOR         AuthoringCommandType = "SET_COLUMN_CONTRIBUTOR"
+	SETROUTEMATCHMODE            AuthoringCommandType = "SET_ROUTE_MATCH_MODE"
+	SETTABLEPOPULATION           AuthoringCommandType = "SET_TABLE_POPULATION"
+	SETTABLEROOT                 AuthoringCommandType = "SET_TABLE_ROOT"
+	UPDATECOLUMN                 AuthoringCommandType = "UPDATE_COLUMN"
+	UPDATECOLUMNSOURCE           AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
+	UPDATEROUTEEDGE              AuthoringCommandType = "UPDATE_ROUTE_EDGE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandType enum.
@@ -201,6 +205,8 @@ func (e AuthoringCommandType) Valid() bool {
 	case ADDCOLUMNSOURCE:
 		return true
 	case ADDROUTE:
+		return true
+	case APPLYINTERPRETATIONCANDIDATE:
 		return true
 	case APPLYTABLEROOTREBASE:
 		return true
@@ -487,6 +493,48 @@ func (e FieldSourceProjectionMode) Valid() bool {
 	}
 }
 
+// Defines values for InterpretationPreviewResponseCompleteness.
+const (
+	InterpretationPreviewResponseCompletenessCOMPLETE   InterpretationPreviewResponseCompleteness = "COMPLETE"
+	InterpretationPreviewResponseCompletenessINCOMPLETE InterpretationPreviewResponseCompleteness = "INCOMPLETE"
+)
+
+// Valid indicates whether the value is a known member of the InterpretationPreviewResponseCompleteness enum.
+func (e InterpretationPreviewResponseCompleteness) Valid() bool {
+	switch e {
+	case InterpretationPreviewResponseCompletenessCOMPLETE:
+		return true
+	case InterpretationPreviewResponseCompletenessINCOMPLETE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InterpretationPreviewSampleState.
+const (
+	CHANGED    InterpretationPreviewSampleState = "CHANGED"
+	RESOLVED   InterpretationPreviewSampleState = "RESOLVED"
+	UNCHANGED  InterpretationPreviewSampleState = "UNCHANGED"
+	UNRESOLVED InterpretationPreviewSampleState = "UNRESOLVED"
+)
+
+// Valid indicates whether the value is a known member of the InterpretationPreviewSampleState enum.
+func (e InterpretationPreviewSampleState) Valid() bool {
+	switch e {
+	case CHANGED:
+		return true
+	case RESOLVED:
+		return true
+	case UNCHANGED:
+		return true
+	case UNRESOLVED:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LookupSourceProjectionMode.
 const (
 	LookupSourceProjectionModeALL      LookupSourceProjectionMode = "ALL"
@@ -516,16 +564,16 @@ func (e LookupSourceProjectionMode) Valid() bool {
 
 // Defines values for PopulationMappingResponseStatus.
 const (
-	COMPLETE   PopulationMappingResponseStatus = "COMPLETE"
-	INCOMPLETE PopulationMappingResponseStatus = "INCOMPLETE"
+	PopulationMappingResponseStatusCOMPLETE   PopulationMappingResponseStatus = "COMPLETE"
+	PopulationMappingResponseStatusINCOMPLETE PopulationMappingResponseStatus = "INCOMPLETE"
 )
 
 // Valid indicates whether the value is a known member of the PopulationMappingResponseStatus enum.
 func (e PopulationMappingResponseStatus) Valid() bool {
 	switch e {
-	case COMPLETE:
+	case PopulationMappingResponseStatusCOMPLETE:
 		return true
-	case INCOMPLETE:
+	case PopulationMappingResponseStatusINCOMPLETE:
 		return true
 	default:
 		return false
@@ -912,26 +960,27 @@ type AuthoringCapabilityOperations string
 
 // AuthoringCommand defines model for AuthoringCommand.
 type AuthoringCommand struct {
-	CandidateId         *string                              `json:"candidateId,omitempty"`
-	Column              *string                              `json:"column,omitempty"`
-	ColumnValue         *Column                              `json:"columnValue,omitempty"`
-	Contributor         *ContributorPredicate                `json:"contributor,omitempty"`
-	EdgeId              *string                              `json:"edgeId,omitempty"`
-	EdgeIds             *[]string                            `json:"edgeIds,omitempty"`
-	InitialPresentation *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
-	MatchMode           *AuthoringCommandMatchMode           `json:"matchMode,omitempty"`
-	OccurrenceId        *string                              `json:"occurrenceId,omitempty"`
-	OutputId            *string                              `json:"outputId,omitempty"`
-	OutputIds           *[]string                            `json:"outputIds,omitempty"`
-	ParentOccurrenceId  *string                              `json:"parentOccurrenceId,omitempty"`
-	ProjectionMode      *ProjectionMode                      `json:"projectionMode,omitempty"`
-	RootNodeId          *string                              `json:"rootNodeId,omitempty"`
-	RowChange           *RowChangeProposal                   `json:"rowChange,omitempty"`
-	SelectionRevisionId *string                              `json:"selectionRevisionId,omitempty"`
-	Source              *ColumnSource                        `json:"source,omitempty"`
-	SourceOutputId      *string                              `json:"sourceOutputId,omitempty"`
-	Title               *string                              `json:"title,omitempty"`
-	Type                AuthoringCommandType                 `json:"type"`
+	CandidateId             *string                              `json:"candidateId,omitempty"`
+	Column                  *string                              `json:"column,omitempty"`
+	ColumnValue             *Column                              `json:"columnValue,omitempty"`
+	Contributor             *ContributorPredicate                `json:"contributor,omitempty"`
+	EdgeId                  *string                              `json:"edgeId,omitempty"`
+	EdgeIds                 *[]string                            `json:"edgeIds,omitempty"`
+	InitialPresentation     *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
+	InterpretationCandidate *InterpretationCandidatePayload      `json:"interpretationCandidate,omitempty"`
+	MatchMode               *AuthoringCommandMatchMode           `json:"matchMode,omitempty"`
+	OccurrenceId            *string                              `json:"occurrenceId,omitempty"`
+	OutputId                *string                              `json:"outputId,omitempty"`
+	OutputIds               *[]string                            `json:"outputIds,omitempty"`
+	ParentOccurrenceId      *string                              `json:"parentOccurrenceId,omitempty"`
+	ProjectionMode          *ProjectionMode                      `json:"projectionMode,omitempty"`
+	RootNodeId              *string                              `json:"rootNodeId,omitempty"`
+	RowChange               *RowChangeProposal                   `json:"rowChange,omitempty"`
+	SelectionRevisionId     *string                              `json:"selectionRevisionId,omitempty"`
+	Source                  *ColumnSource                        `json:"source,omitempty"`
+	SourceOutputId          *string                              `json:"sourceOutputId,omitempty"`
+	Title                   *string                              `json:"title,omitempty"`
+	Type                    AuthoringCommandType                 `json:"type"`
 }
 
 // AuthoringCommandInitialPresentation defines model for AuthoringCommand.InitialPresentation.
@@ -1006,6 +1055,7 @@ type Catalog struct {
 // CatalogCandidate defines model for CatalogCandidate.
 type CatalogCandidate struct {
 	CandidateId           string              `json:"candidateId"`
+	Cardinality           string              `json:"cardinality"`
 	Chartable             bool                `json:"chartable"`
 	ConceptCandidates     *[]ConceptCandidate `json:"conceptCandidates,omitempty"`
 	DefaultProjectionMode ProjectionMode      `json:"defaultProjectionMode"`
@@ -1308,6 +1358,140 @@ type GenerationStatusResponse struct {
 	Project    string `json:"project"`
 	Reusable   bool   `json:"reusable"`
 	State      string `json:"state"`
+}
+
+// InterpretationApplicability defines model for InterpretationApplicability.
+type InterpretationApplicability struct {
+	Cardinalities   *[]string `json:"cardinalities,omitempty"`
+	LogicalTypes    *[]string `json:"logicalTypes,omitempty"`
+	ResourceTypes   *[]string `json:"resourceTypes,omitempty"`
+	SchemaDigests   *[]string `json:"schemaDigests,omitempty"`
+	SourceCanonical *[]string `json:"sourceCanonical,omitempty"`
+	SourceProfiles  *[]string `json:"sourceProfiles,omitempty"`
+}
+
+// InterpretationCandidatePayload defines model for InterpretationCandidatePayload.
+type InterpretationCandidatePayload struct {
+	CandidateReceiptId string `json:"candidateReceiptId"`
+	RevisionId         string `json:"revisionId"`
+}
+
+// InterpretationFeatureDefinition defines model for InterpretationFeatureDefinition.
+type InterpretationFeatureDefinition struct {
+	Contributor *ContributorPredicate `json:"contributor,omitempty"`
+	Source      ColumnSource          `json:"source"`
+}
+
+// InterpretationLibrary defines model for InterpretationLibrary.
+type InterpretationLibrary struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	HeadDigest     *string   `json:"headDigest,omitempty"`
+	HeadRevisionId *string   `json:"headRevisionId,omitempty"`
+	Id             string    `json:"id"`
+	Project        string    `json:"project"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// InterpretationLibraryListResponse defines model for InterpretationLibraryListResponse.
+type InterpretationLibraryListResponse struct {
+	Libraries []InterpretationLibraryView `json:"libraries"`
+	Project   string                      `json:"project"`
+}
+
+// InterpretationLibraryView defines model for InterpretationLibraryView.
+type InterpretationLibraryView struct {
+	Head    *InterpretationRevision `json:"head,omitempty"`
+	Library InterpretationLibrary   `json:"library"`
+}
+
+// InterpretationPreviewCounts defines model for InterpretationPreviewCounts.
+type InterpretationPreviewCounts struct {
+	Changed    int `json:"changed"`
+	Compared   int `json:"compared"`
+	Resolved   int `json:"resolved"`
+	Unresolved int `json:"unresolved"`
+}
+
+// InterpretationPreviewRequest defines model for InterpretationPreviewRequest.
+type InterpretationPreviewRequest struct {
+	Column               string `json:"column"`
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64  `json:"expectedDraftVersion"`
+	Limit                *int   `json:"limit,omitempty"`
+	OutputId             string `json:"outputId"`
+	RevisionId           string `json:"revisionId"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// InterpretationPreviewResponse defines model for InterpretationPreviewResponse.
+type InterpretationPreviewResponse struct {
+	BaseReceiptId      string                                    `json:"baseReceiptId"`
+	CandidateReceiptId string                                    `json:"candidateReceiptId"`
+	Column             string                                    `json:"column"`
+	Completeness       InterpretationPreviewResponseCompleteness `json:"completeness"`
+	Counts             InterpretationPreviewCounts               `json:"counts"`
+	OutputId           string                                    `json:"outputId"`
+	RevisionId         string                                    `json:"revisionId"`
+	Samples            []InterpretationPreviewSample             `json:"samples"`
+}
+
+// InterpretationPreviewResponseCompleteness defines model for InterpretationPreviewResponse.Completeness.
+type InterpretationPreviewResponseCompleteness string
+
+// InterpretationPreviewSample defines model for InterpretationPreviewSample.
+type InterpretationPreviewSample struct {
+	After  map[string]interface{}           `json:"after"`
+	Before map[string]interface{}           `json:"before"`
+	RowId  string                           `json:"rowId"`
+	State  InterpretationPreviewSampleState `json:"state"`
+}
+
+// InterpretationPreviewSampleState defines model for InterpretationPreviewSample.State.
+type InterpretationPreviewSampleState string
+
+// InterpretationRevision defines model for InterpretationRevision.
+type InterpretationRevision struct {
+	Applicability    InterpretationApplicability `json:"applicability"`
+	Author           string                      `json:"author"`
+	ContentDigest    string                      `json:"contentDigest"`
+	CreatedAt        time.Time                   `json:"createdAt"`
+	Explanation      string                      `json:"explanation"`
+	Id               string                      `json:"id"`
+	LibraryId        string                      `json:"libraryId"`
+	ParentDigest     *string                     `json:"parentDigest,omitempty"`
+	ParentRevisionId *string                     `json:"parentRevisionId,omitempty"`
+	Project          string                      `json:"project"`
+	Rules            []InterpretationRule        `json:"rules"`
+}
+
+// InterpretationRevisionCreateRequest defines model for InterpretationRevisionCreateRequest.
+type InterpretationRevisionCreateRequest struct {
+	Applicability    InterpretationApplicability `json:"applicability"`
+	Explanation      string                      `json:"explanation"`
+	LibraryId        string                      `json:"libraryId"`
+	ParentRevisionId *string                     `json:"parentRevisionId,omitempty"`
+	Rules            []InterpretationRule        `json:"rules"`
+}
+
+// InterpretationRule defines model for InterpretationRule.
+type InterpretationRule struct {
+	Definition InterpretationFeatureDefinition `json:"definition"`
+	Id         string                          `json:"id"`
+	Match      InterpretationStructuralMatch   `json:"match"`
+	Priority   *int32                          `json:"priority,omitempty"`
+}
+
+// InterpretationStructuralMatch defines model for InterpretationStructuralMatch.
+type InterpretationStructuralMatch struct {
+	Cardinality      *string   `json:"cardinality,omitempty"`
+	Code             *string   `json:"code,omitempty"`
+	ExtensionUrlPath *[]string `json:"extensionUrlPath,omitempty"`
+	LogicalType      *string   `json:"logicalType,omitempty"`
+	OwningScope      *string   `json:"owningScope,omitempty"`
+	ResourceType     *string   `json:"resourceType,omitempty"`
+	SourceCanonical  *string   `json:"sourceCanonical,omitempty"`
+	SourceProfile    *string   `json:"sourceProfile,omitempty"`
+	System           *string   `json:"system,omitempty"`
 }
 
 // LegacyErrorBody defines model for LegacyErrorBody.
@@ -1983,6 +2167,12 @@ type PublishRepositoryExplorerConfigParams struct {
 	XLoomSourceCommit string  `json:"X-Loom-Source-Commit"`
 }
 
+// CreateInterpretationRevisionParams defines parameters for CreateInterpretationRevision.
+type CreateInterpretationRevisionParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
 type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipartBody
 
@@ -1991,6 +2181,9 @@ type CreateExplorerJSONRequestBody = RawJSON
 
 // ApplyExplorerBuilderCommandsJSONRequestBody defines body for ApplyExplorerBuilderCommands for application/json ContentType.
 type ApplyExplorerBuilderCommandsJSONRequestBody = ApplyCommandsRequest
+
+// PreviewInterpretationCandidateJSONRequestBody defines body for PreviewInterpretationCandidate for application/json ContentType.
+type PreviewInterpretationCandidateJSONRequestBody = InterpretationPreviewRequest
 
 // CheckExplorerPopulationMappingJSONRequestBody defines body for CheckExplorerPopulationMapping for application/json ContentType.
 type CheckExplorerPopulationMappingJSONRequestBody = PopulationMappingRequest
@@ -2015,6 +2208,9 @@ type CreateExplorerSelectionJSONRequestBody = SelectionCreateRequest
 
 // PublishRepositoryExplorerConfigJSONRequestBody defines body for PublishRepositoryExplorerConfig for application/json ContentType.
 type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
+
+// CreateInterpretationRevisionJSONRequestBody defines body for CreateInterpretationRevision for application/json ContentType.
+type CreateInterpretationRevisionJSONRequestBody = InterpretationRevisionCreateRequest
 
 // ExecuteDataframeGraphQLJSONRequestBody defines body for ExecuteDataframeGraphQL for application/json ContentType.
 type ExecuteDataframeGraphQLJSONRequestBody = RawJSON
@@ -2433,6 +2629,9 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
+	PreviewInterpretationCandidate(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
 	CheckExplorerPopulationMapping(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
@@ -2459,6 +2658,15 @@ type ServerInterface interface {
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(c fiber.Ctx, project Project, generation Generation, params PublishRepositoryExplorerConfigParams) error
+
+	// (GET /api/v1/projects/{project}/interpretation-libraries)
+	ListInterpretationLibraries(c fiber.Ctx, project Project) error
+
+	// (POST /api/v1/projects/{project}/interpretation-libraries)
+	CreateInterpretationRevision(c fiber.Ctx, project Project, params CreateInterpretationRevisionParams) error
+
+	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
+	GetInterpretationRevision(c fiber.Ctx, project Project, revisionId string) error
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(c fiber.Ctx) error
@@ -2895,6 +3103,43 @@ func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) err
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.ApplyExplorerBuilderCommands(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PreviewInterpretationCandidate operation middleware
+func (siw *ServerInterfaceWrapper) PreviewInterpretationCandidate(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PreviewInterpretationCandidate(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -3357,6 +3602,117 @@ func (siw *ServerInterfaceWrapper) PublishRepositoryExplorerConfig(c fiber.Ctx) 
 	return handler(c)
 }
 
+// ListInterpretationLibraries operation middleware
+func (siw *ServerInterfaceWrapper) ListInterpretationLibraries(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ListInterpretationLibraries(c, project)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// CreateInterpretationRevision operation middleware
+func (siw *ServerInterfaceWrapper) CreateInterpretationRevision(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateInterpretationRevisionParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateInterpretationRevision(c, project, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetInterpretationRevision operation middleware
+func (siw *ServerInterfaceWrapper) GetInterpretationRevision(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "revisionId" -------------
+	var revisionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "revisionId", c.Params("revisionId"), &revisionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter revisionId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetInterpretationRevision(c, project, revisionId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // GetApolloSandbox operation middleware
 func (siw *ServerInterfaceWrapper) GetApolloSandbox(c fiber.Ctx) error {
 
@@ -3506,6 +3862,12 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 		router.Use(fiber.Handler(m))
 	}
 
+	router.Get(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.ListInterpretationLibraries)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.CreateInterpretationRevision)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/interpretation-revisions/:revisionId", wrapper.GetInterpretationRevision)
+
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections", wrapper.CreateExplorerSelection)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/selections/:selectionRevision", wrapper.GetExplorerSelection)
@@ -3523,6 +3885,8 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/reconcile", wrapper.ReconcileExplorerBuilder)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/preview", wrapper.PreviewExplorer)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/interpretation-preview", wrapper.PreviewInterpretationCandidate)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-mapping", wrapper.CheckExplorerPopulationMapping)
 
@@ -4333,6 +4697,151 @@ type ApplyExplorerBuilderCommands503JSONResponse struct {
 func (response ApplyExplorerBuilderCommands503JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidateRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *PreviewInterpretationCandidateJSONRequestBody
+}
+
+type PreviewInterpretationCandidateResponseObject interface {
+	VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error
+}
+
+type PreviewInterpretationCandidate200JSONResponse InterpretationPreviewResponse
+
+func (response PreviewInterpretationCandidate200JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response PreviewInterpretationCandidate400JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PreviewInterpretationCandidate401JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response PreviewInterpretationCandidate403JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response PreviewInterpretationCandidate404JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response PreviewInterpretationCandidate409JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate413JSONResponse struct {
+	AuthoringPayloadTooLargeJSONResponse
+}
+
+func (response PreviewInterpretationCandidate413JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response PreviewInterpretationCandidate422JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate429JSONResponse struct {
+	AuthoringTooManyRequestsJSONResponse
+}
+
+func (response PreviewInterpretationCandidate429JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate499JSONResponse struct {
+	AuthoringClientClosedRequestJSONResponse
+}
+
+func (response PreviewInterpretationCandidate499JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response PreviewInterpretationCandidate500JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response PreviewInterpretationCandidate503JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PreviewInterpretationCandidate504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response PreviewInterpretationCandidate504JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
 
 	return ctx.JSON(&response)
 }
@@ -5273,6 +5782,226 @@ func (response PublishRepositoryExplorerConfig503JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
+type ListInterpretationLibrariesRequestObject struct {
+	Project Project `json:"project"`
+}
+
+type ListInterpretationLibrariesResponseObject interface {
+	VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error
+}
+
+type ListInterpretationLibraries200JSONResponse InterpretationLibraryListResponse
+
+func (response ListInterpretationLibraries200JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ListInterpretationLibraries401JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ListInterpretationLibraries403JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ListInterpretationLibraries500JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ListInterpretationLibraries503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ListInterpretationLibraries503JSONResponse) VisitListInterpretationLibrariesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionRequestObject struct {
+	Project Project `json:"project"`
+	Params  CreateInterpretationRevisionParams
+	Body    *CreateInterpretationRevisionJSONRequestBody
+}
+
+type CreateInterpretationRevisionResponseObject interface {
+	VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error
+}
+
+type CreateInterpretationRevision201JSONResponse InterpretationRevision
+
+func (response CreateInterpretationRevision201JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateInterpretationRevision400JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateInterpretationRevision401JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateInterpretationRevision403JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateInterpretationRevision409JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateInterpretationRevision422JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateInterpretationRevision500JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevision503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateInterpretationRevision503JSONResponse) VisitCreateInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevisionRequestObject struct {
+	Project    Project `json:"project"`
+	RevisionId string  `json:"revisionId"`
+}
+
+type GetInterpretationRevisionResponseObject interface {
+	VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error
+}
+
+type GetInterpretationRevision200JSONResponse InterpretationRevision
+
+func (response GetInterpretationRevision200JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetInterpretationRevision401JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetInterpretationRevision403JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetInterpretationRevision404JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetInterpretationRevision500JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetInterpretationRevision503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetInterpretationRevision503JSONResponse) VisitGetInterpretationRevisionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetApolloSandboxRequestObject struct {
 }
 
@@ -5594,6 +6323,9 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(ctx context.Context, request ApplyExplorerBuilderCommandsRequestObject) (ApplyExplorerBuilderCommandsResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
+	PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequestObject) (PreviewInterpretationCandidateResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
 	CheckExplorerPopulationMapping(ctx context.Context, request CheckExplorerPopulationMappingRequestObject) (CheckExplorerPopulationMappingResponseObject, error)
 
@@ -5620,6 +6352,15 @@ type StrictServerInterface interface {
 	// PublishRepositoryExplorerConfig Compile and publish a repository-owned Explorer workspace.
 	// (POST /api/v1/projects/{project}/generations/{generation}/explorer-config)
 	PublishRepositoryExplorerConfig(ctx context.Context, request PublishRepositoryExplorerConfigRequestObject) (PublishRepositoryExplorerConfigResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/interpretation-libraries)
+	ListInterpretationLibraries(ctx context.Context, request ListInterpretationLibrariesRequestObject) (ListInterpretationLibrariesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/interpretation-libraries)
+	CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequestObject) (CreateInterpretationRevisionResponseObject, error)
+
+	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
+	GetInterpretationRevision(ctx context.Context, request GetInterpretationRevisionRequestObject) (GetInterpretationRevisionResponseObject, error)
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
@@ -5951,6 +6692,40 @@ func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Pro
 	return nil
 }
 
+// PreviewInterpretationCandidate operation middleware
+func (sh *strictHandler) PreviewInterpretationCandidate(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request PreviewInterpretationCandidateRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body PreviewInterpretationCandidateJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewInterpretationCandidate(ctx.Context(), request.(PreviewInterpretationCandidateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewInterpretationCandidate")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PreviewInterpretationCandidateResponseObject); ok {
+		if err := validResponse.VisitPreviewInterpretationCandidateResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // CheckExplorerPopulationMapping operation middleware
 func (sh *strictHandler) CheckExplorerPopulationMapping(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request CheckExplorerPopulationMappingRequestObject
@@ -6257,6 +7032,95 @@ func (sh *strictHandler) PublishRepositoryExplorerConfig(ctx fiber.Ctx, project 
 	return nil
 }
 
+// ListInterpretationLibraries operation middleware
+func (sh *strictHandler) ListInterpretationLibraries(ctx fiber.Ctx, project Project) error {
+	var request ListInterpretationLibrariesRequestObject
+
+	request.Project = project
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInterpretationLibraries(ctx.Context(), request.(ListInterpretationLibrariesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInterpretationLibraries")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListInterpretationLibrariesResponseObject); ok {
+		if err := validResponse.VisitListInterpretationLibrariesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateInterpretationRevision operation middleware
+func (sh *strictHandler) CreateInterpretationRevision(ctx fiber.Ctx, project Project, params CreateInterpretationRevisionParams) error {
+	var request CreateInterpretationRevisionRequestObject
+
+	request.Project = project
+	request.Params = params
+
+	var body CreateInterpretationRevisionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInterpretationRevision(ctx.Context(), request.(CreateInterpretationRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInterpretationRevision")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateInterpretationRevisionResponseObject); ok {
+		if err := validResponse.VisitCreateInterpretationRevisionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetInterpretationRevision operation middleware
+func (sh *strictHandler) GetInterpretationRevision(ctx fiber.Ctx, project Project, revisionId string) error {
+	var request GetInterpretationRevisionRequestObject
+
+	request.Project = project
+	request.RevisionId = revisionId
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInterpretationRevision(ctx.Context(), request.(GetInterpretationRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInterpretationRevision")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetInterpretationRevisionResponseObject); ok {
+		if err := validResponse.VisitGetInterpretationRevisionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetApolloSandbox operation middleware
 func (sh *strictHandler) GetApolloSandbox(ctx fiber.Ctx) error {
 	var request GetApolloSandboxRequestObject
@@ -6449,161 +7313,177 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

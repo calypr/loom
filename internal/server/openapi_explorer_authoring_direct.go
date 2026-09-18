@@ -62,7 +62,119 @@ func (h *explorerHTTPHandlers) getAuthoringCapabilityDirect(ctx context.Context,
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
 	}
-	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.RowChange, loomapi.Preview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.RowChange, loomapi.Preview, loomapi.InterpretationPreview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+}
+
+func (h *explorerHTTPHandlers) listInterpretationLibrariesDirect(ctx context.Context, project string) (loomapi.InterpretationLibraryListResponse, error) {
+	var result loomapi.InterpretationLibraryListResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	value, err := h.application.ListInterpretationLibraries(ctx, project)
+	if err != nil {
+		return result, err
+	}
+	result.Project = value.Project
+	result.Libraries = make([]loomapi.InterpretationLibraryView, 0, len(value.Libraries))
+	for _, view := range value.Libraries {
+		library, convertErr := directAuthoringJSON[loomapi.InterpretationLibrary](view.Library)
+		if convertErr != nil {
+			return result, convertErr
+		}
+		wire := loomapi.InterpretationLibraryView{Library: library}
+		if view.Head != nil {
+			head, convertErr := directAuthoringJSON[loomapi.InterpretationRevision](*view.Head)
+			if convertErr != nil {
+				return result, convertErr
+			}
+			wire.Head = &head
+		}
+		result.Libraries = append(result.Libraries, wire)
+	}
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) getInterpretationRevisionDirect(ctx context.Context, project, revisionID string) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	value, err := h.application.GetInterpretationRevision(ctx, lifecycle.GetInterpretationRevisionRequest{Project: project, RevisionID: revisionID})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) createInterpretationRevisionDirect(ctx context.Context, project, authResourcePath string, body *loomapi.CreateInterpretationRevisionJSONRequestBody) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretations", errors.New("request body is required"))
+	}
+	applicability, err := directAuthoringJSON[explorer.InterpretationApplicability](body.Applicability)
+	if err != nil {
+		return result, malformedRouteError("interpretations", err)
+	}
+	rules, err := directAuthoringJSON[[]explorer.InterpretationRule](body.Rules)
+	if err != nil {
+		return result, malformedRouteError("interpretations", err)
+	}
+	parentRevisionID := ""
+	if body.ParentRevisionId != nil {
+		parentRevisionID = *body.ParentRevisionId
+	}
+	value, err := h.application.CreateInterpretationRevision(ctx, lifecycle.CreateInterpretationRevisionRequest{
+		Project: project, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
+		Applicability: applicability, Rules: rules, Explanation: body.Explanation,
+		Author: subjectFromContext(ctx),
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) previewInterpretationCandidateDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewInterpretationCandidateJSONRequestBody) (loomapi.InterpretationPreviewResponse, error) {
+	var result loomapi.InterpretationPreviewResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-preview", errors.New("request body is required"))
+	}
+	limit := dataframeexecution.DefaultPreviewLimit
+	if body.Limit != nil {
+		limit = *body.Limit
+	}
+	previewCtx, cancel := context.WithTimeout(ctx, explorerPreviewTimeout)
+	defer cancel()
+	value, err := h.application.PreviewInterpretationCandidate(previewCtx, lifecycle.PreviewInterpretationCandidateRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, Column: body.Column, RevisionID: body.RevisionId, Limit: limit,
+	})
+	if err != nil {
+		var lifecycleErr *lifecycle.Error
+		if errors.As(err, &lifecycleErr) {
+			return result, err
+		}
+		return result, previewRouteError(err)
+	}
+	result, err = directAuthoringJSON[loomapi.InterpretationPreviewResponse](value)
+	if err != nil {
+		return result, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return result, err
+	}
+	if len(encoded) > maxExplorerPreviewResponseBytes {
+		return result, previewRouteError(&previewResponseTooLargeError{Limit: maxExplorerPreviewResponseBytes})
+	}
+	return result, nil
 }
 
 func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Context, project, explorerID string, body *loomapi.SearchExplorerCandidatesJSONRequestBody) (loomapi.CandidateSearchResponse, error) {

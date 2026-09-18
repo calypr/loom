@@ -153,6 +153,7 @@ type CatalogCandidate struct {
 	FieldPath             string             `json:"fieldPath"`
 	Label                 string             `json:"label"`
 	LogicalType           string             `json:"logicalType"`
+	Cardinality           string             `json:"cardinality"`
 	Repeated              bool               `json:"repeated"`
 	Filterable            bool               `json:"filterable"`
 	Chartable             bool               `json:"chartable"`
@@ -161,7 +162,6 @@ type CatalogCandidate struct {
 	RepeatedBoundaries    []RepeatedBoundary `json:"repeatedBoundaries,omitempty"`
 	FilterOperators       []string           `json:"-"`
 	ChartOperations       []string           `json:"-"`
-	Cardinality           string             `json:"-"`
 	Populated             bool               `json:"-"`
 	Count                 *int64             `json:"-"`
 	SuggestionsAvailable  bool               `json:"-"`

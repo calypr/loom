@@ -217,6 +217,7 @@ export const createVerificationReport = (target, scenario = 'builder-preview-pub
     fixture: target.fixtureDir,
   },
   assertions: [],
+  limitations: [],
   timings: {},
   evidencePaths: [],
 });
@@ -240,8 +241,26 @@ const recordAssertion = (report, name, expected, actual) => {
   if (!passed) throw new Error(`${name} failed. expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 };
 
+const recordLimitation = (report, name, detail) => {
+  report.limitations.push({ name, status: 'not-proven', detail });
+};
+
 const recordEvidence = (report, path) => {
   if (!report.evidencePaths.includes(path)) report.evidencePaths.push(path);
+};
+
+export const fixtureSourceDigest = (fixtureDir) => {
+  const hash = createHash('sha256');
+  const files = readdirSync(fixtureDir)
+    .filter((file) => file.endsWith('.ndjson'))
+    .sort();
+  for (const file of files) {
+    hash.update(file);
+    hash.update('\0');
+    hash.update(readFileSync(join(fixtureDir, file)));
+    hash.update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
 };
 
 export const commandEnvironment = (target) => ({
@@ -851,6 +870,60 @@ const fetchBuilderState = async (target, explorerId) => {
   return value;
 };
 
+const interpretationLibrariesURL = (target, project) =>
+  `${target.apiUrl}/api/v1/projects/${encodeURIComponent(project)}/interpretation-libraries`;
+
+const interpretationRevisionURL = (target, project, revisionID) =>
+  `${target.apiUrl}/api/v1/projects/${encodeURIComponent(project)}/interpretation-revisions/${encodeURIComponent(revisionID)}`;
+
+const fetchInterpretationLibraries = async (target, project) => {
+  const { response, value } = await requestJSON(interpretationLibrariesURL(target, project), { timeout: 30000 });
+  if (!response.ok) throw new Error(`interpretation library list failed: HTTP ${response.status} ${JSON.stringify(value).slice(0, 500)}`);
+  if (!Array.isArray(value?.libraries)) throw new Error('interpretation library list returned no libraries array');
+  return value;
+};
+
+const fetchInterpretationRevision = async (target, project, revisionID) => {
+  const { response, value } = await requestJSON(interpretationRevisionURL(target, project, revisionID), { timeout: 30000 });
+  if (!response.ok) throw new Error(`interpretation revision read failed: HTTP ${response.status} ${JSON.stringify(value).slice(0, 500)}`);
+  return value;
+};
+
+const createInterpretationRevision = async (target, project, body) => {
+  const { response, value } = await requestJSON(interpretationLibrariesURL(target, project), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    timeout: 30000,
+  });
+  if (!response.ok) throw new Error(`interpretation revision create failed: HTTP ${response.status} ${JSON.stringify(value).slice(0, 500)}`);
+  return value;
+};
+
+const previewInterpretationCandidate = async (target, explorerID, state, revisionID, limit) => {
+  const document = state.workspace?.documents?.[0];
+  const column = document?.columns?.find((candidate) => candidate.source?.kind === 'field' && candidate.source.field?.path?.replace(/^root\./, '') === 'id');
+  if (!document?.output?.id || !column) throw new Error('B06 verification feature for Patient id is missing from the draft');
+  const { response, value } = await requestJSON(
+    `${bootstrapAuthoringURL(target, explorerID)}/interpretation-preview`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        snapshotToken: state.catalog.snapshotToken,
+        expectedDraftVersion: state.draftVersion,
+        expectedDraftDigest: state.draftDigest,
+        outputId: document.output.id,
+        column: column.column,
+        revisionId: revisionID,
+        limit,
+      }),
+      timeout: 60000,
+    },
+  );
+  return { response, value };
+};
+
 const normalizeRows = (rows, columns) => (Array.isArray(rows) ? rows : []).map((row) => {
   if (Array.isArray(row)) return Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null]));
   if (row && typeof row === 'object' && Array.isArray(row.values)) return Object.fromEntries(columns.map((column, index) => [column, row.values[index] ?? null]));
@@ -867,6 +940,210 @@ const findPhysicalColumn = (state, output, predicate) => output.columns
 const rowValue = (row, column) => row[column] ?? null;
 
 const coordinateIndex = (emitted) => emitted?.coordinates?.at(-1)?.index ?? -1;
+
+const verifyInterpretationCandidate = async (target, report, cdp, explorerID, evidenceDir, browserURL) => {
+  const started = Date.now();
+  const sourceDigestBefore = fixtureSourceDigest(target.fixtureDir);
+  const initial = await fetchBuilderState(target, explorerID);
+  const document = initial.workspace?.documents?.[0];
+  const feature = document?.columns?.find((column) => column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'id');
+  if (!document?.output?.id || !feature) throw new Error('B06 verification feature for Patient id is missing from the draft');
+  const libraryID = `b06-map-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  const panelExpression = `(() => {
+    const panel = [...document.querySelectorAll('div.col-span-full')].find((element) =>
+      norm(element.innerText).includes('Interpretation') && /\\bid\\b/.test(element.innerText) &&
+      (element.innerText.includes('Current feature meaning is inline') || element.innerText.includes('Pinned revision')));
+    if (!panel) throw new Error('Patient id interpretation panel not found');
+    return panel;
+  })()`;
+  const openMappingPanel = async () => {
+    await browserEval(cdp, `const panel = ${panelExpression}; const details = [...panel.querySelectorAll('details')].find((element) => norm(element.querySelector('summary')?.textContent) === 'Reusable mappings'); if (!details) throw new Error('reusable mappings control not found'); details.open = true;`);
+  };
+
+  await openMappingPanel();
+  await browserEval(cdp, `const panel = ${panelExpression}; const input = panel.querySelector('input[placeholder="vitals"]'); const explanation = panel.querySelector('textarea[placeholder="What this feature means"]'); if (!input || !explanation) throw new Error('mapping creation controls not found'); const setValue = (element, value) => { const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set; setter?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); }; setValue(input, ${JSON.stringify(libraryID)}); setValue(explanation, 'Patient identifier meaning for the verification fixture'); const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Save reusable mapping'); if (!button) throw new Error('save reusable mapping control not found'); button.click();`);
+  await waitForBrowser(cdp, `document.body.innerText.includes(${JSON.stringify(libraryID)})`, 30000);
+
+  const createdList = await fetchInterpretationLibraries(target, target.fixtureProject);
+  const createdView = createdList.libraries.find((item) => item.library?.id === libraryID);
+  const firstRevision = createdView?.head;
+  if (!createdView || !firstRevision) throw new Error(`created interpretation library ${libraryID} did not expose a head revision`);
+  const firstRevisionFetched = await fetchInterpretationRevision(target, target.fixtureProject, firstRevision.id);
+  recordAssertion(report, 'interpretation-library-creation-exposes-exact-head', true,
+    firstRevisionFetched.id === firstRevision.id && firstRevisionFetched.libraryId === libraryID);
+
+  const beforeV1Review = await fetchBuilderState(target, explorerID);
+  await openMappingPanel();
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Review'); if (!button) throw new Error('review control not found for created mapping'); button.click();`);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Review: Current → With this mapping')`, 60000);
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Apply'); if (!button) throw new Error('v1 review apply control not found'); button.click();`);
+  let appliedV1;
+  const applyV1Deadline = Date.now() + 30000;
+  while (Date.now() < applyV1Deadline) {
+    appliedV1 = await fetchBuilderState(target, explorerID);
+    const appliedColumn = appliedV1.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+    if (appliedColumn?.interpretation?.pinned?.revisionId === firstRevision.id) break;
+    await sleep(200);
+  }
+  const appliedV1Column = appliedV1?.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'interpretation-v1-apply-pins-exact-reviewed-revision', firstRevision.id, appliedV1Column?.interpretation?.pinned?.revisionId);
+  recordAssertion(report, 'interpretation-v1-apply-uses-existing-draft-cas', true, appliedV1?.draftVersion > beforeV1Review.draftVersion && appliedV1?.draftDigest !== beforeV1Review.draftDigest);
+
+  const explorersURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
+  const v1ConsumerName = `b06-v1-consumer-${runIDForProject(libraryID)}`;
+  const cloned = await requestJSON(explorersURL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: v1ConsumerName, title: 'B06 v1 pinned consumer', sourceExplorerId: explorerID }),
+    timeout: 30000,
+  });
+  if (!cloned.response.ok || !cloned.value?.explorerId) throw new Error(`v1 pinned consumer clone failed: HTTP ${cloned.response.status}`);
+  const v1ConsumerID = cloned.value.explorerId;
+  const v1ConsumerState = await fetchBuilderState(target, v1ConsumerID);
+  const v1ConsumerColumn = v1ConsumerState.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'pre-existing-consumer-clones-v1-pinned-workspace', firstRevision.id, v1ConsumerColumn?.interpretation?.pinned?.revisionId);
+
+  const genderFeature = initial.workspace?.documents?.[0]?.columns?.find((column) => column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'gender');
+  if (!genderFeature) throw new Error('B06 verification feature for Patient gender is missing from the draft');
+  const secondRevision = await createInterpretationRevision(target, target.fixtureProject, {
+    libraryId: libraryID,
+    parentRevisionId: firstRevision.id,
+    applicability: firstRevision.applicability,
+    rules: firstRevision.rules.map((rule) => ({ ...rule, definition: { ...rule.definition, source: genderFeature.source } })),
+    explanation: 'Updated verification head maps Patient identifier to gender',
+  });
+  const updatedList = await fetchInterpretationLibraries(target, target.fixtureProject);
+  const updatedView = updatedList.libraries.find((item) => item.library?.id === libraryID);
+  const updatedHead = updatedView?.head;
+  recordAssertion(report, 'interpretation-library-head-advances-by-exact-parent-cas', true,
+    updatedHead?.id === secondRevision.id && updatedHead?.parentRevisionId === firstRevision.id);
+  const secondRevisionFetched = await fetchInterpretationRevision(target, target.fixtureProject, secondRevision.id);
+  recordAssertion(report, 'interpretation-exact-get-returns-updated-head', secondRevision.id, secondRevisionFetched.id);
+
+  const cloneBrowserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(v1ConsumerID)}&mode=builder`;
+  await navigate(cdp, cloneBrowserURL);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${firstRevision.id}`)})`, 60000);
+  const beforeV2Review = await fetchBuilderState(target, v1ConsumerID);
+  await openMappingPanel();
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Review'); if (!button) throw new Error('v2 review control not found'); button.click();`);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Review: Current → With this mapping')`, 60000);
+  const reviewDOM = await evaluate(cdp, `(() => {
+    const norm = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+    const table = [...document.querySelectorAll('table')].find((candidate) => {
+      const headers = [...candidate.querySelectorAll('thead th')].map((cell) => norm(cell.textContent));
+      return headers.join('|') === 'Row|Current|With this mapping|State';
+    });
+    const panel = [...document.querySelectorAll('div.col-span-full')].find((element) => norm(element.innerText).includes('Review: Current → With this mapping') && /\\bid\\b/.test(element.innerText));
+    const text = norm(panel?.innerText);
+    return {
+      complete: text.includes('The full output was exhausted for this review.'),
+      incomplete: text.includes('Sample only: the bounded review did not exhaust the output.'),
+      counts: /Compared \\d+ · Changed \\d+ · Resolved \\d+ · Unresolved \\d+/.test(text),
+      changed: /Changed [1-9]\\d*/.test(text),
+      changedValues: text.includes('dev-patient-001') && text.includes('female'),
+      headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => norm(cell.textContent)),
+      rows: [...(table?.querySelectorAll('tbody tr') || [])].map((row) => [...row.querySelectorAll('td')].map((cell) => norm(cell.textContent))),
+    };
+  })()`);
+  recordAssertion(report, 'interpretation-v2-review-renders-before-after-samples', true,
+    reviewDOM.headers.join('|') === 'Row|Current|With this mapping|State' && reviewDOM.rows.length > 0);
+  recordAssertion(report, 'interpretation-v2-review-shows-changed-values', true, reviewDOM.changed && reviewDOM.changedValues);
+  recordAssertion(report, 'interpretation-v2-review-renders-completeness-and-counts', true,
+    reviewDOM.complete && reviewDOM.counts);
+  await snapshot(cdp, join(evidenceDir, 'interpretation-review.html'));
+  recordEvidence(report, join(evidenceDir, 'interpretation-review.html'));
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Cancel'); if (!button) throw new Error('v2 review cancel control not found'); button.click();`);
+  await waitForBrowser(cdp, `!document.body.innerText.includes('Review: Current → With this mapping')`);
+  const afterV2Cancel = await fetchBuilderState(target, v1ConsumerID);
+  recordAssertion(report, 'interpretation-v2-cancel-keeps-draft-unchanged', {
+    version: beforeV2Review.draftVersion,
+    digest: beforeV2Review.draftDigest,
+  }, {
+    version: afterV2Cancel.draftVersion,
+    digest: afterV2Cancel.draftDigest,
+  });
+  await openMappingPanel();
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Review'); if (!button) throw new Error('second v2 review control not found'); button.click();`);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Review: Current → With this mapping')`, 60000);
+  const bounded = await previewInterpretationCandidate(target, v1ConsumerID, afterV2Cancel, secondRevision.id, 1);
+  recordAssertion(report, 'interpretation-bounded-preview-reports-incomplete', 200, bounded.response.status);
+  recordAssertion(report, 'interpretation-bounded-preview-has-incomplete-completeness', 'INCOMPLETE', bounded.value?.completeness);
+  await browserEval(cdp, `const panel = ${panelExpression}; const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Apply'); if (!button) throw new Error('v2 review apply control not found'); button.click();`);
+  let appliedV2;
+  const applyV2Deadline = Date.now() + 30000;
+  while (Date.now() < applyV2Deadline) {
+    appliedV2 = await fetchBuilderState(target, v1ConsumerID);
+    const appliedColumn = appliedV2.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+    if (appliedColumn?.interpretation?.pinned?.revisionId === secondRevision.id) break;
+    await sleep(200);
+  }
+  const appliedV2Column = appliedV2?.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'interpretation-v2-apply-pins-exact-reviewed-revision', secondRevision.id, appliedV2Column?.interpretation?.pinned?.revisionId);
+  recordAssertion(report, 'interpretation-v2-apply-uses-existing-draft-cas', true, appliedV2?.draftVersion > beforeV2Review.draftVersion && appliedV2?.draftDigest !== beforeV2Review.draftDigest);
+  const originalAfterV2 = await fetchBuilderState(target, explorerID);
+  const originalAfterV2Column = originalAfterV2.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'pre-existing-consumer-remains-pinned-to-v1-after-v2-head-update', firstRevision.id, originalAfterV2Column?.interpretation?.pinned?.revisionId);
+
+  const sourceDigestAfter = fixtureSourceDigest(target.fixtureDir);
+  const digestEvidence = join(evidenceDir, 'interpretation-evidence.json');
+  writeJSON(digestEvidence, {
+    sourceDigestBefore,
+    sourceDigestAfter,
+    libraryID,
+    firstRevisionID: firstRevision.id,
+    secondRevisionID: secondRevision.id,
+    firstRevisionContentDigest: firstRevision.contentDigest,
+    secondRevisionContentDigest: secondRevision.contentDigest,
+    beforeV1ReviewDraft: { version: beforeV1Review.draftVersion, digest: beforeV1Review.draftDigest },
+    afterApplyV1Draft: { version: appliedV1.draftVersion, digest: appliedV1.draftDigest },
+    beforeV2ReviewDraft: { version: beforeV2Review.draftVersion, digest: beforeV2Review.draftDigest },
+    afterApplyV2Draft: { version: appliedV2.draftVersion, digest: appliedV2.draftDigest },
+    originalPinnedRevisionAfterV2: originalAfterV2Column?.interpretation?.pinned?.revisionId,
+    review: reviewDOM,
+    boundedPreview: { status: bounded.response.status, completeness: bounded.value?.completeness, counts: bounded.value?.counts },
+  });
+  recordEvidence(report, digestEvidence);
+  recordAssertion(report, 'fixture-source-digest-survives-interpretation-workflow', sourceDigestBefore, sourceDigestAfter);
+
+  await cdp.send('Page.reload', { ignoreCache: false });
+  await waitForBrowser(cdp, `document.readyState === 'complete'`);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${secondRevision.id}`)})`, 60000);
+  await waitForBrowser(cdp, `document.body.innerText.includes(${JSON.stringify(secondRevisionFetched.explanation)}) && document.body.innerText.includes('authored by')`, 30000);
+  const reloaded = await fetchBuilderState(target, v1ConsumerID);
+  const reloadedColumn = reloaded.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'reload-preserves-exact-v2-pinned-provenance-after-head-update', secondRevision.id, reloadedColumn?.interpretation?.pinned?.revisionId);
+  recordAssertion(report, 'reload-exposes-pinned-explanation-and-author', true,
+    String(await evaluate(cdp, 'document.body.innerText')).includes(secondRevisionFetched.explanation) && String(await evaluate(cdp, 'document.body.innerText')).includes('authored by'));
+  await snapshot(cdp, join(evidenceDir, 'interpretation-pinned-v2-reload.html'));
+  recordEvidence(report, join(evidenceDir, 'interpretation-pinned-v2-reload.html'));
+
+  const wrongProject = `loom_dev_scope_${runIDForProject(libraryID)}`;
+  const wrongList = await requestJSON(interpretationLibrariesURL(target, wrongProject), { timeout: 30000 });
+  recordAssertion(report, 'interpretation-library-list-is-project-scoped', true,
+    wrongList.response.ok && !wrongList.value?.libraries?.some((item) => item.library?.id === libraryID));
+  const wrongRevision = await request(interpretationRevisionURL(target, wrongProject, firstRevision.id), { timeout: 30000 });
+  recordAssertion(report, 'interpretation-exact-get-rejects-wrong-project', 404, wrongRevision.status);
+  recordLimitation(report, 'auth-denial-under-local-allow-all', 'The verify-fast Compose entrypoint starts the API with --no-auth and AllowAllAuthorizer; no honest 401/403 denial assertion is possible in this local stack.');
+  await navigate(cdp, browserURL);
+  await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${firstRevision.id}`)})`, 60000);
+  await waitForBrowser(cdp, `document.body.innerText.includes(${JSON.stringify(firstRevisionFetched.explanation)}) && document.body.innerText.includes('authored by')`, 30000);
+  const originalReloaded = await fetchBuilderState(target, explorerID);
+  const originalReloadedColumn = originalReloaded.workspace?.documents?.[0]?.columns?.find((column) => column.column === feature.column);
+  recordAssertion(report, 'original-consumer-reload-keeps-v1-provenance', firstRevision.id, originalReloadedColumn?.interpretation?.pinned?.revisionId);
+  report.target.interpretation = {
+    libraryID,
+    firstRevisionID: firstRevision.id,
+    updatedHeadRevisionID: secondRevision.id,
+    pinnedRevisionIDAfterReload: reloadedColumn?.interpretation?.pinned?.revisionId,
+    v1ConsumerExplorerID: v1ConsumerID,
+    originalPinnedRevisionID: originalAfterV2Column?.interpretation?.pinned?.revisionId,
+    projectScopeProject: wrongProject,
+    authDenial: 'not-proven-local-allow-all',
+  };
+  report.timings.interpretation_workflow_ms = Date.now() - started;
+};
+
+const runIDForProject = (value) => value.replace(/[^a-z0-9_]/gi, '_').slice(-40);
 
 // Ingestion keys include the project and generation. Legacy FIRST orders by
 // those storage keys, not FHIR IDs; these expectations do not use the compiler.
@@ -917,6 +1194,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
     recordAssertion(report, 'browser-selected-owned-verification-explorer', true, Boolean(explorerId && explorerId !== bootstrapExplorerId));
     report.target.explorerId = explorerId;
+    const verificationBrowserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
 
     await browserEval(cdp, `setInput('first-table-name', 'Patients with observations')`);
     await browserEval(cdp, `clickButton('Create table')`);
@@ -932,6 +1210,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]') && document.querySelector('input[aria-label="Display name for configured name[].family"]') && document.querySelector('input[aria-label="Display name for configured gender"]'))`);
     const configuredFields = await evaluate(cdp, `([...document.querySelectorAll('input[aria-label^="Display name for configured "]')].map((input) => input.getAttribute('aria-label')).sort())`);
     recordAssertion(report, 'builder-configures-exact-root-fields', true, ['Display name for configured gender', 'Display name for configured id', 'Display name for configured name[].family'].every((label) => configuredFields.includes(label)));
+    await verifyInterpretationCandidate(target, report, cdp, explorerId, evidenceDir, verificationBrowserURL);
 
     await browserEval(cdp, `clickContains('.react-flow__node', 'Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Observation columns')`);
@@ -1001,7 +1280,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       if (feature?.contributor?.operator === 'EQUALS') break;
       await sleep(200);
     }
-    const statusCandidate = equalityBuilder.catalog.candidates.find((candidate) => candidate.fieldPath === 'status');
+    const observationNode = equalityBuilder.catalog.nodes.find((node) => node.resourceType === 'Observation');
+    const statusCandidate = equalityBuilder.catalog.candidates.find((candidate) => candidate.nodeId === observationNode?.nodeId && candidate.fieldPath === 'status');
     const equalityFeature = equalityBuilder.workspace.documents[0].columns.find((column) => column.label === 'Has Observation');
     recordAssertion(report, 'builder-persists-independent-equality-scope', {
       candidateId: statusCandidate?.candidateId,

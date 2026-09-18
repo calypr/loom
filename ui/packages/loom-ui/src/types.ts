@@ -197,7 +197,7 @@ const contributorValueSchema = z.discriminatedUnion('kind', [
     code: z.object({ code: z.string().min(1) }).strict(),
   }).strict(),
 ]);
-const contributorPredicateSchema = z
+export const contributorPredicateSchema = z
   .object({
     candidateId: opaqueIdSchema,
     operator: z.enum(['EXISTS', 'EQUALS']),
@@ -212,6 +212,13 @@ export const explorerColumnSourceSchema = z.union([
   z.object({ kind: z.literal('projectId') }).strict(),
 ]);
 export type ExplorerColumnSource = z.infer<typeof explorerColumnSourceSchema>;
+export const featureInterpretationSchema = z
+  .object({
+    kind: z.literal('PINNED'),
+    pinned: z.object({ revisionId: opaqueIdSchema }).strict(),
+  })
+  .strict();
+export type FeatureInterpretation = z.infer<typeof featureInterpretationSchema>;
 export type ExplorerBuilderRouteNode = {
   occurrenceId: string;
   resourceType: string;
@@ -247,6 +254,7 @@ export const explorerBuilderColumnSchema = z
     occurrenceId: opaqueIdSchema,
     source: explorerColumnSourceSchema,
     contributor: contributorPredicateSchema.optional(),
+    interpretation: featureInterpretationSchema.optional(),
     table: explorerTablePresentationSchema.optional(),
     filter: explorerFilterPresentationSchema.optional(),
     chart: explorerChartPresentationSchema.optional(),
@@ -414,6 +422,7 @@ export const explorerBuilderCandidateSchema = z
     fieldPath: opaqueIdSchema,
     label: z.string(),
     logicalType: opaqueIdSchema,
+    cardinality: opaqueIdSchema,
     repeated: z.boolean().optional(),
     filterable: z.boolean(),
     chartable: z.boolean(),
@@ -550,6 +559,7 @@ export const explorerBuilderCommandSchema = z
       'UPDATE_COLUMN',
       'SET_COLUMN_CONTRIBUTOR',
       'CLEAR_COLUMN_CONTRIBUTOR',
+      'APPLY_INTERPRETATION_CANDIDATE',
       'REMOVE_COLUMN',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -570,6 +580,13 @@ export const explorerBuilderCommandSchema = z
     contributor: contributorPredicateSchema.optional(),
     source: explorerColumnSourceSchema.optional(),
     rowChange: rowChangeProposalSchema.optional(),
+    interpretationCandidate: z
+      .object({
+        candidateReceiptId: opaqueIdSchema,
+        revisionId: opaqueIdSchema,
+      })
+      .strict()
+      .optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
   })
   .strict();

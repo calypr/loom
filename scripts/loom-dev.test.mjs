@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);
@@ -175,6 +175,23 @@ test('verification report starts with an explicit build state and target ownersh
   assert.deepEqual(report.assertions, []);
   assert.deepEqual(report.timings, {});
   assert.deepEqual(report.evidencePaths, []);
+  assert.deepEqual(report.limitations, []);
+});
+
+test('fixture source digest is stable across file enumeration order and excludes non-source files', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-fixture-digest-'));
+  try {
+    writeFileSync(join(fixture, 'Observation.ndjson'), '{"id":"observation"}\n');
+    writeFileSync(join(fixture, 'Patient.ndjson'), '{"id":"patient"}\n');
+    writeFileSync(join(fixture, 'recipe.json'), '{"not":"source"}\n');
+    const first = fixtureSourceDigest(fixture);
+    writeFileSync(join(fixture, 'README.txt'), 'ignored\n');
+    assert.equal(fixtureSourceDigest(fixture), first);
+    writeFileSync(join(fixture, 'Patient.ndjson'), '{"id":"changed"}\n');
+    assert.notEqual(fixtureSourceDigest(fixture), first);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });
 
 test('Docker Desktop host mount normalization accepts only this checkout', () => {

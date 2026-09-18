@@ -6,6 +6,7 @@ import type {
   ExplorerColumnSource,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { resolveInterpretationCandidate } from '../authoring/interpretationCandidate';
 import {
   FeaturePolicyEditor,
   RelatedFeatureCreator,
@@ -415,18 +416,9 @@ export const ColumnSelector = ({
   const configuredCapabilities = useMemo(
     () =>
       new Map(
-        configured.map(({ column, source }) => [
-          column,
-          source.kind === 'field' || (source.kind === 'aggregate' && source.aggregate.path)
-            ? (catalog.candidates ?? []).find(
-                (candidate) =>
-                  candidate.nodeId === occurrence?.nodeId &&
-                  candidate.fieldPath.replace(/^root\./, '') ===
-                    (source.kind === 'field'
-                      ? source.field.path
-                      : source.aggregate.path ?? '').replace(/^root\./, ''),
-              )
-            : undefined,
+        configured.map((configuredColumn) => [
+          configuredColumn.column,
+          resolveInterpretationCandidate(configuredColumn, catalog, occurrence?.nodeId),
         ]),
       ),
     [catalog.candidates, configured, occurrence?.nodeId],

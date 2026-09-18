@@ -20,6 +20,16 @@ import {
   type RowChangeAssessment,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
+import {
+  interpretationLibraryListResponseSchema,
+  interpretationPreviewResponseSchema,
+  interpretationRevisionSchema,
+  type InterpretationApplicability,
+  type InterpretationLibraryView,
+  type InterpretationPreviewResponse,
+  type InterpretationRule,
+  type InterpretationRevision,
+} from './interpretation';
 import { z } from 'zod';
 import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
 import {
@@ -104,6 +114,26 @@ export interface PopulationMappingArgs extends ExplorerAuthoringStateArgs {
   readonly outputId: string;
   readonly cursor?: string;
   readonly limit?: number;
+}
+
+export interface CreateInterpretationRevisionArgs extends ExplorerAuthoringProjectArgs {
+  readonly libraryId: string;
+  readonly parentRevisionId?: string;
+  readonly applicability: InterpretationApplicability;
+  readonly rules: ReadonlyArray<InterpretationRule>;
+  readonly explanation: string;
+  readonly requestId?: string;
+}
+
+export interface PreviewInterpretationCandidateArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly column: string;
+  readonly revisionId: string;
+  readonly limit?: number;
+  readonly requestId?: string;
 }
 
 const populationMappingDiagnosticSchema = z.object({
@@ -304,6 +334,22 @@ export interface LoomClient {
     args: PopulationMappingArgs,
     signal?: AbortSignal,
   ) => Promise<PopulationMappingResponse>;
+  readonly listInterpretationLibraries: (
+    args: ExplorerAuthoringProjectArgs,
+    signal?: AbortSignal,
+  ) => Promise<ReadonlyArray<InterpretationLibraryView>>;
+  readonly getInterpretationRevision: (
+    args: { readonly project: string; readonly revisionId: string },
+    signal?: AbortSignal,
+  ) => Promise<InterpretationRevision>;
+  readonly createInterpretationRevision: (
+    args: CreateInterpretationRevisionArgs,
+    signal?: AbortSignal,
+  ) => Promise<InterpretationRevision>;
+  readonly previewInterpretationCandidate: (
+    args: PreviewInterpretationCandidateArgs,
+    signal?: AbortSignal,
+  ) => Promise<InterpretationPreviewResponse>;
   readonly publish: (
     args: PublishExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -334,7 +380,7 @@ export interface LoomClient {
     request: LoomOutputRequest,
     signal?: AbortSignal,
   ) => Promise<Blob>;
-  readonly invalidate: (scope?: 'explorers' | 'builder' | 'all') => void;
+  readonly invalidate: (scope?: 'explorers' | 'builder' | 'interpretations' | 'all') => void;
 }
 
 export const canonicalProject = (project: string): string => {
@@ -674,6 +720,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     `/api/v1/projects/${encodedProject(args.project)}/explorers/${encodeURIComponent(args.explorerId)}/authoring/v2${suffix}`;
   const projectPath = (args: ExplorerAuthoringProjectArgs): string =>
     `/api/v1/projects/${encodedProject(args.project)}/explorers`;
+  const interpretationLibrariesPath = (project: string): string =>
+    `/api/v1/projects/${encodedProject(project)}/interpretation-libraries`;
+  const interpretationRevisionPath = (project: string, revisionId: string): string =>
+    `/api/v1/projects/${encodedProject(project)}/interpretation-revisions/${encodeURIComponent(revisionId)}`;
   const authResourcePathQuery = (authResourcePath?: string): string => {
     const value = authResourcePath?.trim();
     return value ? `?${new URLSearchParams({ auth_resource_path: value }).toString()}` : '';
@@ -779,6 +829,40 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/population-mapping'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.cursor === undefined ? {} : { cursor: args.cursor }), ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal)).then((value) => populationMappingResponseSchema.parse(value));
+  const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
+    getCached(
+      `interpretations:${canonicalProject(args.project)}`,
+      (requestSignal) => request(interpretationLibrariesPath(args.project), { signal: requestSignal }),
+      (value) => interpretationLibraryListResponseSchema.parse(value).libraries,
+      signal,
+    );
+  const getInterpretationRevision = (args: { readonly project: string; readonly revisionId: string }, signal?: AbortSignal) =>
+    request(interpretationRevisionPath(args.project, args.revisionId), { signal }).then((value) => interpretationRevisionSchema.parse(value));
+  const createInterpretationRevision = async (args: CreateInterpretationRevisionArgs, signal?: AbortSignal) => {
+    const parentRevisionId = args.parentRevisionId?.trim();
+    const value = await request(
+      `${interpretationLibrariesPath(args.project)}${authResourcePathQuery(args.authResourcePath)}`,
+      withJson({
+        libraryId: args.libraryId,
+        ...(parentRevisionId ? { parentRevisionId } : {}),
+        applicability: args.applicability,
+        rules: args.rules,
+        explanation: args.explanation,
+      }, signal, args.requestId),
+    );
+    evictCached(`interpretations:${canonicalProject(args.project)}`);
+    return interpretationRevisionSchema.parse(value);
+  };
+  const previewInterpretationCandidate = (args: PreviewInterpretationCandidateArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/interpretation-preview'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      column: args.column,
+      revisionId: args.revisionId,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => interpretationPreviewResponseSchema.parse(value));
   const publish = async (args: PublishExplorerBuilderArgs, signal?: AbortSignal) => {
     const result = assertExplorerBuilderPublishResult(
       await request(
@@ -913,6 +997,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     suggestions,
     preview,
     populationMapping,
+    listInterpretationLibraries,
+    getInterpretationRevision,
+    createInterpretationRevision,
+    previewInterpretationCandidate,
     publish,
     createExplorer,
     deleteExplorer,
@@ -923,6 +1011,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     invalidate: (scope = 'all') => {
       if (scope === 'all' || scope === 'explorers') [...cache.keys()].filter((key) => key.startsWith('explorers:')).forEach(evictCached);
       if (scope === 'all' || scope === 'builder') [...cache.keys()].filter((key) => key.startsWith('builder:')).forEach(evictCached);
+      if (scope === 'all' || scope === 'interpretations') [...cache.keys()].filter((key) => key.startsWith('interpretations:')).forEach(evictCached);
       if (scope === 'all') [...cache.keys()].filter((key) => key.startsWith('viewer:')).forEach(evictCached);
     },
   };

@@ -33,6 +33,8 @@ import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
+import { InterpretationPanel } from './components/InterpretationPanel';
+import { resolveInterpretationBinding } from './authoring/interpretationCandidate';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -1417,6 +1419,32 @@ const BuilderWorkspaceContent = ({
                 }
               />
             </div>
+            {table ? (
+              <section className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/20 p-3">
+                <h2 className="text-base font-semibold text-indigo-950">Feature meanings</h2>
+                <p className="mt-1 text-sm text-slate-600">Keep the current inline meaning, or review an exact reusable interpretation before applying it.</p>
+                <div className="mt-2 space-y-2">
+                  {table.document.columns.filter((column) => column.occurrenceId === state.selectedOccurrenceId).map((column) => (
+                    <InterpretationPanel
+                      key={column.column}
+                      project={projectId}
+                      explorerId={state.explorerId}
+                      authResourcePath={authResourcePath}
+                      outputId={table.outputId}
+                      column={column}
+                      catalog={state.catalog}
+                      snapshotToken={state.catalog.snapshotToken}
+                      expectedDraftVersion={serverDraft.current.version}
+                      expectedDraftDigest={serverDraft.current.digest}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      binding={resolveInterpretationBinding(column, state.catalog, occurrences.find((item) => item.id === column.occurrenceId)?.nodeId)}
+                      onApply={(command) => applyCommands([command])}
+                      onApplied={() => setMessage(undefined)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
             {state.receipt && state.reconciliation === 'resolved' && table ? (
               <DataframeContractPanel
                 receipt={state.receipt}

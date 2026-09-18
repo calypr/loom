@@ -578,7 +578,7 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	}
 	want := []string{"patient_id", "encounter__code", "project_id"}
 	for index, column := range result.OutputContract.Columns {
-		if column.Column != want[index] || len(column.AuthoredColumns) != 0 || result.EmittedColumns[index].PublicColumn != want[index] || len(result.EmittedColumns[index].AuthoredColumns) != 0 {
+		if column.Column != want[index] || !reflect.DeepEqual(column.AuthoredColumns, []string{want[index]}) || result.EmittedColumns[index].PublicColumn != want[index] || !reflect.DeepEqual(result.EmittedColumns[index].AuthoredColumns, []string{want[index]}) {
 			t.Fatalf("column %d = %#v emission=%#v", index, column, result.EmittedColumns[index])
 		}
 	}

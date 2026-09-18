@@ -5,6 +5,63 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/projects/{project}/interpretation-libraries:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    get:
+      operationId: listInterpretationLibraries
+      responses:
+        '200':
+          description: Project-scoped reusable interpretation libraries with exact immutable heads expanded.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InterpretationLibraryListResponse'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+    post:
+      operationId: createInterpretationRevision
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InterpretationRevisionCreateRequest'}
+      responses:
+        '201':
+          description: Newly created immutable interpretation revision.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InterpretationRevision'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/interpretation-revisions/{revisionId}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: revisionId
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    get:
+      operationId: getInterpretationRevision
+      responses:
+        '200':
+          description: Exact immutable interpretation revision.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InterpretationRevision'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/selections:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -226,6 +283,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreviewResponse'
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '413': {$ref: '#/components/responses/AuthoringPayloadTooLarge'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '429': {$ref: '#/components/responses/AuthoringTooManyRequests'}
+        '499': {$ref: '#/components/responses/AuthoringClientClosedRequest'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: previewInterpretationCandidate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InterpretationPreviewRequest'}
+      responses:
+        '200':
+          description: Bounded comparison of the current feature and one exact reusable interpretation candidate.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InterpretationPreviewResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
@@ -1027,7 +1113,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, suggestions, rowChange, preview, publish, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, rowChange, preview, interpretationPreview, publish, commands, reconcile]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -1044,6 +1130,159 @@ components:
         fixedFilters: {type: boolean}
         fileActions: {type: boolean}
         deleteExplorer: {type: boolean}
+    InterpretationLibraryListResponse:
+      type: object
+      additionalProperties: false
+      required: [project, libraries]
+      properties:
+        project: {type: string, minLength: 1}
+        libraries:
+          type: array
+          items: {$ref: '#/components/schemas/InterpretationLibraryView'}
+    InterpretationLibraryView:
+      type: object
+      additionalProperties: false
+      required: [library]
+      properties:
+        library: {$ref: '#/components/schemas/InterpretationLibrary'}
+        head:
+          allOf:
+            - $ref: '#/components/schemas/InterpretationRevision'
+          nullable: true
+    InterpretationLibrary:
+      type: object
+      additionalProperties: false
+      required: [id, project, createdAt, updatedAt]
+      properties:
+        id: {type: string, minLength: 1}
+        project: {type: string, minLength: 1}
+        headRevisionId: {type: string, minLength: 1}
+        headDigest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    InterpretationApplicability:
+      type: object
+      additionalProperties: false
+      properties:
+        resourceTypes: {type: array, items: {type: string, minLength: 1}}
+        sourceProfiles: {type: array, items: {type: string, minLength: 1}}
+        sourceCanonical: {type: array, items: {type: string, minLength: 1}}
+        logicalTypes: {type: array, items: {type: string, minLength: 1}}
+        cardinalities: {type: array, items: {type: string, minLength: 1}}
+        schemaDigests: {type: array, items: {type: string, minLength: 1}}
+    InterpretationStructuralMatch:
+      type: object
+      additionalProperties: false
+      properties:
+        resourceType: {type: string}
+        sourceProfile: {type: string}
+        sourceCanonical: {type: string}
+        owningScope: {type: string}
+        system: {type: string}
+        code: {type: string}
+        extensionUrlPath: {type: array, items: {type: string, minLength: 1}}
+        logicalType: {type: string}
+        cardinality: {type: string}
+    InterpretationFeatureDefinition:
+      type: object
+      additionalProperties: false
+      required: [source]
+      properties:
+        source: {$ref: '#/components/schemas/ColumnSource'}
+        contributor: {$ref: '#/components/schemas/ContributorPredicate'}
+    InterpretationRule:
+      type: object
+      additionalProperties: false
+      required: [id, match, definition]
+      properties:
+        id: {type: string, minLength: 1}
+        priority: {type: integer, format: int32}
+        match: {$ref: '#/components/schemas/InterpretationStructuralMatch'}
+        definition: {$ref: '#/components/schemas/InterpretationFeatureDefinition'}
+    InterpretationRevision:
+      type: object
+      additionalProperties: false
+      required: [id, project, libraryId, contentDigest, applicability, rules, author, explanation, createdAt]
+      properties:
+        id: {type: string, minLength: 1}
+        project: {type: string, minLength: 1}
+        libraryId: {type: string, minLength: 1}
+        parentRevisionId: {type: string, minLength: 1}
+        parentDigest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        contentDigest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        applicability: {$ref: '#/components/schemas/InterpretationApplicability'}
+        rules:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/InterpretationRule'}
+        author: {type: string, minLength: 1}
+        explanation: {type: string, minLength: 1}
+        createdAt: {type: string, format: date-time}
+    InterpretationRevisionCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [libraryId, applicability, rules, explanation]
+      properties:
+        libraryId: {type: string, minLength: 1}
+        parentRevisionId: {type: string, minLength: 1}
+        applicability: {$ref: '#/components/schemas/InterpretationApplicability'}
+        rules:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/InterpretationRule'}
+        explanation: {type: string, minLength: 1}
+    InterpretationCandidatePayload:
+      type: object
+      additionalProperties: false
+      required: [candidateReceiptId, revisionId]
+      properties:
+        candidateReceiptId: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+    InterpretationPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, column, revisionId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 0}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 100}
+    InterpretationPreviewSample:
+      type: object
+      additionalProperties: false
+      required: [rowId, before, after, state]
+      properties:
+        rowId: {type: string, minLength: 1}
+        before: {type: object, additionalProperties: true}
+        after: {type: object, additionalProperties: true}
+        state: {type: string, enum: [UNCHANGED, CHANGED, RESOLVED, UNRESOLVED]}
+    InterpretationPreviewCounts:
+      type: object
+      additionalProperties: false
+      required: [compared, changed, resolved, unresolved]
+      properties:
+        compared: {type: integer, minimum: 0}
+        changed: {type: integer, minimum: 0}
+        resolved: {type: integer, minimum: 0}
+        unresolved: {type: integer, minimum: 0}
+    InterpretationPreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [baseReceiptId, candidateReceiptId, outputId, column, revisionId, completeness, samples, counts]
+      properties:
+        baseReceiptId: {type: string, minLength: 1}
+        candidateReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+        completeness: {type: string, enum: [COMPLETE, INCOMPLETE]}
+        samples:
+          type: array
+          items: {$ref: '#/components/schemas/InterpretationPreviewSample'}
+        counts: {$ref: '#/components/schemas/InterpretationPreviewCounts'}
     APIVersion:
       type: string
       enum: [loom.calypr.org/explorer-authoring/v2]
@@ -1422,7 +1661,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -1443,6 +1682,7 @@ components:
         contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         source: {$ref: '#/components/schemas/ColumnSource'}
         rowChange: {$ref: '#/components/schemas/RowChangeProposal'}
+        interpretationCandidate: {$ref: '#/components/schemas/InterpretationCandidatePayload'}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
@@ -1608,13 +1848,14 @@ components:
     CatalogCandidate:
       type: object
       additionalProperties: false
-      required: [candidateId, nodeId, fieldPath, label, logicalType, repeated, filterable, chartable, projectionModes, defaultProjectionMode]
+      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode]
       properties:
         candidateId: {type: string, minLength: 1}
         nodeId: {type: string, minLength: 1}
         fieldPath: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
         logicalType: {type: string, minLength: 1}
+        cardinality: {type: string, minLength: 1}
         repeated: {type: boolean}
         filterable: {type: boolean}
         chartable: {type: boolean}

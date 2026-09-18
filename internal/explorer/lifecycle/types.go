@@ -269,6 +269,38 @@ type PreviewInterpretationCandidateResult struct {
 	Counts             CandidatePreviewCounts                 `json:"counts"`
 }
 
+// InterpretationLibraryView expands the mutable library head into the exact
+// immutable revision that a client may inspect or propose. The view never
+// makes a workspace follow this head; pinned workspaces retain their exact
+// revision ID.
+type InterpretationLibraryView struct {
+	Library explorer.InterpretationLibrary
+	Head    *explorer.InterpretationRevision
+}
+
+type ListInterpretationLibrariesResult struct {
+	Project   string
+	Libraries []InterpretationLibraryView
+}
+
+type GetInterpretationRevisionRequest struct {
+	Project    string
+	RevisionID string
+}
+
+// CreateInterpretationRevisionRequest contains only typed authoring values.
+// Author is supplied by the authenticated transport subject, never by the
+// browser payload.
+type CreateInterpretationRevisionRequest struct {
+	Project          string
+	LibraryID        string
+	ParentRevisionID string
+	Applicability    explorer.InterpretationApplicability
+	Rules            []explorer.InterpretationRule
+	Explanation      string
+	Author           string
+}
+
 type PopulationMappingRequest struct {
 	Project    string
 	ExplorerID string
