@@ -15,6 +15,20 @@ const cellTraceContributionSchema = z.object({
   value: z.unknown(),
 }).strict();
 
+const cellTraceFeatureSchema = z.object({
+  outputId: z.string().min(1),
+  column: z.string().min(1),
+  authoredColumn: z.string().min(1),
+  occurrenceId: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  sourceResourceType: z.string().optional(),
+  sourcePath: z.string().optional(),
+  projectionMode: z.string(),
+  lossless: z.boolean(),
+  lossReasons: z.array(z.string()),
+}).strict();
+
 const completeTraceFields = {
   rowId: z.string().min(1),
   column: z.string().min(1),
@@ -60,6 +74,7 @@ const cellTraceIncompleteSchema = z.object({
 
 export const cellTraceResponseSchema = z.object({
   binding: cellTraceBindingSchema,
+  feature: cellTraceFeatureSchema,
   trace: z.discriminatedUnion('status', [
     cellTraceValueSchema,
     cellTraceNoMatchSchema,
@@ -72,4 +87,3 @@ export const cellTraceResponseSchema = z.object({
 export type CellTraceResponse = z.infer<typeof cellTraceResponseSchema>;
 export type CellTrace = CellTraceResponse['trace'];
 export type CellTraceContribution = CellTrace['contributions'][number];
-

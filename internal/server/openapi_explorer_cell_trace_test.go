@@ -71,6 +71,9 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 	if body.Binding.ReceiptId != receipt.ID || body.Binding.OutputId != "patients" || body.Binding.Project != "project-a" || body.Binding.ExplorerId != "custom" || body.Binding.Generation != "generation-a" || body.Binding.ScopeDigest == "" {
 		t.Fatalf("trace binding=%#v", body.Binding)
 	}
+	if body.Feature.OutputId != "patients" || body.Feature.Column != "c_patient" || body.Feature.AuthoredColumn == "" || body.Feature.OccurrenceId == "" || body.Feature.Label == "" || body.Feature.LossReasons == nil {
+		t.Fatalf("trace feature=%#v", body.Feature)
+	}
 	if body.Trace.Status != loomapi.CellTraceTraceStatusVALUE || body.Trace.Value != "patient-7" || len(body.Trace.Contributions) != 1 || body.Trace.Contributions[0].ResourceId == nil || *body.Trace.Contributions[0].ResourceId != "patient-7" || !body.Trace.HasMore || body.Trace.NextOffset != 3 || !body.Trace.Complete {
 		t.Fatalf("trace evidence=%#v", body.Trace)
 	}

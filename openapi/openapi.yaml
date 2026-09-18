@@ -2123,12 +2123,31 @@ components:
         nextOffset: {type: integer, minimum: 0}
         omissionCode: {type: string}
         complete: {type: boolean}
+    CellTraceFeature:
+      type: object
+      additionalProperties: false
+      required: [outputId, column, authoredColumn, occurrenceId, label, logicalType, projectionMode, lossless, lossReasons]
+      properties:
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        authoredColumn: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        sourceResourceType: {type: string}
+        sourcePath: {type: string}
+        projectionMode: {type: string}
+        lossless: {type: boolean}
+        lossReasons:
+          type: array
+          items: {type: string}
     CellTraceResponse:
       type: object
       additionalProperties: false
-      required: [binding, trace]
+      required: [binding, feature, trace]
       properties:
         binding: {$ref: '#/components/schemas/CellTraceBinding'}
+        feature: {$ref: '#/components/schemas/CellTraceFeature'}
         trace: {$ref: '#/components/schemas/CellTraceTrace'}
     PopulationMappingRequest:
       type: object

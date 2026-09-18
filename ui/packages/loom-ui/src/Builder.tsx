@@ -14,6 +14,14 @@ export interface LoomExplorerBuilderProps {
   readonly organization?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly className?: string;
+  /** Feature selected from a Viewer explanation for focused repair. */
+  readonly featureFocus?: LoomBuilderFeatureFocus;
+}
+
+export interface LoomBuilderFeatureFocus {
+  readonly outputId: string;
+  readonly column: string;
+  readonly label?: string;
 }
 
 export const LoomExplorerBuilder = ({
@@ -24,6 +32,7 @@ export const LoomExplorerBuilder = ({
   organization,
   onExplorerChange,
   className,
+  featureFocus,
 }: LoomExplorerBuilderProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
   const [populationSelection, setPopulationSelection] = useState<SelectionRevision>();
@@ -67,6 +76,7 @@ export const LoomExplorerBuilder = ({
           populationSelectionLoading={populationSelectionLoading}
           populationSelectionError={populationSelectionError}
           onExplorerChange={onExplorerChange}
+          featureFocus={featureFocus}
         />
       </div>
     </LoomProvider>

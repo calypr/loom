@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
@@ -54,6 +54,16 @@ const table: DraftTable = {
 };
 
 describe('configured V2 columns', () => {
+  it('narrows and highlights the exact feature handed off for repair', async () => {
+    render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base"
+      focusColumn="research_subject_identifier" disabled={false} onAdd={vi.fn()}
+      onAddAll={vi.fn()} onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={vi.fn()} />);
+
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Search columns' }) as HTMLInputElement).value).toBe('research_subject_identifier'));
+    expect(document.querySelector('[data-feature-focus="true"]')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Display name for configured Research Subject ID' })).toBeInTheDocument();
+  });
+
   it('edits repeated values independently from related-record selection', () => {
     const onSourceChange = vi.fn();
     const repeatedCatalog: ExplorerBuilderCatalog = {

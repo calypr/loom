@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
@@ -349,6 +349,7 @@ export const ColumnSelector = ({
   catalog,
   table,
   occurrenceId,
+  focusColumn,
   disabled,
   loadingCandidates = false,
   onAdd,
@@ -362,6 +363,7 @@ export const ColumnSelector = ({
   readonly catalog: ExplorerBuilderCatalog;
   readonly table?: DraftTable;
   readonly occurrenceId: string;
+  readonly focusColumn?: string;
   readonly disabled: boolean;
   readonly loadingCandidates?: boolean;
   readonly onAdd: (
@@ -382,6 +384,9 @@ export const ColumnSelector = ({
   readonly onRemove: (column: string) => void;
 }) => {
   const [query, setQuery] = useState('');
+  useEffect(() => {
+    if (focusColumn) setQuery(focusColumn);
+  }, [focusColumn]);
   const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
   const { viewport, ref: candidateScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -585,7 +590,8 @@ export const ColumnSelector = ({
                   return (
                     <div
                       key={row.kind === 'configured' ? `configured:${row.column.column}` : `available:${row.candidate.candidateId}`}
-                      className="absolute inset-x-0"
+                      className={`absolute inset-x-0 ${row.kind === 'configured' && row.column.column === focusColumn ? 'rounded border-2 border-blue-500 bg-blue-50' : ''}`}
+                      data-feature-focus={row.kind === 'configured' && row.column.column === focusColumn ? 'true' : undefined}
                       style={{ top: order * CANDIDATE_ROW_HEIGHT, height: CANDIDATE_ROW_HEIGHT }}
                     >
                       {row.kind === 'configured' ? (

@@ -1583,6 +1583,34 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001')`, 60000);
     await snapshot(cdp, join(evidenceDir, 'viewer-before-filter.html'));
     recordEvidence(report, join(evidenceDir, 'viewer-before-filter.html'));
+    await browserEval(cdp, `
+      const row = [...document.querySelectorAll('table[aria-label$=" results"] tbody tr')]
+        .find((candidate) => norm(candidate.querySelector('td')?.textContent) === 'dev-patient-002');
+      const explain = [...(row?.querySelectorAll('button[aria-label]') || [])]
+        .find((candidate) => candidate.getAttribute('aria-label')?.startsWith('Explain name[].family [1] for row '));
+      if (!explain) throw new Error('recorded-null family cell was not found for dev-patient-002');
+      explain.click();
+    `);
+    await waitForBrowser(cdp, `document.body.innerText.includes('A matching source record exists, but its selected value is empty.')`, 30000);
+    await browserEval(cdp, `clickButton('Review null handling')`);
+    await waitForBrowser(cdp, `new URL(window.location.href).searchParams.get('mode') === 'builder' && Boolean(document.querySelector('[data-feature-focus="true"]'))`, 60000);
+    const repairFocus = await evaluate(cdp, `({
+      mode: new URL(window.location.href).searchParams.get('mode'),
+      output: new URL(window.location.href).searchParams.get('focusOutput'),
+      column: new URL(window.location.href).searchParams.get('focusColumn'),
+      search: document.querySelector('input[aria-label="Search columns"]')?.value ?? '',
+      highlighted: document.querySelector('[data-feature-focus="true"]')?.getAttribute('data-feature-focus') ?? '',
+    })`);
+    recordAssertion(report, 'viewer-null-repair-focuses-exact-builder-feature', true,
+      repairFocus.mode === 'builder'
+      && Boolean(repairFocus.output)
+      && Boolean(repairFocus.column)
+      && repairFocus.search === repairFocus.column
+      && repairFocus.highlighted === 'true');
+    await snapshot(cdp, join(evidenceDir, 'builder-focused-null-repair.html'));
+    recordEvidence(report, join(evidenceDir, 'builder-focused-null-repair.html'));
+    await browserEval(cdp, `clickButton('Viewer')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001')`, 60000);
     await browserEval(cdp, `clickButton('Load values')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('female')`);
     await browserEval(cdp, `clickFacetValue('female')`);

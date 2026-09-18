@@ -41,6 +41,7 @@ describe('Loom Explorer Viewer', () => {
   });
 
   it('explains a published feature cell from its receipt-bound source evidence', async () => {
+    const onRepairFeature = vi.fn();
     const traceState = {
       ...state,
       runtime: {
@@ -60,7 +61,8 @@ describe('Loom Explorer Viewer', () => {
       if (url.endsWith('/authoring/v2/cell-trace')) {
         return Promise.resolve(new Response(JSON.stringify({
           binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
-          trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 0, complete: true },
+          feature: { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] },
+          trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'AMBIGUOUS', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }, { resourceType: 'Patient', resourceId: 'patient-2', value: 'unknown' }], hasMore: false, nextOffset: 0, complete: true },
         }), { status: 200 }));
       }
       if (url.includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(traceState), { status: 200 }));
@@ -71,7 +73,7 @@ describe('Loom Explorer Viewer', () => {
       return Promise.resolve(new Response('{}', { status: 200 }));
     });
 
-    render(<LoomExplorerViewer client={createLoomClient({ fetch })} project="NCPI_ACCEPTANCE" />);
+    render(<LoomExplorerViewer client={createLoomClient({ fetch })} project="NCPI_ACCEPTANCE" onRepairFeature={onRepairFeature} />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Explain Gender for row 1' })).toBeInTheDocument();
@@ -83,9 +85,11 @@ describe('Loom Explorer Viewer', () => {
     ));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Why is Gender female?');
-    expect(dialog).toHaveTextContent('One source record supplied this value.');
-    fireEvent.click(screen.getByText('Source details (1)'));
+    expect(dialog).toHaveTextContent('More than one source value matched.');
+    fireEvent.click(screen.getByText('Source details (2)'));
     expect(dialog).toHaveTextContent('Patient / patient-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve matching rule' }));
+    expect(onRepairFeature).toHaveBeenCalledWith({ outputId: 'patients', column: 'patient_gender', label: 'Gender', status: 'AMBIGUOUS' });
   });
 
   it('exposes output tabs and updates the selected output', async () => {

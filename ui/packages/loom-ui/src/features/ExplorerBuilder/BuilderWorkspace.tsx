@@ -154,6 +154,7 @@ const BuilderWorkspaceContent = ({
   populationSelectionLoading = false,
   populationSelectionError,
   onExplorerChange,
+  featureFocus,
 }: {
   readonly organization?: string;
   readonly project: string;
@@ -162,6 +163,11 @@ const BuilderWorkspaceContent = ({
   readonly populationSelectionLoading?: boolean;
   readonly populationSelectionError?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
+  readonly featureFocus?: {
+    readonly outputId: string;
+    readonly column: string;
+    readonly label?: string;
+  };
 }) => {
   const loomClient = useLoomClient();
   const projectId = organization ? `${organization}/${project}` : project;
@@ -393,6 +399,24 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  const focusedFeature = useMemo(() => {
+    if (!featureFocus) return undefined;
+    const targetTable = state.tables.find((candidate) => candidate.outputId === featureFocus.outputId);
+    const column = targetTable?.document.columns.find((candidate) =>
+      candidate.column === featureFocus.column
+      || (featureFocus.label !== undefined && candidate.label === featureFocus.label));
+    return targetTable && column ? { table: targetTable, column } : undefined;
+  }, [featureFocus, state.tables]);
+  useEffect(() => {
+    if (!focusedFeature) return;
+    if (state.selectedOutputId !== focusedFeature.table.outputId) {
+      dispatch({ type: 'selectTable', outputId: focusedFeature.table.outputId });
+      return;
+    }
+    if (state.selectedOccurrenceId !== focusedFeature.column.occurrenceId) {
+      dispatch({ type: 'selectOccurrence', occurrenceId: focusedFeature.column.occurrenceId });
+    }
+  }, [dispatch, focusedFeature, state.selectedOccurrenceId, state.selectedOutputId]);
   const handedOffPopulationSelectionID = populationSelection?.id;
   useEffect(() => {
     setActivePopulationSelection(populationSelection);
@@ -1326,6 +1350,7 @@ const BuilderWorkspaceContent = ({
                 catalog={state.catalog}
                 table={table}
                 occurrenceId={state.selectedOccurrenceId}
+                focusColumn={focusedFeature && focusedFeature.table.outputId === table?.outputId ? focusedFeature.column.column : undefined}
                 disabled={!occurrence}
                 loadingCandidates={suggestionsStatus.isLoading}
                 onAdd={(candidate, displayName, initialPresentation) =>

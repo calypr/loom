@@ -361,6 +361,19 @@ func (h *explorerHTTPHandlers) traceExplorerCellDirect(ctx context.Context, proj
 		Project: value.Binding.Project, ExplorerId: value.Binding.ExplorerID,
 		Generation: value.Binding.Generation, ScopeDigest: value.Binding.ScopeDigest,
 	}
+	result.Feature = loomapi.CellTraceFeature{
+		OutputId: value.Feature.OutputID, Column: value.Feature.Column,
+		AuthoredColumn: value.Feature.AuthoredColumn, OccurrenceId: value.Feature.OccurrenceID,
+		Label: value.Feature.Label, LogicalType: value.Feature.LogicalType,
+		ProjectionMode: value.Feature.ProjectionMode, Lossless: value.Feature.Lossless,
+		LossReasons: append([]string{}, value.Feature.LossReasons...),
+	}
+	if value.Feature.SourceResourceType != "" {
+		result.Feature.SourceResourceType = &value.Feature.SourceResourceType
+	}
+	if value.Feature.SourcePath != "" {
+		result.Feature.SourcePath = &value.Feature.SourcePath
+	}
 	trace := loomapi.CellTraceTrace{
 		RowId: value.Trace.RowID, Column: value.Trace.Column, Value: value.Trace.Value,
 		Status: loomapi.CellTraceTraceStatus(value.Trace.Status), HasMore: value.Trace.HasMore,

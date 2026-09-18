@@ -377,7 +377,25 @@ type CellTraceBinding struct {
 
 type CellTraceResult struct {
 	Binding CellTraceBinding                   `json:"binding"`
+	Feature CellTraceFeature                   `json:"feature"`
 	Trace   dataframeexecution.CellTraceResult `json:"trace"`
+}
+
+// CellTraceFeature is the receipt-owned descriptor for both explanation and
+// repair navigation. AuthoredColumn is the stable Builder key; Column is the
+// published physical key and may differ for expanded projections.
+type CellTraceFeature struct {
+	OutputID           string   `json:"outputId"`
+	Column             string   `json:"column"`
+	AuthoredColumn     string   `json:"authoredColumn"`
+	OccurrenceID       string   `json:"occurrenceId"`
+	Label              string   `json:"label"`
+	LogicalType        string   `json:"logicalType"`
+	SourceResourceType string   `json:"sourceResourceType,omitempty"`
+	SourcePath         string   `json:"sourcePath,omitempty"`
+	ProjectionMode     string   `json:"projectionMode,omitempty"`
+	Lossless           bool     `json:"lossless"`
+	LossReasons        []string `json:"lossReasons"`
 }
 
 type PublishRequest struct {

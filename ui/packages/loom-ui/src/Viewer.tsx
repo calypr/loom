@@ -27,6 +27,7 @@ export type LoomViewerActionHandler = (context: LoomViewerActionContext, signal:
 export interface LoomFeatureRepairContext {
   readonly outputId: string;
   readonly column: string;
+  readonly label: string;
   readonly status: CellTraceResponse['trace']['status'];
 }
 
@@ -237,7 +238,12 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
         onClose={() => setCellExplanation({ kind: 'closed' })}
         onLoadMore={() => { void loadMoreEvidence(); }}
-        onRepair={onRepairFeature ? (coordinate, status) => onRepairFeature({ outputId: coordinate.outputId, column: coordinate.column, status }) : undefined}
+        onRepair={onRepairFeature && currentTracePage ? (_coordinate, status) => onRepairFeature({
+          outputId: currentTracePage.feature.outputId,
+          column: currentTracePage.feature.authoredColumn,
+          label: currentTracePage.feature.label,
+          status,
+        }) : undefined}
       />
     </main>
   );

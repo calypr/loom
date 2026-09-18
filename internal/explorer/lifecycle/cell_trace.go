@@ -43,7 +43,8 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return CellTraceResult{}, unprocessable("cellTrace", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
-	if !receiptHasEmittedColumn(receipt, request.OutputID, request.Column) {
+	feature, ok := receiptCellTraceFeature(receipt, request.OutputID, request.Column)
+	if !ok {
 		return CellTraceResult{}, unprocessable("cellTrace", "UNKNOWN_OUTPUT_COLUMN", "column is not in the receipt output", nil)
 	}
 
@@ -62,18 +63,37 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	}
 	return CellTraceResult{
 		Binding: CellTraceBinding{ReceiptID: receipt.ID, OutputID: request.OutputID, Project: projectid.Canonical(receipt.Project), ExplorerID: receipt.ExplorerID, Generation: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest},
+		Feature: feature,
 		Trace:   trace,
 	}, nil
 }
 
-func receiptHasEmittedColumn(receipt *explorer.CompilationReceipt, outputID, column string) bool {
+func receiptCellTraceFeature(receipt *explorer.CompilationReceipt, outputID, column string) (CellTraceFeature, bool) {
 	if receipt == nil {
-		return false
+		return CellTraceFeature{}, false
 	}
 	for _, emitted := range receipt.EmittedColumns {
 		if emitted.OutputID == outputID && emitted.PublicColumn == column {
-			return true
+			authoredColumn := emitted.PublicColumn
+			if len(emitted.AuthoredColumns) > 0 {
+				authoredColumn = emitted.AuthoredColumns[0]
+			}
+			label := strings.TrimSpace(emitted.Label)
+			if label == "" {
+				label = emitted.PublicColumn
+			}
+			occurrenceID := strings.TrimSpace(emitted.OccurrenceID)
+			if occurrenceID == "" {
+				occurrenceID = "base"
+			}
+			return CellTraceFeature{
+				OutputID: emitted.OutputID, Column: emitted.PublicColumn, AuthoredColumn: authoredColumn,
+				OccurrenceID: occurrenceID, Label: label, LogicalType: emitted.LogicalType,
+				SourceResourceType: emitted.SourceResourceType, SourcePath: emitted.SourcePath,
+				ProjectionMode: emitted.ProjectionMode, Lossless: emitted.Lossless,
+				LossReasons: append([]string(nil), emitted.LossReasons...),
+			}, true
 		}
 	}
-	return false
+	return CellTraceFeature{}, false
 }

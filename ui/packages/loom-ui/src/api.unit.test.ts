@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 
+const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
+
 describe('Loom project paths', () => {
   it('parses a receipt-bound cell explanation as a typed status', () => {
     expect(cellTraceResponseSchema.parse({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      feature: tracedFeature,
       trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 0, complete: true },
     }).trace.status).toBe('VALUE');
     expect(() => cellTraceResponseSchema.parse({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      feature: tracedFeature,
       trace: { rowId: 'row-1', column: 'gender', value: null, status: 'INCOMPLETE', contributions: [], hasMore: false, nextOffset: 0, complete: true },
     })).toThrow();
   });
@@ -17,6 +21,7 @@ describe('Loom project paths', () => {
   it('posts exact cell coordinates and bounded contribution paging', async () => {
     const response = {
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      feature: tracedFeature,
       trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 26, complete: true },
     };
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }));

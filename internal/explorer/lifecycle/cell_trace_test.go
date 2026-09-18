@@ -29,6 +29,9 @@ func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
 	if result.Binding.ReceiptID != receipt.ID || result.Binding.ScopeDigest != receipt.AuthorizationScopeDigest || result.Trace.Value != "Patient/7" || !result.Trace.Complete {
 		t.Fatalf("unexpected result: %#v", result)
 	}
+	if result.Feature.OutputID != "patients" || result.Feature.Column != "patient_id" || result.Feature.AuthoredColumn != "patient_id" || result.Feature.OccurrenceID != "base" || result.Feature.Label != "Patient ID" {
+		t.Fatalf("unexpected feature descriptor: %#v", result.Feature)
+	}
 }
 
 func TestCellTraceRejectsUnknownColumnBeforeExecution(t *testing.T) {
