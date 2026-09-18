@@ -302,6 +302,41 @@ func (r *HTTPRoutes) PreviewExplorer(ctx context.Context, request loomapi.Previe
 	}
 }
 
+func (r *HTTPRoutes) TraceExplorerCell(ctx context.Context, request loomapi.TraceExplorerCellRequestObject) (loomapi.TraceExplorerCellResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerCell", explorerUnavailable("trace", "TRACE_UNAVAILABLE", "Explorer cell tracing is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("traceExplorerCell", status)
+	}
+	value, err := r.explorer.traceExplorerCellDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.TraceExplorerCell200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerCell", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.TraceExplorerCell401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.TraceExplorerCell400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.TraceExplorerCell403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.TraceExplorerCell404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.TraceExplorerCell409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.TraceExplorerCell422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.TraceExplorerCell500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("traceExplorerCell", status)
+	}
+}
+
 func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request loomapi.CheckExplorerPopulationMappingRequestObject) (loomapi.CheckExplorerPopulationMappingResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)

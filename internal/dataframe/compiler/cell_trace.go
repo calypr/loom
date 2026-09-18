@@ -67,14 +67,15 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 		return CompiledCellTraceQuery{}, fmt.Errorf("trace column %q: %w", column, err)
 	}
 	contribution := traceContributionForProjection(physical, value)
-	const offsetBind, limitBind = "cell_trace_offset", "cell_trace_limit"
+	const offsetBind, limitBind, fetchLimitBind = "cell_trace_offset", "cell_trace_limit", "cell_trace_fetch_limit"
 	physical.BindVars[offsetBind] = offset
 	physical.BindVars[limitBind] = limit
+	physical.BindVars[fetchLimitBind] = limit + 1
 	physical.Operations[terminalIndex] = ir.PhysicalOperation{
 		Kind: ir.PhysicalCellTraceReturnOp, Source: physical.Operations[terminalIndex].Source,
 		CellTraceReturn: &ir.PhysicalCellTraceReturn{
 			Value: value, Contribution: contribution, IdentityParts: identityParts, ExplicitIdentity: explicitIdentity,
-			OffsetBindKey: offsetBind, LimitBindKey: limitBind,
+			OffsetBindKey: offsetBind, LimitBindKey: limitBind, FetchLimitBindKey: fetchLimitBind,
 		},
 	}
 	if err := physical.Validate(); err != nil {

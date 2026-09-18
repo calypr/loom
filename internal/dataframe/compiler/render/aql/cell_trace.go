@@ -58,7 +58,7 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	return []string{
 		"LET " + statusVariable + " = " + statusCandidates,
 		"LET " + pageVariable + " = " + contributors,
-		fmt.Sprintf("RETURN { [%s]: %s, [%s]: %s, [%s]: %s, [%s]: %s, [%s]: LENGTH(%s) > @%s, [%s]: %q }", valueName, value, contributionsName, pageVariable+"[0..@"+terminal.LimitBindKey+"-1]", identityName, identityValue, statusName, status, hasMoreName, pageVariable, terminal.LimitBindKey, omissionName, omission),
+		fmt.Sprintf("RETURN { [%s]: %s, [%s]: SLICE(%s, 0, @%s), [%s]: %s, [%s]: %s, [%s]: LENGTH(%s) > @%s, [%s]: %q }", valueName, value, contributionsName, pageVariable, terminal.LimitBindKey, identityName, identityValue, statusName, status, hasMoreName, pageVariable, terminal.LimitBindKey, omissionName, omission),
 	}, nil
 }
 
@@ -101,7 +101,7 @@ func (r *physicalPlanRenderer) renderReducedSetTraceContributors(contribution ir
 	value := r.newInternalVariable("trace_contributor_value")
 	values := fmt.Sprintf("(%s.%s == null ? [null] : TO_ARRAY(%s.%s))", item, contribution.ValueField, item, contribution.ValueField)
 	record := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.id, value: %s }`, item, item, value)
-	page = fmt.Sprintf("(FOR %s IN %s FOR %s IN %s LIMIT @%s, @%s + 1 RETURN %s)", item, contribution.SetVariable, value, values, terminal.OffsetBindKey, terminal.LimitBindKey, record)
+	page = fmt.Sprintf("(FOR %s IN %s FOR %s IN %s LIMIT @%s, @%s RETURN %s)", item, contribution.SetVariable, value, values, terminal.OffsetBindKey, terminal.FetchLimitBindKey, record)
 	status = fmt.Sprintf("(FOR %s IN %s FOR %s IN %s LIMIT 2 RETURN %s)", item, contribution.SetVariable, value, values, record)
 	return page, status, contribution.Lossy, "", nil
 }
@@ -119,7 +119,7 @@ func (r *physicalPlanRenderer) renderTraceContributorQueries(items string, value
 		}
 	}
 	record := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.id, value: %s }`, item, item, value)
-	page = fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s + 1 RETURN %s)", item, items, terminal.OffsetBindKey, terminal.LimitBindKey, record)
+	page = fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s RETURN %s)", item, items, terminal.OffsetBindKey, terminal.FetchLimitBindKey, record)
 	status = fmt.Sprintf("(FOR %s IN %s LIMIT 2 RETURN %s)", item, items, record)
 	return page, status, lossy, "", nil
 }

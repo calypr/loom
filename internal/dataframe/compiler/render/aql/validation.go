@@ -170,7 +170,7 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		if operation.CellTraceReturn == nil {
 			return fmt.Errorf("cell trace return requires a payload")
 		}
-		for _, key := range []string{operation.CellTraceReturn.OffsetBindKey, operation.CellTraceReturn.LimitBindKey} {
+		for _, key := range []string{operation.CellTraceReturn.OffsetBindKey, operation.CellTraceReturn.LimitBindKey, operation.CellTraceReturn.FetchLimitBindKey} {
 			if _, isCollection := collectionKeys[key]; isCollection {
 				return fmt.Errorf("cell trace bind key %q cannot be a collection bind", key)
 			}

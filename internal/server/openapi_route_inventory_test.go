@@ -47,8 +47,8 @@ func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 			t.Errorf("registered route is absent from OpenAPI: %s", route)
 		}
 	}
-	if len(got) != 30 || len(want) != 30 {
-		t.Errorf("route count got=%d spec=%d, want 30", len(got), len(want))
+	if len(got) != 31 || len(want) != 31 {
+		t.Errorf("route count got=%d spec=%d, want 31", len(got), len(want))
 	}
 }
 
@@ -120,5 +120,6 @@ func TestOpenAPIDocumentsOperationSpecificFailureStatuses(t *testing.T) {
 	assertStatuses("POST", "/api/v1/datasets/{project}/generations/{generation}", "400", "401", "403", "409", "415", "422", "500", "503")
 	assertStatuses("GET", "/api/v1/datasets/{project}/generations/{generation}", "400", "401", "403", "404", "500", "503")
 	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview", "400", "401", "403", "404", "409", "413", "422", "429", "499", "500", "503", "504")
+	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace", "400", "401", "403", "404", "409", "422", "500", "503")
 	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish", "400", "401", "403", "404", "409", "422", "500", "503")
 }

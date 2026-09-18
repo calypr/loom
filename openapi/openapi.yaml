@@ -295,6 +295,33 @@ paths:
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
         '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: traceExplorerCell
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CellTraceRequest'
+      responses:
+        '200':
+          description: Receipt-bound typed evidence for one published output cell.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CellTraceResponse'
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2050,6 +2077,59 @@ components:
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
+    CellTraceRequest:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, rowId, column]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        rowId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 100}
+    CellTraceContribution:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties:
+        resourceType: {type: string}
+        resourceId: {type: string}
+        value: {}
+    CellTraceBinding:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, project, explorerId, generation, scopeDigest]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        project: {type: string, minLength: 1}
+        explorerId: {type: string, minLength: 1}
+        generation: {type: string, minLength: 1}
+        scopeDigest: {type: string, minLength: 1}
+    CellTraceTrace:
+      type: object
+      additionalProperties: false
+      required: [rowId, column, value, status, contributions, hasMore, nextOffset, complete]
+      properties:
+        rowId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        value: {}
+        status: {type: string, enum: [VALUE, NO_MATCH, RECORDED_NULL, AMBIGUOUS, INCOMPLETE]}
+        contributions:
+          type: array
+          items: {$ref: '#/components/schemas/CellTraceContribution'}
+        hasMore: {type: boolean}
+        nextOffset: {type: integer, minimum: 0}
+        omissionCode: {type: string}
+        complete: {type: boolean}
+    CellTraceResponse:
+      type: object
+      additionalProperties: false
+      required: [binding, trace]
+      properties:
+        binding: {$ref: '#/components/schemas/CellTraceBinding'}
+        trace: {$ref: '#/components/schemas/CellTraceTrace'}
     PopulationMappingRequest:
       type: object
       additionalProperties: false

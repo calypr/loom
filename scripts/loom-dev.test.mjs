@@ -53,6 +53,7 @@ test('development session accepts a read-only external FHIR fixture directory', 
 
 test('generation load polling distinguishes durable completion from failure', () => {
   assert.equal(generationLoadDisposition({ state: 'LOADING' }), 'loading');
+  assert.equal(generationLoadDisposition({ state: 'STAGED' }), 'ready');
   assert.equal(generationLoadDisposition({ state: 'READY' }), 'ready');
   assert.equal(generationLoadDisposition({ state: 'FAILED' }), 'failed');
   assert.equal(generationLoadDisposition({}), 'unknown');

@@ -1,7 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, populationMappingResponseSchema } from './api';
+import { cellTraceResponseSchema } from './cellTrace';
 
 describe('Loom project paths', () => {
+  it('parses a receipt-bound cell explanation as a typed status', () => {
+    expect(cellTraceResponseSchema.parse({
+      binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 0, complete: true },
+    }).trace.status).toBe('VALUE');
+    expect(() => cellTraceResponseSchema.parse({
+      binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      trace: { rowId: 'row-1', column: 'gender', value: null, status: 'INCOMPLETE', contributions: [], hasMore: false, nextOffset: 0, complete: true },
+    })).toThrow();
+  });
+
+  it('posts exact cell coordinates and bounded contribution paging', async () => {
+    const response = {
+      binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+      trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 26, complete: true },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.cellTrace({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', receiptId: 'receipt-1', outputId: 'patients', rowId: 'row-1', column: 'gender', offset: 1, limit: 25 })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/cell-trace',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ receiptId: 'receipt-1', outputId: 'patients', rowId: 'row-1', column: 'gender', offset: 1, limit: 25 }) }),
+    );
+  });
+
   it('parses a bounded population coverage report', () => {
     expect(populationMappingResponseSchema.parse({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },

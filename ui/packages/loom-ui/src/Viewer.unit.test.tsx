@@ -40,6 +40,54 @@ describe('Loom Explorer Viewer', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('explains a published feature cell from its receipt-bound source evidence', async () => {
+    const traceState = {
+      ...state,
+      runtime: {
+        ...state.runtime,
+        outputs: [{
+          ...state.runtime.outputs[0],
+          columns: [
+            state.runtime.outputs[0].columns[0],
+            { column: 'gender', label: 'Gender', logicalType: 'string', visible: true, order: 1, filterable: true, chartable: true },
+          ],
+          table: { columns: [state.runtime.outputs[0].table.columns[0], { column: 'gender', label: 'Gender', visible: true }] },
+        }],
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/authoring/v2/cell-trace')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
+          trace: { rowId: 'row-1', column: 'gender', value: 'female', status: 'VALUE', contributions: [{ resourceType: 'Patient', resourceId: 'patient-1', value: 'female' }], hasMore: false, nextOffset: 0, complete: true },
+        }), { status: 200 }));
+      }
+      if (url.includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(traceState), { status: 200 }));
+      const body = JSON.parse(String(init?.body)) as { query?: string };
+      if (body.query?.includes('dataframeRows')) {
+        return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id', 'gender'], rows: [['patient-1', 'female']], rowIds: ['row-1'], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    });
+
+    render(<LoomExplorerViewer client={createLoomClient({ fetch })} project="NCPI_ACCEPTANCE" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Explain Gender for row 1' })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Explain Gender for row 1' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/cell-trace',
+      expect.objectContaining({ body: JSON.stringify({ receiptId: 'receipt-1', outputId: 'patients', rowId: 'row-1', column: 'gender', limit: 25 }) }),
+    ));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Why is Gender female?');
+    expect(dialog).toHaveTextContent('One source record supplied this value.');
+    fireEvent.click(screen.getByText('Source details (1)'));
+    expect(dialog).toHaveTextContent('Patient / patient-1');
+  });
+
   it('exposes output tabs and updates the selected output', async () => {
     const multiOutputState = {
       ...state,

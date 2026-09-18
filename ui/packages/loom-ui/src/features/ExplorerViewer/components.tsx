@@ -20,6 +20,7 @@ import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType } from './serialization';
 import { BoundedFormatCache } from './formatCache';
 import { displayValue } from '../../valueDisplay';
+import type { CellExplanationCoordinate } from './CellExplanationDialog';
 
 const LazyReactECharts = React.lazy(() =>
   import('echarts-for-react').then((module) => ({ default: module.default })),
@@ -244,7 +245,7 @@ export const OutputCharts = ({ output, result, visible }: { readonly output: Exp
   return <section className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-2" aria-label="Charts">{output.charts.map((binding, index) => <ChartPanel key={`${binding.column}-${index}`} binding={binding} output={output} result={result} />)}</section>;
 };
 
-export const OutputTable = ({ runtime, output, result, state, dispatch }: { readonly runtime: ExplorerRuntimeV1; readonly output: ExplorerRuntimeOutputV1; readonly result?: LoomOutputResult; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
+export const OutputTable = ({ runtime, output, result, state, dispatch, onExplainCell }: { readonly runtime: ExplorerRuntimeV1; readonly output: ExplorerRuntimeOutputV1; readonly result?: LoomOutputResult; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction>; readonly onExplainCell?: (coordinate: CellExplanationCoordinate) => void }) => {
   const bindings = useMemo(() => output.table.columns.filter((binding) => binding.visible && output.columns.some((column) => column.column === binding.column && column.visible)), [output]);
   const tableData = useMemo(() => [...(result?.rows ?? [])], [result?.rows]);
   const formattingCacheRef = React.useRef<BoundedFormatCache | null>(null);
@@ -259,13 +260,31 @@ export const OutputTable = ({ runtime, output, result, state, dispatch }: { read
     formattingCache.getOrSet(`display:${rowIndex}:${column}`, () => textFor(value));
   const cellTitle = (rowIndex: number, column: string, value: unknown): string =>
     formattingCache.getOrSet(`title:${rowIndex}:${column}`, () => textFor(value));
-  const tableColumns = useMemo<ColumnDef<ViewerRow>[]>(() => bindings.map((binding) => ({
-    id: binding.column,
-    accessorKey: binding.column,
-    size: 180,
-    header: binding.label ?? output.columns.find((column) => column.column === binding.column)?.label ?? binding.column,
-    cell: (info) => binding.cellRenderer === 'fileActions' ? <FileCell value={info.row.original[binding.column]} row={info.row.original} runtime={runtime} /> : <Text size="xs" lineClamp={3} title={cellTitle(info.row.index, binding.column, info.row.original[binding.column])}>{cellText(info.row.index, binding.column, info.row.original[binding.column])}</Text>,
-  })), [bindings, cellText, cellTitle, output.columns, runtime]);
+  const tableColumns = useMemo<ColumnDef<ViewerRow>[]>(() => bindings.map((binding, bindingIndex) => {
+    const label = binding.label ?? output.columns.find((column) => column.column === binding.column)?.label ?? binding.column;
+    return {
+      id: binding.column,
+      accessorKey: binding.column,
+      size: 180,
+      header: label,
+      cell: (info) => {
+        const value = info.row.original[binding.column];
+        if (binding.cellRenderer === 'fileActions') return <FileCell value={value} row={info.row.original} runtime={runtime} />;
+        const content = <Text size="xs" lineClamp={3} title={cellTitle(info.row.index, binding.column, value)}>{cellText(info.row.index, binding.column, value)}</Text>;
+        const rowId = result?.rowIds[info.row.index];
+        if (!onExplainCell || !rowId || bindingIndex === 0) return content;
+        return (
+          <UnstyledButton
+            className="w-full text-left text-blue-700"
+            aria-label={`Explain ${label} for row ${info.row.index + 1}`}
+            onClick={() => onExplainCell({ outputId: output.outputId, rowId, column: binding.column, label, displayedValue: value })}
+          >
+            {content}
+          </UnstyledButton>
+        );
+      },
+    };
+  }), [bindings, cellText, cellTitle, onExplainCell, output.columns, output.outputId, result?.rowIds, runtime]);
   const table = useReactTable({ data: tableData, columns: tableColumns, getCoreRowModel: getCoreRowModel(), enableColumnPinning: true, initialState: { columnPinning: { left: bindings.filter((binding) => binding.pinned).map((binding) => binding.column) } } });
   const activeSort = activeOutputState(state, output.outputId).sort;
 

@@ -3,6 +3,7 @@ import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOut
 import type {
   ApplyExplorerBuilderCommandsArgs,
   AssessExplorerRowChangeArgs,
+  CellTraceArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
@@ -201,6 +202,11 @@ export const usePopulationMappingMutation = () => {
     if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
     return client.populationMapping(args, signal);
   });
+};
+
+export const useCellTraceMutation = () => {
+  const client = useLoomClient();
+  return useMutation<CellTraceArgs, Awaited<ReturnType<LoomClient['cellTrace']>>>((args, signal) => client.cellTrace(args, signal));
 };
 
 export const usePublishExplorerAuthoringV2Mutation = () => {

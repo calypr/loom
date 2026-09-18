@@ -333,6 +333,58 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	return result, nil
 }
 
+func (h *explorerHTTPHandlers) traceExplorerCellDirect(ctx context.Context, project, explorerID string, body *loomapi.TraceExplorerCellJSONRequestBody) (loomapi.CellTraceResponse, error) {
+	var result loomapi.CellTraceResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("trace", errors.New("receiptId, outputId, rowId, and column are required"))
+	}
+	request := lifecycle.CellTraceRequest{
+		Project: project, ExplorerID: explorerID,
+		ReceiptID: body.ReceiptId, OutputID: body.OutputId,
+		RowID: body.RowId, Column: body.Column,
+	}
+	if body.Offset != nil {
+		request.Offset = *body.Offset
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.CellTrace(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.Binding = loomapi.CellTraceBinding{
+		ReceiptId: value.Binding.ReceiptID, OutputId: value.Binding.OutputID,
+		Project: value.Binding.Project, ExplorerId: value.Binding.ExplorerID,
+		Generation: value.Binding.Generation, ScopeDigest: value.Binding.ScopeDigest,
+	}
+	trace := loomapi.CellTraceTrace{
+		RowId: value.Trace.RowID, Column: value.Trace.Column, Value: value.Trace.Value,
+		Status: loomapi.CellTraceTraceStatus(value.Trace.Status), HasMore: value.Trace.HasMore,
+		NextOffset: value.Trace.NextOffset, Complete: value.Trace.Complete,
+	}
+	if value.Trace.OmissionCode != "" {
+		trace.OmissionCode = &value.Trace.OmissionCode
+	}
+	trace.Contributions = make([]loomapi.CellTraceContribution, 0, len(value.Trace.Contributions))
+	for _, contribution := range value.Trace.Contributions {
+		resourceType, resourceID := contribution.ResourceType, contribution.ResourceID
+		wire := loomapi.CellTraceContribution{Value: contribution.Value}
+		if resourceType != "" {
+			wire.ResourceType = &resourceType
+		}
+		if resourceID != "" {
+			wire.ResourceId = &resourceID
+		}
+		trace.Contributions = append(trace.Contributions, wire)
+	}
+	result.Trace = trace
+	return result, nil
+}
+
 func (h *explorerHTTPHandlers) populationMappingDirect(ctx context.Context, project, explorerID string, body *loomapi.CheckExplorerPopulationMappingJSONRequestBody) (loomapi.PopulationMappingResponse, error) {
 	var result loomapi.PopulationMappingResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {

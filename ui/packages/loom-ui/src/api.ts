@@ -32,6 +32,7 @@ import {
 } from './interpretation';
 import { z } from 'zod';
 import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
+import { cellTraceResponseSchema, type CellTraceResponse } from './cellTrace';
 import {
   selectionPageSchema,
   selectionRevisionSchema,
@@ -113,6 +114,15 @@ export interface PopulationMappingArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
   readonly outputId: string;
   readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface CellTraceArgs extends ExplorerAuthoringStateArgs {
+  readonly receiptId: string;
+  readonly outputId: string;
+  readonly rowId: string;
+  readonly column: string;
+  readonly offset?: number;
   readonly limit?: number;
 }
 
@@ -335,6 +345,10 @@ export interface LoomClient {
     args: PopulationMappingArgs,
     signal?: AbortSignal,
   ) => Promise<PopulationMappingResponse>;
+  readonly cellTrace: (
+    args: CellTraceArgs,
+    signal?: AbortSignal,
+  ) => Promise<CellTraceResponse>;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
     signal?: AbortSignal,
@@ -831,6 +845,15 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/population-mapping'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.cursor === undefined ? {} : { cursor: args.cursor }), ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal)).then((value) => populationMappingResponseSchema.parse(value));
+  const cellTrace = (args: CellTraceArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/cell-trace'), withJson({
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      rowId: args.rowId,
+      column: args.column,
+      ...(args.offset === undefined ? {} : { offset: args.offset }),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal)).then((value) => cellTraceResponseSchema.parse(value));
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
     getCached(
       `interpretations:${canonicalProject(args.project)}`,
@@ -1000,6 +1023,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     suggestions,
     preview,
     populationMapping,
+    cellTrace,
     listInterpretationLibraries,
     getInterpretationRevision,
     createInterpretationRevision,

@@ -6,7 +6,9 @@ import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type View
 import { runtimeSessionKey } from './features/ExplorerViewer/model';
 import { createViewerReducerState, viewerReducer } from './features/ExplorerViewer/reducer';
 import { outputRequestFor } from './features/ExplorerViewer/serialization';
-import { LoomProvider, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
+import { CellExplanationDialog, type CellExplanationCoordinate } from './features/ExplorerViewer/CellExplanationDialog';
+import { LoomProvider, useCellTraceMutation, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
+import type { CellTraceResponse } from './cellTrace';
 import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './types';
 
 type ViewerRuntimeAction = NonNullable<ExplorerRuntimeOutputV1['actions']>[number];
@@ -22,6 +24,12 @@ export interface LoomViewerActionContext {
 
 export type LoomViewerActionHandler = (context: LoomViewerActionContext, signal: AbortSignal) => Promise<void> | void;
 
+export interface LoomFeatureRepairContext {
+  readonly outputId: string;
+  readonly column: string;
+  readonly status: CellTraceResponse['trace']['status'];
+}
+
 export interface LoomExplorerViewerProps {
   readonly project: string;
   readonly explorerId?: string;
@@ -31,7 +39,19 @@ export interface LoomExplorerViewerProps {
   readonly onActiveOutputChange?: (outputId: string) => void;
   readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode;
   readonly customActions?: Readonly<Record<string, LoomViewerActionHandler>>;
+  readonly onRepairFeature?: (context: LoomFeatureRepairContext) => void;
 }
+
+type TracePages = readonly [CellTraceResponse, ...CellTraceResponse[]];
+type CellExplanationState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading'; readonly coordinate: CellExplanationCoordinate }
+  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
+
+const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
+  [pages[0], ...pages.slice(1), page];
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -42,20 +62,22 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   queueMicrotask(() => URL.revokeObjectURL(url));
 };
 
-const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions'>) => {
+const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions' | 'onRepairFeature'>) => {
   const runtimeQuery = useLoomRuntime({ project, explorerId: explorerId ?? 'default' });
   if (runtimeQuery.isLoading && !runtimeQuery.data) return <Center mih="45vh"><Stack align="center" gap="sm"><Loader size="sm" /><Text size="sm">Loading published Explorer…</Text></Stack></Center>;
   if (runtimeQuery.error || !runtimeQuery.data) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable"><Stack gap="sm"><Text size="sm">The published Explorer could not be loaded.</Text><Button size="xs" onClick={() => { void runtimeQuery.refetch(); }}>Try again</Button></Stack></Alert></Center>;
   if (runtimeQuery.data.outputs.length === 0) return <Center mih="45vh"><Alert title="No published outputs">This Explorer has no published tables yet.</Alert></Center>;
   const sessionKey = runtimeSessionKey(runtimeQuery.data);
   if (!sessionKey) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable">The published Explorer response is missing its revision identity.</Alert></Center>;
-  return <ViewerSession key={sessionKey} project={project} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />;
+  return <ViewerSession key={sessionKey} project={project} explorerId={explorerId ?? 'default'} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />;
 };
 
-const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions }: { readonly project: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions'] }) => {
+const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: { readonly project: string; readonly explorerId: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions']; readonly onRepairFeature?: LoomExplorerViewerProps['onRepairFeature'] }) => {
   const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
   const [pendingAction, setPendingAction] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+  const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
+  const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
     ?? runtime.outputs[0];
@@ -103,6 +125,39 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
     }
   };
   const overlay = state.overlay;
+  const explainCell = async (coordinate: CellExplanationCoordinate) => {
+    const report = runtime.qualityReports?.find((candidate) => candidate.output === coordinate.outputId || candidate.output === output.name);
+    if (!report) {
+      setCellExplanation({ kind: 'error', coordinate, message: 'This publication does not include receipt-bound quality evidence.' });
+      return;
+    }
+    setCellExplanation({ kind: 'loading', coordinate });
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, limit: 25 }).unwrap();
+      setCellExplanation({ kind: 'ready', coordinate, pages: [response] });
+    } catch (error) {
+      setCellExplanation({ kind: 'error', coordinate, message: error instanceof Error ? error.message : 'Loom could not explain this cell.' });
+    }
+  };
+  const loadMoreEvidence = async () => {
+    if (cellExplanation.kind !== 'ready') return;
+    const current = cellExplanation.pages[cellExplanation.pages.length - 1];
+    if (!current.trace.hasMore) return;
+    const report = runtime.qualityReports?.find((candidate) => candidate.output === cellExplanation.coordinate.outputId || candidate.output === output.name);
+    if (!report) return;
+    const pending: CellExplanationState = { kind: 'loadingMore', coordinate: cellExplanation.coordinate, pages: cellExplanation.pages };
+    setCellExplanation(pending);
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: cellExplanation.coordinate.outputId, rowId: cellExplanation.coordinate.rowId, column: cellExplanation.coordinate.column, offset: current.trace.nextOffset, limit: 25 }).unwrap();
+      setCellExplanation({ kind: 'ready', coordinate: cellExplanation.coordinate, pages: appendTracePage(cellExplanation.pages, response) });
+    } catch (error) {
+      setCellExplanation({ kind: 'error', coordinate: cellExplanation.coordinate, message: error instanceof Error ? error.message : 'Loom could not load more source details.' });
+    }
+  };
+  const tracePages = cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.pages : undefined;
+  const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
+  const currentTrace = currentTracePage?.trace;
+  const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
 
   return (
     <main className="loom-viewer min-h-screen bg-[var(--loom-viewer-bg)] px-4 py-3 text-[var(--loom-viewer-text)] md:px-8 lg:px-12" aria-label="Loom Explorer Viewer">
@@ -151,7 +206,7 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
                     </Group>
                     <OutputCharts output={output} result={result} visible={state.chartsVisible[outputId] ?? true} />
                     <PageControls output={output} result={result} state={state} dispatch={dispatch} />
-                    <OutputTable runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
+                    <OutputTable runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} onExplainCell={(coordinate) => { void explainCell(coordinate); }} />
                   </section>
                 </div>
               ) : null}
@@ -174,17 +229,27 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
             : <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">{Object.entries(overlay.row).map(([key, value]) => <React.Fragment key={key}><dt className="font-semibold text-slate-500">{key}</dt><dd className="m-0 break-words">{textFor(value)}</dd></React.Fragment>)}</dl>
           : null}
       </Modal>
+      <CellExplanationDialog
+        coordinate={cellExplanation.kind === 'closed' ? undefined : cellExplanation.coordinate}
+        trace={currentTrace}
+        contributions={traceContributions}
+        loading={cellExplanation.kind === 'loading' || cellExplanation.kind === 'loadingMore'}
+        error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
+        onClose={() => setCellExplanation({ kind: 'closed' })}
+        onLoadMore={() => { void loadMoreEvidence(); }}
+        onRepair={onRepairFeature ? (coordinate, status) => onRepairFeature({ outputId: coordinate.outputId, column: coordinate.column, status }) : undefined}
+      />
     </main>
   );
 };
 
-export const LoomExplorerViewer = ({ project, explorerId, client, className, activeOutputId, onActiveOutputChange, renderRowDetails, customActions }: LoomExplorerViewerProps) => {
+export const LoomExplorerViewer = ({ project, explorerId, client, className, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: LoomExplorerViewerProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
   return (
     <LoomProvider client={ownedClient}>
       <MantineProvider>
         <div className={['loom-ui-root', className].filter(Boolean).join(' ')}>
-          <ViewerContent project={project} explorerId={explorerId} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />
+          <ViewerContent project={project} explorerId={explorerId} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />
         </div>
       </MantineProvider>
     </LoomProvider>

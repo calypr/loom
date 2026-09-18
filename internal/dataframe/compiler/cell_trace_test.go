@@ -57,6 +57,28 @@ func TestCompileCellTraceExplainsOptionalTraversalBeforeFirstReduction(t *testin
 	}
 }
 
+func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
+	value := recipe.Expression{Select: "valueQuantity.value"}
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
+			Aggregates: []recipe.Aggregate{{Name: "maximum_value", Operation: recipe.AggregateMax, Expr: &value}},
+		}},
+	})
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "resourceType:", "resourceId:", ".payload.valueQuantity.value"} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, compiled.Query)
+		}
+	}
+}
+
 func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",

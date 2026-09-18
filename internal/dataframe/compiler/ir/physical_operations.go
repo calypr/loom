@@ -111,13 +111,14 @@ type PhysicalPopulationMappingIdentityPart struct {
 // contributors only from this closed expression tree; it never evaluates the
 // FHIR document independently of the compiled plan.
 type PhysicalCellTraceReturn struct {
-	Value            PhysicalExpression
-	Contribution     *PhysicalCellTraceContribution
-	IdentityParts    []PhysicalPopulationMappingIdentityPart
-	ExplicitIdentity *PhysicalExpression
-	OffsetBindKey    string
-	LimitBindKey     string
-	OmissionCode     string
+	Value             PhysicalExpression
+	Contribution      *PhysicalCellTraceContribution
+	IdentityParts     []PhysicalPopulationMappingIdentityPart
+	ExplicitIdentity  *PhysicalExpression
+	OffsetBindKey     string
+	LimitBindKey      string
+	FetchLimitBindKey string
+	OmissionCode      string
 }
 
 // PhysicalCellTraceContribution points at the pre-reduction projected set

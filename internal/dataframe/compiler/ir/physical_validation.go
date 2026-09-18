@@ -829,8 +829,8 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 			return fmt.Errorf("trace contribution field %q is invalid", terminal.Contribution.ValueField)
 		}
 	}
-	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" {
-		return fmt.Errorf("trace offset and limit binds are required")
+	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {
+		return fmt.Errorf("trace offset, limit, and fetch-limit binds are required")
 	}
 	offset, ok := bindVars[terminal.OffsetBindKey].(int)
 	if !ok || offset < 0 {
@@ -839,6 +839,10 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 	limit, ok := bindVars[terminal.LimitBindKey].(int)
 	if !ok || limit <= 0 {
 		return fmt.Errorf("trace limit bind %q must be a positive int", terminal.LimitBindKey)
+	}
+	fetchLimit, ok := bindVars[terminal.FetchLimitBindKey].(int)
+	if !ok || fetchLimit != limit+1 {
+		return fmt.Errorf("trace fetch-limit bind %q must be limit plus one", terminal.FetchLimitBindKey)
 	}
 	if len(terminal.IdentityParts) == 0 {
 		return fmt.Errorf("trace identity requires at least one ordered identity part")

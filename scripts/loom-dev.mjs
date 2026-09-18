@@ -401,7 +401,10 @@ const waitForHTTP = async (url, predicate = (response) => response.ok, timeout =
 
 export const generationLoadDisposition = (value) => {
   const state = String(value?.state ?? '').trim().toUpperCase();
-  if (state === 'READY' || state === 'ACTIVE') return 'ready';
+  // Modern immutable loads remain STAGED after graph/catalog finalization;
+  // activation is recorded by the separate project-generation pointer.
+  // READY is the legacy spelling retained by the dataset manifest codec.
+  if (state === 'STAGED' || state === 'READY' || state === 'ACTIVE') return 'ready';
   if (state === 'FAILED' || state === 'ERROR') return 'failed';
   if (state === 'LOADING' || state === 'QUEUED') return 'loading';
   return 'unknown';
@@ -1597,6 +1600,23 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
+    await browserEval(cdp, `clickButton('Explain valueQuantity.value for row 1')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Why is valueQuantity.value ${maximumRelatedValue}?') && document.body.innerText.includes('source records contributed before Loom applied the feature rule.')`, 30000);
+    await browserEval(cdp, `clickText('summary', 'Source details (2)')`);
+    const cellExplanation = await evaluate(cdp, `(() => {
+      const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Why is valueQuantity.value'));
+      return dialog?.innerText ?? '';
+    })()`);
+    recordAssertion(report, 'viewer-explains-related-aggregate-with-exact-fhir-sources', true,
+      cellExplanation.includes('dev-observation-001')
+      && cellExplanation.includes('172.5')
+      && cellExplanation.includes('dev-observation-003')
+      && cellExplanation.includes('180'));
+    await snapshot(cdp, join(evidenceDir, 'viewer-cell-explanation.html'));
+    recordEvidence(report, join(evidenceDir, 'viewer-cell-explanation.html'));
+    await browserEval(cdp, `clickButton('Close cell explanation')`);
+    await waitForBrowser(cdp, `![...document.querySelectorAll('[role="dialog"]')].some((candidate) => candidate.innerText.includes('Why is valueQuantity.value'))`);
+
     await browserEval(cdp, `clickButton('Download CSV')`);
     const csvPath = await findDownloadedCSV(downloadDir);
     recordEvidence(report, csvPath);
@@ -1757,8 +1777,9 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
   const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   try {
     await navigate(browser.cdp, url);
-    await waitForBrowser(browser.cdp, `document.querySelector('#root')?.childElementCount > 0`, 30000);
     await waitForBrowser(browser.cdp, `
+      document.querySelector('#root')?.childElementCount > 0 &&
+      document.body.innerText.trim().length > 0 &&
       !document.body.innerText.includes('Loading Explorer') &&
       !document.body.innerText.includes('Loading the selected Explorer configuration')
     `, 120000);
