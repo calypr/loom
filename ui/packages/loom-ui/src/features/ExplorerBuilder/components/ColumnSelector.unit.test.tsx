@@ -242,6 +242,108 @@ describe('configured V2 columns', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('changes a related value into an explicit cross-record reduction and back', () => {
+    const onSourceChange = vi.fn();
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+      candidates: [{
+        candidateId: 'c_value',
+        nodeId: 'observation',
+        fieldPath: 'valueQuantity.value',
+        label: 'Measured value',
+        logicalType: 'decimal',
+        repeated: false,
+        filterable: true,
+        chartable: true,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'observations',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    const { rerender } = render(<ColumnSelector catalog={relatedCatalog} table={relatedTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'MAX' } });
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: { operation: 'MAX', path: 'valueQuantity.value' },
+    });
+
+    const aggregateTable: DraftTable = {
+      ...relatedTable,
+      document: {
+        ...relatedTable.document,
+        columns: [{
+          ...relatedTable.document.columns[0],
+          source: { kind: 'aggregate', aggregate: { operation: 'MAX', path: 'valueQuantity.value' } },
+        }],
+      },
+    };
+    rerender(<ColumnSelector catalog={relatedCatalog} table={aggregateTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    expect(screen.getByText(/1 configured · 0 available/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'FIRST_BY_RESOURCE_KEY' } });
+    expect(onSourceChange).toHaveBeenLastCalledWith('observation_value', {
+      kind: 'field',
+      field: {
+        path: 'valueQuantity.value',
+        projectionMode: 'VALUE',
+        relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+      },
+    });
+  });
+
   it('renders document columns even when the catalog has no candidates', () => {
     const onChange = vi.fn();
     render(

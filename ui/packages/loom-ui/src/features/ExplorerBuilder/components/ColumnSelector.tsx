@@ -100,6 +100,7 @@ const ConfiguredColumnRow = ({
   chartable,
   candidate,
   candidates,
+  related,
   resourceLabel,
   onChange,
   onSourceChange,
@@ -113,6 +114,7 @@ const ConfiguredColumnRow = ({
   readonly chartable: boolean;
   readonly candidate?: ExplorerBuilderCandidate;
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly related: boolean;
   readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
@@ -237,6 +239,7 @@ const ConfiguredColumnRow = ({
         column={column}
         candidate={candidate}
         candidates={candidates}
+        related={related}
         resourceLabel={resourceLabel}
         disabled={disabled}
         onSourceChange={(source) => onSourceChange(column.column, source)}
@@ -397,6 +400,8 @@ export const ColumnSelector = ({
         configured.flatMap((column) =>
           column.source.kind === 'field'
             ? [column.source.field.path.replace(/^root\./, '')]
+            : column.source.kind === 'aggregate' && column.source.aggregate.path
+              ? [column.source.aggregate.path.replace(/^root\./, '')]
             : [],
         ),
       ),
@@ -407,12 +412,14 @@ export const ColumnSelector = ({
       new Map(
         configured.map(({ column, source }) => [
           column,
-          source.kind === 'field'
+          source.kind === 'field' || (source.kind === 'aggregate' && source.aggregate.path)
             ? (catalog.candidates ?? []).find(
                 (candidate) =>
                   candidate.nodeId === occurrence?.nodeId &&
                   candidate.fieldPath.replace(/^root\./, '') ===
-                    source.field.path.replace(/^root\./, ''),
+                    (source.kind === 'field'
+                      ? source.field.path
+                      : source.aggregate.path ?? '').replace(/^root\./, ''),
               )
             : undefined,
         ]),
@@ -598,6 +605,7 @@ export const ColumnSelector = ({
                               ?.chartable ?? true
                           }
                           candidate={configuredCapabilities.get(row.column.column)}
+                          related={occurrenceId !== 'base'}
                           candidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
                               candidateOption.nodeId === occurrence?.nodeId,

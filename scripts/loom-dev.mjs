@@ -878,6 +878,7 @@ export const expectedFixtureRelatedValue = (project, generation) => {
 
 const verifyBrowserScenario = async (target, report, full, entryTarget = target) => {
   const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
+  const maximumRelatedValue = 180;
   const scenarioStarted = Date.now();
   const runID = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
   const evidenceDir = join(target.artifacts, runID);
@@ -1007,8 +1008,21 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const rejectedState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'unacknowledged-related-selection-cannot-publish', false,
       Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
-    await browserEval(cdp, `document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]').click()`);
-    await waitForBrowser(cdp, `document.querySelector('input[aria-label="Allow first related value for valueQuantity.value"]')?.checked === true && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
+    let reducedBuilder;
+    const reductionDeadline = Date.now() + 30000;
+    while (Date.now() < reductionDeadline) {
+      reducedBuilder = await fetchBuilderState(target, explorerId);
+      const valueFeature = reducedBuilder.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+      if (valueFeature?.source?.aggregate?.operation === 'MAX') break;
+      await sleep(200);
+    }
+    const reducedValueFeature = reducedBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+    recordAssertion(report, 'builder-replaces-unsafe-related-first-with-explicit-maximum', {
+      kind: 'aggregate',
+      aggregate: { operation: 'MAX', path: 'valueQuantity.value' },
+    }, reducedValueFeature?.source);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Preview')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Publish')`);
@@ -1048,7 +1062,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       { label: 'Observation count', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'COUNT', coordinates: [] },
       { label: 'name__count', sourcePath: 'name[]', sourceResourceType: 'Patient', projectionMode: 'COUNT', coordinates: [] },
       { label: 'Has Observation', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'EXISTS', coordinates: [] },
-      { label: 'valueQuantity.value', sourcePath: 'valueQuantity.value', sourceResourceType: 'Observation', projectionMode: 'VALUE', coordinates: [] },
+      { label: 'valueQuantity.value', sourcePath: 'valueQuantity.value', sourceResourceType: 'Observation', projectionMode: 'MAX', coordinates: [] },
       { label: 'gender', sourcePath: 'gender', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
     ], outputLineage.map(({ label, sourcePath, sourceResourceType, projectionMode, coordinates }) => ({ label, sourcePath, sourceResourceType, projectionMode, coordinates })));
     const idColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => emitted.sourcePath === 'id' || emitted.authoredColumns?.includes('id') || /patient\s*id/i.test(runtimeColumn.label));
@@ -1066,8 +1080,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordAssertion(report, 'published-output-has-related-value-lineage', true, Boolean(valueColumn));
     recordAssertion(report, 'indexed-family-and-count-preserve-selected-values', true,
       [...familyColumns, nameCountColumn].every(({ emitted }) => emitted.lossless === true && !emitted.lossReasons?.length));
-    recordAssertion(report, 'related-value-retains-loss-warning-after-acknowledgment', {
-      lossless: false, structure: 'requires-review', reasons: ['RELATED_RESOURCE_FIRST_LOSSY'],
+    recordAssertion(report, 'related-value-publishes-explicit-reduction-contract', {
+      lossless: false, structure: 'scalar', reasons: ['AGGREGATE_REDUCTION'],
     }, {
       lossless: valueColumn.emitted.lossless === true,
       structure: valueColumn.emitted.structuralSuitability,
@@ -1091,7 +1105,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       hasObservation: rowValue(row, hasObservationColumn.runtime.column),
     }));
     recordAssertion(report, 'materialized-exact-fixture-rows', [
-      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue, scopedObservationCount: '1', hasObservation: true },
+      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue: maximumRelatedValue, scopedObservationCount: '1', hasObservation: true },
       { id: 'dev-patient-002', family: ['Builder', null], nameCount: '1', gender: null, relatedValue: 68, scopedObservationCount: '0', hasObservation: true },
     ], exactRows);
 
@@ -1113,7 +1127,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     })()`);
     recordAssertion(report, 'viewer-filter-shows-exact-table', {
       headers: ['id', 'name[].family [0]', 'name[].family [1]', 'Observation count', 'name__count', 'Has Observation', 'valueQuantity.value'],
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(relatedValue)]],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(maximumRelatedValue)]],
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
@@ -1123,7 +1137,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const csvRows = parseCSV(readFileSync(csvPath, 'utf8'));
     const expectedCSV = {
       headers: output.columns.filter((column) => column.visible).map((column) => column.column),
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(relatedValue)]],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(maximumRelatedValue)]],
     };
     recordAssertion(report, 'downloaded-csv-has-generated-physical-headers', expectedCSV.headers, csvRows[0] ?? []);
     recordAssertion(report, 'downloaded-csv-has-exact-filtered-rows', expectedCSV.rows, csvRows.slice(1));

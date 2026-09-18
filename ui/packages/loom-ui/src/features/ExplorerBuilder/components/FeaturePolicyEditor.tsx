@@ -65,6 +65,14 @@ const fieldAggregateLabels = {
   MAX: 'Maximum value',
 } as const;
 
+const relatedValueReductionLabels = {
+  FIRST_BY_RESOURCE_KEY: 'First record by stable resource key',
+  DISTINCT_VALUES: fieldAggregateLabels.DISTINCT_VALUES,
+  COUNT_DISTINCT: fieldAggregateLabels.COUNT_DISTINCT,
+  MIN: fieldAggregateLabels.MIN,
+  MAX: fieldAggregateLabels.MAX,
+} as const;
+
 type ResourceAggregateOperation = keyof typeof resourceAggregateLabels;
 type FieldAggregateOperation = keyof typeof fieldAggregateLabels;
 
@@ -90,6 +98,7 @@ export const FeaturePolicyEditor = ({
   column,
   candidate,
   candidates,
+  related,
   resourceLabel,
   disabled,
   onSourceChange,
@@ -98,6 +107,7 @@ export const FeaturePolicyEditor = ({
   readonly column: ExplorerBuilderColumn;
   readonly candidate?: ExplorerBuilderCandidate;
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly related: boolean;
   readonly resourceLabel: string;
   readonly disabled: boolean;
   readonly onSourceChange: (source: ExplorerColumnSource) => void;
@@ -113,6 +123,32 @@ export const FeaturePolicyEditor = ({
 
     return (
       <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+        {related && source.field.relatedSelection ? (
+          <label className="flex items-center gap-1.5 font-medium text-slate-700">
+            <span>Across records</span>
+            <select
+              aria-label={`Across related ${resourceLabel} records for ${column.label}`}
+              className="max-w-64 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
+              value="FIRST_BY_RESOURCE_KEY"
+              disabled={disabled}
+              onChange={(event) => {
+                const operation = event.currentTarget.value;
+                if (operation === 'FIRST_BY_RESOURCE_KEY') return;
+                onSourceChange({
+                  kind: 'aggregate',
+                  aggregate: {
+                    operation: operation as FieldAggregateOperation,
+                    path: source.field.path,
+                  },
+                });
+              }}
+            >
+              {Object.entries(relatedValueReductionLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {uniqueModes.length > 1 ? (
           <label className="flex items-center gap-1.5 font-medium text-slate-700">
             <span>Repeated values</span>
@@ -170,24 +206,42 @@ export const FeaturePolicyEditor = ({
   if (column.source.kind === 'aggregate') {
     const path = column.source.aggregate.path;
     const operation = column.source.aggregate.operation;
-    const options = path ? fieldAggregateLabels : resourceAggregateLabels;
+    const options = path && related ? relatedValueReductionLabels : path ? fieldAggregateLabels : resourceAggregateLabels;
     const summary = path
-      ? `Reduces values from ${path} across matching ${resourceLabel} resources.`
+      ? `${fieldAggregateLabels[operation as FieldAggregateOperation] ?? 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
       : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
 
     return (
       <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
         <label className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span>Calculation</span>
+          <span>{path && related ? 'Across records' : 'Calculation'}</span>
           <select
-            aria-label={`Calculation for ${column.label}`}
+            aria-label={path && related
+              ? `Across related ${resourceLabel} records for ${column.label}`
+              : `Calculation for ${column.label}`}
             className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
             value={operation}
             disabled={disabled || operation === 'CONTAINS_ALL'}
             onChange={(event) => {
               const nextOperation = event.currentTarget.value as
                 | ResourceAggregateOperation
-                | FieldAggregateOperation;
+                | FieldAggregateOperation
+                | 'FIRST_BY_RESOURCE_KEY';
+              if (nextOperation === 'FIRST_BY_RESOURCE_KEY') {
+                if (!path) return;
+                onSourceChange({
+                  kind: 'field',
+                  field: {
+                    path,
+                    projectionMode: candidate?.defaultProjectionMode ?? 'VALUE',
+                    relatedSelection: {
+                      kind: 'first-by-resource-key',
+                      acknowledged: false,
+                    },
+                  },
+                });
+                return;
+              }
               onSourceChange({
                 kind: 'aggregate',
                 aggregate: path
