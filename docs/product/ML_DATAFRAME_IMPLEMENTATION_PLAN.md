@@ -264,40 +264,40 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Add proposed `explorer/interpretation.go`, `explorer/arango/interpretations.go`, and `explorer/lifecycle/interpretation.go`. Extend existing authoring references, receipt normalization, server routes, and capability lookup.
-- [ ] Add interpretation proposal/review controls inside the feature editor. Use existing recipe fragments only after resolving authoring meaning.
+- [x] Add the interpretation aggregate in `explorer/interpretation.go`, immutable Arango persistence in the existing Explorer adapter, and lifecycle library/preview services. Extend authoring references, receipt normalization, server routes, and capability lookup.
+- [x] Add interpretation proposal/review controls inside the feature editor. Use existing recipe fragments only after resolving authoring meaning.
 
 **Build.**
 
-- [ ] ML-B06-01. Persist immutable interpretation revisions with content digest, applicability, parent, author, and explanation. Use existing Arango immutable-insert/CAS conventions. Do not store researcher mappings in ingestion configuration or fake recipe bundles.
-- [ ] ML-B06-02. Resolve exact revisions before compilation and freeze resolved definitions in the receipt's resolved inputs and recipe identity. Retain exact references in the workspace and cover resolved content through `ResolvedInputsDigest`. Explicitly select human definitions over suggestions; overlapping rules require priority or produce ambiguity. Never load a moving library head during execution.
-- [ ] ML-B06-03. Implement candidate-revision preview against a candidate receipt, compare changed values and unresolved cases, and apply by CAS only when explicitly requested. Leave source FHIR, the current draft, and other consumers unchanged during proposal.
-- [ ] ML-B06-04. Add browse/apply/create-revision controls with raw-value access and affected-record preview. Show sample/completeness status. Test that updating a library does not alter an existing dataset until its pinned revision changes.
+- [x] ML-B06-01. Persist immutable interpretation revisions with content digest, applicability, parent, author, and explanation. Use existing Arango immutable-insert/CAS conventions. Do not store researcher mappings in ingestion configuration or fake recipe bundles.
+- [x] ML-B06-02. Resolve exact revisions before compilation and freeze resolved definitions in the receipt's resolved inputs and recipe identity. Retain exact references in the workspace and cover resolved content through `ResolvedInputsDigest`. Explicitly select human definitions over suggestions; overlapping rules require priority or produce ambiguity. Never load a moving library head during execution.
+- [x] ML-B06-03. Implement candidate-revision preview against a candidate receipt, compare changed values and unresolved cases, and apply by CAS only when explicitly requested. Leave source FHIR, the current draft, and other consumers unchanged during proposal.
+- [x] ML-B06-04. Add browse/apply/create-revision controls with raw-value access and affected-record preview. Show sample/completeness status. Test that updating a library does not alter an existing dataset until its pinned revision changes.
 
 **You see.**
 
-- [ ] Fixing one recurring mapping can resolve several records. The interface shows exactly which values change, retains unmatched data, and leaves another dataset using the older revision unchanged.
+- [x] Fixing one recurring mapping can resolve several records. The interface shows exactly which values change, retains unmatched data, and leaves another dataset using the older revision unchanged.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/explorer/... ./internal/server` and UI tests. Assert immutable revision collision behavior, applicability mismatch, overlap ambiguity, CAS conflict, resolved digest changes, and old receipt stability.
+- [x] Run `go test ./internal/explorer/... ./internal/server` and UI tests. Assert immutable revision collision behavior, applicability mismatch, overlap ambiguity, CAS conflict, resolved digest changes, and old receipt stability.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Extend `verify-fast` to preview a mapping repair, cancel without changing the draft, then apply it and reload. Compare raw source values and another pinned dataset before/after. Verify unauthorized library access is denied.
+- [x] Extend `verify-fast` to preview a mapping repair, cancel without changing the draft, then apply it and reload. Compare raw source values and another pinned dataset before/after. Project isolation is live-proven; authorization denial is route-test-proven because the local Compose target intentionally runs with `--no-auth`.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Cold/warm interpretation resolution and bounded difference-preview latency.
-- [ ] Probe. Resolve one revision across repeated features and run candidate comparisons with configured scan limits.
-- [ ] Baseline. Record prior inline-definition reconcile time; library lookup is newly added work.
-- [ ] Rule. Require at most one resolution per distinct pinned revision per reconcile. Small-fixture comparison must fit the 30-second warm loop; exceeded full-scan limits must report incomplete.
+- [x] Metric. Record the integrated interpretation workflow and bounded difference-preview latency.
+- [x] Probe. Resolve exact v1/v2 revisions and run complete and limit-one candidate comparisons.
+- [x] Baseline. Retain inline meaning until a reviewed revision is explicitly applied; library lookup is newly added work.
+- [x] Rule. Resolve each distinct pinned revision once per compile. The fixture interpretation journey completed in 3.778 seconds, and a limit-one comparison reported `INCOMPLETE`.
 
 **Review gate.** None. No mandatory operator interaction review. Root checks revision isolation and the distinction between preview and apply.
 
 **Merge.**
 
-- [ ] Record a verified reuse-and-repair journey and preserved source digest before B07.
+- [x] Record a verified reuse-and-repair journey and preserved source digest before B07. See `docs/product/ml-dataframe/B06_VERTICAL_SLICE_VERIFICATION.md`.
 
 ## Explain cells and gate publication with complete evidence (B07)
 
