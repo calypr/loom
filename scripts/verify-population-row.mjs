@@ -9,6 +9,10 @@ const selectionEvidence = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const target = timingTarget(selectionEvidence);
 const projectURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.project)}/explorers`;
 const explorerId = selectionEvidence.explorerId;
+const apiURL = new URL(target.apiUrl);
+assert.equal(apiURL.hostname, '127.0.0.1', 'population verification only operates on the isolated local API');
+assert.match(target.project, /^loom_dev_verify_[a-z0-9]+-[a-f0-9]+$/, 'population verification requires a disposable verification project');
+assert.match(explorerId, /^loom-dev-verification-selection-[a-f0-9-]+$/, 'population verification requires its disposable selection explorer');
 const authoring = `${projectURL}/${encodeURIComponent(explorerId)}/authoring/v2`;
 
 async function json(url, body, expected = 200) {
@@ -79,6 +83,27 @@ await command([{
 const idColumn = builder.workspace.documents.find((document) => document.output.id === outputId)?.columns[0]?.column;
 assert.ok(idColumn, 'Specimen ID column was not authored');
 
+const selectionBase = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.project)}/explorers/${encodeURIComponent(explorerId)}/selections`;
+const directSelection = await json(selectionBase, {
+  snapshotToken: builder.catalog.snapshotToken,
+  idempotencyKey: randomUUID(),
+  source: { kind: 'resources', resources: { refs: [{
+    project: target.project,
+    generation: builder.catalog.generation,
+    resourceType: 'Specimen',
+    id: 'dev-specimen-002',
+  }] } },
+}, 201);
+await command([{
+  type: 'SET_TABLE_POPULATION',
+  outputId,
+  selectionRevisionId: directSelection.id,
+  edgeIds: [],
+}]);
+const direct = await preview(outputId);
+assert.deepEqual(direct.result.rows.map((row) => row[idColumn]), ['dev-specimen-002'], 'direct root population did not preserve exact membership');
+await command([{ type: 'CLEAR_TABLE_POPULATION', outputId }]);
+
 await command([{
   type: 'SET_TABLE_POPULATION',
   outputId,
@@ -124,6 +149,7 @@ const artifact = {
   outputId,
   relationship: populationEdge.label,
   selected: { receiptId: selected.compiled.receiptId, rows: selected.result.rows },
+  direct: { selectionRevisionId: directSelection.id, receiptId: direct.compiled.receiptId, rows: direct.result.rows },
   coverage,
   unrestricted: { receiptId: unrestricted.compiled.receiptId, rows: unrestricted.result.rows },
   empty: { receiptId: empty.compiled.receiptId, rows: empty.result.rows },
@@ -134,6 +160,7 @@ writeFileSync(path, JSON.stringify(artifact, null, 2));
 console.log(JSON.stringify({
   evidence: path,
   assertions: [
+    'a direct Specimen selection emits exactly its selected root row',
     'two selected files map to one deduplicated Specimen row',
     'selected=3, mapped=2, unmapped=1, emittedRows=1 and only file 004 is returned',
     'no population preserves the resource-first workflow',

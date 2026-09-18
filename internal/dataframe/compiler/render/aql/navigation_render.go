@@ -22,28 +22,7 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 		lines = append(lines, fmt.Sprintf("    FOR %s IN %s", parentVariable, parentSet))
 		traversalIndent = "      "
 	}
-	strategy := traversal.Strategy
-	if strategy == "" {
-		strategy = ir.PhysicalTraversalNative
-	}
-	if strategy == ir.PhysicalTraversalEndpointLookup {
-		lines = append(lines,
-			fmt.Sprintf("%sFOR %s IN @@%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == %s._id", traversalIndent, traversal.EdgeVariable, traversal.EndpointField, parentVariable),
-			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.EndpointJoinField),
-			fmt.Sprintf("%s  FILTER %s != null", traversalIndent, traversal.TargetVariable),
-			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
-		)
-	} else {
-		lines = append(lines,
-			fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", traversalIndent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, parentVariable, traversal.EdgeCollectionBindKey),
-			fmt.Sprintf("%s  FILTER %s.label == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-			fmt.Sprintf("%s  FILTER %s.%s == @%s", traversalIndent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", traversalIndent, traversal.TargetVariable, traversal.TargetTypeBindKey),
-		)
-	}
+	lines = append(lines, r.renderTraversalScan(traversal, parentVariable, traversalIndent)...)
 	for scopeIndex, operation := range block.scope {
 		line, err := r.renderScopeOperation(operation, traversalIndent+"  ")
 		if err != nil {
@@ -54,6 +33,30 @@ func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraver
 	lines = append(lines, traversalIndent+"  RETURN "+traversal.TargetVariable, "  )")
 	r.setVariables[traversal.TargetVariable] = setVariable
 	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderTraversalScan(traversal ir.PhysicalTraversal, sourceVariable, indent string) []string {
+	strategy := traversal.Strategy
+	if strategy == "" {
+		strategy = ir.PhysicalTraversalNative
+	}
+	if strategy == ir.PhysicalTraversalEndpointLookup {
+		return []string{
+			fmt.Sprintf("%sFOR %s IN @@%s", indent, traversal.EdgeVariable, traversal.EdgeCollectionBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == %s._id", indent, traversal.EdgeVariable, traversal.EndpointField, sourceVariable),
+			fmt.Sprintf("%s  FILTER %s.label == @%s", indent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+			fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", indent, traversal.TargetVariable, traversal.EdgeVariable, traversal.EndpointJoinField),
+			fmt.Sprintf("%s  FILTER %s != null", indent, traversal.TargetVariable),
+			fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+		}
+	}
+	return []string{
+		fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent, traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, sourceVariable, traversal.EdgeCollectionBindKey),
+		fmt.Sprintf("%s  FILTER %s.label == @%s", indent, traversal.EdgeVariable, traversal.EdgeLabelBindKey),
+		fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
+		fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, traversal.TargetVariable, traversal.TargetTypeBindKey),
+	}
 }
 
 // renderUnnest lowers the canonical cardinality-changing operation into
@@ -387,6 +390,23 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
 			variables[operation.RootScan.Variable] = struct{}{}
+			if population := operation.RootScan.Population; population != nil {
+				variables[population.MemberScan.Variable] = struct{}{}
+				if population.CollectMembersVariable != "" {
+					variables[population.CollectMembersVariable] = struct{}{}
+				}
+				for _, populationOperation := range population.ResourceOperations {
+					switch populationOperation.Kind {
+					case ir.PhysicalCollectionScanOp:
+						variables[populationOperation.CollectionScan.Variable] = struct{}{}
+					case ir.PhysicalTraversalOp:
+						variables[populationOperation.Traversal.TargetVariable] = struct{}{}
+						variables[populationOperation.Traversal.EdgeVariable] = struct{}{}
+					case ir.PhysicalDerivedLetOp:
+						variables[populationOperation.DerivedLet.Variable] = struct{}{}
+					}
+				}
+			}
 		case ir.PhysicalTraversalOp:
 			variables[operation.Traversal.SourceVariable] = struct{}{}
 			variables[operation.Traversal.TargetVariable] = struct{}{}

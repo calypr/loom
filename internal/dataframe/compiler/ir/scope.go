@@ -30,12 +30,41 @@ func ValidateGenericPhysicalPlanScope(plan PhysicalPlan) error {
 	}
 
 	for operationIndex, operation := range plan.Operations {
+		if operation.Kind == PhysicalRootScanOp && operation.RootScan.Population != nil {
+			if err := validatePhysicalPopulationRootScope(*operation.RootScan.Population); err != nil {
+				return fmt.Errorf("population root source: %w", err)
+			}
+		}
 		resource, ok := physicalScopeResourceForOperation(operation)
 		if !ok {
 			continue
 		}
 		windowEnd := physicalScopeWindowEnd(plan.Operations, operationIndex+1)
 		if err := validatePhysicalScopeWindow(plan.Operations, operationIndex, windowEnd, resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePhysicalPopulationRootScope(source PhysicalPopulationRootSource) error {
+	for operationIndex, operation := range source.ResourceOperations {
+		var resource physicalScopeResource
+		switch operation.Kind {
+		case PhysicalCollectionScanOp:
+			resource = physicalScopeResource{
+				description:         fmt.Sprintf("population source scan %q", operation.CollectionScan.Variable),
+				projectVariables:    []string{operation.CollectionScan.Variable},
+				datasetGenVariables: []string{operation.CollectionScan.Variable},
+				authPaths:           []PhysicalValue{{Variable: operation.CollectionScan.Variable, Path: []string{physicalScopeAuthPathField}}},
+			}
+		case PhysicalTraversalOp:
+			resource, _ = physicalScopeResourceForOperation(operation)
+		default:
+			continue
+		}
+		windowEnd := physicalScopeWindowEnd(source.ResourceOperations, operationIndex+1)
+		if err := validatePhysicalScopeWindow(source.ResourceOperations, operationIndex, windowEnd, resource); err != nil {
 			return err
 		}
 	}

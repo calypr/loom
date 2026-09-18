@@ -291,13 +291,7 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 		case ir.PhysicalCollectionScanOp:
 			lines = append(lines, fmt.Sprintf("%sFOR %s IN @@%s", indent+"  ", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
 		case ir.PhysicalTraversalOp:
-			traversal := operation.Traversal
-			lines = append(lines,
-				fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent+"  ", traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, traversal.SourceVariable, traversal.EdgeCollectionBindKey),
-				fmt.Sprintf("%s  FILTER %s.label == @%s", indent+"  ", traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-				fmt.Sprintf("%s  FILTER %s.%s == @%s", indent+"  ", traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-				fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent+"  ", traversal.TargetVariable, traversal.TargetTypeBindKey),
-			)
+			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, indent+"  ")...)
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
 			rendered, err := r.renderScopeOperation(operation, indent+"    ")
 			if err != nil {

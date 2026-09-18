@@ -95,6 +95,24 @@ type PhysicalOperation struct {
 type PhysicalRootScan struct {
 	Variable          string
 	CollectionBindKey string
+	// Population replaces the full root collection scan with an indexed scan
+	// that starts from persisted selection members. The renderer deduplicates
+	// RootKey before restoring Variable from CollectionBindKey.
+	Population *PhysicalPopulationRootSource
+}
+
+// PhysicalPopulationRootSource describes a membership-driven root scan. The
+// member collection has a different trust boundary from FHIR resource
+// collections, so its filters are kept separate from the scoped resource
+// operations. CollectMembersVariable is empty for ordinary dataframe reads;
+// population-mapping compilation sets it to retain member witnesses per root.
+type PhysicalPopulationRootSource struct {
+	MemberScan             PhysicalCollectionScan
+	MemberFilters          []PhysicalFilter
+	ResourceOperations     []PhysicalOperation
+	RootKey                PhysicalValue
+	MemberID               PhysicalValue
+	CollectMembersVariable string
 }
 
 type PhysicalTraversalDirection string

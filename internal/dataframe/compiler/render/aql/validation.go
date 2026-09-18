@@ -26,6 +26,12 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 			switch operation.Kind {
 			case ir.PhysicalRootScanOp:
 				keys[operation.RootScan.CollectionBindKey] = struct{}{}
+				if population := operation.RootScan.Population; population != nil {
+					keys[population.MemberScan.CollectionBindKey] = struct{}{}
+					if err := collectOperations(population.ResourceOperations, owner+" POPULATION_ROOT"); err != nil {
+						return err
+					}
+				}
 			case ir.PhysicalCollectionScanOp:
 				keys[operation.CollectionScan.CollectionBindKey] = struct{}{}
 			case ir.PhysicalTraversalOp:

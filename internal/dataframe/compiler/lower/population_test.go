@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-func TestPopulationSemijoinDirectRootUsesBoundedExistsWithoutProvenance(t *testing.T) {
+func TestPopulationRootSourceStartsFromMembersWithoutProvenance(t *testing.T) {
 	rendered := renderPopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -20,16 +20,15 @@ func TestPopulationSemijoinDirectRootUsesBoundedExistsWithoutProvenance(t *testi
 		},
 	})
 	for _, want := range []string{
-		"FOR root IN @@root_collection",
-		"LENGTH((",
 		"FOR population_member IN @@population_members_collection",
 		"population_member.selectionId == @population_selection_id",
 		"population_member.project == @population_project",
 		"population_member.generation == @dataset_generation",
 		"population_member.resourceType == @population_resource_type",
-		"population_member.id == root.id",
-		"LIMIT 1",
-		"RETURN @population_match",
+		"FOR population_source IN @@population_source_collection",
+		"population_source.id == population_member.id",
+		"COLLECT __loom_physical_population_root_key = population_source._key",
+		"LET root = DOCUMENT(@@root_collection, __loom_physical_population_root_key)",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("ordinary population query is missing %q:\n%s", want, rendered.Query)
@@ -41,7 +40,7 @@ func TestPopulationSemijoinDirectRootUsesBoundedExistsWithoutProvenance(t *testi
 	if got := rendered.BindVars["population_project"]; got != "project/a" {
 		t.Fatalf("population project bind = %#v", got)
 	}
-	if strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
+	if strings.Contains(rendered.Query, "FOR root IN @@root_collection") || strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
 		t.Fatalf("ordinary population query materialized provenance:\n%s", rendered.Query)
 	}
 }
@@ -65,7 +64,7 @@ func TestPopulationSemijoinDirectRootHasNoHiddenProvenanceColumn(t *testing.T) {
 	}
 }
 
-func TestPopulationSemijoinReversedRouteRemainsBoundedAndScoped(t *testing.T) {
+func TestPopulationRootSourceReversesRouteAndRemainsScoped(t *testing.T) {
 	rendered := renderPopulationRecipe(t, recipe.Output{
 		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -76,24 +75,26 @@ func TestPopulationSemijoinReversedRouteRemainsBoundedAndScoped(t *testing.T) {
 		},
 	})
 	for _, want := range []string{
-		"FOR population_node_0, population_edge_0 IN 1..1 INBOUND root @@population_route_0_edge_collection",
-		"population_edge_0.label == @population_route_0_label",
-		"population_node_0.resourceType == @population_route_0_target_type",
+		"FOR population_source IN @@population_source_collection",
+		"FOR population_root_edge_0 IN @@population_root_route_0_edge_collection",
+		"population_root_edge_0._from == population_source._id",
+		"population_root_edge_0.label == @population_root_route_0_label",
+		"population_root_node_0.resourceType == @population_root_route_0_target_type",
 		"population_member.selectionId == @population_selection_id",
 		"population_member.project == @population_project",
 		"population_member.generation == @dataset_generation",
 		"population_member.resourceType == @population_resource_type",
-		"population_member.id == population_node_0.id",
-		"LIMIT 1",
+		"population_source.id == population_member.id",
+		"COLLECT __loom_physical_population_root_key = population_root_node_0._key",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("ordinary reversed population query is missing %q:\n%s", want, rendered.Query)
 		}
 	}
-	if got := strings.Count(rendered.Query, "LIMIT 1"); got != 1 {
-		t.Fatalf("bounded reversed member match count = %d, want 1:\n%s", got, rendered.Query)
+	if got := strings.Count(rendered.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
+		t.Fatalf("membership-driven scan count = %d, want 1:\n%s", got, rendered.Query)
 	}
-	if strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
+	if strings.Contains(rendered.Query, "FOR root IN @@root_collection") || strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
 		t.Fatalf("ordinary reversed population query materialized provenance:\n%s", rendered.Query)
 	}
 }

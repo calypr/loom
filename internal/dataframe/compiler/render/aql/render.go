@@ -57,8 +57,10 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		setVariables:   map[string]string{},
 		reservedVars:   physicalPlanVariableNames(plan),
 	}
-	lines := make([]string, 0, len(plan.Operations)+1)
-	lines = append(lines, fmt.Sprintf("FOR %s IN @@%s", layout.root.Variable, layout.root.CollectionBindKey))
+	lines, err := renderer.renderRootScan(layout.root)
+	if err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("render root scan: %w", err)
+	}
 	for index, operation := range layout.rootScope {
 		line, err := renderer.renderScopeOperation(operation, "  ")
 		if err != nil {
@@ -133,6 +135,60 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		Query:    query,
 		BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query),
 	}, nil
+}
+
+func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]string, error) {
+	if root.Population == nil {
+		return []string{fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)}, nil
+	}
+	population := root.Population
+	lines := []string{fmt.Sprintf("FOR %s IN @@%s", population.MemberScan.Variable, population.MemberScan.CollectionBindKey)}
+	for index, filter := range population.MemberFilters {
+		rendered, err := r.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &filter}, "  ")
+		if err != nil {
+			return nil, fmt.Errorf("render member filter %d: %w", index, err)
+		}
+		lines = append(lines, rendered...)
+	}
+	for index, operation := range population.ResourceOperations {
+		switch operation.Kind {
+		case ir.PhysicalCollectionScanOp:
+			lines = append(lines, fmt.Sprintf("  FOR %s IN @@%s", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
+		case ir.PhysicalTraversalOp:
+			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, "  ")...)
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
+			rendered, err := r.renderScopeOperation(operation, "    ")
+			if err != nil {
+				return nil, fmt.Errorf("render resource operation %d (%s): %w", index, operation.Kind, err)
+			}
+			lines = append(lines, rendered...)
+		default:
+			return nil, fmt.Errorf("resource operation %d has unsupported kind %q", index, operation.Kind)
+		}
+	}
+	rootKey, err := r.renderValue(population.RootKey)
+	if err != nil {
+		return nil, fmt.Errorf("render population root key: %w", err)
+	}
+	rootKeyVariable := r.newInternalVariable("population_root_key")
+	if population.CollectMembersVariable == "" {
+		lines = append(lines, fmt.Sprintf("  COLLECT %s = %s", rootKeyVariable, rootKey))
+	} else {
+		memberID, err := r.renderValue(population.MemberID)
+		if err != nil {
+			return nil, fmt.Errorf("render population member id: %w", err)
+		}
+		memberIDsVariable := r.newInternalVariable("population_member_ids")
+		lines = append(lines,
+			fmt.Sprintf("  COLLECT %s = %s INTO %s = %s", rootKeyVariable, rootKey, memberIDsVariable, memberID),
+			fmt.Sprintf("  LET %s = SORTED_UNIQUE(%s)", population.CollectMembersVariable, memberIDsVariable),
+		)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = DOCUMENT(@@%s, %s)", root.Variable, root.CollectionBindKey, rootKeyVariable),
+		fmt.Sprintf("  FILTER %s != null", root.Variable),
+	)
+	return lines, nil
 }
 
 // pruneUnusedRuntimeBindVars is required after physical rewrites. Traversal

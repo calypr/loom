@@ -24,9 +24,8 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 		t.Fatalf("mapping member scan count = %d, want 1:\n%s", got, compiled.Query)
 	}
 	for _, want := range []string{
-		"SORTED_UNIQUE((",
-		"SORT population_member.id",
-		"RETURN population_member.id",
+		"COLLECT __loom_physical_population_root_key = population_source._key INTO __loom_physical_population_member_ids = population_member.id",
+		"LET __loom_population_members_value = SORTED_UNIQUE(__loom_physical_population_member_ids)",
 		"FOR __loom_physical_population_mapping_member IN (__loom_population_members_value == null ? [] : __loom_population_members_value)",
 		"@__loom_physical_population_mapping_member_name",
 		"@__loom_physical_population_mapping_identity_name",
@@ -141,37 +140,28 @@ func TestPopulationMappingPhysicalPlanCollectsMatchedIDsOnceAndUsesFinalTerminal
 	if err != nil {
 		t.Fatal(err)
 	}
-	var matched *ir.PhysicalSubplan
 	var terminal *ir.PhysicalPopulationMappingReturn
+	var rootSource *ir.PhysicalPopulationRootSource
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
-		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Variable == ir.PopulationMappingMembersVariable {
-			if operation.ExpressionLet.Expression.Subplan == nil {
-				t.Fatal("matched-member LET has no typed subplan")
-			}
-			matched = operation.ExpressionLet.Expression.Subplan
+		if operation.Kind == ir.PhysicalRootScanOp && operation.RootScan != nil {
+			rootSource = operation.RootScan.Population
 		}
 		if operation.Kind == ir.PhysicalPopulationMappingReturnOp {
 			terminal = operation.PopulationMappingReturn
 		}
 	}
-	if matched == nil || terminal == nil {
-		t.Fatalf("mapping plan missing matched-member LET or witness terminal: %#v", physical.Operations)
+	if rootSource == nil || terminal == nil {
+		t.Fatalf("mapping plan missing population root source or witness terminal: %#v", physical.Operations)
 	}
-	scans := 0
-	for _, operation := range matched.Operations {
-		if operation.Kind == ir.PhysicalCollectionScanOp {
-			scans++
-		}
+	if rootSource.MemberScan.Variable != "population_member" || rootSource.MemberScan.CollectionBindKey != "population_members_collection" {
+		t.Fatalf("mapping root source has wrong member scan: %#v", rootSource.MemberScan)
 	}
-	if scans != 1 {
-		t.Fatalf("matched-member collection scans = %d, want 1", scans)
+	if rootSource.CollectMembersVariable != ir.PopulationMappingMembersVariable {
+		t.Fatalf("mapping root source does not collect member witnesses: %#v", rootSource)
 	}
-	if !matched.Unique || matched.Sort == nil || matched.Sort.Variable != "population_member" || len(matched.Sort.Path) != 1 || matched.Sort.Path[0] != "id" {
-		t.Fatalf("matched-member subplan is not stable sorted unique: %#v", matched)
-	}
-	if matched.Return.Value == nil || matched.Return.Value.Variable != "population_member" || len(matched.Return.Value.Path) != 1 || matched.Return.Value.Path[0] != "id" {
-		t.Fatalf("matched-member subplan does not return selected IDs: %#v", matched.Return)
+	if rootSource.MemberID.Variable != "population_member" || len(rootSource.MemberID.Path) != 1 || rootSource.MemberID.Path[0] != "id" {
+		t.Fatalf("mapping root source does not collect selected IDs: %#v", rootSource.MemberID)
 	}
 	if terminal.Members.Value == nil || terminal.Members.Value.Variable != ir.PopulationMappingMembersVariable {
 		t.Fatalf("witness terminal does not reuse matched-member value: %#v", terminal.Members)
@@ -197,10 +187,10 @@ func TestCompilePopulationMappingReversedRouteRunsOnceBeforeWitnessTerminal(t *t
 			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
 		},
 	})
-	if got := strings.Count(compiled.Query, "FOR population_node_0, population_edge_0 IN 1..1 INBOUND root"); got != 1 {
+	if got := strings.Count(compiled.Query, "FOR population_root_edge_0 IN @@population_root_route_0_edge_collection"); got != 1 {
 		t.Fatalf("mapping route traversal count = %d, want 1:\n%s", got, compiled.Query)
 	}
-	if strings.Index(compiled.Query, "population_member.id == population_node_0.id") > strings.Index(compiled.Query, "FOR __loom_physical_population_mapping_member") {
+	if strings.Index(compiled.Query, "population_source.id == population_member.id") > strings.Index(compiled.Query, "FOR __loom_physical_population_mapping_member") {
 		t.Fatalf("mapping witness terminal preceded member matching:\n%s", compiled.Query)
 	}
 }

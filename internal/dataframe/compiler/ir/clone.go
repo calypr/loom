@@ -77,6 +77,12 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 	for index := range operations {
 		operation := &operations[index]
 		operation.Source = PhysicalSource{}
+		if operation.RootScan != nil && operation.RootScan.Population != nil {
+			for filter := range operation.RootScan.Population.MemberFilters {
+				canonicalizePhysicalPredicateExpression(operation.RootScan.Population.MemberFilters[filter].Expression)
+			}
+			canonicalizePhysicalOperations(operation.RootScan.Population.ResourceOperations)
+		}
 		if operation.Set != nil {
 			canonicalizePhysicalSubplan(&operation.Set.Subplan)
 		}
@@ -187,10 +193,27 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	copy := operation
 	if operation.RootScan != nil {
 		rootScanCopy := *operation.RootScan
+		if operation.RootScan.Population != nil {
+			populationCopy := *operation.RootScan.Population
+			populationCopy.MemberFilters = make([]PhysicalFilter, len(operation.RootScan.Population.MemberFilters))
+			for index, filter := range operation.RootScan.Population.MemberFilters {
+				populationCopy.MemberFilters[index] = filter
+				populationCopy.MemberFilters[index].Predicate = clonePhysicalPredicate(filter.Predicate)
+				if filter.Expression != nil {
+					expression := clonePhysicalPredicateExpression(*filter.Expression)
+					populationCopy.MemberFilters[index].Expression = &expression
+				}
+			}
+			populationCopy.ResourceOperations = clonePhysicalOperations(operation.RootScan.Population.ResourceOperations)
+			populationCopy.RootKey = clonePhysicalValue(operation.RootScan.Population.RootKey)
+			populationCopy.MemberID = clonePhysicalValue(operation.RootScan.Population.MemberID)
+			rootScanCopy.Population = &populationCopy
+		}
 		copy.RootScan = &rootScanCopy
 	}
 	if operation.Traversal != nil {
 		traversalCopy := *operation.Traversal
+		traversalCopy.EndpointIndexFields = cloneStrings(operation.Traversal.EndpointIndexFields)
 		copy.Traversal = &traversalCopy
 	}
 	if operation.Filter != nil {

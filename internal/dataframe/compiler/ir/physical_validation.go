@@ -37,8 +37,18 @@ func (p PhysicalPlan) Validate() error {
 			if err := requireCollectionBind(p.BindVars, operation.RootScan.CollectionBindKey); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
 			}
+			if operation.RootScan.Population != nil {
+				if err := validatePhysicalPopulationRootSource(*operation.RootScan.Population, p.BindVars); err != nil {
+					return fmt.Errorf("operation %d population root source: %w", i, err)
+				}
+			}
 			if err := definePhysicalVariable(defined, operation.RootScan.Variable); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
+			}
+			if population := operation.RootScan.Population; population != nil && population.CollectMembersVariable != "" {
+				if err := definePhysicalVariable(defined, population.CollectMembersVariable); err != nil {
+					return fmt.Errorf("operation %d population member collection: %w", i, err)
+				}
 			}
 		case PhysicalTraversalOp:
 			traversal := operation.Traversal
@@ -184,6 +194,91 @@ func (p PhysicalPlan) Validate() error {
 	}
 	if returns+graphReturns != 1 {
 		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, or POPULATION_MAPPING_RETURN")
+	}
+	return nil
+}
+
+func validatePhysicalPopulationRootSource(source PhysicalPopulationRootSource, bindVars map[string]any) error {
+	if err := requireCollectionBind(bindVars, source.MemberScan.CollectionBindKey); err != nil {
+		return fmt.Errorf("member scan: %w", err)
+	}
+	defined := map[string]bool{}
+	if err := definePhysicalVariable(defined, source.MemberScan.Variable); err != nil {
+		return fmt.Errorf("member scan: %w", err)
+	}
+	for index, filter := range source.MemberFilters {
+		if err := validatePhysicalFilter(filter, defined, bindVars); err != nil {
+			return fmt.Errorf("member filter %d: %w", index, err)
+		}
+	}
+	if len(source.ResourceOperations) == 0 || source.ResourceOperations[0].Kind != PhysicalCollectionScanOp {
+		return fmt.Errorf("resource operations must begin with COLLECTION_SCAN")
+	}
+	for index, operation := range source.ResourceOperations {
+		if err := operation.validatePayload(); err != nil {
+			return fmt.Errorf("resource operation %d (%s): %w", index, operation.Kind, err)
+		}
+		switch operation.Kind {
+		case PhysicalCollectionScanOp:
+			if index != 0 {
+				return fmt.Errorf("resource operation %d: population root source permits exactly one leading collection scan", index)
+			}
+			if err := requireCollectionBind(bindVars, operation.CollectionScan.CollectionBindKey); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, operation.CollectionScan.Variable); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+		case PhysicalTraversalOp:
+			traversal := operation.Traversal
+			if !defined[traversal.SourceVariable] {
+				return fmt.Errorf("resource operation %d: traversal source variable %q is out of scope", index, traversal.SourceVariable)
+			}
+			if traversal.Direction != PhysicalOutbound && traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalAny {
+				return fmt.Errorf("resource operation %d: invalid traversal direction %q", index, traversal.Direction)
+			}
+			if err := validatePhysicalTraversalStrategy(*traversal); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+			if err := requireCollectionBind(bindVars, traversal.EdgeCollectionBindKey); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+			for _, key := range []string{traversal.EdgeLabelBindKey, traversal.TargetTypeBindKey} {
+				if key != "" {
+					if err := requireBind(bindVars, key); err != nil {
+						return fmt.Errorf("resource operation %d: %w", index, err)
+					}
+				}
+			}
+			if err := definePhysicalVariable(defined, traversal.TargetVariable); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, traversal.EdgeVariable); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+		case PhysicalFilterOp:
+			if err := validatePhysicalFilter(*operation.Filter, defined, bindVars); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+		case PhysicalDerivedLetOp:
+			if err := validatePhysicalDerivedLet(*operation.DerivedLet, defined, bindVars); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, operation.DerivedLet.Variable); err != nil {
+				return fmt.Errorf("resource operation %d: %w", index, err)
+			}
+		default:
+			return fmt.Errorf("resource operation %d has unsupported kind %q", index, operation.Kind)
+		}
+	}
+	if err := validatePhysicalValue(source.RootKey, defined, bindVars); err != nil {
+		return fmt.Errorf("root key: %w", err)
+	}
+	if err := validatePhysicalValue(source.MemberID, defined, bindVars); err != nil {
+		return fmt.Errorf("member id: %w", err)
+	}
+	if source.CollectMembersVariable != "" && !physicalVariablePattern.MatchString(source.CollectMembersVariable) {
+		return fmt.Errorf("unsafe collected member variable %q", source.CollectMembersVariable)
 	}
 	return nil
 }

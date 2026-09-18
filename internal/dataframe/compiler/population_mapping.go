@@ -67,48 +67,10 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 		}
 		physical = optimized
 	}
-	populationIndex, subplan, err := findPopulationSemijoin(physical)
-	if err != nil {
-		return ir.PhysicalPlan{}, err
+	if len(physical.Operations) == 0 || physical.Operations[0].Kind != ir.PhysicalRootScanOp || physical.Operations[0].RootScan == nil || physical.Operations[0].RootScan.Population == nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("population mapping requires a membership-driven population root source")
 	}
-	memberVariable, err := populationMemberVariable(*subplan)
-	if err != nil {
-		return ir.PhysicalPlan{}, err
-	}
-	subplan.Return = ir.PhysicalExpression{
-		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Value: &ir.PhysicalValue{Variable: memberVariable, Path: []string{"id"}},
-	}
-	subplan.Sort = &ir.PhysicalValue{Variable: memberVariable, Path: []string{"id"}}
-	subplan.Unique = true
-	members := ir.PhysicalExpression{
-		Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-		Subplan: subplan,
-	}
-	let := ir.PhysicalOperation{
-		Kind:          ir.PhysicalExpressionLetOp,
-		Source:        physical.Operations[populationIndex].Source,
-		ExpressionLet: &ir.PhysicalExpressionLet{Variable: ir.PopulationMappingMembersVariable, Expression: members},
-	}
-	filter := ir.PhysicalOperation{
-		Kind:   ir.PhysicalFilterOp,
-		Source: physical.Operations[populationIndex].Source,
-		Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
-			Kind: ir.PhysicalComparisonPredicate,
-			Comparison: &ir.PhysicalPredicate{
-				Operator: "EXISTS", ValueKind: spec.FilterString,
-				LeftExpression: &ir.PhysicalExpression{
-					Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-					Value: &ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable},
-				},
-			},
-		}},
-	}
-	operations := make([]ir.PhysicalOperation, 0, len(physical.Operations)+1)
-	operations = append(operations, physical.Operations[:populationIndex]...)
-	operations = append(operations, let, filter)
-	operations = append(operations, physical.Operations[populationIndex+1:]...)
-	physical.Operations = operations
+	physical.Operations[0].RootScan.Population.CollectMembersVariable = ir.PopulationMappingMembersVariable
 	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
 	if err != nil {
 		return ir.PhysicalPlan{}, err
@@ -129,30 +91,6 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 		return ir.PhysicalPlan{}, fmt.Errorf("verify population mapping physical scope: %w", err)
 	}
 	return physical, nil
-}
-
-func findPopulationSemijoin(plan ir.PhysicalPlan) (int, *ir.PhysicalSubplan, error) {
-	for index, operation := range plan.Operations {
-		if operation.Kind != ir.PhysicalFilterOp || operation.Source.SemanticNode != "population" || operation.Filter == nil || operation.Filter.Expression == nil {
-			continue
-		}
-		predicate := operation.Filter.Expression
-		if predicate.Kind != ir.PhysicalExistsPredicate || predicate.Exists == nil {
-			continue
-		}
-		subplan := ir.ClonePhysicalSubplan(*predicate.Exists)
-		return index, &subplan, nil
-	}
-	return 0, nil, fmt.Errorf("population mapping requires the canonical population semijoin")
-}
-
-func populationMemberVariable(subplan ir.PhysicalSubplan) (string, error) {
-	for _, operation := range subplan.Operations {
-		if operation.Kind == ir.PhysicalCollectionScanOp && operation.CollectionScan != nil {
-			return operation.CollectionScan.Variable, nil
-		}
-	}
-	return "", fmt.Errorf("population mapping semijoin has no member collection scan")
 }
 
 func finalPopulationMappingIdentity(plan ir.PhysicalPlan, identity *spec.RowIdentity) (int, []ir.PhysicalPopulationMappingIdentityPart, *ir.PhysicalExpression, error) {
