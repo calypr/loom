@@ -187,10 +187,10 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Build.**
 
-- [ ] ML-B04-01. Compile the immutable selection as a typed membership semijoin, retaining target row grain. Test direct and reversed paths, shared target resources, missing links, and exact selection-to-row trace mapping. Preserve project/generation/auth constraints at every step.
+- [x] ML-B04-01. Compile the immutable selection as a typed membership semijoin, retaining target row grain. Test direct and reversed paths, shared target resources, missing links, and exact selection-to-row trace mapping. Preserve project/generation/auth constraints at every step.
 - [ ] ML-B04-02. Replace root reset with assess-and-apply row changes. Preserve selection and stable features when rebasing is unambiguous. Return explicit affected-feature errors otherwise. Apply atomically under the existing draft digest.
-- [ ] ML-B04-03. Allow independent relationship occurrences with contributor predicates, while retaining route bounds. Distinguish population eligibility from optional feature matching. Update traversal-sharing identity to include semantic scope and predicates.
-- [ ] ML-B04-04. Add checked/all-matching/exclusion controls and the row-definition control using the existing command queue. Show selection size, resulting rows, and unmapped sources. Prove a file-to-specimen journey and a non-file-root journey without Patient.
+- [x] ML-B04-03. Allow independent relationship occurrences with contributor predicates, while retaining route bounds. Distinguish population eligibility from optional feature matching. Update traversal-sharing identity to include semantic scope and predicates.
+- [x] ML-B04-04. Add checked/all-matching/exclusion controls and the row-definition control using the existing command queue. Show selection size, resulting rows, and unmapped sources. Prove a file-to-specimen journey and a non-file-root journey without Patient.
 
 **You see.**
 
@@ -206,10 +206,10 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Population semijoin scans, latency, and row-change-to-preview time.
-- [ ] Probe. Compare target-scan and membership-driven plans at sparse/dense selection ratios after literal row equality.
-- [ ] Baseline. Record the existing equivalent manual recipe where possible and identify the new membership work separately.
-- [ ] Rule. Require indexed scoped membership access and exact target deduplication. Require the small warm row-change journey within 30 seconds or block on the measured plan problem.
+- [x] Metric. Population semijoin scans, latency, and row-change-to-preview time.
+- [x] Probe. Compare target-scan and membership-driven plans at sparse/dense selection ratios after literal row equality.
+- [x] Baseline. Record the existing equivalent manual recipe where possible and identify the new membership work separately.
+- [x] Rule. Require indexed scoped membership access and exact target deduplication. Require the small warm row-change journey within 30 seconds or block on the measured plan problem.
 
 **Review gate.** None. No mandatory operator interaction review. Root checks that no selection/feature is silently discarded. No routine manual click-through.
 
