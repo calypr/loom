@@ -164,6 +164,13 @@ func TestValidationRejectsUnsupportedRichFilterShapes(t *testing.T) {
 	}
 }
 
+func TestValidationAcceptsAggregateContributorQuantifier(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"named","operation":"COUNT","where":{"select":"name[].family","operator":"EXISTS","quantifier":"ANY"}}]}]}`
+	if _, err := Parse([]byte(input)); err != nil {
+		t.Fatalf("expected aggregate contributor quantifier to validate, got %v", err)
+	}
+}
+
 func TestValidationAcceptsTypedExpressionOperationSet(t *testing.T) {
 	for _, call := range []string{"fallback", "not", "and", "or", "eq", "neq", "gt", "gte", "lt", "lte", "contains"} {
 		bundle := Bundle{RecipeSchemaVersion: 1, Name: "ops", TranslationVersion: "1"}

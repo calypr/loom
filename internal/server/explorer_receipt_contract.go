@@ -182,10 +182,7 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 		}
 		columns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
 		sort.SliceStable(columns, func(i, j int) bool {
-			if columns[i].Order != columns[j].Order {
-				return columns[i].Order < columns[j].Order
-			}
-			return columns[i].EmissionID < columns[j].EmissionID
+			return columns[i].Order < columns[j].Order
 		})
 		document, found := semanticWorkspaceDocument(compiled.Workspace, tab.OutputID)
 		view := explorer.ConfigView{ID: tab.ID, Title: tab.Title, Output: tab.OutputID, Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{}}}
@@ -201,10 +198,7 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 		}
 		filterColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
 		sort.SliceStable(filterColumns, func(i, j int) bool {
-			if filterColumns[i].FilterOrder != filterColumns[j].FilterOrder {
-				return filterColumns[i].FilterOrder < filterColumns[j].FilterOrder
-			}
-			return filterColumns[i].EmissionID < filterColumns[j].EmissionID
+			return filterColumns[i].FilterOrder < filterColumns[j].FilterOrder
 		})
 		for _, column := range filterColumns {
 			if column.FilterLabel != "" {
@@ -213,10 +207,7 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 		}
 		chartColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
 		sort.SliceStable(chartColumns, func(i, j int) bool {
-			if chartColumns[i].ChartOrder != chartColumns[j].ChartOrder {
-				return chartColumns[i].ChartOrder < chartColumns[j].ChartOrder
-			}
-			return chartColumns[i].EmissionID < chartColumns[j].EmissionID
+			return chartColumns[i].ChartOrder < chartColumns[j].ChartOrder
 		})
 		for _, column := range chartColumns {
 			if column.ChartType != "" {

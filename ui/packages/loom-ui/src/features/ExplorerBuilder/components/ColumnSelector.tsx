@@ -99,9 +99,11 @@ const ConfiguredColumnRow = ({
   filterable,
   chartable,
   candidate,
+  candidates,
   resourceLabel,
   onChange,
   onSourceChange,
+  onContributorChange,
   onRemove,
 }: {
   readonly column: ExplorerBuilderColumn;
@@ -110,9 +112,14 @@ const ConfiguredColumnRow = ({
   readonly filterable: boolean;
   readonly chartable: boolean;
   readonly candidate?: ExplorerBuilderCandidate;
+  readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
+  readonly onContributorChange: (
+    column: string,
+    contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
   readonly onRemove: () => void;
 }) => {
   const [label, setLabel] = useState(column.label);
@@ -229,9 +236,13 @@ const ConfiguredColumnRow = ({
       <FeaturePolicyEditor
         column={column}
         candidate={candidate}
+        candidates={candidates}
         resourceLabel={resourceLabel}
         disabled={disabled}
         onSourceChange={(source) => onSourceChange(column.column, source)}
+        onContributorChange={(contributor) =>
+          onContributorChange(column.column, contributor)
+        }
       />
     </div>
   );
@@ -338,6 +349,7 @@ export const ColumnSelector = ({
   onAddSource,
   onChange,
   onSourceChange,
+  onContributorChange = () => undefined,
   onRemove,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
@@ -356,6 +368,10 @@ export const ColumnSelector = ({
   readonly onAddSource?: (source: ExplorerColumnSource, title: string) => void;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
+  readonly onContributorChange?: (
+    column: string,
+    contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
   readonly onRemove: (column: string) => void;
 }) => {
   const [query, setQuery] = useState('');
@@ -582,9 +598,14 @@ export const ColumnSelector = ({
                               ?.chartable ?? true
                           }
                           candidate={configuredCapabilities.get(row.column.column)}
+                          candidates={(catalog.candidates ?? []).filter(
+                            (candidateOption) =>
+                              candidateOption.nodeId === occurrence?.nodeId,
+                          )}
                           resourceLabel={titleForResource(resourceType)}
                           onChange={onChange}
                           onSourceChange={onSourceChange}
+                          onContributorChange={onContributorChange}
                           onRemove={() => onRemove(row.column.column)}
                         />
                       ) : (

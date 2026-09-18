@@ -89,15 +89,21 @@ const projectionExplanation = (
 export const FeaturePolicyEditor = ({
   column,
   candidate,
+  candidates,
   resourceLabel,
   disabled,
   onSourceChange,
+  onContributorChange,
 }: {
   readonly column: ExplorerBuilderColumn;
   readonly candidate?: ExplorerBuilderCandidate;
+  readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly resourceLabel: string;
   readonly disabled: boolean;
   readonly onSourceChange: (source: ExplorerColumnSource) => void;
+  readonly onContributorChange: (
+    contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
 }) => {
   if (column.source.kind === 'field') {
     const source = column.source;
@@ -201,6 +207,36 @@ export const FeaturePolicyEditor = ({
           </select>
         </label>
         <span>{summary}</span>
+        <label className="flex items-center gap-1.5 font-medium text-slate-700">
+          <span>Contributors</span>
+          <select
+            aria-label={`Contributors for ${column.label}`}
+            className="max-w-64 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
+            value={column.contributor?.candidateId ?? ''}
+            disabled={disabled}
+            onChange={(event) => {
+              const selected = candidates.find(
+                ({ candidateId }) => candidateId === event.currentTarget.value,
+              );
+              if (!selected) {
+                onContributorChange(undefined);
+                return;
+              }
+              onContributorChange({
+                candidateId: selected.candidateId,
+                operator: 'EXISTS',
+                ...(selected.repeated ? { quantifier: 'ANY' as const } : {}),
+              });
+            }}
+          >
+            <option value="">All matching {resourceLabel} resources</option>
+            {candidates.map((candidateOption) => (
+              <option key={candidateOption.candidateId} value={candidateOption.candidateId}>
+                Where {candidateOption.label} exists
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     );
   }

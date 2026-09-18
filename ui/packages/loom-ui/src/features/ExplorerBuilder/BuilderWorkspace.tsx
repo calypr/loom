@@ -1398,6 +1398,23 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
+                onContributorChange={(column, contributor) =>
+                  table &&
+                  void applyCommands([
+                    contributor
+                      ? {
+                          type: 'SET_COLUMN_CONTRIBUTOR',
+                          outputId: table.outputId,
+                          column,
+                          contributor,
+                        }
+                      : {
+                          type: 'CLEAR_COLUMN_CONTRIBUTOR',
+                          outputId: table.outputId,
+                          column,
+                        },
+                  ])
+                }
               />
             </div>
             {state.receipt && state.reconciliation === 'resolved' && table ? (

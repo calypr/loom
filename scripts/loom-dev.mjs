@@ -945,8 +945,35 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordAssertion(report, 'builder-optional-match-restores-feature-only-route', 'OPTIONAL', optionalBuilder.workspace.documents[0].route.children[0].matchMode);
     await browserEval(cdp, `clickButton('Count')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured Observation count"]'))`);
-    await browserEval(cdp, `setInput('Search columns', 'valueQuantity.value')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add valueQuantity.value to table"]'))`);
+    await browserEval(cdp, `selectOption('Contributors for Observation count', 'Where component[].valueString exists')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Contributors for Observation count"]')?.value)`);
+    const scopedBuilder = await fetchBuilderState(target, explorerId);
+    const componentTextCandidate = scopedBuilder.catalog.candidates.find((candidate) => candidate.fieldPath === 'component[].valueString');
+    const scopedCount = scopedBuilder.workspace.documents[0].columns.find((column) => column.label === 'Observation count');
+    recordAssertion(report, 'builder-persists-typed-contributor-scope', {
+      candidateId: componentTextCandidate?.candidateId,
+      operator: 'EXISTS',
+      quantifier: 'ANY',
+    }, scopedCount?.contributor);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Yes / no')`);
+    let featureBuilder;
+    const featureDeadline = Date.now() + 30000;
+    while (Date.now() < featureDeadline) {
+      featureBuilder = await fetchBuilderState(target, explorerId);
+      if (featureBuilder.workspace.documents[0].columns.some((column) => column.label === 'Has Observation')) break;
+      await sleep(200);
+    }
+    recordAssertion(report, 'builder-persists-independent-related-features', true,
+      featureBuilder?.workspace.documents[0].columns.some((column) => column.label === 'Has Observation') === true);
+    const valueCandidateDeadline = Date.now() + 30000;
+    let valueCandidateVisible = false;
+    while (Date.now() < valueCandidateDeadline && !valueCandidateVisible) {
+      await browserEval(cdp, `setInput('Search columns', 'valueQuantity.value')`);
+      await sleep(200);
+      valueCandidateVisible = await evaluate(cdp, `Boolean(document.querySelector('input[aria-label="Add valueQuantity.value to table"]'))`);
+    }
+    if (!valueCandidateVisible) throw new Error('valueQuantity.value candidate did not remain visible after Builder reconciliation');
     await browserEval(cdp, `clickCandidate('valueQuantity.value', 'to table')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured valueQuantity.value"]'))`);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
@@ -963,10 +990,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       };
     })()`);
     recordAssertion(report, 'preview-shows-exact-fixture-table', {
-      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'valueQuantity.value'],
+      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
       rows: [
-        ['dev-patient-001', 'Example', 'Example-Smith', '2', '2', String(relatedValue)],
-        ['dev-patient-002', 'Builder', '—', '1', '1', '68'],
+        ['dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(relatedValue)],
+        ['dev-patient-002', 'Builder', '—', '1', '0', 'true', '68'],
       ],
     }, preview);
 
@@ -1020,6 +1047,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       { label: 'name[].family [1]', sourcePath: 'name[].family', sourceResourceType: 'Patient', projectionMode: 'INDEXED', coordinates: [1] },
       { label: 'Observation count', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'COUNT', coordinates: [] },
       { label: 'name__count', sourcePath: 'name[]', sourceResourceType: 'Patient', projectionMode: 'COUNT', coordinates: [] },
+      { label: 'Has Observation', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'EXISTS', coordinates: [] },
       { label: 'valueQuantity.value', sourcePath: 'valueQuantity.value', sourceResourceType: 'Observation', projectionMode: 'VALUE', coordinates: [] },
       { label: 'gender', sourcePath: 'gender', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
     ], outputLineage.map(({ label, sourcePath, sourceResourceType, projectionMode, coordinates }) => ({ label, sourcePath, sourceResourceType, projectionMode, coordinates })));
@@ -1031,7 +1059,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const nameCountColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => emitted.projectionMode === 'COUNT' && emitted.sourcePath === 'name[]');
     const genderColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => emitted.sourcePath === 'gender' || emitted.authoredColumns?.includes('gender') || /gender/i.test(runtimeColumn.label));
     const valueColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => emitted.sourcePath?.includes('value') || emitted.authoredColumns?.some((path) => path.includes('value')) || /value/i.test(emitted.label || runtimeColumn.label));
-    const observationCountColumn = findPhysicalColumn(state, output, (_runtimeColumn, emitted) => emitted.sourceResourceType === 'Observation' && emitted.sourcePath === '$resource' && emitted.projectionMode === 'COUNT');
+    const scopedObservationCountColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => runtimeColumn.label === 'Observation count' && emitted.sourceResourceType === 'Observation' && emitted.sourcePath === '$resource' && emitted.projectionMode === 'COUNT');
+    const hasObservationColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => runtimeColumn.label === 'Has Observation' && emitted.sourceResourceType === 'Observation' && emitted.sourcePath === '$resource' && emitted.projectionMode === 'EXISTS');
     recordAssertion(report, 'published-output-has-id-lineage', true, Boolean(idColumn));
     recordAssertion(report, 'published-output-has-repeated-family-lineage', true, familyColumns.length >= 2 && familyColumns.every(({ emitted }) => emitted.coordinates?.length > 0));
     recordAssertion(report, 'published-output-has-related-value-lineage', true, Boolean(valueColumn));
@@ -1058,11 +1087,12 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       nameCount: rowValue(row, nameCountColumn.runtime.column),
       gender: rowValue(row, genderColumn.runtime.column),
       relatedValue: rowValue(row, valueColumn.runtime.column),
-      observationCount: rowValue(row, observationCountColumn.runtime.column),
+      scopedObservationCount: rowValue(row, scopedObservationCountColumn.runtime.column),
+      hasObservation: rowValue(row, hasObservationColumn.runtime.column),
     }));
     recordAssertion(report, 'materialized-exact-fixture-rows', [
-      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue, observationCount: '2' },
-      { id: 'dev-patient-002', family: ['Builder', null], nameCount: '1', gender: null, relatedValue: 68, observationCount: '1' },
+      { id: 'dev-patient-001', family: ['Example', 'Example-Smith'], nameCount: '2', gender: 'female', relatedValue, scopedObservationCount: '1', hasObservation: true },
+      { id: 'dev-patient-002', family: ['Builder', null], nameCount: '1', gender: null, relatedValue: 68, scopedObservationCount: '0', hasObservation: true },
     ], exactRows);
 
     await browserEval(cdp, `clickButton('Viewer')`);
@@ -1082,8 +1112,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       };
     })()`);
     recordAssertion(report, 'viewer-filter-shows-exact-table', {
-      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'Observation count', 'name__count', 'valueQuantity.value'],
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '2', '2', String(relatedValue)]],
+      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'Observation count', 'name__count', 'Has Observation', 'valueQuantity.value'],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(relatedValue)]],
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
@@ -1093,7 +1123,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const csvRows = parseCSV(readFileSync(csvPath, 'utf8'));
     const expectedCSV = {
       headers: output.columns.filter((column) => column.visible).map((column) => column.column),
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '2', '2', String(relatedValue)]],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(relatedValue)]],
     };
     recordAssertion(report, 'downloaded-csv-has-generated-physical-headers', expectedCSV.headers, csvRows[0] ?? []);
     recordAssertion(report, 'downloaded-csv-has-exact-filtered-rows', expectedCSV.rows, csvRows.slice(1));

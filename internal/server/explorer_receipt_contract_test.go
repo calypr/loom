@@ -211,7 +211,7 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 	}
 }
 
-func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(t *testing.T) {
+func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTies(t *testing.T) {
 	compiled := explorercompilation.WorkspaceResult{
 		Workspace: authoringv2.Workspace{
 			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
@@ -238,13 +238,13 @@ func TestCompiledExplorerWorkspaceConfigUsesIndependentStablePresentationOrders(
 		t.Fatal(err)
 	}
 	view := config.Views[0]
-	if view.Table.Columns[0].Column != "column_a" || view.Table.Columns[1].Column != "column_b" {
+	if view.Table.Columns[0].Column != "column_b" || view.Table.Columns[1].Column != "column_a" {
 		t.Fatalf("table order=%#v", view.Table.Columns)
 	}
-	if view.Filters[0].Column != "column_a" || view.Filters[1].Column != "column_b" {
+	if view.Filters[0].Column != "column_b" || view.Filters[1].Column != "column_a" {
 		t.Fatalf("filter order=%#v", view.Filters)
 	}
-	if view.Table.Columns[1].Visible || view.Filters[1].Column != view.Table.Columns[1].Column {
+	if view.Table.Columns[0].Visible || view.Filters[0].Column != view.Table.Columns[0].Column {
 		t.Fatalf("hidden filter-only column was not preserved: table=%#v filters=%#v", view.Table.Columns, view.Filters)
 	}
 	if view.Charts[0].Column != "column_b" || view.Charts[1].Column != "column_a" {

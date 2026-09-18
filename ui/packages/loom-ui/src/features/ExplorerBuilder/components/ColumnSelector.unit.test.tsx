@@ -92,6 +92,22 @@ describe('configured V2 columns', () => {
 
   it('edits an existing resource reduction without changing its scope', () => {
     const onSourceChange = vi.fn();
+    const onContributorChange = vi.fn();
+    const contributorCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_identifier',
+        nodeId: 'research-subject',
+        fieldPath: 'identifier[].value',
+        label: 'Identifier',
+        logicalType: 'string',
+        repeated: true,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['FIRST', 'ALL'],
+        defaultProjectionMode: 'FIRST',
+      }],
+    };
     const aggregateTable: DraftTable = {
       ...table,
       document: {
@@ -107,9 +123,10 @@ describe('configured V2 columns', () => {
       },
     };
 
-    render(<ColumnSelector catalog={catalog} table={aggregateTable} occurrenceId="base"
+    render(<ColumnSelector catalog={contributorCatalog} table={aggregateTable} occurrenceId="base"
       disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
-      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+      onSourceChange={onSourceChange} onContributorChange={onContributorChange}
+      onRemove={vi.fn()} />);
 
     fireEvent.change(screen.getByRole('combobox', {
       name: 'Calculation for Subject count',
@@ -120,6 +137,15 @@ describe('configured V2 columns', () => {
       aggregate: { operation: 'EXISTS' },
     });
     expect(screen.getByText('Counts matching Research Subject resources.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Contributors for Subject count',
+    }), { target: { value: 'c_identifier' } });
+    expect(onContributorChange).toHaveBeenCalledWith('subject_count', {
+      candidateId: 'c_identifier',
+      operator: 'EXISTS',
+      quantifier: 'ANY',
+    });
   });
 
   it('adds count and existence features for a related resource without replacing fields', () => {

@@ -131,11 +131,11 @@ func filterOperatorSupportsKind(op FilterOperator, kind FilterValueKind) bool {
 	}
 }
 
-func validateRichFilterAt(filter Filter, path string) error {
+func validateRichFilterAt(filter Filter, path string, allowQuantifier bool) error {
 	if err := filter.validateAt(path); err != nil {
 		return err
 	}
-	if filter.Quantifier != "" {
+	if filter.Quantifier != "" && !allowQuantifier {
 		return validationError("unsupported_filter_quantifier", path+".quantifier", "rich shaping predicates do not support quantifiers")
 	}
 	switch filter.Operator {
@@ -340,7 +340,7 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 		}
 	}
 	if a.Where != nil {
-		if err := validateRichFilterAt(*a.Where, path+".where"); err != nil {
+		if err := validateRichFilterAt(*a.Where, path+".where", true); err != nil {
 			return err
 		}
 	}
@@ -375,7 +375,7 @@ func (s RepresentativeSlice) validateAt(path string, budget *int) error {
 		return validationError("required", path+".fields", "at least one field is required")
 	}
 	if s.Where != nil {
-		if err := validateRichFilterAt(*s.Where, path+".where"); err != nil {
+		if err := validateRichFilterAt(*s.Where, path+".where", false); err != nil {
 			return err
 		}
 	}
