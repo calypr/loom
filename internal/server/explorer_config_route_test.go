@@ -96,6 +96,9 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	if len(active.Materializations) != 1 || active.Materializations[0].Selector == nil || *active.Materializations[0].Selector != *selector {
 		t.Fatalf("materialization selector = %#v", active.Materializations)
 	}
+	if len(active.QualityReports) != 1 || active.QualityReports[0].Output != "patients" {
+		t.Fatalf("quality evidence missing from active revision: %#v", active.QualityReports)
+	}
 	if len(active.AuthoringBundle) == 0 || active.CompilationReceiptID == "" || len(active.PublicOutputContract) == 0 {
 		t.Fatalf("active repository revision lost V2 artifacts: %#v", active)
 	}
@@ -104,7 +107,7 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		t.Fatalf("builder reload status=%d body=%s", builder.StatusCode, builder.Body)
 	}
 	viewer := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default", "")
-	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) {
+	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) || !strings.Contains(viewer.Body, `"qualityReports"`) {
 		t.Fatalf("viewer state status=%d body=%s", viewer.StatusCode, viewer.Body)
 	}
 	store.mu.Lock()

@@ -51,3 +51,35 @@ export const ChartToggle = ({ outputId, visible, dispatch }: { readonly outputId
     {visible ? 'Hide charts' : 'Show charts'}
   </Button>
 );
+
+export const QualitySummary = ({ output, runtime }: { readonly output: ExplorerRuntimeOutputV1; readonly runtime: ExplorerRuntimeV1 }) => {
+  const report = runtime.qualityReports?.find((candidate) => candidate.output === output.outputId || candidate.output === output.name);
+  if (!report) return null;
+  const affectedColumns = report.columns.filter((column) => column.missing + column.recordedNull + column.emptyArray > 0);
+  const absentCells = affectedColumns.reduce((total, column) => total + column.missing + column.recordedNull + column.emptyArray, 0);
+  return (
+    <Paper component="section" withBorder radius="md" p="sm" mb="sm" aria-label="Dataset quality">
+      <Group justify="space-between" align="flex-start" gap="sm" wrap="wrap">
+        <Stack gap={1}>
+          <Text fw={700} size="sm">Dataset quality</Text>
+          <Text c="dimmed" size="xs">
+            {report.rowCount.toLocaleString()} rows checked across the complete published output
+          </Text>
+        </Stack>
+        <Badge color={report.verdict === 'PASSED' && report.completeness === 'COMPLETE' ? 'green' : 'orange'} variant="light">
+          {report.completeness === 'COMPLETE' ? 'Complete evidence' : 'Incomplete evidence'}
+        </Badge>
+      </Group>
+      <Text size="xs" mt="xs">
+        {affectedColumns.length === 0
+          ? `All ${report.columns.length.toLocaleString()} feature columns are populated.`
+          : `${absentCells.toLocaleString()} absent values appear across ${affectedColumns.length.toLocaleString()} feature columns.`}
+      </Text>
+      {report.keyIntegrity.missing > 0 || report.keyIntegrity.duplicate > 0 ? (
+        <Text c="orange" size="xs" mt={4}>
+          Row identity needs attention: {report.keyIntegrity.missing.toLocaleString()} missing and {report.keyIntegrity.duplicate.toLocaleString()} duplicate keys.
+        </Text>
+      ) : null}
+    </Paper>
+  );
+};

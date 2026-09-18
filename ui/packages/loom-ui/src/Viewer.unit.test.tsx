@@ -11,6 +11,7 @@ const state = {
   draft: { version: 1, digest: 'digest' }, active: {}, generated: {}, activeUrl: '/viewer',
   runtime: {
     generation: 'generation-1', outputs: [{ outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient', selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' }, columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }], table: { columns: [{ column: 'patient_id', label: 'Patient ID', visible: true }] }, filters: [], charts: [], fixedFilters: {}, actions: [] }], sharedFilters: {}, diagnostics: [],
+    qualityReports: [{ id: 'quality-1', receiptId: 'receipt-1', project: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', scopeDigest: 'scope-1', output: 'patients', policyVersion: 'loom.quality/v1', completeness: 'COMPLETE', verdict: 'PASSED', rowCount: 1, columns: [{ column: 'patient_id', present: 1, missing: 0, recordedNull: 0, emptyArray: 0 }], keyIntegrity: { distinct: 1, missing: 0, duplicate: 0 } }],
   },
 };
 
@@ -29,6 +30,7 @@ describe('Loom Explorer Viewer', () => {
     render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" renderRowDetails={(row) => <span>Details for {String(row.patient_id)}</span>} />);
     await waitFor(() => expect(screen.getByText('patient-1')).toBeTruthy());
     expect(screen.getAllByText('Patients').length).toBeGreaterThan(0);
+    expect(screen.getByRole('region', { name: 'Dataset quality' })).toHaveTextContent('1 rows checked');
     const tableControls = screen.getByRole('navigation', { name: 'Table controls' });
     const table = screen.getByRole('table', { name: 'Patients results' });
     expect(tableControls.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

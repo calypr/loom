@@ -74,6 +74,7 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	state.Generated.Dataset = revision.Dataset
 	state.Generated.Dataset.Outputs = append([]DatasetOutput(nil), revision.Dataset.Outputs...)
 	state.Generated.Publication = revision.Publication
+	state.Generated.QualityReports = publication.CloneQualityReports(revision.QualityReports)
 	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]Diagnostic(nil), revision.Diagnostics...)

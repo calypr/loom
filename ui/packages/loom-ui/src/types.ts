@@ -891,6 +891,7 @@ export interface ExplorerRuntimeV1 {
     readonly extensions?: Readonly<Record<string, ReadonlyArray<string>>>;
     readonly actions?: Readonly<Record<string, string>>;
   };
+  readonly qualityReports?: ReadonlyArray<ExplorerQualityReportV1>;
   readonly diagnostics: ReadonlyArray<ExplorerRuntimeDiagnostic>;
 }
 
@@ -903,6 +904,34 @@ export interface ExplorerRuntimeDiagnostic {
   readonly details?: Readonly<Record<string, unknown>>;
   readonly retryable?: boolean;
   readonly requestId?: string;
+}
+
+export interface ExplorerColumnQualityV1 {
+  readonly column: string;
+  readonly present: number;
+  readonly missing: number;
+  readonly recordedNull: number;
+  readonly emptyArray: number;
+}
+
+export interface ExplorerQualityReportV1 {
+  readonly id: string;
+  readonly receiptId: string;
+  readonly project: string;
+  readonly datasetGeneration: string;
+  readonly scopeDigest: string;
+  readonly output: string;
+  readonly policyVersion: string;
+  readonly completeness: 'COMPLETE' | 'INCOMPLETE';
+  readonly verdict: 'PASSED' | 'FAILED';
+  readonly rowCount: number;
+  readonly columns: ReadonlyArray<ExplorerColumnQualityV1>;
+  readonly keyIntegrity: {
+    readonly distinct: number;
+    readonly missing: number;
+    readonly duplicate: number;
+  };
+  readonly omissions?: ReadonlyArray<{ readonly code: string; readonly detail: string }>;
 }
 
 /** Opaque generated metadata retained only for the runtime compatibility adapter. */
@@ -981,6 +1010,7 @@ export interface ExplorerStateV1 {
       readonly outputs: ReadonlyArray<ExplorerStateDatasetOutputV1>;
     };
     readonly publication?: PublicationMetadata;
+    readonly qualityReports?: ReadonlyArray<ExplorerQualityReportV1>;
     readonly diagnostics?: ReadonlyArray<ExplorerRuntimeDiagnostic>;
   };
   readonly activeUrl: string;
@@ -1080,6 +1110,33 @@ const runtimeDiagnosticSchema = z
     requestId: z.string().optional(),
   })
   .strict();
+const qualityReportSchema = z
+  .object({
+    id: opaqueIdSchema,
+    receiptId: opaqueIdSchema,
+    project: z.string(),
+    datasetGeneration: z.string(),
+    scopeDigest: z.string(),
+    output: opaqueIdSchema,
+    policyVersion: z.string(),
+    completeness: z.enum(['COMPLETE', 'INCOMPLETE']),
+    verdict: z.enum(['PASSED', 'FAILED']),
+    rowCount: z.number().int().nonnegative(),
+    columns: z.array(z.object({
+      column: opaqueIdSchema,
+      present: z.number().int().nonnegative(),
+      missing: z.number().int().nonnegative(),
+      recordedNull: z.number().int().nonnegative(),
+      emptyArray: z.number().int().nonnegative(),
+    }).strict()),
+    keyIntegrity: z.object({
+      distinct: z.number().int().nonnegative(),
+      missing: z.number().int().nonnegative(),
+      duplicate: z.number().int().nonnegative(),
+    }).strict(),
+    omissions: z.array(z.object({ code: z.string(), detail: z.string() }).strict()).optional(),
+  })
+  .strict();
 const runtimeSchema = z
   .object({
     status: z.string().optional(),
@@ -1092,6 +1149,7 @@ const runtimeSchema = z
       extensions: z.record(z.string(), z.array(z.string())).optional(),
       actions: z.record(z.string(), z.string()).optional(),
     }).strict().optional(),
+    qualityReports: z.array(qualityReportSchema).optional(),
     diagnostics: z.array(runtimeDiagnosticSchema),
   })
   .strict();
@@ -1155,6 +1213,7 @@ const generatedSchema = z
       outputs: z.array(datasetOutputSchema).nullable().transform((value) => value ?? []),
     }).strict().optional(),
     publication: publicationMetadataSchema.optional(),
+    qualityReports: z.array(qualityReportSchema).optional(),
     diagnostics: z.array(runtimeDiagnosticSchema).optional(),
   })
   .strict();

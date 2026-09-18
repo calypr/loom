@@ -154,14 +154,15 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	publicationState := revision.Publication
 	publicationState.State = firstNonEmptyString(publicationState.State, status)
 	runtime := &ExplorerRuntimeV1{
-		Status:        status,
-		Generation:    firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
-		Publication:   publicationState,
-		Schema:        ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: ConfigV2APIVersion},
-		Outputs:       []ExplorerRuntimeOutputV1{},
-		SharedFilters: map[string][]ExplorerRuntimeBindingV1{},
-		FileActions:   config.FileActions,
-		Diagnostics:   append([]Diagnostic(nil), revision.Diagnostics...),
+		Status:         status,
+		Generation:     firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
+		Publication:    publicationState,
+		Schema:         ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: ConfigV2APIVersion},
+		Outputs:        []ExplorerRuntimeOutputV1{},
+		SharedFilters:  map[string][]ExplorerRuntimeBindingV1{},
+		FileActions:    config.FileActions,
+		QualityReports: publication.CloneQualityReports(revision.QualityReports),
+		Diagnostics:    append([]Diagnostic(nil), revision.Diagnostics...),
 	}
 
 	views := config.Views

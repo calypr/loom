@@ -1,7 +1,7 @@
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
-import { ChartToggle, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
+import { ChartToggle, QualitySummary, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
 import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './features/ExplorerViewer/components';
 import { runtimeSessionKey } from './features/ExplorerViewer/model';
 import { createViewerReducerState, viewerReducer } from './features/ExplorerViewer/reducer';
@@ -140,6 +140,7 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
                   <FilterRail runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
                   <section className="min-w-0" aria-label={output.title}>
                     <QuerySummary output={output} runtime={runtime} state={state} result={result} dispatch={dispatch} />
+                    <QualitySummary output={output} runtime={runtime} />
                     <Group justify="space-between" gap="sm" mih={40} mb="xs">
                       {resultQuery.isLoading
                         ? <Group gap="xs" role="status"><Loader size="xs" /><Text c="dimmed" size="xs">Updating results…</Text></Group>
