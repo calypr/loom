@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import type { ExplorerBuilderCompileResult } from '../../../types';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
@@ -29,8 +29,8 @@ export const DataframeContractPanel = ({
   readonly outputId: string;
 }) => {
   const output = receipt.outputs.find((candidate) => candidate.outputId === outputId);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const viewport = useVirtualViewport(viewportRef, 1200, 252);
+  const { viewport, ref: viewportRef } =
+    useVirtualViewport<HTMLDivElement>(1200, 252);
   const range = virtualRange({
     count: output?.columns.length ?? 0,
     offset: viewport.scrollTop,

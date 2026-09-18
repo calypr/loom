@@ -382,8 +382,8 @@ export const ColumnSelector = ({
 }) => {
   const [query, setQuery] = useState('');
   const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
-  const candidateScrollRef = React.useRef<HTMLDivElement>(null);
-  const viewport = useVirtualViewport(candidateScrollRef);
+  const { viewport, ref: candidateScrollRef } =
+    useVirtualViewport<HTMLDivElement>();
   const occurrences = derivedOccurrences(table, catalog);
   const occurrence = occurrences.find(
     (candidate) => candidate.id === occurrenceId,

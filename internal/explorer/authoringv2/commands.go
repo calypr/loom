@@ -955,12 +955,6 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 				return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
 			}
 		}
-		if source.Aggregate != nil && source.Aggregate.Where != nil {
-			wherePath := strings.TrimPrefix(strings.TrimSpace(source.Aggregate.Where.Path), "root.")
-			if _, ok := findCandidate(wherePath); !ok {
-				return fmt.Errorf("aggregate where path %q is not present for occurrence %q", wherePath, occurrenceID)
-			}
-		}
 		if source.Aggregate != nil && source.Aggregate.Temporal != nil {
 			timestamp, ok := findCandidate(source.Aggregate.Temporal.TimestampPath)
 			if !ok || !strings.EqualFold(timestamp.LogicalType, "date_time") {

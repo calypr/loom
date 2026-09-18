@@ -45,8 +45,8 @@ export const PreviewTable = ({
   const [draggedColumn, setDraggedColumn] = useState<string>();
   const [dropIndex, setDropIndex] = useState<number>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
-  const previewScrollRef = React.useRef<HTMLDivElement>(null);
-  const viewport = useVirtualViewport(previewScrollRef);
+  const { viewport, ref: previewScrollRef } =
+    useVirtualViewport<HTMLDivElement>();
   const formattingCacheRef = React.useRef<BoundedCache<string> | null>(null);
   if (!formattingCacheRef.current) formattingCacheRef.current = new BoundedCache(5000);
   const formattingCache = formattingCacheRef.current;

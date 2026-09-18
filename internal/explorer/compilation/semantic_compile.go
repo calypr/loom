@@ -220,12 +220,6 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": path}, nil)
 					}
 				}
-				if column.Source.Aggregate.Where != nil {
-					wherePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Where.Path), "root.")
-					if _, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, wherePath); !found {
-						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.where.path", index), "aggregate predicate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": wherePath}, nil)
-					}
-				}
 				if temporal := column.Source.Aggregate.Temporal; temporal != nil {
 					timestampPath := strings.TrimPrefix(strings.TrimSpace(temporal.TimestampPath), "root.")
 					timestampCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, timestampPath)
@@ -673,28 +667,6 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 	}
 	if contributorWhere != nil {
 		aggregate.Where = contributorWhere
-	} else if source.Where != nil && strings.TrimSpace(source.Where.Path) != "" {
-		wherePath := strings.Trim(strings.TrimSpace(source.Where.Path), ".")
-		where := &recipe.Filter{Select: alias + "." + wherePath, FieldRef: column.Column}
-		if strings.TrimSpace(source.Where.Equals) == "" {
-			where.Operator = recipe.FilterExists
-		} else {
-			where.Operator = recipe.FilterEquals
-			value := source.Where.Equals
-			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, wherePath)
-			if !ok || metadata.Primitive != fhirschema.PrimitiveString {
-				return recipe.Aggregate{}, "", fmt.Errorf("aggregate predicate selector %q must resolve to a string or code", source.Where.Path)
-			}
-			if metadata.Repeated {
-				where.Quantifier = recipe.QuantifierAny
-			}
-			if wherePath == "code" || strings.HasSuffix(wherePath, ".code") {
-				where.Values = []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: value}}}
-			} else {
-				where.Values = []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}}
-			}
-		}
-		aggregate.Where = where
 	}
 
 	logicalType := "string"

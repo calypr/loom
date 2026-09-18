@@ -525,7 +525,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
 			FieldPath:          candidate.FieldPath,
 			RepeatedBoundaries: repeatedBoundariesForAuthoring(candidate.RepeatedBoundaries),
-			LogicalType:        candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
+			LogicalType:        candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality),
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),

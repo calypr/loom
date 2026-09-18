@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { BoundedCache, virtualRange } from './virtualization';
+import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
 describe('virtualization helpers', () => {
   it('keeps a large grid window bounded', () => {
@@ -31,5 +34,37 @@ describe('virtualization helpers', () => {
     expect(cache.getOrSet('third', () => 4)).toBe(4);
     expect(cache.getOrSet('first', () => 5)).toBe(1);
     expect(cache.getOrSet('second', () => 6)).toBe(6);
+  });
+
+  it('subscribes when a conditionally rendered viewport mounts', () => {
+    const { result } = renderHook(() =>
+      useVirtualViewport<HTMLDivElement>(320, 240),
+    );
+    const element = document.createElement('div');
+    Object.defineProperties(element, {
+      clientWidth: { configurable: true, value: 480 },
+      clientHeight: { configurable: true, value: 300 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+      scrollLeft: { configurable: true, writable: true, value: 0 },
+    });
+
+    expect(result.current.viewport).toMatchObject({
+      width: 320,
+      height: 240,
+      scrollTop: 0,
+    });
+
+    act(() => result.current.ref(element));
+    expect(result.current.viewport).toMatchObject({
+      width: 480,
+      height: 300,
+      scrollTop: 0,
+    });
+
+    act(() => {
+      element.scrollTop = 1100;
+      element.dispatchEvent(new Event('scroll'));
+    });
+    expect(result.current.viewport.scrollTop).toBe(1100);
   });
 });

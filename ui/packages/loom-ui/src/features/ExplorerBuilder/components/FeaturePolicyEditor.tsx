@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
@@ -123,6 +123,141 @@ const UnitNormalizationEditor = ({
         <button type="button" className="rounded bg-violet-700 px-2.5 py-1 font-semibold text-white hover:bg-violet-800 disabled:opacity-40" disabled={disabled} onClick={() => onApply({ policyId: policyID, version: '1' })}>Apply normalization</button>
         {current ? <button type="button" className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" disabled={disabled} onClick={() => onApply(undefined)}>Remove normalization</button> : null}
       </div>
+    </fieldset>
+  );
+};
+
+type ContributorDraft = NonNullable<ExplorerBuilderColumn['contributor']>;
+
+const candidateSupportsEquality = (candidate: ExplorerBuilderCandidate) =>
+  ['string', 'token', 'id', 'uri', 'url', 'canonical', 'code'].includes(
+    candidate.logicalType.toLowerCase(),
+  );
+
+const candidateUsesCodeValue = (candidate: ExplorerBuilderCandidate) => {
+  const path = candidate.fieldPath.toLowerCase();
+  return candidate.logicalType.toLowerCase() === 'code' || path === 'code' || path.endsWith('.code');
+};
+
+const contributorValue = (contributor?: ContributorDraft) => {
+  if (contributor?.value?.kind === 'STRING') return contributor.value.string;
+  if (contributor?.value?.kind === 'CODE') return contributor.value.code.code;
+  return '';
+};
+
+const ContributorEditor = ({
+  current,
+  candidates,
+  featureLabel,
+  resourceLabel,
+  disabled,
+  onApply,
+}: {
+  readonly current?: ContributorDraft;
+  readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly featureLabel: string;
+  readonly resourceLabel: string;
+  readonly disabled: boolean;
+  readonly onApply: (contributor: ContributorDraft | undefined) => void;
+}) => {
+  const [candidateID, setCandidateID] = useState(current?.candidateId ?? '');
+  const [operator, setOperator] = useState<'EXISTS' | 'EQUALS'>(current?.operator ?? 'EXISTS');
+  const [value, setValue] = useState(contributorValue(current));
+  const selected = candidates.find((candidate) => candidate.candidateId === candidateID);
+  const currentCandidate = candidates.find((candidate) => candidate.candidateId === current?.candidateId);
+
+  useEffect(() => {
+    setCandidateID(current?.candidateId ?? '');
+    setOperator(current?.operator ?? 'EXISTS');
+    setValue(contributorValue(current));
+  }, [current]);
+
+  const existsPredicate = (candidate: ExplorerBuilderCandidate): ContributorDraft => ({
+    candidateId: candidate.candidateId,
+    operator: 'EXISTS',
+    ...(candidate.repeated ? { quantifier: 'ANY' as const } : {}),
+  });
+  const equalityPredicate = (candidate: ExplorerBuilderCandidate): ContributorDraft => ({
+    candidateId: candidate.candidateId,
+    operator: 'EQUALS',
+    ...(candidate.repeated ? { quantifier: 'ANY' as const } : {}),
+    value: candidateUsesCodeValue(candidate)
+      ? { kind: 'CODE', code: { code: value } }
+      : { kind: 'STRING', string: value },
+  });
+  const exactMeaning = current && currentCandidate
+    ? current.operator === 'EQUALS'
+      ? `Only ${resourceLabel} records where ${currentCandidate.label} equals “${contributorValue(current)}” contribute to this feature.`
+      : `Only ${resourceLabel} records with ${currentCandidate.label} contribute to this feature.`
+    : `Every matching ${resourceLabel} record contributes to this feature.`;
+
+  return (
+    <fieldset className="grid min-w-72 gap-1.5 rounded border border-slate-200 bg-slate-50/70 p-2">
+      <legend className="px-1 font-semibold text-slate-700">Contributing records</legend>
+      <label className="grid gap-0.5 font-medium text-slate-700">
+        <span>Use records where</span>
+        <select
+          aria-label={`Contributors for ${featureLabel}`}
+          className="max-w-72 rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-normal"
+          value={candidateID}
+          disabled={disabled}
+          onChange={(event) => {
+            const nextID = event.currentTarget.value;
+            setCandidateID(nextID);
+            setOperator('EXISTS');
+            setValue('');
+            const candidate = candidates.find(({ candidateId }) => candidateId === nextID);
+            onApply(candidate ? existsPredicate(candidate) : undefined);
+          }}
+        >
+          <option value="">All matching {resourceLabel} records</option>
+          {candidates.map((candidate) => (
+            <option key={candidate.candidateId} value={candidate.candidateId}>{candidate.label}</option>
+          ))}
+        </select>
+      </label>
+      {selected ? (
+        <label className="grid gap-0.5 font-medium text-slate-700">
+          <span>Condition</span>
+          <select
+            aria-label={`Contributor condition for ${featureLabel}`}
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-normal"
+            value={operator}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.currentTarget.value as 'EXISTS' | 'EQUALS';
+              setOperator(next);
+              if (next === 'EXISTS') onApply(existsPredicate(selected));
+            }}
+          >
+            <option value="EXISTS">Has a value</option>
+            {candidateSupportsEquality(selected) ? <option value="EQUALS">Equals a value</option> : null}
+          </select>
+        </label>
+      ) : null}
+      {selected && operator === 'EQUALS' ? (
+        <div className="flex items-end gap-2">
+          <label className="grid flex-1 gap-0.5 font-medium text-slate-700">
+            <span>{candidateUsesCodeValue(selected) ? 'Code' : 'Value'}</span>
+            <input
+              aria-label={`Contributor value for ${featureLabel}`}
+              className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-normal"
+              value={value}
+              disabled={disabled}
+              onChange={(event) => setValue(event.currentTarget.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="rounded bg-slate-800 px-2.5 py-1 font-semibold text-white hover:bg-slate-900 disabled:opacity-40"
+            disabled={disabled || (candidateUsesCodeValue(selected) && value.trim() === '')}
+            onClick={() => onApply(equalityPredicate(selected))}
+          >
+            Apply condition
+          </button>
+        </div>
+      ) : null}
+      <p className="text-slate-600">{exactMeaning}</p>
     </fieldset>
   );
 };
@@ -539,36 +674,14 @@ export const FeaturePolicyEditor = ({
             }}
           />
         ) : null}
-        <label className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span>Contributors</span>
-          <select
-            aria-label={`Contributors for ${column.label}`}
-            className="max-w-64 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
-            value={column.contributor?.candidateId ?? ''}
-            disabled={disabled}
-            onChange={(event) => {
-              const selected = candidates.find(
-                ({ candidateId }) => candidateId === event.currentTarget.value,
-              );
-              if (!selected) {
-                onContributorChange(undefined);
-                return;
-              }
-              onContributorChange({
-                candidateId: selected.candidateId,
-                operator: 'EXISTS',
-                ...(selected.repeated ? { quantifier: 'ANY' as const } : {}),
-              });
-            }}
-          >
-            <option value="">All matching {resourceLabel} resources</option>
-            {candidates.map((candidateOption) => (
-              <option key={candidateOption.candidateId} value={candidateOption.candidateId}>
-                Where {candidateOption.label} exists
-              </option>
-            ))}
-          </select>
-        </label>
+        <ContributorEditor
+          current={column.contributor}
+          candidates={candidates}
+          featureLabel={column.label}
+          resourceLabel={resourceLabel}
+          disabled={disabled}
+          onApply={onContributorChange}
+        />
       </div>
     );
   }

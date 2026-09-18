@@ -20,6 +20,14 @@ func TestAggregateSourceAcceptsClosedOrderedTemporalReduction(t *testing.T) {
 	}
 }
 
+func TestAggregateSourceRejectsLegacyWhereOnCurrentWire(t *testing.T) {
+	var source ColumnSource
+	err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"status","equals":"final"}}}`), &source)
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("legacy aggregate where was writable: %v", err)
+	}
+}
+
 func TestAggregateUnitNormalizationAcceptsPresetAndRejectsTechnicalFields(t *testing.T) {
 	var source ColumnSource
 	if err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"MIN","path":"valueQuantity.value","unitNormalization":{"policyId":"to-centimeters","version":"1"}}}`), &source); err != nil {

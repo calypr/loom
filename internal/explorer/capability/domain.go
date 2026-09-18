@@ -160,6 +160,18 @@ type Candidate struct {
 	BlockedReason         string             `json:"blockedReason,omitempty"`
 }
 
+// IsRepeatedCardinality is the single wire-cardinality interpretation used by
+// Builder catalog adapters. Capability snapshots use dataframe cardinalities,
+// while older persisted snapshots may contain upper-case values.
+func IsRepeatedCardinality(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "many", "unknown_observed_many":
+		return true
+	default:
+		return false
+	}
+}
+
 // ConceptCandidate carries observed FHIR identity into Builder without
 // claiming terminology equivalence. It intentionally retains unresolved and
 // mixed-choice statuses so the authoring layer can present them explicitly.

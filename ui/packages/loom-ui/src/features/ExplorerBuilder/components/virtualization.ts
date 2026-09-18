@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefCallback } from 'react';
 
 export interface VirtualRange {
   readonly start: number;
@@ -34,6 +34,11 @@ export interface VirtualViewport {
   readonly scrollTop: number;
 }
 
+export interface VirtualViewportBinding<T extends HTMLElement> {
+  readonly viewport: VirtualViewport;
+  readonly ref: RefCallback<T>;
+}
+
 const defaultViewport = (width: number, height: number): VirtualViewport => ({
   width,
   height,
@@ -42,17 +47,17 @@ const defaultViewport = (width: number, height: number): VirtualViewport => ({
 });
 
 export const useVirtualViewport = <T extends HTMLElement>(
-  elementRef: RefObject<T | null>,
   fallbackWidth = 1024,
   fallbackHeight = 640,
-): VirtualViewport => {
+): VirtualViewportBinding<T> => {
+  const [element, setElement] = useState<T | null>(null);
   const [viewport, setViewport] = useState(() =>
     defaultViewport(fallbackWidth, fallbackHeight),
   );
   const fallbackRef = useRef({ width: fallbackWidth, height: fallbackHeight });
+  const ref = useCallback((mounted: T | null) => setElement(mounted), []);
 
   useEffect(() => {
-    const element = elementRef.current;
     if (!element) return undefined;
     const update = () => {
       const fallback = fallbackRef.current;
@@ -74,9 +79,9 @@ export const useVirtualViewport = <T extends HTMLElement>(
       observer.disconnect();
       element.removeEventListener('scroll', update);
     };
-  }, [elementRef]);
+  }, [element]);
 
-  return viewport;
+  return { viewport, ref };
 };
 
 export class BoundedCache<V> {

@@ -123,7 +123,7 @@ describe('configured V2 columns', () => {
       },
     };
 
-    render(<ColumnSelector catalog={contributorCatalog} table={aggregateTable} occurrenceId="base"
+    const { rerender } = render(<ColumnSelector catalog={contributorCatalog} table={aggregateTable} occurrenceId="base"
       disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
       onSourceChange={onSourceChange} onContributorChange={onContributorChange}
       onRemove={vi.fn()} />);
@@ -146,6 +146,37 @@ describe('configured V2 columns', () => {
       operator: 'EXISTS',
       quantifier: 'ANY',
     });
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Contributor condition for Subject count',
+    }), { target: { value: 'EQUALS' } });
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Contributor value for Subject count',
+    }), { target: { value: 'registered' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply condition' }));
+    expect(onContributorChange).toHaveBeenLastCalledWith('subject_count', {
+      candidateId: 'c_identifier',
+      operator: 'EQUALS',
+      quantifier: 'ANY',
+      value: { kind: 'STRING', string: 'registered' },
+    });
+
+    rerender(<ColumnSelector catalog={contributorCatalog} table={{
+      ...aggregateTable,
+      document: {
+        ...aggregateTable.document,
+        columns: [{
+          ...aggregateTable.document.columns[0],
+          contributor: {
+            candidateId: 'c_identifier', operator: 'EQUALS', quantifier: 'ANY',
+            value: { kind: 'STRING', string: 'registered' },
+          },
+        }],
+      },
+    }} occurrenceId="base" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange}
+      onContributorChange={onContributorChange} onRemove={vi.fn()} />);
+    expect(screen.getByText('Only Research Subject records where Identifier equals “registered” contribute to this feature.')).toBeInTheDocument();
   });
 
   it('adds count and existence features for a related resource without replacing fields', () => {

@@ -944,11 +944,30 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
     const optionalBuilder = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'builder-optional-match-restores-feature-only-route', 'OPTIONAL', optionalBuilder.workspace.documents[0].route.children[0].matchMode);
+    const columnScroll = await browserEval(cdp, `
+      const search = document.querySelector('input[aria-label="Search columns"]');
+      const pane = search?.closest('aside')?.querySelector('.overflow-y-auto');
+      if (!pane) throw new Error('column viewport not found');
+      pane.scrollTop = Math.min(1100, pane.scrollHeight - pane.clientHeight);
+      pane.dispatchEvent(new Event('scroll'));
+      return { scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight, clientHeight: pane.clientHeight };
+    `);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add component[].valueString to table"]'))`);
+    recordAssertion(report, 'builder-virtualized-column-list-scrolls', true,
+      columnScroll.scrollTop > 0 && columnScroll.scrollHeight > columnScroll.clientHeight);
     await browserEval(cdp, `clickButton('Count')`);
+    await browserEval(cdp, `setInput('Search columns', 'Observation count')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured Observation count"]'))`);
-    await browserEval(cdp, `selectOption('Contributors for Observation count', 'Where component[].valueString exists')`);
+    await browserEval(cdp, `selectOption('Contributors for Observation count', 'component[].valueString')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Contributors for Observation count"]')?.value)`);
-    const scopedBuilder = await fetchBuilderState(target, explorerId);
+    let scopedBuilder;
+    const scopedDeadline = Date.now() + 30000;
+    while (Date.now() < scopedDeadline) {
+      scopedBuilder = await fetchBuilderState(target, explorerId);
+      const feature = scopedBuilder.workspace.documents[0].columns.find((column) => column.label === 'Observation count');
+      if (feature?.contributor?.operator === 'EXISTS') break;
+      await sleep(200);
+    }
     const componentTextCandidate = scopedBuilder.catalog.candidates.find((candidate) => candidate.fieldPath === 'component[].valueString');
     const scopedCount = scopedBuilder.workspace.documents[0].columns.find((column) => column.label === 'Observation count');
     recordAssertion(report, 'builder-persists-typed-contributor-scope', {
@@ -967,6 +986,28 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     }
     recordAssertion(report, 'builder-persists-independent-related-features', true,
       featureBuilder?.workspace.documents[0].columns.some((column) => column.label === 'Has Observation') === true);
+    await browserEval(cdp, `setInput('Search columns', 'Has Observation')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Contributors for Has Observation"]'))`);
+    await browserEval(cdp, `selectOption('Contributors for Has Observation', 'status')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Contributors for Has Observation"]')?.value)`);
+    await browserEval(cdp, `selectOption('Contributor condition for Has Observation', 'Equals a value')`);
+    await browserEval(cdp, `setInput('Contributor value for Has Observation', 'final')`);
+    await browserEval(cdp, `clickButton('Apply condition')`);
+    let equalityBuilder;
+    const equalityDeadline = Date.now() + 30000;
+    while (Date.now() < equalityDeadline) {
+      equalityBuilder = await fetchBuilderState(target, explorerId);
+      const feature = equalityBuilder.workspace.documents[0].columns.find((column) => column.label === 'Has Observation');
+      if (feature?.contributor?.operator === 'EQUALS') break;
+      await sleep(200);
+    }
+    const statusCandidate = equalityBuilder.catalog.candidates.find((candidate) => candidate.fieldPath === 'status');
+    const equalityFeature = equalityBuilder.workspace.documents[0].columns.find((column) => column.label === 'Has Observation');
+    recordAssertion(report, 'builder-persists-independent-equality-scope', {
+      candidateId: statusCandidate?.candidateId,
+      operator: 'EQUALS',
+      value: { kind: 'STRING', string: 'final' },
+    }, equalityFeature?.contributor);
     const valueCandidateDeadline = Date.now() + 30000;
     let valueCandidateVisible = false;
     while (Date.now() < valueCandidateDeadline && !valueCandidateVisible) {

@@ -254,7 +254,7 @@ func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
 	document.Route.Children = []RouteNode{{OccurrenceID: "condition", ResourceType: "Condition", Relationship: "subject_Patient"}}
 	document.Columns = append(document.Columns, Column{
 		Column: "condition_count", Label: "Condition count", OccurrenceID: "condition",
-		Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT", Where: &SourceWhere{Path: "code.coding[].code", Equals: "C50"}}},
+		Source: ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}},
 		Table:  &TablePresentation{Visible: &visible},
 	})
 	if err := document.Validate(); err != nil {

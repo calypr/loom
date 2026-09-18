@@ -43,8 +43,8 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 			{OccurrenceID: "observation_b", ResourceType: "Observation", Relationship: "focus_Patient"},
 		}},
 		Columns: []authoringv2.Column{
-			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Where: &authoringv2.SourceWhere{Path: "status", Equals: "registered"}}}},
-			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Where: &authoringv2.SourceWhere{Path: "status", Equals: "cancelled"}}}},
+			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "registered")},
+			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "cancelled")},
 		},
 	}
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
@@ -98,6 +98,14 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 	}
 	if !values["registered"] || !values["cancelled"] {
 		t.Fatalf("rendered contributor predicate literals=%#v", rendered.BindVars)
+	}
+}
+
+func contributorEquals(candidateID, value string) *authoringv2.ContributorPredicate {
+	return &authoringv2.ContributorPredicate{
+		CandidateID: candidateID,
+		Operator:    authoringv2.ContributorEquals,
+		Value:       &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &value},
 	}
 }
 
@@ -237,6 +245,30 @@ func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
 	}
 	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
 		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	}
+}
+
+func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "required", Cardinality: "required_one"},
+		{ID: "optional", Cardinality: "optional_one"},
+		{ID: "many", Cardinality: "many"},
+		{ID: "observed-many", Cardinality: "unknown_observed_many"},
+	}
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	got := map[string]bool{}
+	for _, candidate := range catalog.Candidates {
+		got[candidate.ID] = candidate.Repeated
+	}
+	want := map[string]bool{
+		"required":      false,
+		"optional":      false,
+		"many":          true,
+		"observed-many": true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("catalog repeated flags = %#v, want %#v", got, want)
 	}
 }
 

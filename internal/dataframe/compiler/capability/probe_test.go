@@ -69,6 +69,13 @@ func TestProbeCandidateReportsScalarRepeatedObjectAndOperations(t *testing.T) {
 	if scalar.Candidate.Repeated || !scalar.Candidate.Filterable || len(scalar.Candidate.ProjectionModes) == 0 {
 		t.Fatalf("unexpected scalar candidate: %#v", scalar.Candidate)
 	}
+	status, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.status", Selector: "status"})
+	if err != nil {
+		t.Fatalf("Observation.status candidate: %v", err)
+	}
+	if status.Candidate.Repeated || status.Candidate.Cardinality != spec.CardinalityOptionalOne {
+		t.Fatalf("Observation.status must be scalar: %#v", status.Candidate)
+	}
 	repeated, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.code.coding[].display", Selector: "code.coding[].display"})
 	if err != nil {
 		t.Fatalf("repeated candidate: %v", err)
