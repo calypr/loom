@@ -20,7 +20,7 @@ const CANONICAL_DATA_PROJECT = 'NCPI_ACCEPTANCE';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const OWNED_SERVICES = new Set(['arangodb', 'clickhouse', 'loom-api', 'loom-ui']);
 
-const requiredFixtureFiles = ['Patient.ndjson', 'Observation.ndjson', 'recipe.json'];
+const requiredFixtureFiles = ['Patient.ndjson', 'Observation.ndjson'];
 const BOOTSTRAP_EXPLORER_NAME = 'loom-dev-bootstrap';
 const BOOTSTRAP_EXPLORER_TITLE = 'Loom dev bootstrap';
 const BOOTSTRAP_TABLE_TITLE = 'Patients';
@@ -116,6 +116,14 @@ const portValue = (env, key, fallback) => {
   return Number(value);
 };
 
+const durationValue = (env, key, fallback, maximum) => {
+  const value = envValue(env, key, String(fallback));
+  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > maximum) {
+    throw new Error(`${key} must be an integer between 1 and ${maximum} milliseconds`);
+  }
+  return Number(value);
+};
+
 const safeName = (value, field) => {
   if (!VALID_NAME.test(value)) throw new Error(`${field} must match ${VALID_NAME}`);
   return value;
@@ -153,7 +161,8 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
     createHash('sha256').update(`loom-dev-population-mapping-cursor\x00${sourceRoot}\x00${composeProject}\x00${project}`).digest('hex'),
   );
   const artifacts = resolve(envValue(env, 'LOOM_DEV_ARTIFACTS', defaults.artifacts));
-  const fixtureDir = join(sourceRoot, 'testdata/devloop-fixture');
+  const fixtureDir = resolve(envValue(env, 'LOOM_DEV_FIXTURE_DIR', join(sourceRoot, 'testdata/devloop-fixture')));
+  const fixtureLoadTimeout = durationValue(env, 'LOOM_DEV_FIXTURE_TIMEOUT_MS', 180000, 3_600_000);
 
   if (composeProject === CANONICAL_PROJECT) {
     throw new Error('development Compose must not use the canonical loom-demo project');
@@ -171,7 +180,8 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
   if (sourceRoot === '/') throw new Error('LOOM_DEV_SOURCE_ROOT cannot be the filesystem root');
   if (!existsSync(join(sourceRoot, 'go.mod'))) throw new Error(`source root has no go.mod: ${sourceRoot}`);
   if (sourceRoot === REPO_ROOT && !existsSync(COMPOSE_FILE)) throw new Error(`missing development Compose file: ${COMPOSE_FILE}`);
-  if (!existsSync(fixtureDir)) throw new Error(`missing development fixture: ${fixtureDir}`);
+  if (fixtureDir === '/') throw new Error('LOOM_DEV_FIXTURE_DIR cannot be the filesystem root');
+  if (!existsSync(fixtureDir) || !statSync(fixtureDir).isDirectory()) throw new Error(`missing development fixture: ${fixtureDir}`);
   for (const file of requiredFixtureFiles) {
     if (!existsSync(join(fixtureDir, file))) throw new Error(`missing development fixture file: ${join(fixtureDir, file)}`);
   }
@@ -193,6 +203,7 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
     composeFile: sourceRoot === REPO_ROOT ? COMPOSE_FILE : join(sourceRoot, 'compose.dev.yaml'),
     sourceRoot,
     fixtureDir,
+    fixtureLoadTimeout,
     fixtureProject: project,
     fixtureGeneration: generation,
     host,
@@ -388,6 +399,37 @@ const waitForHTTP = async (url, predicate = (response) => response.ok, timeout =
   throw new Error(`timed out waiting for ${url}: ${lastError}`);
 };
 
+export const generationLoadDisposition = (value) => {
+  const state = String(value?.state ?? '').trim().toUpperCase();
+  if (state === 'READY' || state === 'ACTIVE') return 'ready';
+  if (state === 'FAILED' || state === 'ERROR') return 'failed';
+  if (state === 'LOADING' || state === 'QUEUED') return 'loading';
+  return 'unknown';
+};
+
+const waitForGenerationReady = async (url, timeout, initialError = '') => {
+  const started = Date.now();
+  let last = initialError || 'generation has not appeared';
+  while (Date.now() - started < timeout) {
+    try {
+      const { response, value } = await requestJSON(url, { timeout: 30000 });
+      if (response.ok) {
+        const disposition = generationLoadDisposition(value);
+        if (disposition === 'ready') return value;
+        if (disposition === 'failed') throw new Error(`fixture generation failed: ${JSON.stringify(value).slice(0, 500)}`);
+        last = `state ${value?.state ?? 'unknown'}`;
+      } else if (response.status !== 404) {
+        last = `HTTP ${response.status}`;
+      }
+    } catch (error) {
+      if (String(error?.message ?? error).startsWith('fixture generation failed:')) throw error;
+      last = error instanceof Error ? error.message : String(error);
+    }
+    await sleep(1000);
+  }
+  throw new Error(`timed out waiting for fixture generation: ${last}`);
+};
+
 // Air can leave the previous process answering /readyz during its debounce
 // window. The build command records a source and binary digest only after a
 // successful compile; the check also hashes the executable held by the running
@@ -528,9 +570,18 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
       form.append('file', new Blob([readFileSync(path)]), name);
     }
     form.append('defer_activation', 'false');
-    const response = await request(statusURL, { method: 'POST', body: form, timeout: 180000 });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`fixture seed returned HTTP ${response.status}: ${text.slice(0, 500)}`);
+    let submitError = '';
+    try {
+      const response = await request(statusURL, { method: 'POST', body: form, timeout: target.fixtureLoadTimeout });
+      const text = await response.text();
+      if (!response.ok) throw new Error(`fixture seed returned HTTP ${response.status}: ${text.slice(0, 500)}`);
+    } catch (error) {
+      // Large multipart loads may outlive the HTTP connection while the
+      // generation continues under its durable lifecycle record. Poll that
+      // record before treating a transport disconnect as an ingestion failure.
+      submitError = error instanceof Error ? error.message : String(error);
+    }
+    await waitForGenerationReady(statusURL, target.fixtureLoadTimeout, submitError);
   }
   const explorersURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
   const list = await requestJSON(explorersURL, { timeout: 30000 });
@@ -1698,6 +1749,55 @@ const doctor = async (target) => {
   return { api: api.status, ui: ui.status, generation: generation.status, builder: builder?.response.status ?? 404, builderState: builder?.response.ok ? builder.value : undefined, bootstrapExplorerId: bootstrap?.explorerId, composeProject: target.composeProject, project: target.fixtureProject, generationName: target.fixtureGeneration, buildBarrier };
 };
 
+const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState) => {
+  if (!explorerId) throw new Error('current development target has no bootstrap Explorer');
+  const evidenceDirectory = join(target.artifacts, `current-${Date.now().toString(36)}`);
+  mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+  const browser = await launchBrowser(evidenceDirectory);
+  const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+  try {
+    await navigate(browser.cdp, url);
+    await waitForBrowser(browser.cdp, `document.querySelector('#root')?.childElementCount > 0`, 30000);
+    await waitForBrowser(browser.cdp, `
+      !document.body.innerText.includes('Loading Explorer') &&
+      !document.body.innerText.includes('Loading the selected Explorer configuration')
+    `, 120000);
+    const state = await browserEval(browser.cdp, `
+      const text = norm(document.body.innerText);
+      return {
+        title: document.title,
+        text,
+        hasLoadFailure: text.includes('Builder state could not be loaded') || text.includes('no V1 fallback'),
+        renderedValues: [
+          ...document.querySelectorAll('input, textarea, select'),
+        ].map((element) => norm(element.value)).filter(Boolean),
+        visibleButtons: [...document.querySelectorAll('button')].filter(visible).map((button) => norm(button.getAttribute('aria-label') || button.textContent)).filter(Boolean),
+      };
+    `);
+    const domPath = join(evidenceDirectory, 'builder.html');
+    await snapshot(browser.cdp, domPath);
+    recordEvidence(report, domPath);
+    const screenshot = await browser.cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const screenshotPath = join(evidenceDirectory, 'builder.png');
+    writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, screenshotPath);
+    report.target.browserUrl = url;
+    report.target.visibleButtons = state.visibleButtons;
+    const expectedTableTitles = (builderState?.workspace?.documents ?? [])
+      .map((document) => document.output?.title)
+      .filter(Boolean);
+    const renderedText = `${state.text}\n${state.renderedValues.join('\n')}`;
+    recordAssertion(report, 'current-builder-renders', true, state.text.length > 0);
+    recordAssertion(report, 'current-builder-has-no-load-failure', false, state.hasLoadFailure);
+    recordAssertion(report, 'current-builder-shows-current-workspace', true,
+      expectedTableTitles.length > 0 && expectedTableTitles.every((title) => renderedText.includes(title)));
+    report.target.workspaceTables = expectedTableTitles;
+    await measureHotReload(target, report, browser.cdp);
+  } finally {
+    await browser.close();
+  }
+};
+
 const cleanup = async (target, purge = false) => {
   await inspectOwnedResources(target);
   const args = ['down', '--remove-orphans'];
@@ -1710,7 +1810,8 @@ const main = async (argv) => {
   const commandStarted = Date.now();
   const command = argv[0] ?? 'dev-doctor';
   const target = createDevSession();
-  const report = createVerificationReport(target);
+  const report = createVerificationReport(target,
+    command === 'verify-current' ? 'current-builder-hotreload' : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
   try {
@@ -1744,6 +1845,19 @@ const main = async (argv) => {
       console.log('DEV_DOCTOR_PASSED');
       return;
     }
+    if (command === 'verify-current') {
+      const result = await doctor(target);
+      recordAssertion(report, 'development-api-ready', 200, result.api);
+      recordAssertion(report, 'development-ui-served', 200, result.ui);
+      recordAssertion(report, 'fixture-generation-present', 200, result.generation);
+      recordAssertion(report, 'development-build-is-fresh', true, result.buildBarrier >= 0);
+      await verifyCurrentBuilderDOM(target, report, result.bootstrapExplorerId, result.builderState);
+      report.status = 'passed';
+      report.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(target.artifacts, 'report.json'), report);
+      console.log(`DEV_CURRENT_VERIFY_PASSED project=${target.fixtureProject} evidence=${report.evidencePaths[0] ? dirname(report.evidencePaths[0]) : target.artifacts}`);
+      return;
+    }
     if (command === 'verify-fast' || command === 'verify-full') {
       await ensureDev(target, report);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`);
@@ -1771,7 +1885,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-fast, verify-full, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);
@@ -24,6 +24,38 @@ test('development session defaults to isolated names, ports, and fixture', () =>
   } finally {
     rmSync(registryRoot, { recursive: true, force: true });
   }
+});
+
+test('development session accepts a read-only external FHIR fixture directory', () => {
+  const root = mkdtempSync(join(tmpdir(), 'loom-dev-external-source-'));
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-external-fixture-'));
+  try {
+    writeFileSync(join(root, 'go.mod'), 'module example.test/loom\n');
+    mkdirSync(join(root, 'testdata/devloop-fixture'), { recursive: true });
+    for (const name of ['Patient.ndjson', 'Observation.ndjson']) writeFileSync(join(fixture, name), '{}\n');
+    const target = createDevSession({
+      LOOM_DEV_SOURCE_ROOT: root,
+      LOOM_DEV_FIXTURE_DIR: fixture,
+      LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-external',
+      LOOM_DEV_PROJECT: 'loom_dev_external',
+      LOOM_DEV_API_PORT: '18180',
+      LOOM_DEV_UI_PORT: '33000',
+      LOOM_DEV_FIXTURE_TIMEOUT_MS: '900000',
+      LOOM_DEV_ARTIFACTS: join(root, '.artifacts'),
+    }, root);
+    assert.equal(target.fixtureDir, fixture);
+    assert.equal(target.fixtureLoadTimeout, 900000);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('generation load polling distinguishes durable completion from failure', () => {
+  assert.equal(generationLoadDisposition({ state: 'LOADING' }), 'loading');
+  assert.equal(generationLoadDisposition({ state: 'READY' }), 'ready');
+  assert.equal(generationLoadDisposition({ state: 'FAILED' }), 'failed');
+  assert.equal(generationLoadDisposition({}), 'unknown');
 });
 
 test('bootstrap seeding is limited to a new or interrupted default draft', () => {
@@ -210,7 +242,7 @@ test('dataframe verification uses the versioned frontend output contract', () =>
   );
   assert.equal(
     request.query,
-    'query VerifyRows($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows totalCount pageInfo { hasNextPage endCursor } } }',
+    'query VerifyRows($input: DataframeRowsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows rowIds totalCount pageInfo { hasNextPage endCursor } } }',
   );
   assert.deepEqual(request.variables.input, {
     projectId: 'loom_dev_contract',

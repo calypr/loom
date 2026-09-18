@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-fast verify-full dev-down
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full dev-down
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -149,6 +149,9 @@ dev-rebuild:
 
 dev-doctor:
 	node scripts/loom-dev.mjs dev-doctor
+
+verify-current:
+	node scripts/loom-dev.mjs verify-current
 
 verify-fast:
 	node scripts/loom-dev.mjs verify-fast

@@ -95,6 +95,35 @@ build and stops the stale API, restores the probe, and waits for a fresh build
 and `/readyz` to recover. The driver restores every temporary source edit in a
 `finally` block and refuses to overwrite a concurrent edit.
 
+To reuse a larger FHIR directory and its already-loaded generation, give the
+development target a stable project and generation name:
+
+```bash
+LOOM_DEV_PROJECT=loom_dev_cda_fhir \
+LOOM_DEV_GENERATION=cda-fhir-v1 \
+LOOM_DEV_FIXTURE_DIR=/absolute/path/to/CDA-FHIR/META \
+LOOM_DEV_FIXTURE_TIMEOUT_MS=3600000 \
+make dev
+```
+
+The fixture directory is read-only input and must contain at least
+`Patient.ndjson` and `Observation.ndjson`. The first load can take several
+minutes. If its HTTP connection closes while the durable load continues, the
+driver follows the generation status until it becomes ready or fails. Later
+runs reuse the same generation.
+
+After the large fixture is ready, run the same environment with:
+
+```bash
+make verify-current
+```
+
+This does not create or ingest another project. It opens the existing bootstrap
+Builder in Chrome, checks the rendered table names against its V2 backend
+workspace, captures the DOM and screenshot, and exercises both Vite and Air
+hot reload. The command writes timings and evidence to the normal development
+report directory.
+
 Set `CHROME_BIN` when Chrome is not installed at a standard path. Set
 `LOOM_DEV_ARTIFACTS` to an owned directory when you need evidence outside the
 repository. Reports include assertion results, timings, the target session,
