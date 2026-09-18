@@ -65,6 +65,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"canceled", context.Canceled, 499, "CLIENT_CANCELED"},
 		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
+		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
 		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "private", dataframeerrors.WithRetryable(true)), http.StatusServiceUnavailable, "BACKEND_UNAVAILABLE"},
 		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
 		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},

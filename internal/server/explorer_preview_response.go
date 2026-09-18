@@ -60,6 +60,8 @@ func previewRouteError(err error) error {
 			return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodePlanTooExpensive):
 			return &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
+		case string(dataframeerrors.CodeRelationshipCardinalityViolation):
+			return &explorer.AuthoringError{Status: http.StatusUnprocessableEntity, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeBackendUnavailable), string(dataframeerrors.CodeReceiptStoreUnavailable):
 			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeQueryMemoryLimitExceeded), string(dataframeerrors.CodeQueryResourceLimitExceeded), string(dataframeerrors.CodeQueryBackendOutOfMemory):

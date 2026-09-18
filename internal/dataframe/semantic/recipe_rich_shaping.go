@@ -375,7 +375,9 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			operation == string(recipe.AggregateDistinctValues) ||
 			operation == string(recipe.AggregateMin) ||
 			operation == string(recipe.AggregateMax) ||
-			operation == string(recipe.AggregateContainsAll)
+			operation == string(recipe.AggregateContainsAll) ||
+			operation == string(recipe.AggregateRequireOne) ||
+			operation == string(recipe.AggregateCollect)
 		if input.Expr != nil {
 			if !requiresSelector {
 				return nil, fmt.Errorf("%s.expr is not accepted for operation %s", path, operation)
@@ -396,7 +398,7 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		switch operation {
 		case string(recipe.AggregateCount), string(recipe.AggregateCountDistinct):
 			semanticAggregate.ValueKind = expression.KindInteger
-		case string(recipe.AggregateMin), string(recipe.AggregateMax):
+		case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues):
 			if semanticAggregate.ValueKind == "" {
 				semanticAggregate.ValueKind = expression.KindString
 			}

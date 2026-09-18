@@ -445,7 +445,7 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "", err
 		}
 		return "LENGTH(FOR __value IN FLATTEN(" + values + ") FILTER __value != null LIMIT 1 RETURN 1) > 0", nil
-	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate:
+	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate:
 		if aggregate.Value == nil {
 			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)
 		}
@@ -465,6 +465,11 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "MAX(" + flattened + ")", nil
 		case ir.PhysicalFirstAggregate:
 			return "FIRST(" + flattened + ")", nil
+		case ir.PhysicalRequireOneAggregate:
+			nonNull := "(FOR __value IN " + flattened + " FILTER __value != null RETURN __value)"
+			return "ASSERT(LENGTH(" + nonNull + ") <= 1, \"RELATIONSHIP_CARDINALITY_VIOLATION\") ? FIRST(" + nonNull + ") : null", nil
+		case ir.PhysicalCollectAggregate:
+			return flattened, nil
 		}
 	case ir.PhysicalContainsAllAggregate:
 		if aggregate.Value == nil {

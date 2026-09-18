@@ -838,6 +838,40 @@ func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
 	}
 }
 
+func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	store := &fakeStore{receipt: receipt}
+	config := testConfig(snapshot)
+	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{}, 0, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+		return Execution{}, dataframeerrors.NewError(
+			dataframeerrors.CodeRelationshipCardinalityViolation,
+			"related feature matched more than one value",
+			dataframeerrors.WithDetails(map[string]any{"feature": "height"}),
+		)
+	}
+	service := newTestService(t, store, config)
+
+	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("Publish() error = %v, want lifecycle error", err)
+	}
+	if lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != "RELATIONSHIP_CARDINALITY_VIOLATION" {
+		t.Fatalf("Publish() error = %#v, want unprocessable RELATIONSHIP_CARDINALITY_VIOLATION", lifecycleErr)
+	}
+	if got := lifecycleErr.Details["feature"]; got != "height" {
+		t.Fatalf("feature = %v, want height", got)
+	}
+	if store.published {
+		t.Fatal("Publish() persisted a revision after a cardinality violation")
+	}
+}
+
 func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)
@@ -878,7 +912,7 @@ func TestMaterializationResourceErrorDistinguishesDatabaseOutOfMemory(t *testing
 		dataframeerrors.WithDetails(map[string]any{"backend": "arangodb"}),
 	)
 
-	err := materializationResourceError("repository_publish", cause)
+	err := classifyMaterializationError("repository_publish", cause)
 	var lifecycleErr *Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("materializationMemoryError() = %v, want lifecycle error", err)
@@ -894,10 +928,10 @@ func TestMaterializationResourceErrorDistinguishesDatabaseOutOfMemory(t *testing
 func TestMaterializationResourceErrorReportsOtherResourceLimitWithoutMemoryAdvice(t *testing.T) {
 	cause := dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "")
 
-	err := materializationResourceError("materialize", cause)
+	err := classifyMaterializationError("materialize", cause)
 	var lifecycleErr *Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUERY_RESOURCE_LIMIT_EXCEEDED" {
-		t.Fatalf("materializationResourceError() = %#v, want QUERY_RESOURCE_LIMIT_EXCEEDED", lifecycleErr)
+		t.Fatalf("classifyMaterializationError() = %#v, want QUERY_RESOURCE_LIMIT_EXCEEDED", lifecycleErr)
 	}
 	if !strings.Contains(lifecycleErr.Message, "configured resource limit") || strings.Contains(lifecycleErr.Message, "query-memory-limit") {
 		t.Fatalf("message = %q, want generic resource-limit guidance", lifecycleErr.Message)

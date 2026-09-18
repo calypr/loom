@@ -34,18 +34,24 @@ fi
 
 if [ "${1:-}" = "--check" ]; then
   source_digest="$(source_digest)"
-  binary_digest="$(sha256sum /workspace/tmp/arango-fhir-server | awk '{print $1}')"
   expected_source="$(sed -n 's/.*"source":"\([a-f0-9]*\)".*/\1/p' "$stamp_path")"
   expected_binary="$(sed -n 's/.*"binary":"\([a-f0-9]*\)".*/\1/p' "$stamp_path")"
   running_binary=''
   for executable in /proc/[0-9]*/exe; do
-    if [ "$(readlink "$executable" 2>/dev/null || true)" = /workspace/tmp/arango-fhir-server ]; then
-      running_binary="$(sha256sum "$executable" | awk '{print $1}')"
-      break
-    fi
+    running_path="$(readlink "$executable" 2>/dev/null || true)"
+    case "$running_path" in
+      /workspace/tmp/arango-fhir-server|'/workspace/tmp/arango-fhir-server (deleted)')
+        running_binary="$(sha256sum "$executable" | awk '{print $1}')"
+        break
+        ;;
+    esac
   done
   printf '%s %s %s\n' "$expected_source" "$source_digest" "$running_binary"
-  [ "$expected_source" = "$source_digest" ] && [ "$expected_binary" = "$binary_digest" ] && [ "$running_binary" = "$binary_digest" ]
+  # Air may unlink its build artifact after exec. The running executable
+  # remains readable through /proc, so compare it with the digest recorded
+  # immediately after the successful build instead of requiring the path to
+  # remain present.
+  [ "$expected_source" = "$source_digest" ] && [ "$running_binary" = "$expected_binary" ]
   exit
 fi
 printf 'usage: %s --source | --record SOURCE_DIGEST | --check\n' "$0" >&2

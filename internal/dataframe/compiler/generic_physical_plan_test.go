@@ -228,6 +228,8 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 		Aggregates: []semantic.SemanticAggregate{
 			{Name: "patient_count", Operation: "COUNT"},
 			{Name: "genders", Operation: "DISTINCT_VALUES", Selector: &gender},
+			{Name: "one_gender", Operation: "REQUIRE_ONE", Selector: &gender},
+			{Name: "all_genders", Operation: "COLLECT", Selector: &gender},
 		},
 		Children: []semantic.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
@@ -242,7 +244,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"LENGTH([root])", "SORTED_UNIQUE(FLATTEN(", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
+	for _, want := range []string{"LENGTH([root])", "SORTED_UNIQUE(FLATTEN(", "ASSERT(LENGTH(", "RELATIONSHIP_CARDINALITY_VIOLATION", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("aggregate query missing %q:\n%s", want, rendered.Query)
 		}

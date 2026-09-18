@@ -155,6 +155,8 @@ const (
 	PhysicalMaxAggregate            PhysicalAggregateOperation = "MAX"
 	PhysicalFirstAggregate          PhysicalAggregateOperation = "FIRST"
 	PhysicalContainsAllAggregate    PhysicalAggregateOperation = "CONTAINS_ALL"
+	PhysicalRequireOneAggregate     PhysicalAggregateOperation = "REQUIRE_ONE"
+	PhysicalCollectAggregate        PhysicalAggregateOperation = "COLLECT"
 )
 
 type PhysicalAggregate struct {

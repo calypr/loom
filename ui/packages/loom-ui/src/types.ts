@@ -157,6 +157,8 @@ const aggregateColumnSourceSchema = z
         'MAX',
         'EXISTS',
         'CONTAINS_ALL',
+        'REQUIRE_ONE',
+        'COLLECT',
       ]),
       path: opaqueIdSchema.optional(),
       requiredValues: z.array(z.string()).optional(),

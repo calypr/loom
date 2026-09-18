@@ -206,7 +206,7 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
 	}
@@ -235,7 +235,7 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 	}
 	cardinality := ir.PhysicalScalarCardinality
 	nullBehavior := ir.PhysicalEmptyOnNull
-	if op == ir.PhysicalDistinctValuesAggregate {
+	if op == ir.PhysicalDistinctValuesAggregate || op == ir.PhysicalCollectAggregate {
 		cardinality = ir.PhysicalArrayCardinality
 	}
 	if op == ir.PhysicalContainsAllAggregate {

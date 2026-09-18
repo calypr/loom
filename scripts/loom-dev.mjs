@@ -1008,6 +1008,15 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const rejectedState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'unacknowledged-related-selection-cannot-publish', false,
       Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
+    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Require zero or one value')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('RELATIONSHIP_CARDINALITY_VIOLATION')`, 60000);
+    recordAssertion(report, 'require-one-rejects-ambiguous-related-values', true,
+      String(await evaluate(cdp, 'document.body.innerText')).includes('RELATIONSHIP_CARDINALITY_VIOLATION'));
+    const ambiguousState = await fetchExplorerState(target, explorerId);
+    recordAssertion(report, 'ambiguous-require-one-does-not-publish', false,
+      Boolean(ambiguousState.active?.revisionId || ambiguousState.runtime?.outputs?.length));
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
     let reducedBuilder;
     const reductionDeadline = Date.now() + 30000;

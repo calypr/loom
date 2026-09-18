@@ -74,6 +74,16 @@ func IsQueryOutOfMemory(err error) bool {
 	return shared.IsArangoErrorWithErrorNum(err, shared.ErrOutOfMemory)
 }
 
+// IsQueryUserAssertion reports whether AQL aborted through ASSERT with the
+// exact stable code emitted by Loom's typed physical plan.
+func IsQueryUserAssertion(err error, code string) bool {
+	if strings.TrimSpace(code) == "" {
+		return false
+	}
+	ok, arangoErr := shared.IsArangoError(err)
+	return ok && arangoErr.ErrorNum == shared.ErrQueryUserAssert && strings.Contains(arangoErr.ErrorMessage, "AQL: "+code)
+}
+
 type TransactionCollections struct {
 	Read  []string
 	Write []string

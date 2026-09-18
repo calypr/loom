@@ -117,6 +117,19 @@ func TestIsQueryMemoryLimitExceededRecognizesWrappedArangoResourceLimit(t *testi
 	}
 }
 
+func TestIsQueryUserAssertionRecognizesOnlyTheRequestedStableCode(t *testing.T) {
+	err := fmt.Errorf("arango query: %w", shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: RELATIONSHIP_CARDINALITY_VIOLATION (while executing)",
+	})
+	if !IsQueryUserAssertion(err, "RELATIONSHIP_CARDINALITY_VIOLATION") {
+		t.Fatal("stable user assertion was not recognized")
+	}
+	if IsQueryUserAssertion(err, "SOME_OTHER_ASSERTION") || IsQueryUserAssertion(errors.New("RELATIONSHIP_CARDINALITY_VIOLATION"), "RELATIONSHIP_CARDINALITY_VIOLATION") {
+		t.Fatal("unrelated error was classified as the requested user assertion")
+	}
+}
+
 func TestQueryRowsClosesCursorOnVisitorError(t *testing.T) {
 	want := errors.New("visitor stopped")
 	cursor := &fakeCursor{rows: []map[string]any{{"id": "1"}}}

@@ -51,8 +51,8 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
 	}
 	if err != nil {
-		if resourceErr := materializationResourceError("repository_publish", err); resourceErr != nil {
-			return RepositoryPublishResult{}, resourceErr
+		if classifiedErr := classifyMaterializationError("repository_publish", err); classifiedErr != nil {
+			return RepositoryPublishResult{}, classifiedErr
 		}
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", fmt.Sprintf("materialize repository V2 workspace: %v", err), err)
 	}

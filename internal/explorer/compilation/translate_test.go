@@ -3,6 +3,7 @@ package compilation
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -721,5 +722,28 @@ func TestCompileDistinctValuesAggregateIsArrayAndLossy(t *testing.T) {
 	column := result.OutputContract.Columns[0]
 	if column.Shape != "array" || column.StructuralSuitability != "array" || column.Lossless || len(column.LossReasons) != 2 || column.LossReasons[0] != "AGGREGATE_REDUCTION" || column.LossReasons[1] != "DISTINCT_VALUES_REDUCTION" {
 		t.Fatalf("distinct values contract=%#v", column)
+	}
+}
+
+func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{
+			{Column: "one_status", Label: "One status", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "REQUIRE_ONE", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "all_statuses", Label: "All statuses", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COLLECT", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, all := result.OutputContract.Columns[0], result.OutputContract.Columns[1]
+	if one.Shape != "scalar" || !one.Lossless || len(one.LossReasons) != 0 {
+		t.Fatalf("require-one contract=%#v", one)
+	}
+	if all.Shape != "array" || all.Lossless || all.StructuralSuitability != "array" || !reflect.DeepEqual(all.LossReasons, []string{"AGGREGATE_REDUCTION", "COLLECT_ASSOCIATION_LOSS"}) {
+		t.Fatalf("collect contract=%#v", all)
 	}
 }

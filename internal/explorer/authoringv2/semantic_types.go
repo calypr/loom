@@ -522,11 +522,11 @@ func (s ColumnSource) validate(path string) error {
 		}
 		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {
-		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL":
+		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT":
 		default:
 			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Aggregate.Operation)
 		}
-		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL"
+		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT"
 		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
 			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}

@@ -68,3 +68,11 @@ func TestClassifyDataframeQueryErrorLeavesOtherFailuresUntouched(t *testing.T) {
 		t.Fatalf("classifyDataframeQueryError() = %v, want original error", got)
 	}
 }
+
+func TestClassifyDataframeQueryErrorPreservesRelationshipCardinalityViolation(t *testing.T) {
+	driverErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert, ErrorMessage: "AQL: RELATIONSHIP_CARDINALITY_VIOLATION (while executing)"}
+	userErr, ok := dataframeerrors.AsUserError(classifyDataframeQueryError(driverErr))
+	if !ok || userErr.Code() != string(dataframeerrors.CodeRelationshipCardinalityViolation) || userErr.Retryable() {
+		t.Fatalf("classified error=%#v", userErr)
+	}
+}

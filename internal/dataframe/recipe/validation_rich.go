@@ -324,7 +324,7 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if a.ValueMode != "" && a.ValueMode != ValueModeAuto {
 		return validationError("unsupported_value_mode", path+".valueMode", "aggregate valueMode must be AUTO")
 	}
-	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll
+	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll || a.Operation == AggregateRequireOne || a.Operation == AggregateCollect
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
 	}

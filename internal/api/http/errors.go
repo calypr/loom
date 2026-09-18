@@ -145,7 +145,8 @@ var httpCodePolicies = map[string]httpCodePolicy{
 	"PUBLICATION_IN_PROGRESS": {http.StatusConflict}, "PUBLICATION_CONFLICT": {http.StatusConflict}, "PUBLICATION_LEASE_LOST": {http.StatusServiceUnavailable}, "PUBLICATION_FAILED": {http.StatusServiceUnavailable}, "OUTPUT_ENCODING_FAILED": {http.StatusInternalServerError},
 	"DYNAMIC_SCHEMA_DRIFT": {http.StatusConflict}, "RECIPE_CONTRACT_VIOLATION": {http.StatusConflict}, "INVALID_SELECTOR": {http.StatusBadRequest}, "RECEIPT_STORE_UNAVAILABLE": {http.StatusServiceUnavailable}, "PREVIEW_TIMEOUT": {http.StatusGatewayTimeout},
 	"PREVIEW_RESPONSE_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "QUERY_MEMORY_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_RESOURCE_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_BACKEND_OUT_OF_MEMORY": {http.StatusServiceUnavailable},
-	"NOT_FOUND": {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType}, "GRAPHQL_VALIDATION_FAILED": {http.StatusBadRequest},
+	"RELATIONSHIP_CARDINALITY_VIOLATION": {http.StatusUnprocessableEntity},
+	"NOT_FOUND":                          {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType}, "GRAPHQL_VALIDATION_FAILED": {http.StatusBadRequest},
 }
 
 func messageForCode(code string) string {

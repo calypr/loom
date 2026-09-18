@@ -287,10 +287,17 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		} else if column.Source.Kind == authoringv2.SourceAggregate {
 			lossless = false
 			lossReasons = append(lossReasons, "AGGREGATE_REDUCTION")
-			if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "DISTINCT_VALUES") {
+			if column.Source.Aggregate != nil && (strings.EqualFold(column.Source.Aggregate.Operation, "DISTINCT_VALUES") || strings.EqualFold(column.Source.Aggregate.Operation, "COLLECT")) {
 				shape = "array"
 				structuralSuitability = "array"
-				lossReasons = append(lossReasons, "DISTINCT_VALUES_REDUCTION")
+				if strings.EqualFold(column.Source.Aggregate.Operation, "DISTINCT_VALUES") {
+					lossReasons = append(lossReasons, "DISTINCT_VALUES_REDUCTION")
+				} else {
+					lossReasons = append(lossReasons, "COLLECT_ASSOCIATION_LOSS")
+				}
+			} else if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "REQUIRE_ONE") {
+				lossless = true
+				lossReasons = nil
 			}
 		} else if column.Source.Kind != authoringv2.SourceProjectID {
 			lossless = false
@@ -620,7 +627,7 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		logicalType = "integer"
 	case recipe.AggregateExists, recipe.AggregateContainsAll:
 		logicalType = "boolean"
-	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax:
+	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax, recipe.AggregateRequireOne, recipe.AggregateCollect:
 		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(source.Path), "."))
 		if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
 			return recipe.Aggregate{}, "", fmt.Errorf("aggregate selector %q is not represented by generated resource type %q", source.Path, resourceType)

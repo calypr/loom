@@ -75,6 +75,8 @@ func classifyDataframeQueryError(err error) error {
 		return err
 	}
 	switch {
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeRelationshipCardinalityViolation, "")
 	case arangostore.IsQueryMemoryLimitExceeded(err):
 		return dataframeerrors.Wrap(
 			err,

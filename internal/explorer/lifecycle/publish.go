@@ -59,8 +59,8 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
-		if resourceErr := materializationResourceError("materialize", err); resourceErr != nil {
-			return PublishResult{}, resourceErr
+		if classifiedErr := classifyMaterializationError("materialize", err); classifiedErr != nil {
+			return PublishResult{}, classifiedErr
 		}
 		if userErr, ok := dataframeerrors.AsUserError(err); ok {
 			switch userErr.Code() {
@@ -97,10 +97,14 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	return PublishResult{Receipt: receipt, Revision: revision, Execution: execution}, nil
 }
 
-func materializationResourceError(stage string, err error) error {
+func classifyMaterializationError(stage string, err error) error {
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		return nil
+	}
+	if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
+		message := dataframeerrors.PublicMessage(err) + ". Choose how multiple related values should be reduced, then publish again. The active revision was retained."
+		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)
 	}
 	var message string
 	switch userErr.Code() {

@@ -66,6 +66,8 @@ const fieldAggregateLabels = {
 } as const;
 
 const relatedValueReductionLabels = {
+  REQUIRE_ONE: 'Require zero or one value',
+  COLLECT: 'Collect every value',
   FIRST_BY_RESOURCE_KEY: 'First record by stable resource key',
   DISTINCT_VALUES: fieldAggregateLabels.DISTINCT_VALUES,
   COUNT_DISTINCT: fieldAggregateLabels.COUNT_DISTINCT,
@@ -75,6 +77,7 @@ const relatedValueReductionLabels = {
 
 type ResourceAggregateOperation = keyof typeof resourceAggregateLabels;
 type FieldAggregateOperation = keyof typeof fieldAggregateLabels;
+type RelatedValueReduction = keyof typeof relatedValueReductionLabels;
 
 const projectionExplanation = (
   mode: keyof typeof nestedValueLabels,
@@ -137,7 +140,7 @@ export const FeaturePolicyEditor = ({
                 onSourceChange({
                   kind: 'aggregate',
                   aggregate: {
-                    operation: operation as FieldAggregateOperation,
+                    operation: operation as Exclude<RelatedValueReduction, 'FIRST_BY_RESOURCE_KEY'>,
                     path: source.field.path,
                   },
                 });
@@ -226,6 +229,7 @@ export const FeaturePolicyEditor = ({
               const nextOperation = event.currentTarget.value as
                 | ResourceAggregateOperation
                 | FieldAggregateOperation
+                | RelatedValueReduction
                 | 'FIRST_BY_RESOURCE_KEY';
               if (nextOperation === 'FIRST_BY_RESOURCE_KEY') {
                 if (!path) return;
