@@ -500,7 +500,7 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	if column.Source.Aggregate == nil || column.Source.Aggregate.Operation != "COUNT" || column.Label != "Patient count" {
 		t.Fatalf("column=%#v", column)
 	}
-	workspace, replayed, err := ApplyCommands(workspace, commandCatalog(), "count-retry", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Different title"}})
+	workspace, replayed, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Different title"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,6 +548,44 @@ func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testi
 	}
 	if len(addedA) != 1 || len(addedB) != 1 || addedA[0].Column != addedB[0].Column {
 		t.Fatalf("semantic source identity changed with pointer allocation: A=%#v B=%#v", addedA, addedB)
+	}
+}
+
+func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	count := &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}
+	firstContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("case")}}
+	secondContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("control")}}
+
+	workspace, first, err := ApplyCommands(workspace, commandCatalog(), "case-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: firstContributor, Title: "Case count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, second, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(workspace.Documents[0].Columns) != 2 || first[0].Column == second[0].Column {
+		t.Fatalf("independent aggregate features collapsed: columns=%#v first=%#v second=%#v", workspace.Documents[0].Columns, first, second)
+	}
+	if got := workspace.Documents[0].Columns[0].Contributor; got == nil || got.Value == nil || got.Value.String == nil || *got.Value.String != "case" {
+		t.Fatalf("first contributor=%#v", got)
+	}
+	if got := workspace.Documents[0].Columns[1].Contributor; got == nil || got.Value == nil || got.Value.String == nil || *got.Value.String != "control" {
+		t.Fatalf("second contributor=%#v", got)
+	}
+
+	replayed, result, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayed.Documents[0].Columns) != 2 || result[0].Column != second[0].Column {
+		t.Fatalf("same request was not idempotent: columns=%#v result=%#v", replayed.Documents[0].Columns, result)
 	}
 }
 

@@ -248,6 +248,11 @@ func (c Command) validate() error {
 		if err := c.Source.validate("source"); err != nil {
 			return err
 		}
+		if c.Contributor != nil {
+			if err := c.Contributor.Validate(); err != nil {
+				return fmt.Errorf("contributor: %w", err)
+			}
+		}
 	case CommandUpdateColumnSource:
 		if !required(c.OutputID, c.Column) || c.Source == nil {
 			return fmt.Errorf("UPDATE_COLUMN_SOURCE requires outputId, column, and source")
@@ -565,12 +570,24 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if err := validateEditableSource(workspace.Documents[document], catalog, command.OccurrenceID, source); err != nil {
 			return result, err
 		}
-		for _, existing := range workspace.Documents[document].Columns {
-			if existing.OccurrenceID == command.OccurrenceID && sourceEqual(existing.Source, source) {
-				return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: existing.Column}, nil
+		var contributor *ContributorPredicate
+		if command.Contributor != nil {
+			normalized := command.Contributor.Normalized()
+			if err := ValidateContributorForCatalog(workspace.Documents[document], catalog, command.OccurrenceID, source, normalized); err != nil {
+				return result, err
 			}
+			contributor = &normalized
 		}
-		columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID, sourceIdentity(source))
+		columnID := commandGeneratedID("col_", command.OutputID, commandID, index, command.Type)
+		for _, existing := range workspace.Documents[document].Columns {
+			if existing.Column != columnID {
+				continue
+			}
+			if existing.OccurrenceID != command.OccurrenceID || !sourceEqual(existing.Source, source) || !contributorEqual(existing.Contributor, contributor) {
+				return result, fmt.Errorf("generated column identity %q conflicts with a different feature", columnID)
+			}
+			return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: existing.Column}, nil
+		}
 		label := strings.TrimSpace(command.Title)
 		if label == "" {
 			label = strings.TrimSpace(source.fieldPath())
@@ -578,7 +595,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if label == "" {
 			label = source.Kind
 		}
-		column := Column{Column: columnID, Label: label, LogicalType: inferredSourceLogicalType(workspace.Documents[document], catalog, command.OccurrenceID, source, "string"), OccurrenceID: command.OccurrenceID, Source: source}
+		column := Column{Column: columnID, Label: label, LogicalType: inferredSourceLogicalType(workspace.Documents[document], catalog, command.OccurrenceID, source, "string"), OccurrenceID: command.OccurrenceID, Source: source, Contributor: contributor}
 		applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(workspace.Documents[document].Columns))
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
@@ -738,12 +755,10 @@ func sourceEqual(left, right ColumnSource) bool {
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
-func sourceIdentity(source ColumnSource) string {
-	raw, err := json.Marshal(source.Normalized())
-	if err != nil {
-		return "invalid-source"
-	}
-	return string(raw)
+func contributorEqual(left, right *ContributorPredicate) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
 func cloneWorkspace(value Workspace) (Workspace, error) {

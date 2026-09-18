@@ -637,6 +637,10 @@ func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
 	if aggregate.OutputName != "encounter_count" || aggregate.Operation != recipe.AggregateCount {
 		t.Fatalf("aggregate = %#v", aggregate)
 	}
+	emission := result.EmittedColumns[1]
+	if emission.SourcePath != "$resource" || emission.ProjectionMode != "COUNT" || emission.SourceResourceType != "Encounter" {
+		t.Fatalf("aggregate emission does not expose exact resource reduction: %#v", emission)
+	}
 }
 
 func TestCompileRelatedFirstClaimsLossAndRequiresReview(t *testing.T) {

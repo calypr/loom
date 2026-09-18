@@ -1354,6 +1354,18 @@ const BuilderWorkspaceContent = ({
                     })),
                   );
                 }}
+                onAddSource={(source, title) =>
+                  table &&
+                  void applyCommands([
+                    {
+                      type: 'ADD_COLUMN_SOURCE',
+                      outputId: table.outputId,
+                      occurrenceId: state.selectedOccurrenceId,
+                      source,
+                      title,
+                    },
+                  ])
+                }
                 onChange={(column) =>
                   table &&
                   void applyCommands([

@@ -232,7 +232,10 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			nodes[column.OccurrenceID].aggregates = append(nodes[column.OccurrenceID].aggregates, aggregate)
 			logicalType = aggregateType
-			projectionMode = "VALUE"
+			projectionMode = strings.ToUpper(strings.TrimSpace(column.Source.Aggregate.Operation))
+			if sourcePath == "" {
+				sourcePath = "$resource"
+			}
 		default:
 			dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
 			if dynamicErr != nil {

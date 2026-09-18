@@ -6,6 +6,10 @@ import type {
   ExplorerColumnSource,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import {
+  FeaturePolicyEditor,
+  RelatedFeatureCreator,
+} from './FeaturePolicyEditor';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
 const CANDIDATE_ROW_HEIGHT = 110;
@@ -94,6 +98,8 @@ const ConfiguredColumnRow = ({
   disabled,
   filterable,
   chartable,
+  candidate,
+  resourceLabel,
   onChange,
   onSourceChange,
   onRemove,
@@ -103,6 +109,8 @@ const ConfiguredColumnRow = ({
   readonly disabled: boolean;
   readonly filterable: boolean;
   readonly chartable: boolean;
+  readonly candidate?: ExplorerBuilderCandidate;
+  readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onRemove: () => void;
@@ -218,30 +226,13 @@ const ConfiguredColumnRow = ({
       >
         ×
       </button>
-      {column.source.kind === 'field' && column.source.field.relatedSelection ? (
-        <label className="col-span-full flex items-start gap-1 text-xs text-amber-800">
-          <input
-            type="checkbox"
-            aria-label={`Allow first related value for ${column.label}`}
-            checked={column.source.field.relatedSelection.acknowledged}
-            disabled={disabled}
-            onChange={(event) => {
-              if (column.source.kind !== 'field') return;
-              onSourceChange(column.column, {
-                ...column.source,
-                field: {
-                  ...column.source.field,
-                  relatedSelection: {
-                    kind: 'first-by-resource-key',
-                    acknowledged: event.currentTarget.checked,
-                  },
-                },
-              });
-            }}
-          />
-          Keep only the first related record by resource key. Other records are omitted.
-        </label>
-      ) : null}
+      <FeaturePolicyEditor
+        column={column}
+        candidate={candidate}
+        resourceLabel={resourceLabel}
+        disabled={disabled}
+        onSourceChange={(source) => onSourceChange(column.column, source)}
+      />
     </div>
   );
 };
@@ -344,6 +335,7 @@ export const ColumnSelector = ({
   loadingCandidates = false,
   onAdd,
   onAddAll,
+  onAddSource,
   onChange,
   onSourceChange,
   onRemove,
@@ -361,6 +353,7 @@ export const ColumnSelector = ({
   readonly onAddAll: (
     candidates: ReadonlyArray<ExplorerBuilderCandidate>,
   ) => void;
+  readonly onAddSource?: (source: ExplorerColumnSource, title: string) => void;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onRemove: (column: string) => void;
@@ -513,6 +506,13 @@ export const ColumnSelector = ({
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {occurrenceId !== 'base' && onAddSource ? (
+            <RelatedFeatureCreator
+              resourceLabel={titleForResource(resourceType)}
+              disabled={disabled}
+              onAdd={onAddSource}
+            />
+          ) : null}
           <button
             type="button"
             disabled={
@@ -581,6 +581,8 @@ export const ColumnSelector = ({
                             configuredCapabilities.get(row.column.column)
                               ?.chartable ?? true
                           }
+                          candidate={configuredCapabilities.get(row.column.column)}
+                          resourceLabel={titleForResource(resourceType)}
                           onChange={onChange}
                           onSourceChange={onSourceChange}
                           onRemove={() => onRemove(row.column.column)}

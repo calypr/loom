@@ -54,6 +54,127 @@ const table: DraftTable = {
 };
 
 describe('configured V2 columns', () => {
+  it('edits repeated values independently from related-record selection', () => {
+    const onSourceChange = vi.fn();
+    const repeatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_identifier',
+        nodeId: 'research-subject',
+        fieldPath: 'identifier[].value',
+        label: 'Research Subject ID',
+        logicalType: 'string',
+        repeated: true,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['FIRST', 'ALL', 'DISTINCT'],
+        defaultProjectionMode: 'FIRST',
+      }],
+    };
+
+    render(<ColumnSelector catalog={repeatedCatalog} table={table} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Repeated values for Research Subject ID',
+    }), { target: { value: 'ALL' } });
+
+    expect(onSourceChange).toHaveBeenCalledWith('research_subject_identifier', {
+      kind: 'field',
+      field: {
+        path: 'identifier[].value',
+        projectionMode: 'ALL',
+      },
+    });
+    expect(screen.getByText(/within each Research Subject/)).toBeInTheDocument();
+  });
+
+  it('edits an existing resource reduction without changing its scope', () => {
+    const onSourceChange = vi.fn();
+    const aggregateTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'subject_count',
+          label: 'Subject count',
+          occurrenceId: 'base',
+          logicalType: 'integer',
+          source: { kind: 'aggregate', aggregate: { operation: 'COUNT' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    render(<ColumnSelector catalog={catalog} table={aggregateTable} occurrenceId="base"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+      onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Calculation for Subject count',
+    }), { target: { value: 'EXISTS' } });
+
+    expect(onSourceChange).toHaveBeenCalledWith('subject_count', {
+      kind: 'aggregate',
+      aggregate: { operation: 'EXISTS' },
+    });
+    expect(screen.getByText('Counts matching Research Subject resources.')).toBeInTheDocument();
+  });
+
+  it('adds count and existence features for a related resource without replacing fields', () => {
+    const onAddSource = vi.fn();
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+      },
+    };
+
+    render(<ColumnSelector catalog={relatedCatalog} table={relatedTable} occurrenceId="observations"
+      disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onAddSource={onAddSource}
+      onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Count' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes / no' }));
+
+    expect(onAddSource).toHaveBeenNthCalledWith(1,
+      { kind: 'aggregate', aggregate: { operation: 'COUNT' } },
+      'Observation count',
+    );
+    expect(onAddSource).toHaveBeenNthCalledWith(2,
+      { kind: 'aggregate', aggregate: { operation: 'EXISTS' } },
+      'Has Observation',
+    );
+  });
+
   it('requires a separate source edit to acknowledge omitting related records', () => {
     const onSourceChange = vi.fn();
     const onChange = vi.fn();
