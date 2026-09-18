@@ -405,4 +405,30 @@ func TestPublishRejectsIncompleteQualityBeforeCommit(t *testing.T) {
 	if target.tx == nil || !target.tx.rolledBack || target.tx.committed {
 		t.Fatalf("incomplete quality did not abort before commit: %#v", target.tx)
 	}
+	if len(target.tx.quality) != 1 || target.tx.quality[0].Completeness != QualityIncomplete || target.tx.quality[0].ID == "" {
+		t.Fatalf("incomplete attempt evidence was discarded: %#v", target.tx.quality)
+	}
+}
+
+func TestPublishRetainsFailedKeyIntegrityEvidenceBeforeAbort(t *testing.T) {
+	target := &fakeTarget{}
+	_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "p", ReceiptID: "receipt-a"}, []OutputStream{{
+		Name: "patients", Columns: []LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			for range 2 {
+				if visitErr := visit(map[string]any{"__loom_row_id": "duplicate"}); visitErr != nil {
+					return visitErr
+				}
+			}
+			return nil
+		},
+	}}, Limits{Quality: QualityPolicy{Version: "quality-v1", RequireUniqueIdentity: true}})
+	var failed *QualityFailedError
+	if !errors.As(err, &failed) || len(target.tx.quality) != 1 {
+		t.Fatalf("quality error=%v durable evidence=%#v", err, target.tx.quality)
+	}
+	report := target.tx.quality[0]
+	if report.Verdict != QualityFailed || report.KeyIntegrity.Duplicate != 1 || report.Completeness != QualityComplete || report.ID == "" {
+		t.Fatalf("failed attempt evidence = %#v", report)
+	}
 }

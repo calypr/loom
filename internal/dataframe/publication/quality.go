@@ -107,16 +107,33 @@ func CloneQualityReports(reports []QualityReport) []QualityReport {
 // ValidateQualityReports enforces the activation-grade relationship between
 // evidence and the durable publication it describes.
 func ValidateQualityReports(identity BundleIdentity, outputs []BundleOutputRecord, reports []QualityReport) error {
+	if err := ValidateQualityReportBindings(identity, outputs, reports); err != nil {
+		return err
+	}
 	if len(reports) == 0 {
 		return nil
 	}
 	if len(reports) != len(outputs) {
 		return fmt.Errorf("quality report count %d does not match output count %d", len(reports), len(outputs))
 	}
-	expected := make(map[string]struct{}, len(outputs))
-	for _, output := range outputs {
-		expected[output.Name] = struct{}{}
+	for _, report := range reports {
+		if report.Completeness != QualityComplete || report.Verdict != QualityPassed {
+			return fmt.Errorf("output %q quality report is not activation-grade", report.Output)
+		}
 	}
+	return nil
+}
+
+// ValidateQualityReportBindings permits partial or failed evidence to be
+// retained on a failed candidate execution while still proving that every
+// report belongs to that exact publication attempt. Activation uses the
+// stricter ValidateQualityReports contract above.
+func ValidateQualityReportBindings(identity BundleIdentity, outputs []BundleOutputRecord, reports []QualityReport) error {
+	known := make(map[string]struct{}, len(outputs))
+	for _, output := range outputs {
+		known[output.Name] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(reports))
 	for _, report := range reports {
 		if strings.TrimSpace(report.ID) == "" || strings.TrimSpace(report.PolicyVersion) == "" {
 			return fmt.Errorf("output %q quality report identity and policy are required", report.Output)
@@ -124,16 +141,13 @@ func ValidateQualityReports(identity BundleIdentity, outputs []BundleOutputRecor
 		if report.ReceiptID != identity.ReceiptID || report.Project != identity.Project || report.DatasetGeneration != identity.DatasetGeneration || report.ScopeDigest != identity.ScopeDigest {
 			return fmt.Errorf("output %q quality report does not match publication identity", report.Output)
 		}
-		if report.Completeness != QualityComplete || report.Verdict != QualityPassed {
-			return fmt.Errorf("output %q quality report is not activation-grade", report.Output)
-		}
-		if _, ok := expected[report.Output]; !ok {
+		if _, ok := known[report.Output]; !ok {
 			return fmt.Errorf("quality report names unknown output %q", report.Output)
 		}
-		delete(expected, report.Output)
-	}
-	if len(expected) != 0 {
-		return fmt.Errorf("quality reports do not cover every output")
+		if _, duplicate := seen[report.Output]; duplicate {
+			return fmt.Errorf("quality reports contain duplicate output %q", report.Output)
+		}
+		seen[report.Output] = struct{}{}
 	}
 	return nil
 }

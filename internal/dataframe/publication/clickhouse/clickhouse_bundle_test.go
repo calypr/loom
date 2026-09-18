@@ -799,6 +799,45 @@ func TestClickHouseBundlePublishesAndReplaysQualityEvidenceAtomically(t *testing
 	}
 }
 
+func TestClickHouseBundleRetainsBoundFailedQualityEvidenceWithoutPublishing(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := publication.BundleIdentity{Name: "recipe-a", Project: "project-a", DatasetGeneration: "g1", ReceiptID: "receipt-a", ScopeDigest: "scope-a"}
+	tx, err := store.beginBundle(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.CreateOutput(context.Background(), "patients", []clickhouse.Column{{Name: "id", Type: "String"}}); err != nil {
+		t.Fatal(err)
+	}
+	report := publication.QualityReport{
+		ID: "quality-failed", ReceiptID: identity.ReceiptID, Project: identity.Project, DatasetGeneration: identity.DatasetGeneration,
+		ScopeDigest: identity.ScopeDigest, Output: "patients", PolicyVersion: "quality-v1",
+		Completeness: publication.QualityComplete, Verdict: publication.QualityFailed,
+		KeyIntegrity: publication.KeyIntegrity{Distinct: 1, Duplicate: 1},
+	}
+	if err := tx.SetQualityReports(context.Background(), []publication.QualityReport{report}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Abort(context.Background(), publication.ErrQualityFailed); !errors.Is(err, publication.ErrQualityFailed) {
+		t.Fatalf("abort error = %v", err)
+	}
+	execution, err := catalog.GetExecution(context.Background(), tx.execution.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution.State != publication.BundleFailed || len(execution.QualityReports) != 1 || execution.QualityReports[0].ID != report.ID {
+		t.Fatalf("failed execution evidence = %#v", execution)
+	}
+	if _, ok := catalog.pointers[execution.PointerName()]; ok {
+		t.Fatal("failed quality candidate changed the publication pointer")
+	}
+}
+
 func TestClickHouseBundleFailedCandidatePreservesOldPointer(t *testing.T) {
 	catalog := newBundleCatalogFixture()
 	client := newBundleClickHouseFixture()

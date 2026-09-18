@@ -354,7 +354,7 @@ func (t *clickHouseBundleTx) SetQualityReports(ctx context.Context, reports []pu
 	if t.closed {
 		return fmt.Errorf("ClickHouse publication transaction is closed")
 	}
-	if err := publication.ValidateQualityReports(t.execution.BundleIdentity, t.execution.Outputs, reports); err != nil {
+	if err := publication.ValidateQualityReportBindings(t.execution.BundleIdentity, t.execution.Outputs, reports); err != nil {
 		return err
 	}
 	t.execution.QualityReports = publication.CloneQualityReports(reports)
@@ -773,6 +773,9 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.Publishe
 	}
 	if len(t.execution.Outputs) == 0 {
 		return nil, t.fail(ctx, fmt.Errorf("bundle has no outputs"))
+	}
+	if err := publication.ValidateQualityReports(t.execution.BundleIdentity, t.execution.Outputs, t.execution.QualityReports); err != nil {
+		return nil, t.failPhase(ctx, "QUALITY", "", err)
 	}
 	t.execution.State = publication.BundleValidating
 	for i := range t.execution.Outputs {

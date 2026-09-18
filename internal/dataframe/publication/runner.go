@@ -117,6 +117,11 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			return nil
 		})
 		if err != nil {
+			if reports := qualityReportsFromError(qualityReports, err); len(reports) > len(qualityReports) {
+				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+					err = errors.Join(err, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+				}
+			}
 			return fail(fmt.Errorf("output %q stream: %w", output.Name, err))
 		}
 		if err := flush(); err != nil {
@@ -125,6 +130,10 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		if quality != nil {
 			report, qualityErr := quality.complete()
 			if qualityErr != nil {
+				reports := append(CloneQualityReports(qualityReports), report)
+				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+					qualityErr = errors.Join(qualityErr, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+				}
 				return fail(fmt.Errorf("output %q quality: %w", output.Name, qualityErr))
 			}
 			qualityReports = append(qualityReports, report)
@@ -170,6 +179,18 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		}
 	}
 	return Result{Outputs: published, QualityReports: qualityReports}, nil
+}
+
+func qualityReportsFromError(completed []QualityReport, err error) []QualityReport {
+	var incomplete *QualityIncompleteError
+	if errors.As(err, &incomplete) && len(incomplete.Reports) > 0 {
+		return append(CloneQualityReports(completed), CloneQualityReports(incomplete.Reports)...)
+	}
+	var failed *QualityFailedError
+	if errors.As(err, &failed) && len(failed.Reports) > 0 {
+		return append(CloneQualityReports(completed), CloneQualityReports(failed.Reports)...)
+	}
+	return CloneQualityReports(completed)
 }
 
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
