@@ -145,10 +145,24 @@ const lookupColumnSourceSchema = z.union([
     }).strict(),
   }).strict(),
 ]);
-const aggregateColumnSourceSchema = z
-  .object({
-    kind: z.literal('aggregate'),
-    aggregate: z.object({
+const temporalReductionSchema = z.object({
+  timestampPath: opaqueIdSchema,
+  anchorPath: opaqueIdSchema,
+  lowerOffsetSeconds: z.number().int(),
+  upperOffsetSeconds: z.number().int(),
+  lowerInclusive: z.boolean(),
+  upperInclusive: z.boolean(),
+  direction: z.enum(['ASC', 'DESC']),
+  precision: z.literal('INSTANT'),
+  tiePolicy: z.enum(['REQUIRE_UNIQUE', 'RESOURCE_KEY']),
+}).strict().refine(
+  ({ lowerOffsetSeconds, upperOffsetSeconds }) => lowerOffsetSeconds <= upperOffsetSeconds,
+  { message: 'lowerOffsetSeconds must not exceed upperOffsetSeconds' },
+);
+const aggregateColumnSourceSchema = z.object({
+  kind: z.literal('aggregate'),
+  aggregate: z.discriminatedUnion('operation', [
+    z.object({
       operation: z.enum([
         'COUNT',
         'COUNT_DISTINCT',
@@ -163,8 +177,13 @@ const aggregateColumnSourceSchema = z
       path: opaqueIdSchema.optional(),
       requiredValues: z.array(z.string()).optional(),
     }).strict(),
-  })
-  .strict();
+    z.object({
+      operation: z.literal('FIRST_ORDERED'),
+      path: opaqueIdSchema,
+      temporal: temporalReductionSchema,
+    }).strict(),
+  ]),
+}).strict();
 const contributorValueSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
   z.object({

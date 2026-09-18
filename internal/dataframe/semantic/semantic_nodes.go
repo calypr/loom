@@ -76,6 +76,20 @@ type SemanticAggregate struct {
 	ValueMode      string
 	RequiredValues []string
 	ValueKind      expression.ValueKind
+	Temporal       *SemanticTemporalReduction
+}
+
+type SemanticTemporalReduction struct {
+	Timestamp      spec.Selector
+	Anchor         spec.Selector
+	AnchorResource string
+	LowerOffset    int64
+	UpperOffset    int64
+	LowerInclusive bool
+	UpperInclusive bool
+	Direction      string
+	Precision      string
+	TiePolicy      string
 }
 
 type SemanticSlice struct {

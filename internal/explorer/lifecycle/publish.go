@@ -102,8 +102,12 @@ func classifyMaterializationError(stage string, err error) error {
 	if !ok {
 		return nil
 	}
-	if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
-		message := dataframeerrors.PublicMessage(err) + ". Choose how multiple related values should be reduced, then publish again. The active revision was retained."
+	if dataframeerrors.IsFeatureResolutionCode(userErr.Code()) {
+		instruction := "Update the feature policy, then publish again."
+		if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
+			instruction = "Choose how multiple related values should be reduced, then publish again."
+		}
+		message := dataframeerrors.PublicMessage(err) + ". " + instruction + " The active revision was retained."
 		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)
 	}
 	var message string

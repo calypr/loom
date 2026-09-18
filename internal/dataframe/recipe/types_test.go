@@ -189,6 +189,17 @@ func TestValidationAcceptsCountAndExistsOverExtractedValues(t *testing.T) {
 	}
 }
 
+func TestValidationAcceptsClosedOrderedTemporalReduction(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"latest","operation":"FIRST_ORDERED","expr":{"select":"observation.valueQuantity.value"},"temporal":{"timestamp":{"select":"observation.effectiveDateTime"},"anchor":{"select":"root.meta.lastUpdated"},"lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":true,"direction":"DESC","precision":"INSTANT","tiePolicy":"REQUIRE_UNIQUE"}}]}]}]}`
+	if _, err := Parse([]byte(input)); err != nil {
+		t.Fatalf("expected ordered temporal reduction to validate, got %v", err)
+	}
+	invalid := strings.Replace(input, `"lowerOffsetSeconds":-86400`, `"lowerOffsetSeconds":1`, 1)
+	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "lowerOffsetSeconds") {
+		t.Fatalf("expected inverted temporal window rejection, got %v", err)
+	}
+}
+
 func TestValidationAcceptsTypedExpressionOperationSet(t *testing.T) {
 	for _, call := range []string{"fallback", "not", "and", "or", "eq", "neq", "gt", "gte", "lt", "lte", "contains"} {
 		bundle := Bundle{RecipeSchemaVersion: 1, Name: "ops", TranslationVersion: "1"}

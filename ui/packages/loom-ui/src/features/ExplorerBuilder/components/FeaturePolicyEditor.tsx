@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
@@ -77,11 +77,165 @@ const relatedValueReductionLabels = {
   MIN: fieldAggregateLabels.MIN,
   MAX: fieldAggregateLabels.MAX,
   EXISTS: fieldAggregateLabels.EXISTS,
+  FIRST_ORDERED: 'Value nearest a date',
 } as const;
 
 type ResourceAggregateOperation = keyof typeof resourceAggregateLabels;
 type FieldAggregateOperation = keyof typeof fieldAggregateLabels;
 type RelatedValueReduction = keyof typeof relatedValueReductionLabels;
+
+type TemporalAggregateSource = Extract<
+  ExplorerColumnSource,
+  { kind: 'aggregate' }
+>['aggregate'] & { operation: 'FIRST_ORDERED' };
+
+const TemporalReductionEditor = ({
+  path,
+  current,
+  timestampCandidates,
+  anchorCandidates,
+  disabled,
+  onApply,
+}: {
+  readonly path: string;
+  readonly current?: TemporalAggregateSource;
+  readonly timestampCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly disabled: boolean;
+  readonly onApply: (source: ExplorerColumnSource) => void;
+}) => {
+  const temporal = current?.temporal;
+  const [timestampPath, setTimestampPath] = useState(
+    temporal?.timestampPath ?? timestampCandidates[0]?.fieldPath ?? '',
+  );
+  const [anchorPath, setAnchorPath] = useState(
+    temporal?.anchorPath ?? anchorCandidates[0]?.fieldPath ?? '',
+  );
+  const [lookbackDays, setLookbackDays] = useState(
+    Math.max(0, Math.round(-(temporal?.lowerOffsetSeconds ?? -31_536_000) / 86_400)),
+  );
+  const [direction, setDirection] = useState<'ASC' | 'DESC'>(
+    temporal?.direction ?? 'DESC',
+  );
+  const [tiePolicy, setTiePolicy] = useState<'REQUIRE_UNIQUE' | 'RESOURCE_KEY'>(
+    temporal?.tiePolicy ?? 'REQUIRE_UNIQUE',
+  );
+  const ready = Boolean(timestampPath && anchorPath && Number.isInteger(lookbackDays));
+
+  return (
+    <fieldset className="mt-1 grid w-full grid-cols-2 gap-2 rounded border border-blue-200 bg-blue-50/60 p-2 text-[11px] text-slate-700">
+      <legend className="px-1 font-semibold text-blue-900">Date-aware value selection</legend>
+      <label className="flex min-w-0 flex-col gap-0.5 font-medium">
+        <span>Record date</span>
+        <select
+          aria-label="Record date"
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={timestampPath}
+          disabled={disabled}
+          onChange={(event) => setTimestampPath(event.currentTarget.value)}
+        >
+          <option value="">Choose a date field</option>
+          {timestampCandidates.map((candidate) => (
+            <option key={candidate.candidateId} value={candidate.fieldPath}>
+              {candidate.label} · {candidate.fieldPath}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex min-w-0 flex-col gap-0.5 font-medium">
+        <span>Compare with row date</span>
+        <select
+          aria-label="Compare with row date"
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={anchorPath}
+          disabled={disabled}
+          onChange={(event) => setAnchorPath(event.currentTarget.value)}
+        >
+          <option value="">Choose a row date</option>
+          {anchorCandidates.map((candidate) => (
+            <option key={candidate.candidateId} value={candidate.fieldPath}>
+              {candidate.label} · {candidate.fieldPath}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-0.5 font-medium">
+        <span>Choose</span>
+        <select
+          aria-label="Date selection direction"
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={direction}
+          disabled={disabled}
+          onChange={(event) => setDirection(event.currentTarget.value as 'ASC' | 'DESC')}
+        >
+          <option value="DESC">Latest value</option>
+          <option value="ASC">Earliest value</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-0.5 font-medium">
+        <span>Look back (days)</span>
+        <input
+          aria-label="Look back days"
+          type="number"
+          min={0}
+          step={1}
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={lookbackDays}
+          disabled={disabled}
+          onChange={(event) => setLookbackDays(event.currentTarget.valueAsNumber)}
+        />
+      </label>
+      <label className="col-span-2 flex items-center gap-1.5 font-medium">
+        <span>If dates tie</span>
+        <select
+          aria-label="Equal date handling"
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={tiePolicy}
+          disabled={disabled}
+          onChange={(event) => setTiePolicy(event.currentTarget.value as 'REQUIRE_UNIQUE' | 'RESOURCE_KEY')}
+        >
+          <option value="REQUIRE_UNIQUE">Stop and ask me to resolve it</option>
+          <option value="RESOURCE_KEY">Choose deterministically by resource key</option>
+        </select>
+      </label>
+      <p className="col-span-2 text-slate-600">
+        {direction === 'DESC' ? 'Latest' : 'Earliest'} {path} dated from {lookbackDays} days before through the row date.
+      </p>
+      {timestampCandidates.length === 0 || anchorCandidates.length === 0 ? (
+        <p className="col-span-2 text-amber-800">
+          This selection needs one date field on the related record and one on the row resource.
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="col-span-2 justify-self-start rounded bg-blue-700 px-2.5 py-1 font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
+        disabled={disabled || !ready || lookbackDays < 0}
+        onClick={() =>
+          onApply({
+            kind: 'aggregate',
+            aggregate: {
+              operation: 'FIRST_ORDERED',
+              path,
+              temporal: {
+                timestampPath,
+                anchorPath,
+                lowerOffsetSeconds: -lookbackDays * 86_400,
+                upperOffsetSeconds: 0,
+                lowerInclusive: true,
+                upperInclusive: true,
+                direction,
+                precision: 'INSTANT',
+                tiePolicy,
+              },
+            },
+          })
+        }
+      >
+        Apply date selection
+      </button>
+    </fieldset>
+  );
+};
 
 const projectionExplanation = (
   mode: keyof typeof nestedValueLabels,
@@ -105,6 +259,7 @@ export const FeaturePolicyEditor = ({
   column,
   candidate,
   candidates,
+  anchorCandidates,
   related,
   resourceLabel,
   disabled,
@@ -114,6 +269,7 @@ export const FeaturePolicyEditor = ({
   readonly column: ExplorerBuilderColumn;
   readonly candidate?: ExplorerBuilderCandidate;
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
   readonly resourceLabel: string;
   readonly disabled: boolean;
@@ -122,6 +278,7 @@ export const FeaturePolicyEditor = ({
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
 }) => {
+  const [draftTemporalPath, setDraftTemporalPath] = useState<string>();
   if (column.source.kind === 'field') {
     const source = column.source;
     const currentMode = source.field.projectionMode ?? 'FIRST';
@@ -141,10 +298,17 @@ export const FeaturePolicyEditor = ({
               onChange={(event) => {
                 const operation = event.currentTarget.value;
                 if (operation === 'FIRST_BY_RESOURCE_KEY') return;
+                if (operation === 'FIRST_ORDERED') {
+                  setDraftTemporalPath(source.field.path);
+                  return;
+                }
                 onSourceChange({
                   kind: 'aggregate',
                   aggregate: {
-                    operation: operation as Exclude<RelatedValueReduction, 'FIRST_BY_RESOURCE_KEY'>,
+                    operation: operation as Exclude<
+                      RelatedValueReduction,
+                      'FIRST_BY_RESOURCE_KEY' | 'FIRST_ORDERED'
+                    >,
                     path: source.field.path,
                   },
                 });
@@ -206,6 +370,20 @@ export const FeaturePolicyEditor = ({
             Keep only the first related record by resource key. Other records are omitted.
           </label>
         ) : null}
+        {draftTemporalPath === source.field.path ? (
+          <TemporalReductionEditor
+            path={source.field.path}
+            timestampCandidates={candidates.filter(
+              (candidateOption) => candidateOption.logicalType.toLowerCase() === 'date_time',
+            )}
+            anchorCandidates={anchorCandidates}
+            disabled={disabled}
+            onApply={(nextSource) => {
+              setDraftTemporalPath(undefined);
+              onSourceChange(nextSource);
+            }}
+          />
+        ) : null}
       </div>
     );
   }
@@ -214,8 +392,9 @@ export const FeaturePolicyEditor = ({
     const path = column.source.aggregate.path;
     const operation = column.source.aggregate.operation;
     const options = path && related ? relatedValueReductionLabels : path ? fieldAggregateLabels : resourceAggregateLabels;
+    const editingTemporal = operation === 'FIRST_ORDERED' || draftTemporalPath === path;
     const summary = path
-      ? `${fieldAggregateLabels[operation as FieldAggregateOperation] ?? 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
+      ? `${operation === 'FIRST_ORDERED' ? 'Selects one dated value' : fieldAggregateLabels[operation as FieldAggregateOperation] ?? 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
       : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
 
     return (
@@ -250,6 +429,11 @@ export const FeaturePolicyEditor = ({
                 });
                 return;
               }
+              if (nextOperation === 'FIRST_ORDERED') {
+                if (path) setDraftTemporalPath(path);
+                return;
+              }
+              setDraftTemporalPath(undefined);
               onSourceChange({
                 kind: 'aggregate',
                 aggregate: path
@@ -269,6 +453,21 @@ export const FeaturePolicyEditor = ({
           </select>
         </label>
         <span>{summary}</span>
+        {editingTemporal && path ? (
+          <TemporalReductionEditor
+            path={path}
+            current={operation === 'FIRST_ORDERED' ? column.source.aggregate : undefined}
+            timestampCandidates={candidates.filter(
+              (candidateOption) => candidateOption.logicalType.toLowerCase() === 'date_time',
+            )}
+            anchorCandidates={anchorCandidates}
+            disabled={disabled}
+            onApply={(source) => {
+              setDraftTemporalPath(undefined);
+              onSourceChange(source);
+            }}
+          />
+        ) : null}
         <label className="flex items-center gap-1.5 font-medium text-slate-700">
           <span>Contributors</span>
           <select

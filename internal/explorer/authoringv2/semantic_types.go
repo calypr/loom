@@ -71,8 +71,21 @@ type AggregateSource struct {
 	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
 	// It is deliberately omitted from the current authoring JSON contract;
 	// writable contributor intent lives on Column.Contributor instead.
-	Where          *SourceWhere `json:"-"`
-	RequiredValues []string     `json:"requiredValues,omitempty"`
+	Where          *SourceWhere             `json:"-"`
+	RequiredValues []string                 `json:"requiredValues,omitempty"`
+	Temporal       *TemporalReductionSource `json:"temporal,omitempty"`
+}
+
+type TemporalReductionSource struct {
+	TimestampPath  string `json:"timestampPath"`
+	AnchorPath     string `json:"anchorPath"`
+	LowerOffset    int64  `json:"lowerOffsetSeconds"`
+	UpperOffset    int64  `json:"upperOffsetSeconds"`
+	LowerInclusive bool   `json:"lowerInclusive"`
+	UpperInclusive bool   `json:"upperInclusive"`
+	Direction      string `json:"direction"`
+	Precision      string `json:"precision"`
+	TiePolicy      string `json:"tiePolicy"`
 }
 
 type SourceWhere struct {
@@ -86,15 +99,16 @@ type SourceWhere struct {
 // nested where object.
 func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 	type wire struct {
-		Operation      string   `json:"operation"`
-		Path           string   `json:"path,omitempty"`
-		RequiredValues []string `json:"requiredValues,omitempty"`
+		Operation      string                   `json:"operation"`
+		Path           string                   `json:"path,omitempty"`
+		RequiredValues []string                 `json:"requiredValues,omitempty"`
+		Temporal       *TemporalReductionSource `json:"temporal,omitempty"`
 	}
 	var decoded wire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
-	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, RequiredValues: append([]string(nil), decoded.RequiredValues...)}
+	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, RequiredValues: append([]string(nil), decoded.RequiredValues...), Temporal: decoded.Temporal}
 	return nil
 }
 
@@ -235,6 +249,10 @@ func (s ColumnSource) Normalized() ColumnSource {
 		if n.Aggregate.Where != nil {
 			where := *n.Aggregate.Where
 			aggregate.Where = &where
+		}
+		if n.Aggregate.Temporal != nil {
+			temporal := *n.Aggregate.Temporal
+			aggregate.Temporal = &temporal
 		}
 		n.Aggregate = &aggregate
 	}
@@ -522,16 +540,23 @@ func (s ColumnSource) validate(path string) error {
 		}
 		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {
-		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT":
+		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT", "FIRST_ORDERED":
 		default:
 			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Aggregate.Operation)
 		}
-		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT"
+		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT" || op == "FIRST_ORDERED"
 		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
 			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}
 		if s.Aggregate.Where != nil && strings.TrimSpace(s.Aggregate.Where.Path) == "" {
 			return fmt.Errorf("%s.aggregate.where requires path", path)
+		}
+		if op == "FIRST_ORDERED" {
+			if err := s.Aggregate.Temporal.validate(path + ".aggregate.temporal"); err != nil {
+				return err
+			}
+		} else if s.Aggregate.Temporal != nil {
+			return fmt.Errorf("%s.aggregate.temporal is only valid for FIRST_ORDERED", path)
 		}
 		if op == "CONTAINS_ALL" {
 			if len(s.Aggregate.RequiredValues) == 0 {
@@ -552,6 +577,28 @@ func (s ColumnSource) validate(path string) error {
 		}
 	default:
 		return fmt.Errorf("%s source kind %q is unsupported", path, s.Kind)
+	}
+	return nil
+}
+
+func (t *TemporalReductionSource) validate(path string) error {
+	if t == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if strings.TrimSpace(t.TimestampPath) == "" || strings.TrimSpace(t.AnchorPath) == "" {
+		return fmt.Errorf("%s requires timestampPath and anchorPath", path)
+	}
+	if t.LowerOffset > t.UpperOffset {
+		return fmt.Errorf("%s lowerOffsetSeconds must not exceed upperOffsetSeconds", path)
+	}
+	if t.Direction != "ASC" && t.Direction != "DESC" {
+		return fmt.Errorf("%s.direction must be ASC or DESC", path)
+	}
+	if t.Precision != "INSTANT" {
+		return fmt.Errorf("%s.precision must be INSTANT", path)
+	}
+	if t.TiePolicy != "REQUIRE_UNIQUE" && t.TiePolicy != "RESOURCE_KEY" {
+		return fmt.Errorf("%s.tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY", path)
 	}
 	return nil
 }

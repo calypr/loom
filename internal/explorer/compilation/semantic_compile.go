@@ -225,6 +225,18 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.where.path", index), "aggregate predicate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": wherePath}, nil)
 					}
 				}
+				if temporal := column.Source.Aggregate.Temporal; temporal != nil {
+					timestampPath := strings.TrimPrefix(strings.TrimSpace(temporal.TimestampPath), "root.")
+					timestampCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, timestampPath)
+					if !found || !strings.EqualFold(timestampCandidate.LogicalType, "date_time") {
+						return Result{}, fail("intent", "INVALID_TEMPORAL_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.timestampPath", index), "temporal timestamp must be a date_time field on the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
+					}
+					anchorPath := strings.TrimPrefix(strings.TrimSpace(temporal.AnchorPath), "root.")
+					anchorCandidate, found := semanticFieldCandidate(snapshot, root.graph.ID, anchorPath)
+					if !found || !strings.EqualFold(anchorCandidate.LogicalType, "date_time") {
+						return Result{}, fail("intent", "INVALID_TEMPORAL_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.anchorPath", index), "temporal anchor must be a date_time field on the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+					}
+				}
 			}
 			aggregate, aggregateType, aggregateErr := semanticAggregate(column, alias, occurrence.graph.ResourceType, contributorWhere)
 			if aggregateErr != nil {
@@ -287,6 +299,12 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		} else if column.Source.Kind == authoringv2.SourceAggregate {
 			lossless = false
 			lossReasons = append(lossReasons, "AGGREGATE_REDUCTION")
+			if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "FIRST_ORDERED") {
+				lossReasons = append(lossReasons, "TEMPORAL_SELECTION")
+				if column.Source.Aggregate.Temporal != nil && strings.EqualFold(column.Source.Aggregate.Temporal.TiePolicy, "RESOURCE_KEY") {
+					lossReasons = append(lossReasons, "RESOURCE_KEY_TIE_BREAK")
+				}
+			}
 			if column.Source.Aggregate != nil && (strings.EqualFold(column.Source.Aggregate.Operation, "DISTINCT_VALUES") || strings.EqualFold(column.Source.Aggregate.Operation, "COLLECT")) {
 				shape = "array"
 				structuralSuitability = "array"
@@ -591,6 +609,17 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		Operation: operation, FieldRef: column.Column, ValueMode: recipe.ValueModeAuto,
 		RequiredValues: append([]string(nil), source.RequiredValues...),
 	}
+	if source.Temporal != nil {
+		timestampPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(source.Temporal.TimestampPath), "."), "root.")
+		anchorPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(source.Temporal.AnchorPath), "."), "root.")
+		aggregate.Temporal = &recipe.TemporalReduction{
+			Timestamp:   recipe.Expression{Select: alias + "." + timestampPath},
+			Anchor:      recipe.Expression{Select: "root." + anchorPath},
+			LowerOffset: source.Temporal.LowerOffset, UpperOffset: source.Temporal.UpperOffset,
+			LowerInclusive: source.Temporal.LowerInclusive, UpperInclusive: source.Temporal.UpperInclusive,
+			Direction: recipe.TemporalDirection(source.Temporal.Direction), Precision: recipe.TemporalPrecision(source.Temporal.Precision), TiePolicy: recipe.TemporalTiePolicy(source.Temporal.TiePolicy),
+		}
+	}
 	if strings.TrimSpace(source.Path) != "" {
 		path := strings.Trim(strings.TrimSpace(source.Path), ".")
 		aggregate.Expr = &recipe.Expression{Select: alias + "." + path}
@@ -627,7 +656,7 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		logicalType = "integer"
 	case recipe.AggregateExists, recipe.AggregateContainsAll:
 		logicalType = "boolean"
-	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax, recipe.AggregateRequireOne, recipe.AggregateCollect:
+	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax, recipe.AggregateRequireOne, recipe.AggregateCollect, recipe.AggregateFirstOrdered:
 		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(source.Path), "."))
 		if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
 			return recipe.Aggregate{}, "", fmt.Errorf("aggregate selector %q is not represented by generated resource type %q", source.Path, resourceType)

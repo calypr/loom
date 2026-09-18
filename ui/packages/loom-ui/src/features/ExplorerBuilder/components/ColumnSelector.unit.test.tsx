@@ -352,6 +352,134 @@ describe('configured V2 columns', () => {
     });
   });
 
+  it('applies a complete date-aware related value policy in one source edit', () => {
+    const onSourceChange = vi.fn();
+    const temporalCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+      candidates: [
+        {
+          candidateId: 'c_anchor',
+          nodeId: 'research-subject',
+          fieldPath: 'meta.lastUpdated',
+          label: 'Row updated at',
+          logicalType: 'date_time',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+        },
+        {
+          candidateId: 'c_value',
+          nodeId: 'observation',
+          fieldPath: 'valueQuantity.value',
+          label: 'Measured value',
+          logicalType: 'decimal',
+          repeated: false,
+          filterable: true,
+          chartable: true,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+        },
+        {
+          candidateId: 'c_timestamp',
+          nodeId: 'observation',
+          fieldPath: 'effectiveDateTime',
+          label: 'Observed at',
+          logicalType: 'date_time',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+        },
+      ],
+    };
+    const temporalTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [{
+          column: 'observation_value',
+          label: 'Observation value',
+          occurrenceId: 'observations',
+          source: {
+            kind: 'field',
+            field: {
+              path: 'valueQuantity.value',
+              projectionMode: 'VALUE',
+              relatedSelection: { kind: 'first-by-resource-key', acknowledged: false },
+            },
+          },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    render(<ColumnSelector catalog={temporalCatalog} table={temporalTable}
+      occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'FIRST_ORDERED' } });
+    expect(onSourceChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Record date' })).toHaveProperty('value', 'effectiveDateTime');
+    expect(screen.getByRole('combobox', { name: 'Compare with row date' })).toHaveProperty('value', 'meta.lastUpdated');
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Look back days' }), {
+      target: { value: '90' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Equal date handling' }), {
+      target: { value: 'RESOURCE_KEY' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply date selection' }));
+
+    expect(onSourceChange).toHaveBeenCalledOnce();
+    expect(onSourceChange).toHaveBeenCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        temporal: {
+          timestampPath: 'effectiveDateTime',
+          anchorPath: 'meta.lastUpdated',
+          lowerOffsetSeconds: -7_776_000,
+          upperOffsetSeconds: 0,
+          lowerInclusive: true,
+          upperInclusive: true,
+          direction: 'DESC',
+          precision: 'INSTANT',
+          tiePolicy: 'RESOURCE_KEY',
+        },
+      },
+    });
+  });
+
   it('renders document columns even when the catalog has no candidates', () => {
     const onChange = vi.fn();
     render(

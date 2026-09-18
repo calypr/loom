@@ -67,7 +67,21 @@ const (
 	CodeQueryResourceLimitExceeded       ErrorCode = "QUERY_RESOURCE_LIMIT_EXCEEDED"
 	CodeQueryBackendOutOfMemory          ErrorCode = "QUERY_BACKEND_OUT_OF_MEMORY"
 	CodeRelationshipCardinalityViolation ErrorCode = "RELATIONSHIP_CARDINALITY_VIOLATION"
+	CodeTemporalAnchorInvalid            ErrorCode = "TEMPORAL_ANCHOR_INVALID"
+	CodeTemporalPrecisionUnsupported     ErrorCode = "TEMPORAL_PRECISION_UNSUPPORTED"
+	CodeTemporalTieAmbiguous             ErrorCode = "TEMPORAL_TIE_AMBIGUOUS"
 )
+
+// IsFeatureResolutionCode identifies data-dependent feature policies that a
+// Builder user can resolve without an operator or a retry.
+func IsFeatureResolutionCode(code string) bool {
+	switch ErrorCode(code) {
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous:
+		return true
+	default:
+		return false
+	}
+}
 
 // UserError is the semantic error contract shared by GraphQL, preview, and
 // export adapters. Details are intentionally a safe, copied view.
@@ -368,6 +382,12 @@ func defaultMessage(code ErrorCode) string {
 		return "the dataframe database ran out of memory while executing the query"
 	case CodeRelationshipCardinalityViolation:
 		return "more than one value matched a feature that requires zero or one"
+	case CodeTemporalAnchorInvalid:
+		return "the row date required by a date-aware feature is missing or is not a complete instant"
+	case CodeTemporalPrecisionUnsupported:
+		return "a record date required by a date-aware feature is missing or is not a complete instant"
+	case CodeTemporalTieAmbiguous:
+		return "multiple values share the selected date; choose how equal dates should be resolved"
 	default:
 		return "internal server error"
 	}

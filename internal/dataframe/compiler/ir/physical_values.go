@@ -157,7 +157,20 @@ const (
 	PhysicalContainsAllAggregate    PhysicalAggregateOperation = "CONTAINS_ALL"
 	PhysicalRequireOneAggregate     PhysicalAggregateOperation = "REQUIRE_ONE"
 	PhysicalCollectAggregate        PhysicalAggregateOperation = "COLLECT"
+	PhysicalFirstOrderedAggregate   PhysicalAggregateOperation = "FIRST_ORDERED"
 )
+
+type PhysicalTemporalReduction struct {
+	Timestamp      PhysicalExpression
+	Anchor         PhysicalExpression
+	LowerOffset    int64
+	UpperOffset    int64
+	LowerInclusive bool
+	UpperInclusive bool
+	Direction      string
+	Precision      string
+	TiePolicy      string
+}
 
 type PhysicalAggregate struct {
 	Source                PhysicalValue
@@ -165,6 +178,7 @@ type PhysicalAggregate struct {
 	Value                 *PhysicalExpression
 	Predicate             *PhysicalPredicateExpression
 	RequiredValuesBindKey string
+	Temporal              *PhysicalTemporalReduction
 }
 
 type PhysicalPivotMap struct {

@@ -1036,6 +1036,72 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       ['dev-patient-001', '2'],
       ['dev-patient-002', '1'],
     ], valueCounts);
+    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Value nearest a date')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Date-aware value selection') && Boolean(document.querySelector('button') && [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply date selection'))`);
+    const beforeTemporalApply = await fetchBuilderState(target, explorerId);
+    recordAssertion(report, 'date-aware-editor-does-not-persist-partial-policy', 'COUNT',
+      beforeTemporalApply.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.operation);
+    await browserEval(cdp, `clickButton('Apply date selection')`);
+    let temporalBuilder;
+    const temporalDeadline = Date.now() + 30000;
+    while (Date.now() < temporalDeadline) {
+      temporalBuilder = await fetchBuilderState(target, explorerId);
+      const valueFeature = temporalBuilder.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+      if (valueFeature?.source?.aggregate?.operation === 'FIRST_ORDERED') break;
+      await sleep(200);
+    }
+    const temporalFeature = temporalBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+    recordAssertion(report, 'builder-persists-complete-date-aware-policy', {
+      operation: 'FIRST_ORDERED',
+      path: 'valueQuantity.value',
+      timestampPath: 'effectiveDateTime',
+      anchorPath: 'meta.lastUpdated',
+      direction: 'DESC',
+      precision: 'INSTANT',
+      tiePolicy: 'REQUIRE_UNIQUE',
+    }, {
+      operation: temporalFeature?.source?.aggregate?.operation,
+      path: temporalFeature?.source?.aggregate?.path,
+      timestampPath: temporalFeature?.source?.aggregate?.temporal?.timestampPath,
+      anchorPath: temporalFeature?.source?.aggregate?.temporal?.anchorPath,
+      direction: temporalFeature?.source?.aggregate?.temporal?.direction,
+      precision: temporalFeature?.source?.aggregate?.temporal?.precision,
+      tiePolicy: temporalFeature?.source?.aggregate?.temporal?.tiePolicy,
+    });
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('TEMPORAL_TIE_AMBIGUOUS')`, 60000);
+    recordAssertion(report, 'date-aware-selection-rejects-equal-date-ambiguity', true,
+      String(await evaluate(cdp, 'document.body.innerText')).includes('TEMPORAL_TIE_AMBIGUOUS'));
+    await browserEval(cdp, `selectOption('Equal date handling', 'Choose deterministically by resource key')`);
+    await browserEval(cdp, `clickButton('Apply date selection')`);
+    const tiePolicyDeadline = Date.now() + 30000;
+    while (Date.now() < tiePolicyDeadline) {
+      temporalBuilder = await fetchBuilderState(target, explorerId);
+      const valueFeature = temporalBuilder.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+      if (valueFeature?.source?.aggregate?.temporal?.tiePolicy === 'RESOURCE_KEY') break;
+      await sleep(200);
+    }
+    recordAssertion(report, 'builder-persists-explicit-equal-date-resolution', 'RESOURCE_KEY',
+      temporalBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.temporal?.tiePolicy);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    const temporalValues = await evaluate(cdp, `(() => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+      const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
+      const idIndex = headers.indexOf('id');
+      const valueIndex = headers.indexOf('valueQuantity.value');
+      return rows.slice(1).map((row) => {
+        const cells = [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.textContent.trim());
+        return [cells[idIndex], cells[valueIndex]];
+      }).sort((left, right) => left[0].localeCompare(right[0]));
+    })()`);
+    recordAssertion(report, 'date-aware-selection-resolves-equal-dates-deterministically', [
+      ['dev-patient-001', String(relatedValue)],
+      ['dev-patient-002', '68'],
+    ], temporalValues);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
     let reducedBuilder;
     const reductionDeadline = Date.now() + 30000;

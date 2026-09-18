@@ -872,6 +872,25 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	}
 }
 
+func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *testing.T) {
+	for _, code := range []dataframeerrors.ErrorCode{
+		dataframeerrors.CodeTemporalAnchorInvalid,
+		dataframeerrors.CodeTemporalPrecisionUnsupported,
+		dataframeerrors.CodeTemporalTieAmbiguous,
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			err := classifyMaterializationError("materialize", dataframeerrors.NewError(code, "private"))
+			var lifecycleErr *Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != string(code) {
+				t.Fatalf("classified error = %#v, want unprocessable %s", lifecycleErr, code)
+			}
+			if !strings.Contains(lifecycleErr.Message, "active revision was retained") {
+				t.Fatalf("message = %q", lifecycleErr.Message)
+			}
+		})
+	}
+}
+
 func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)

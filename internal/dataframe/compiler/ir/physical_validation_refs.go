@@ -86,7 +86,7 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		return err
 	}
 	switch aggregate.Operation {
-	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate, PhysicalRequireOneAggregate, PhysicalCollectAggregate:
+	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate, PhysicalRequireOneAggregate, PhysicalCollectAggregate, PhysicalFirstOrderedAggregate:
 	default:
 		return fmt.Errorf("unknown aggregate operation %q", aggregate.Operation)
 	}
@@ -103,6 +103,22 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		if err := validatePhysicalPredicateExpression(*aggregate.Predicate, defined, bindVars); err != nil {
 			return fmt.Errorf("aggregate predicate: %w", err)
 		}
+	}
+	if aggregate.Operation == PhysicalFirstOrderedAggregate {
+		if aggregate.Temporal == nil {
+			return fmt.Errorf("FIRST_ORDERED requires temporal policy")
+		}
+		if err := validatePhysicalExpression(aggregate.Temporal.Timestamp, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate timestamp: %w", err)
+		}
+		if err := validatePhysicalExpression(aggregate.Temporal.Anchor, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate anchor: %w", err)
+		}
+		if aggregate.Temporal.LowerOffset > aggregate.Temporal.UpperOffset || (aggregate.Temporal.Direction != "ASC" && aggregate.Temporal.Direction != "DESC") || aggregate.Temporal.Precision != "INSTANT" || (aggregate.Temporal.TiePolicy != "REQUIRE_UNIQUE" && aggregate.Temporal.TiePolicy != "RESOURCE_KEY") {
+			return fmt.Errorf("FIRST_ORDERED temporal policy is invalid")
+		}
+	} else if aggregate.Temporal != nil {
+		return fmt.Errorf("aggregate operation %q does not accept temporal policy", aggregate.Operation)
 	}
 	if aggregate.Operation == PhysicalContainsAllAggregate {
 		if strings.TrimSpace(aggregate.RequiredValuesBindKey) == "" {

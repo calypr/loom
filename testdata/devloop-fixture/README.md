@@ -6,8 +6,9 @@ missing `Patient.gender` value. The browser verification driver authors an
 Explorer against this data through the Builder controls, then checks the new
 receipt and materialization independently through the read APIs.
 
-The first Patient has two Observations with different values. The verification
-case uses one `Patient -> Observation` relationship and requires explicit
+The first Patient has two Observations with different values and an equal
+`effectiveDateTime`; both Patients have a `meta.lastUpdated` anchor. The
+verification case uses one `Patient -> Observation` relationship and requires explicit
 acknowledgment before publishing a first-related-record selection. It checks
 that the first value remains deterministic and that the contract does not
 claim this reduction is lossless or ready for machine learning.

@@ -324,7 +324,7 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if a.ValueMode != "" && a.ValueMode != ValueModeAuto {
 		return validationError("unsupported_value_mode", path+".valueMode", "aggregate valueMode must be AUTO")
 	}
-	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll || a.Operation == AggregateRequireOne || a.Operation == AggregateCollect
+	requiresExpr := a.Operation == AggregateCountDistinct || a.Operation == AggregateDistinctValues || a.Operation == AggregateMin || a.Operation == AggregateMax || a.Operation == AggregateContainsAll || a.Operation == AggregateRequireOne || a.Operation == AggregateCollect || a.Operation == AggregateFirstOrdered
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
 	}
@@ -335,6 +335,16 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 		if err := validateExpressionBudget(*a.Expr, path+".expr", budget); err != nil {
 			return err
 		}
+	}
+	if a.Operation == AggregateFirstOrdered {
+		if a.Temporal == nil {
+			return validationError("required", path+".temporal", "FIRST_ORDERED requires temporal policy")
+		}
+		if err := a.Temporal.validateAt(path+".temporal", budget); err != nil {
+			return err
+		}
+	} else if a.Temporal != nil {
+		return validationError("invalid_temporal", path+".temporal", "temporal policy is only valid for FIRST_ORDERED")
 	}
 	if a.Where != nil {
 		if err := validateRichFilterAt(*a.Where, path+".where", true); err != nil {
@@ -357,6 +367,34 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 		}
 	} else if len(a.RequiredValues) != 0 {
 		return validationError("invalid_required_values", path+".requiredValues", "requiredValues is only valid for CONTAINS_ALL")
+	}
+	return nil
+}
+
+func (t TemporalReduction) validateAt(path string, budget *int) error {
+	if err := validateSelectorExpression(t.Timestamp, path+".timestamp"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(t.Timestamp, path+".timestamp", budget); err != nil {
+		return err
+	}
+	if err := validateSelectorExpression(t.Anchor, path+".anchor"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(t.Anchor, path+".anchor", budget); err != nil {
+		return err
+	}
+	if t.LowerOffset > t.UpperOffset {
+		return validationError("invalid_temporal_window", path, "lowerOffsetSeconds must not exceed upperOffsetSeconds")
+	}
+	if t.Direction != TemporalAscending && t.Direction != TemporalDescending {
+		return validationError("invalid_temporal_direction", path+".direction", "direction must be ASC or DESC")
+	}
+	if t.Precision != TemporalPrecisionInstant {
+		return validationError("invalid_temporal_precision", path+".precision", "precision must be INSTANT")
+	}
+	if t.TiePolicy != TemporalTieRequireUnique && t.TiePolicy != TemporalTieResourceKey {
+		return validationError("invalid_temporal_tie_policy", path+".tiePolicy", "tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY")
 	}
 	return nil
 }

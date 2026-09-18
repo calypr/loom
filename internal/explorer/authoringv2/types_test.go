@@ -1,9 +1,24 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestAggregateSourceAcceptsClosedOrderedTemporalReduction(t *testing.T) {
+	raw := []byte(`{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":true,"direction":"DESC","precision":"INSTANT","tiePolicy":"REQUIRE_UNIQUE"}}}`)
+	var source ColumnSource
+	if err := json.Unmarshal(raw, &source); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.validate("source"); err != nil {
+		t.Fatalf("ordered temporal source rejected: %v", err)
+	}
+	if source.Aggregate == nil || source.Aggregate.Temporal == nil || source.Aggregate.Temporal.AnchorPath != "meta.lastUpdated" {
+		t.Fatalf("ordered temporal source = %#v", source)
+	}
+}
 
 func testCatalog() CatalogSnapshot {
 	nodes := []CatalogNode{

@@ -206,7 +206,7 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
 	}
@@ -232,6 +232,22 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q predicate: %w", aggregate.Name, err)
 		}
 		aggregatePhysical.Predicate = predicate
+	}
+	if aggregate.Temporal != nil {
+		if !sourceIsSet {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q temporal reduction requires a related resource set", aggregate.Name)
+		}
+		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: aggregate.Temporal.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, aggregate.Temporal.Timestamp)}}
+		anchorSource := ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
+		anchor := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: aggregate.Temporal.AnchorResource, Selector: aggregate.Temporal.Anchor, ExecutionMode: selectorExecutionMode(aggregate.Temporal.AnchorResource, aggregate.Temporal.Anchor)}}
+		aggregatePhysical.Temporal = &ir.PhysicalTemporalReduction{
+			Timestamp: timestamp, Anchor: anchor,
+			LowerOffset: aggregate.Temporal.LowerOffset, UpperOffset: aggregate.Temporal.UpperOffset,
+			LowerInclusive: aggregate.Temporal.LowerInclusive, UpperInclusive: aggregate.Temporal.UpperInclusive,
+			Direction: aggregate.Temporal.Direction, Precision: aggregate.Temporal.Precision, TiePolicy: aggregate.Temporal.TiePolicy,
+		}
 	}
 	cardinality := ir.PhysicalScalarCardinality
 	nullBehavior := ir.PhysicalEmptyOnNull

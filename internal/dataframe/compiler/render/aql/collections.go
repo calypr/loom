@@ -453,9 +453,12 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "", err
 		}
 		return "LENGTH(FOR __value IN FLATTEN(" + values + ") FILTER __value != null LIMIT 1 RETURN 1) > 0", nil
-	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate:
+	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 		if aggregate.Value == nil {
 			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)
+		}
+		if aggregate.Operation == ir.PhysicalFirstOrderedAggregate {
+			return r.renderFirstOrderedAggregate(aggregate, items)
 		}
 		values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
 		if err != nil {
@@ -497,6 +500,66 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 }
 
+func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	if aggregate.Temporal == nil || aggregate.Value == nil {
+		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal policy")
+	}
+	item := r.newInternalVariable("temporal_item")
+	value, err := r.renderAggregateItemValue(*aggregate.Value, item)
+	if err != nil {
+		return "", err
+	}
+	value = "FIRST(FLATTEN([" + value + "]))"
+	timestamp, err := r.renderAggregateItemValue(aggregate.Temporal.Timestamp, item)
+	if err != nil {
+		return "", err
+	}
+	timestamp = "FIRST(FLATTEN([" + timestamp + "]))"
+	anchor, err := r.renderExpression(aggregate.Temporal.Anchor)
+	if err != nil {
+		return "", err
+	}
+	patternKey := r.newInternalBindKey("temporal_instant_pattern")
+	lowerKey := r.newInternalBindKey("temporal_lower_offset_seconds")
+	upperKey := r.newInternalBindKey("temporal_upper_offset_seconds")
+	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
+	r.bindVars[lowerKey] = aggregate.Temporal.LowerOffset
+	r.bindVars[upperKey] = aggregate.Temporal.UpperOffset
+	lowerOperator, upperOperator := ">", "<"
+	if aggregate.Temporal.LowerInclusive {
+		lowerOperator = ">="
+	}
+	if aggregate.Temporal.UpperInclusive {
+		upperOperator = "<="
+	}
+	direction := strings.ToUpper(aggregate.Temporal.Direction)
+	anchorVariable := r.newInternalVariable("temporal_anchor")
+	candidatesVariable := r.newInternalVariable("temporal_candidates")
+	selectedVariable := r.newInternalVariable("temporal_selected")
+	scopeVariable := r.newInternalVariable("temporal_scope")
+	candidates := "(FOR " + item + " IN " + items +
+		" LET __loom_temporal_value = " + value +
+		" LET __loom_temporal_timestamp = " + timestamp +
+		" FILTER __loom_temporal_value != null" +
+		" FILTER ASSERT(__loom_temporal_timestamp != null AND REGEX_TEST(TO_STRING(__loom_temporal_timestamp), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
+		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + lowerOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + lowerKey + ", \"second\"))" +
+		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + upperOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + upperKey + ", \"second\"))" +
+		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction + ", " + item + "._key ASC" +
+		" RETURN { value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
+	result := selectedVariable + " == null ? null : " + selectedVariable + ".value"
+	if aggregate.Temporal.TiePolicy == "REQUIRE_UNIQUE" {
+		tie := r.newInternalVariable("temporal_tie")
+		ties := "LENGTH(FOR " + tie + " IN " + candidatesVariable + " FILTER DATE_TIMESTAMP(" + tie + ".timestamp) == DATE_TIMESTAMP(" + selectedVariable + ".timestamp) LIMIT 2 RETURN 1)"
+		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + ".value : null)"
+	}
+	return "FIRST(FOR " + scopeVariable + " IN [1]" +
+		" LET " + anchorVariable + " = " + anchor +
+		" FILTER ASSERT(" + anchorVariable + " != null AND REGEX_TEST(TO_STRING(" + anchorVariable + "), @" + patternKey + "), \"TEMPORAL_ANCHOR_INVALID\")" +
+		" LET " + candidatesVariable + " = " + candidates +
+		" LET " + selectedVariable + " = FIRST(" + candidatesVariable + ")" +
+		" RETURN " + result + ")", nil
+}
+
 func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate == nil {
 		return ""
@@ -521,6 +584,14 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 		return "", fmt.Errorf("aggregate predicates require an extract value expression")
 	}
 	item := r.newInternalVariable("aggregate_value_item")
+	value, err := r.renderAggregateItemValue(expression, item)
+	if err != nil {
+		return "", err
+	}
+	return "(FOR " + item + " IN " + items + " RETURN " + value + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderAggregateItemValue(expression ir.PhysicalExpression, item string) (string, error) {
 	clone := expression
 	extract := *expression.Extract
 	if extract.Prepared == nil {
@@ -534,7 +605,7 @@ func (r *physicalPlanRenderer) renderAggregateValue(expression ir.PhysicalExpres
 	if err != nil {
 		return "", err
 	}
-	return "(FOR " + item + " IN " + items + " RETURN " + value + ")", nil
+	return value, nil
 }
 
 // renderExtensionCorrelatedPivot keeps each nested extension URL check in the

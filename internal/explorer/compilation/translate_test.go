@@ -208,7 +208,10 @@ func contributorSnapshot() capability.Snapshot {
 	}
 	snapshot.Candidates = []capability.Candidate{
 		{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_patient_anchor", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "meta.lastUpdated", Label: "Patient updated", LogicalType: "date_time", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
 		{ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "status", Label: "Observation.status", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst}},
+		{ID: "c_observation_time", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "effectiveDateTime", Label: "Observation time", LogicalType: "date_time", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_observation_value", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "valueQuantity.value", Label: "Observation value", LogicalType: "decimal", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
 	}
 	return capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, nil)
 }
@@ -754,5 +757,38 @@ func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) 
 	}
 	if all.Shape != "array" || all.Lossless || all.StructuralSuitability != "array" || !reflect.DeepEqual(all.LossReasons, []string{"AGGREGATE_REDUCTION", "COLLECT_ASSOCIATION_LOSS"}) {
 		t.Fatalf("collect contract=%#v", all)
+	}
+}
+
+func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{{
+			Column: "latest_value", Label: "Latest value", OccurrenceID: "observation",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
+				Operation: "FIRST_ORDERED", Path: "valueQuantity.value",
+				Temporal: &authoringv2.TemporalReductionSource{
+					TimestampPath: "effectiveDateTime", AnchorPath: "root.meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0,
+					LowerInclusive: true, UpperInclusive: true, Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE",
+				},
+			}}, Table: &authoringv2.TablePresentation{Visible: &visible},
+		}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := result.Bundle.Outputs[0].Traversals[0].Aggregates[0]
+	if aggregate.Temporal == nil || aggregate.Temporal.Timestamp.Select != "observation.effectiveDateTime" || aggregate.Temporal.Anchor.Select != "root.meta.lastUpdated" || aggregate.Temporal.Direction != recipe.TemporalDescending || aggregate.Temporal.TiePolicy != recipe.TemporalTieRequireUnique {
+		t.Fatalf("temporal aggregate = %#v", aggregate)
+	}
+	emission := result.EmittedColumns[0]
+	if emission.ProjectionMode != "FIRST_ORDERED" || emission.SourcePath != "valueQuantity.value" || emission.SourceResourceType != "Observation" {
+		t.Fatalf("temporal emission = %#v", emission)
+	}
+	if !reflect.DeepEqual(emission.LossReasons, []string{"AGGREGATE_REDUCTION", "TEMPORAL_SELECTION"}) {
+		t.Fatalf("temporal loss reasons = %#v", emission.LossReasons)
 	}
 }

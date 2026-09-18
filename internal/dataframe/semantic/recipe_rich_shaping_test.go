@@ -129,6 +129,27 @@ func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	}
 }
 
+func TestLowerRecipeAggregatesChecksOrderedTemporalSelectors(t *testing.T) {
+	scope, err := newRootScope("Patient").child("observation", scopeBinding{ResourceType: "Observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregates, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+		Name: "latest_height", Operation: recipe.AggregateFirstOrdered, Expr: recipeExpr("observation.valueQuantity.value"),
+		Temporal: &recipe.TemporalReduction{
+			Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Anchor: recipe.Expression{Select: "root.meta.lastUpdated"},
+			LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
+			Direction: recipe.TemporalDescending, Precision: recipe.TemporalPrecisionInstant, TiePolicy: recipe.TemporalTieRequireUnique,
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].Temporal == nil || aggregates[0].Temporal.Timestamp.CanonicalPath() != "effectiveDateTime" || aggregates[0].Temporal.Anchor.CanonicalPath() != "meta.lastUpdated" || aggregates[0].Temporal.AnchorResource != "Patient" {
+		t.Fatalf("ordered temporal aggregate = %#v", aggregates)
+	}
+}
+
 func TestLowerRecipeSlicesUsesProjectionFallbacksAndPredicate(t *testing.T) {
 	scope := newRootScope("Patient")
 	want := "female"

@@ -961,6 +961,27 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 				return fmt.Errorf("aggregate where path %q is not present for occurrence %q", wherePath, occurrenceID)
 			}
 		}
+		if source.Aggregate != nil && source.Aggregate.Temporal != nil {
+			timestamp, ok := findCandidate(source.Aggregate.Temporal.TimestampPath)
+			if !ok || !strings.EqualFold(timestamp.LogicalType, "date_time") {
+				return fmt.Errorf("temporal timestamp path %q is not a date_time field for occurrence %q", source.Aggregate.Temporal.TimestampPath, occurrenceID)
+			}
+			anchorPath := strings.TrimPrefix(strings.TrimSpace(source.Aggregate.Temporal.AnchorPath), "root.")
+			root := findRoute(&document.Route, RootOccurrenceID)
+			foundAnchor := false
+			if root != nil {
+				for _, candidate := range catalog.Candidates {
+					node, found := catalogNode(catalog, candidate.NodeID)
+					if found && node.ResourceType == root.ResourceType && strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") == anchorPath && strings.EqualFold(candidate.LogicalType, "date_time") {
+						foundAnchor = true
+						break
+					}
+				}
+			}
+			if !foundAnchor {
+				return fmt.Errorf("temporal anchor path %q is not a root date_time field", source.Aggregate.Temporal.AnchorPath)
+			}
+		}
 		return nil
 	}
 	candidate, ok := findCandidate(path)

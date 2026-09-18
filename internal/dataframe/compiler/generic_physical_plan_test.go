@@ -255,6 +255,58 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	}
 }
 
+func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
+	value, err := spec.ParseSelector("valueQuantity.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	timestamp, err := spec.ParseSelector("effectiveDateTime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := spec.ParseSelector("meta.lastUpdated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "observation", ResourceType: "Observation", EdgeLabel: "subject_Patient",
+			Aggregates: []semantic.SemanticAggregate{{
+				Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
+				Temporal: &semantic.SemanticTemporalReduction{
+					Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
+					LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
+					Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE",
+				},
+			}},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "temporal_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_temporal_anchor"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("ordered temporal query missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	if got := strings.Count(rendered.Query, " IN child_set_1 LET __loom_temporal_value"); got != 1 {
+		t.Fatalf("temporal candidates evaluated %d times, want once:\n%s", got, rendered.Query)
+	}
+	foundLower, foundUpper := false, false
+	for _, value := range rendered.BindVars {
+		foundLower = foundLower || value == int64(-86400)
+		foundUpper = foundUpper || value == int64(0)
+	}
+	if !foundLower || !foundUpper {
+		t.Fatalf("temporal offsets missing from binds: %#v", rendered.BindVars)
+	}
+}
+
 func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
 	title := spec.Selector{Steps: []spec.SelectorStep{{Field: "content", Iterate: true}, {Field: "attachment"}, {Field: "title"}}}

@@ -351,15 +351,49 @@ const (
 	AggregateContainsAll    AggregateOperation = "CONTAINS_ALL"
 	AggregateRequireOne     AggregateOperation = "REQUIRE_ONE"
 	AggregateCollect        AggregateOperation = "COLLECT"
+	AggregateFirstOrdered   AggregateOperation = "FIRST_ORDERED"
 )
 
 func (op AggregateOperation) Valid() bool {
 	switch op {
-	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateContainsAll, AggregateRequireOne, AggregateCollect:
+	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateContainsAll, AggregateRequireOne, AggregateCollect, AggregateFirstOrdered:
 		return true
 	default:
 		return false
 	}
+}
+
+type TemporalDirection string
+
+const (
+	TemporalAscending  TemporalDirection = "ASC"
+	TemporalDescending TemporalDirection = "DESC"
+)
+
+type TemporalPrecision string
+
+const TemporalPrecisionInstant TemporalPrecision = "INSTANT"
+
+type TemporalTiePolicy string
+
+const (
+	TemporalTieRequireUnique TemporalTiePolicy = "REQUIRE_UNIQUE"
+	TemporalTieResourceKey   TemporalTiePolicy = "RESOURCE_KEY"
+)
+
+// TemporalReduction selects one contributing resource relative to a timestamp
+// on the root row. Offsets are seconds relative to the anchor and always form
+// one closed, explicit interval.
+type TemporalReduction struct {
+	Timestamp      Expression        `json:"timestamp"`
+	Anchor         Expression        `json:"anchor"`
+	LowerOffset    int64             `json:"lowerOffsetSeconds"`
+	UpperOffset    int64             `json:"upperOffsetSeconds"`
+	LowerInclusive bool              `json:"lowerInclusive"`
+	UpperInclusive bool              `json:"upperInclusive"`
+	Direction      TemporalDirection `json:"direction"`
+	Precision      TemporalPrecision `json:"precision"`
+	TiePolicy      TemporalTiePolicy `json:"tiePolicy"`
 }
 
 type Aggregate struct {
@@ -371,6 +405,7 @@ type Aggregate struct {
 	Where          *Filter            `json:"where,omitempty"`
 	ValueMode      ValueMode          `json:"valueMode,omitempty"`
 	RequiredValues []string           `json:"requiredValues,omitempty"`
+	Temporal       *TemporalReduction `json:"temporal,omitempty"`
 }
 
 type RepresentativeSlice struct {

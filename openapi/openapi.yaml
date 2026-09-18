@@ -1171,11 +1171,26 @@ components:
       additionalProperties: false
       required: [operation]
       properties:
-        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, EXISTS, CONTAINS_ALL]}
+        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, EXISTS, CONTAINS_ALL, REQUIRE_ONE, COLLECT, FIRST_ORDERED]}
         path: {type: string}
         requiredValues:
           type: array
           items: {type: string}
+        temporal: {$ref: '#/components/schemas/TemporalReductionSource'}
+    TemporalReductionSource:
+      type: object
+      additionalProperties: false
+      required: [timestampPath, anchorPath, lowerOffsetSeconds, upperOffsetSeconds, lowerInclusive, upperInclusive, direction, precision, tiePolicy]
+      properties:
+        timestampPath: {type: string, minLength: 1}
+        anchorPath: {type: string, minLength: 1}
+        lowerOffsetSeconds: {type: integer, format: int64}
+        upperOffsetSeconds: {type: integer, format: int64}
+        lowerInclusive: {type: boolean}
+        upperInclusive: {type: boolean}
+        direction: {type: string, enum: [ASC, DESC]}
+        precision: {type: string, enum: [INSTANT]}
+        tiePolicy: {type: string, enum: [REQUIRE_UNIQUE, RESOURCE_KEY]}
     ContributorPredicate:
       type: object
       additionalProperties: false

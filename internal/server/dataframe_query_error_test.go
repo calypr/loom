@@ -76,3 +76,20 @@ func TestClassifyDataframeQueryErrorPreservesRelationshipCardinalityViolation(t 
 		t.Fatalf("classified error=%#v", userErr)
 	}
 }
+
+func TestClassifyDataframeQueryErrorPreservesTemporalAssertions(t *testing.T) {
+	tests := []dataframeerrors.ErrorCode{
+		dataframeerrors.CodeTemporalAnchorInvalid,
+		dataframeerrors.CodeTemporalPrecisionUnsupported,
+		dataframeerrors.CodeTemporalTieAmbiguous,
+	}
+	for _, code := range tests {
+		t.Run(string(code), func(t *testing.T) {
+			driverErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert, ErrorMessage: "AQL: " + string(code) + " (while executing)"}
+			userErr, ok := dataframeerrors.AsUserError(classifyDataframeQueryError(driverErr))
+			if !ok || userErr.Code() != string(code) || userErr.Retryable() {
+				t.Fatalf("classified error=%#v", userErr)
+			}
+		})
+	}
+}

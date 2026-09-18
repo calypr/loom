@@ -100,6 +100,7 @@ const ConfiguredColumnRow = ({
   chartable,
   candidate,
   candidates,
+  anchorCandidates,
   related,
   resourceLabel,
   onChange,
@@ -114,6 +115,7 @@ const ConfiguredColumnRow = ({
   readonly chartable: boolean;
   readonly candidate?: ExplorerBuilderCandidate;
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
   readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
@@ -239,6 +241,7 @@ const ConfiguredColumnRow = ({
         column={column}
         candidate={candidate}
         candidates={candidates}
+        anchorCandidates={anchorCandidates}
         related={related}
         resourceLabel={resourceLabel}
         disabled={disabled}
@@ -381,9 +384,11 @@ export const ColumnSelector = ({
   const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
   const candidateScrollRef = React.useRef<HTMLDivElement>(null);
   const viewport = useVirtualViewport(candidateScrollRef);
-  const occurrence = derivedOccurrences(table, catalog).find(
+  const occurrences = derivedOccurrences(table, catalog);
+  const occurrence = occurrences.find(
     (candidate) => candidate.id === occurrenceId,
   );
+  const rootNodeId = occurrences.find(({ id }) => id === 'base')?.nodeId;
   const resourceType =
     catalog.nodes.find((node) => node.nodeId === occurrence?.nodeId)
       ?.resourceType ?? 'resource';
@@ -609,6 +614,11 @@ export const ColumnSelector = ({
                           candidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
                               candidateOption.nodeId === occurrence?.nodeId,
+                          )}
+                          anchorCandidates={(catalog.candidates ?? []).filter(
+                            (candidateOption) =>
+                              candidateOption.nodeId === rootNodeId &&
+                              candidateOption.logicalType.toLowerCase() === 'date_time',
                           )}
                           resourceLabel={titleForResource(resourceType)}
                           onChange={onChange}

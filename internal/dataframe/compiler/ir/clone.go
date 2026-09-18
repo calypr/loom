@@ -142,6 +142,10 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 	}
 	if expression.Aggregate != nil {
 		canonicalizePhysicalExpression(expression.Aggregate.Value)
+		if expression.Aggregate.Temporal != nil {
+			canonicalizePhysicalExpression(&expression.Aggregate.Temporal.Timestamp)
+			canonicalizePhysicalExpression(&expression.Aggregate.Temporal.Anchor)
+		}
 		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
 	}
 	if expression.Slice != nil {
@@ -436,6 +440,12 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		if aggregate.Value != nil {
 			value := clonePhysicalExpression(*aggregate.Value)
 			aggregate.Value = &value
+		}
+		if aggregate.Temporal != nil {
+			temporal := *aggregate.Temporal
+			temporal.Timestamp = clonePhysicalExpression(aggregate.Temporal.Timestamp)
+			temporal.Anchor = clonePhysicalExpression(aggregate.Temporal.Anchor)
+			aggregate.Temporal = &temporal
 		}
 		copy.Aggregate = &aggregate
 	}

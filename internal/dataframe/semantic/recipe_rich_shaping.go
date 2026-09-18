@@ -377,7 +377,8 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			operation == string(recipe.AggregateMax) ||
 			operation == string(recipe.AggregateContainsAll) ||
 			operation == string(recipe.AggregateRequireOne) ||
-			operation == string(recipe.AggregateCollect)
+			operation == string(recipe.AggregateCollect) ||
+			operation == string(recipe.AggregateFirstOrdered)
 		acceptsSelector := requiresSelector || operation == string(recipe.AggregateCount) || operation == string(recipe.AggregateExists)
 		if input.Expr != nil {
 			if !acceptsSelector {
@@ -407,6 +408,35 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			semanticAggregate.ValueKind = expression.KindBoolean
 		case string(recipe.AggregateContainsAll):
 			semanticAggregate.ValueKind = expression.KindBoolean
+		case string(recipe.AggregateFirstOrdered):
+			if semanticAggregate.ValueKind == "" {
+				semanticAggregate.ValueKind = expression.KindString
+			}
+		}
+		if input.Temporal != nil {
+			timestamp, err := recipeNodeSelector(resourceType, alias, scope, input.Temporal.Timestamp, path+".temporal.timestamp")
+			if err != nil {
+				return nil, err
+			}
+			timestampMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, timestamp.CanonicalPath())
+			if !ok || timestampMetadata.Primitive != fhirschema.PrimitiveDateTime || timestampMetadata.Repeated {
+				return nil, fmt.Errorf("%s.temporal.timestamp must resolve to one date_time value", path)
+			}
+			root := scope.aliases["root"]
+			anchor, err := recipeNodeSelector(root.ResourceType, "root", scope, input.Temporal.Anchor, path+".temporal.anchor")
+			if err != nil {
+				return nil, err
+			}
+			anchorMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(root.ResourceType, anchor.CanonicalPath())
+			if !ok || anchorMetadata.Primitive != fhirschema.PrimitiveDateTime || anchorMetadata.Repeated {
+				return nil, fmt.Errorf("%s.temporal.anchor must resolve to one root date_time value", path)
+			}
+			semanticAggregate.Temporal = &SemanticTemporalReduction{
+				Timestamp: timestamp, Anchor: anchor, AnchorResource: root.ResourceType,
+				LowerOffset: input.Temporal.LowerOffset, UpperOffset: input.Temporal.UpperOffset,
+				LowerInclusive: input.Temporal.LowerInclusive, UpperInclusive: input.Temporal.UpperInclusive,
+				Direction: string(input.Temporal.Direction), Precision: string(input.Temporal.Precision), TiePolicy: string(input.Temporal.TiePolicy),
+			}
 		}
 		if input.Where != nil {
 			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")

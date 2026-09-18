@@ -199,6 +199,9 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 				if expression.Aggregate.Value != nil {
 					collect(expression.Aggregate.Value)
 				}
+				if expression.Aggregate.Temporal != nil {
+					collect(&expression.Aggregate.Temporal.Timestamp)
+				}
 				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
 					collect(expression.Aggregate.Predicate.Comparison.LeftExpression)
 				}
@@ -280,6 +283,9 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 			if expression.Aggregate != nil {
 				if expression.Aggregate.Value != nil {
 					annotate(expression.Aggregate.Value)
+				}
+				if expression.Aggregate.Temporal != nil {
+					annotate(&expression.Aggregate.Temporal.Timestamp)
 				}
 				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
 					annotate(expression.Aggregate.Predicate.Comparison.LeftExpression)
@@ -363,6 +369,9 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
 				collect(expression.Aggregate.Value, false)
+				if expression.Aggregate.Temporal != nil {
+					collect(&expression.Aggregate.Temporal.Timestamp, true)
+				}
 				collectPredicate(expression.Aggregate.Predicate)
 			}
 		case ir.PhysicalPivotExpression:
@@ -475,6 +484,9 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
 				rewrite(expression.Aggregate.Value)
+				if expression.Aggregate.Temporal != nil {
+					rewrite(&expression.Aggregate.Temporal.Timestamp)
+				}
 				rewritePredicate(expression.Aggregate.Predicate)
 			}
 		case ir.PhysicalPivotExpression:
