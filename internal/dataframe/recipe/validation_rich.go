@@ -336,6 +336,14 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 			return err
 		}
 	}
+	if a.UnitNormalization != nil {
+		if a.Expr == nil {
+			return validationError("required", path+".expr", "unit normalization requires a measurement expression")
+		}
+		if err := a.UnitNormalization.Validate(); err != nil {
+			return validationError("invalid_unit_normalization", path+".unitNormalization", err.Error())
+		}
+	}
 	if a.Operation == AggregateFirstOrdered {
 		if a.Temporal == nil {
 			return validationError("required", path+".temporal", "FIRST_ORDERED requires temporal policy")

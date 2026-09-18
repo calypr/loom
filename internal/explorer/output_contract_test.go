@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func contractFixture() (recipe.Bundle, []EmittedColumn, PublicOutputContracts) {
@@ -109,6 +110,20 @@ func TestPublicOutputContractRejectsForgedAggregateQualityFlags(t *testing.T) {
 	contract.Outputs[0].MLReady = false
 	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
 		t.Fatalf("matching lossless and ML-ready aggregates rejected: %v", err)
+	}
+}
+
+func TestPublicOutputContractPinsUnitTargetAndRuleIdentity(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "units", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Observation", RowGrain: "observation"}}}
+	normalization := &PublicUnitNormalization{Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: []PublicUnitRuleIdentity{{ID: "ucum:m-to-cm", Version: "1"}, {ID: "identity-v1", Version: "1"}}}
+	emitted := []EmittedColumn{{OutputID: "out", PublicColumn: "height", Label: "Height", LogicalType: "decimal", UnitNormalization: normalization}}
+	contract := PublicOutputContracts{Outputs: []PublicOutputContract{{OutputID: "out", Columns: []PublicOutputColumn{{Column: "height", Label: "Height", LogicalType: "decimal", UnitNormalization: &PublicUnitNormalization{Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: append([]PublicUnitRuleIdentity(nil), normalization.Rules...)}}}}}}
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatal(err)
+	}
+	contract.Outputs[0].Columns[0].UnitNormalization.Target.Code = "m"
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged unit target accepted: %v", err)
 	}
 }
 

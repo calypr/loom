@@ -90,6 +90,13 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 			if len(coordinates) > 0 {
 				wire.Coordinates = &coordinates
 			}
+			if column.UnitNormalization != nil {
+				rules := make([]loomapi.UnitRuleReference, 0, len(column.UnitNormalization.Rules))
+				for _, rule := range column.UnitNormalization.Rules {
+					rules = append(rules, loomapi.UnitRuleReference{Id: rule.ID, Version: rule.Version})
+				}
+				wire.UnitNormalization = &loomapi.UnitNormalizationContract{Target: loomapi.UnitIdentity{System: column.UnitNormalization.Target.System, Code: column.UnitNormalization.Target.Code}, Rules: rules}
+			}
 			columns = append(columns, wire)
 		}
 		rootResourceType := document.RootResourceType

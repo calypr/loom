@@ -1,6 +1,9 @@
 package ir
 
-import "github.com/calypr/loom/internal/dataframe/spec"
+import (
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+)
 
 func cloneStrings(in []string) []string {
 	if in == nil {
@@ -410,6 +413,14 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		if extract.Prepared != nil {
 			prepared := *extract.Prepared
 			extract.Prepared = &prepared
+		}
+		if extract.UnitNormalization != nil {
+			normalization := *extract.UnitNormalization
+			normalization.OriginalValue.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.OriginalValue.Steps...)
+			normalization.SourceSystem.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.SourceSystem.Steps...)
+			normalization.SourceCode.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.SourceCode.Steps...)
+			normalization.Rules = append([]unit.UnitConversionRule(nil), extract.UnitNormalization.Rules...)
+			extract.UnitNormalization = &normalization
 		}
 		copy.Extract = &extract
 	}

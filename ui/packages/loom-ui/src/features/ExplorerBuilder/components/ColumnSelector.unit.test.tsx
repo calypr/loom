@@ -480,6 +480,67 @@ describe('configured V2 columns', () => {
     });
   });
 
+  it('applies an approved measurement-unit preset without exposing conversion coefficients', () => {
+    const onSourceChange = vi.fn();
+    const measurementCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: [{
+        candidateId: 'c_height',
+        nodeId: 'research-subject',
+        fieldPath: 'valueQuantity.value',
+        label: 'Height',
+        logicalType: 'decimal',
+        repeated: false,
+        filterable: true,
+        chartable: true,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+        conceptCandidates: [{
+          sourceResourceType: 'Observation',
+          sourcePath: 'valueQuantity.value',
+          logicalType: 'decimal',
+          observedUnits: ['http://unitsofmeasure.org|cm', 'http://unitsofmeasure.org|m'],
+          completeness: 'COMPLETE',
+          status: 'SUPPORTED',
+          population: 2,
+        }],
+      }],
+    };
+    const measurementTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          column: 'height',
+          label: 'Height',
+          occurrenceId: 'base',
+          source: { kind: 'aggregate', aggregate: { operation: 'MAX', path: 'valueQuantity.value' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    };
+
+    render(<ColumnSelector catalog={measurementCatalog} table={measurementTable}
+      occurrenceId="base" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
+      onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Normalize units' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unit conversion preset' }), {
+      target: { value: 'to-centimeters' },
+    });
+    expect(screen.queryByText(/scale|offset|system path|code path/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply normalization' }));
+
+    expect(onSourceChange).toHaveBeenCalledWith('height', {
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'MAX',
+        path: 'valueQuantity.value',
+        unitNormalization: { policyId: 'to-centimeters', version: '1' },
+      },
+    });
+  });
+
   it('renders document columns even when the catalog has no candidates', () => {
     const onChange = vi.fn();
     render(

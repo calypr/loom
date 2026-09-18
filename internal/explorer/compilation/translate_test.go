@@ -20,6 +20,19 @@ func fixtureSnapshot() capability.Snapshot {
 	return fixtureSnapshotForProject("project-a")
 }
 
+func TestQuantityIdentityPathsRequireGeneratedFHIRQuantity(t *testing.T) {
+	system, code, err := quantityIdentityPaths("Observation", "valueQuantity.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if system != "valueQuantity.system" || code != "valueQuantity.code" {
+		t.Fatalf("quantity paths = %q, %q", system, code)
+	}
+	if _, _, err := quantityIdentityPaths("Patient", "gender.value"); err == nil || !strings.Contains(err.Error(), "FHIR Quantity") {
+		t.Fatalf("non-Quantity path unexpectedly accepted: %v", err)
+	}
+}
+
 func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScopes(t *testing.T) {
 	document := authoringv2.Document{
 		Kind:             authoringv2.Kind,

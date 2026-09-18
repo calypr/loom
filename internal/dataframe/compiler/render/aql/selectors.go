@@ -6,12 +6,16 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (string, error) {
 	extract := expression.Extract
 	if extract == nil {
 		return "", fmt.Errorf("EXTRACT expression is missing payload")
+	}
+	if extract.UnitNormalization != nil {
+		return r.renderUnitNormalizedExtract(expression)
 	}
 	if extract.Prepared != nil {
 		value := ""
@@ -86,6 +90,83 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		return compileDirectExpr(source, extract.Selector.Steps), nil
 	}
 	return "FIRST(" + values + ")", nil
+}
+
+// renderUnitNormalizedExtract converts each contributing measurement before
+// the owning aggregate reduces it. The source system/code selectors are
+// matched exactly against compiler-pinned rule identities; display labels are
+// deliberately not part of this expression.
+func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.PhysicalExpression) (string, error) {
+	extract := expression.Extract
+	if extract == nil || extract.UnitNormalization == nil {
+		return "", fmt.Errorf("unit normalization requires an extract policy")
+	}
+	normalization := extract.UnitNormalization
+	if len(normalization.Rules) == 0 {
+		return "", fmt.Errorf("unit normalization requires pinned rules")
+	}
+	source, err := r.renderValue(extract.Source)
+	if err != nil {
+		return "", err
+	}
+	setSource := extract.Source.Variable != "" && r.setVariables[extract.Source.Variable] != ""
+	items := source
+	if !setSource {
+		items = "[" + source + "]"
+	}
+	ruleBindKey := r.newInternalBindKey("unit_rules")
+	r.bindVars[ruleBindKey] = unitRuleBindings(normalization.Rules)
+	item := r.newInternalVariable("unit_item")
+	itemSource := item + ".payload"
+	if !setSource {
+		itemSource = item
+	}
+	valueValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.OriginalValue, false, false)
+	if err != nil {
+		return "", fmt.Errorf("unit original value selector: %w", err)
+	}
+	systemValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.SourceSystem, false, true)
+	if err != nil {
+		return "", fmt.Errorf("unit system selector: %w", err)
+	}
+	codeValues, err := r.renderSelectorArrayFromSource(itemSource, normalization.SourceCode, false, true)
+	if err != nil {
+		return "", fmt.Errorf("unit code selector: %w", err)
+	}
+	value := r.newInternalVariable("unit_value")
+	rule := r.newInternalVariable("unit_rule")
+	lines := []string{
+		"(FOR " + item + " IN " + items,
+		"  FOR " + value + " IN FLATTEN(" + valueValues + ")",
+		"    FILTER " + value + " != null",
+		"  LET __loom_unit_system = FIRST(FLATTEN(" + systemValues + "))",
+		"  LET __loom_unit_code = FIRST(FLATTEN(" + codeValues + "))",
+		"  LET " + rule + " = FIRST(FOR __loom_unit_rule_candidate IN @" + ruleBindKey + " FILTER __loom_unit_rule_candidate.source_system == __loom_unit_system AND __loom_unit_rule_candidate.source_code == __loom_unit_code RETURN __loom_unit_rule_candidate)",
+		"    FILTER ASSERT(" + rule + " != null, \"UNIT_IDENTITY_UNKNOWN\")",
+		"    RETURN " + value + " * " + rule + ".scale + " + rule + ".offset",
+		")",
+	}
+	result := strings.Join(lines, "\n")
+	if expression.Cardinality != ir.PhysicalArrayCardinality {
+		return "FIRST(" + result + ")", nil
+	}
+	if extract.Distinct {
+		return "SORTED_UNIQUE(FLATTEN(" + result + "))", nil
+	}
+	return result, nil
+}
+
+func unitRuleBindings(rules []unit.UnitConversionRule) []map[string]any {
+	bindings := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		bindings = append(bindings, map[string]any{
+			"id": rule.ID, "version": rule.Version, "kind": string(rule.Kind),
+			"source_system": rule.Source.System, "source_code": rule.Source.Code,
+			"target_system": rule.Target.System, "target_code": rule.Target.Code,
+			"scale": rule.Scale, "offset": rule.Offset,
+		})
+	}
+	return bindings
 }
 
 func (r *physicalPlanRenderer) renderSelectorByMode(source string, selector spec.Selector, mode ir.PhysicalSelectorExecutionMode, demand ir.PhysicalSelectorValueDemand) (string, error) {

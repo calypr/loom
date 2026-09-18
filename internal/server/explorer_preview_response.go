@@ -63,7 +63,9 @@ func previewRouteError(err error) error {
 		case string(dataframeerrors.CodeRelationshipCardinalityViolation),
 			string(dataframeerrors.CodeTemporalAnchorInvalid),
 			string(dataframeerrors.CodeTemporalPrecisionUnsupported),
-			string(dataframeerrors.CodeTemporalTieAmbiguous):
+			string(dataframeerrors.CodeTemporalTieAmbiguous),
+			string(dataframeerrors.CodeUnitIdentityUnknown),
+			string(dataframeerrors.CodeUnitDimensionIncompatible):
 			return &explorer.AuthoringError{Status: http.StatusUnprocessableEntity, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeBackendUnavailable), string(dataframeerrors.CodeReceiptStoreUnavailable):
 			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
@@ -113,11 +115,19 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 		if label == "" {
 			label = column.PublicColumn
 		}
-		out = append(out, v2EmissionWire{
+		wire := v2EmissionWire{
 			Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType,
 			Filterable: column.Filterable, Chartable: column.Chartable,
 			AuthoredColumns: stringSlicePointer(column.AuthoredColumns),
-		})
+		}
+		if column.UnitNormalization != nil {
+			rules := make([]explorerv2api.UnitRuleReference, 0, len(column.UnitNormalization.Rules))
+			for _, rule := range column.UnitNormalization.Rules {
+				rules = append(rules, explorerv2api.UnitRuleReference{Id: rule.ID, Version: rule.Version})
+			}
+			wire.UnitNormalization = &explorerv2api.UnitNormalizationContract{Target: explorerv2api.UnitIdentity{System: column.UnitNormalization.Target.System, Code: column.UnitNormalization.Target.Code}, Rules: rules}
+		}
+		out = append(out, wire)
 	}
 	return out
 }

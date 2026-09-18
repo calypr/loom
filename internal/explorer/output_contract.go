@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -50,6 +51,7 @@ type PublicOutputColumn struct {
 	LossReasons           []string                        `json:"lossReasons,omitempty"`
 	Filterable            bool                            `json:"filterable"`
 	Chartable             bool                            `json:"chartable"`
+	UnitNormalization     *PublicUnitNormalization        `json:"unitNormalization,omitempty"`
 
 	// Compiler identities remain available to internal legacy tests only. They
 	// are deliberately absent from the V2 public contract.
@@ -58,6 +60,16 @@ type PublicOutputColumn struct {
 	CandidateID    string `json:"-"`
 	OccurrenceID   string `json:"-"`
 	ProjectionMode string `json:"-"`
+}
+
+type PublicUnitRuleIdentity struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+type PublicUnitNormalization struct {
+	Target unit.UnitIdentity        `json:"target"`
+	Rules  []PublicUnitRuleIdentity `json:"rules"`
 }
 
 // DecodePublicOutputContracts strictly decodes the current contract shape.
@@ -231,7 +243,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 			}
 		}
 		actual := c.Columns[i]
-		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable {
+		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable || !reflect.DeepEqual(actual.UnitNormalization, column.UnitNormalization) {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}

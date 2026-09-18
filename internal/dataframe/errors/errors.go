@@ -70,13 +70,15 @@ const (
 	CodeTemporalAnchorInvalid            ErrorCode = "TEMPORAL_ANCHOR_INVALID"
 	CodeTemporalPrecisionUnsupported     ErrorCode = "TEMPORAL_PRECISION_UNSUPPORTED"
 	CodeTemporalTieAmbiguous             ErrorCode = "TEMPORAL_TIE_AMBIGUOUS"
+	CodeUnitIdentityUnknown              ErrorCode = "UNIT_IDENTITY_UNKNOWN"
+	CodeUnitDimensionIncompatible        ErrorCode = "UNIT_DIMENSION_INCOMPATIBLE"
 )
 
 // IsFeatureResolutionCode identifies data-dependent feature policies that a
 // Builder user can resolve without an operator or a retry.
 func IsFeatureResolutionCode(code string) bool {
 	switch ErrorCode(code) {
-	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous:
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible:
 		return true
 	default:
 		return false
@@ -388,6 +390,10 @@ func defaultMessage(code ErrorCode) string {
 		return "a record date required by a date-aware feature is missing or is not a complete instant"
 	case CodeTemporalTieAmbiguous:
 		return "multiple values share the selected date; choose how equal dates should be resolved"
+	case CodeUnitIdentityUnknown:
+		return "a measurement has no approved source unit identity"
+	case CodeUnitDimensionIncompatible:
+		return "a measurement unit is dimensionally incompatible with the feature target"
 	default:
 		return "internal server error"
 	}

@@ -564,6 +564,12 @@ func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate == nil {
 		return ""
 	}
+	// Prepared child sets contain raw selector columns. Unit normalization
+	// needs the original value and its sibling system/code selectors for each
+	// contributing item, so it must stay at item grain until the reducer.
+	if aggregate.Value != nil && aggregate.Value.Extract != nil && aggregate.Value.Extract.UnitNormalization != nil {
+		return ""
+	}
 	if aggregate.Value != nil && aggregate.Value.Extract != nil && aggregate.Value.Extract.Prepared != nil {
 		return aggregate.Value.Extract.Prepared.SetVariable
 	}

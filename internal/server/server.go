@@ -83,6 +83,10 @@ func classifyDataframeQueryError(err error) error {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalPrecisionUnsupported, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalTieAmbiguous)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalTieAmbiguous, "")
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitIdentityUnknown)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitIdentityUnknown, "")
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitDimensionIncompatible)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitDimensionIncompatible, "")
 	case arangostore.IsQueryMemoryLimitExceeded(err):
 		return dataframeerrors.Wrap(
 			err,

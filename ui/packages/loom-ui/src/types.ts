@@ -159,6 +159,10 @@ const temporalReductionSchema = z.object({
   ({ lowerOffsetSeconds, upperOffsetSeconds }) => lowerOffsetSeconds <= upperOffsetSeconds,
   { message: 'lowerOffsetSeconds must not exceed upperOffsetSeconds' },
 );
+const unitNormalizationSchema = z.object({
+  policyId: opaqueIdSchema,
+  version: opaqueIdSchema,
+}).strict();
 const aggregateColumnSourceSchema = z.object({
   kind: z.literal('aggregate'),
   aggregate: z.discriminatedUnion('operation', [
@@ -176,11 +180,13 @@ const aggregateColumnSourceSchema = z.object({
       ]),
       path: opaqueIdSchema.optional(),
       requiredValues: z.array(z.string()).optional(),
+      unitNormalization: unitNormalizationSchema.optional(),
     }).strict(),
     z.object({
       operation: z.literal('FIRST_ORDERED'),
       path: opaqueIdSchema,
       temporal: temporalReductionSchema,
+      unitNormalization: unitNormalizationSchema.optional(),
     }).strict(),
   ]),
 }).strict();
@@ -626,6 +632,10 @@ export const explorerBuilderContractColumnSchema = z
     mlReady: z.boolean().optional(),
     structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
     lossReasons: z.array(z.string()).optional(),
+    unitNormalization: z.object({
+      target: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+      rules: z.array(z.object({ id: opaqueIdSchema, version: opaqueIdSchema }).strict()).min(1),
+    }).strict().optional(),
   })
   .strict();
 export type ExplorerBuilderContractColumn = z.infer<

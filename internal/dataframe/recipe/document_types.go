@@ -5,9 +5,11 @@ package recipe
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -397,15 +399,51 @@ type TemporalReduction struct {
 }
 
 type Aggregate struct {
-	Name           string             `json:"name"`
-	OutputName     string             `json:"outputName,omitempty"`
-	Operation      AggregateOperation `json:"operation"`
-	FieldRef       string             `json:"fieldRef,omitempty"`
-	Expr           *Expression        `json:"expr,omitempty"`
-	Where          *Filter            `json:"where,omitempty"`
-	ValueMode      ValueMode          `json:"valueMode,omitempty"`
-	RequiredValues []string           `json:"requiredValues,omitempty"`
-	Temporal       *TemporalReduction `json:"temporal,omitempty"`
+	Name              string                   `json:"name"`
+	OutputName        string                   `json:"outputName,omitempty"`
+	Operation         AggregateOperation       `json:"operation"`
+	FieldRef          string                   `json:"fieldRef,omitempty"`
+	Expr              *Expression              `json:"expr,omitempty"`
+	Where             *Filter                  `json:"where,omitempty"`
+	ValueMode         ValueMode                `json:"valueMode,omitempty"`
+	RequiredValues    []string                 `json:"requiredValues,omitempty"`
+	Temporal          *TemporalReduction       `json:"temporal,omitempty"`
+	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+}
+
+// UnitNormalizationPolicy binds exact source unit selectors to an approved,
+// versioned conversion set. It belongs to the recipe because selectors are
+// recipe semantics; the conversion coefficients remain in the compiler-owned
+// backend-neutral unit domain.
+type UnitNormalizationPolicy struct {
+	SystemPath string                   `json:"systemPath"`
+	CodePath   string                   `json:"codePath"`
+	Target     unit.UnitIdentity        `json:"target"`
+	Rules      []unit.UnitRuleReference `json:"rules"`
+}
+
+func (p UnitNormalizationPolicy) Validate() error {
+	if !p.Target.Valid() {
+		return fmt.Errorf("unit normalization target requires system and code")
+	}
+	if strings.TrimSpace(p.SystemPath) == "" || strings.TrimSpace(p.CodePath) == "" {
+		return fmt.Errorf("unit normalization requires systemPath and codePath")
+	}
+	if len(p.Rules) == 0 {
+		return fmt.Errorf("unit normalization requires at least one approved conversion rule")
+	}
+	seen := make(map[string]struct{}, len(p.Rules))
+	for index, rule := range p.Rules {
+		if err := unit.ValidateUnitRuleReference(rule); err != nil {
+			return fmt.Errorf("rules[%d]: %w", index, err)
+		}
+		key := strings.TrimSpace(rule.ID) + "\x00" + strings.TrimSpace(rule.Version)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("rules[%d] duplicates source unit identity", index)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 type RepresentativeSlice struct {

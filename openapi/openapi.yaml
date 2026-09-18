@@ -1176,7 +1176,39 @@ components:
         requiredValues:
           type: array
           items: {type: string}
+        unitNormalization: {$ref: '#/components/schemas/UnitNormalizationPolicy'}
         temporal: {$ref: '#/components/schemas/TemporalReductionSource'}
+    UnitIdentity:
+      type: object
+      additionalProperties: false
+      required: [system, code]
+      properties:
+        system: {type: string, minLength: 1}
+        code: {type: string, minLength: 1}
+    UnitRuleReference:
+      type: object
+      additionalProperties: false
+      required: [id, version]
+      properties:
+        id: {type: string, minLength: 1}
+        version: {type: string, minLength: 1}
+    UnitNormalizationPolicy:
+      type: object
+      additionalProperties: false
+      required: [policyId, version]
+      properties:
+        policyId: {type: string, minLength: 1}
+        version: {type: string, minLength: 1}
+    UnitNormalizationContract:
+      type: object
+      additionalProperties: false
+      required: [target, rules]
+      properties:
+        target: {$ref: '#/components/schemas/UnitIdentity'}
+        rules:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/UnitRuleReference'}
     TemporalReductionSource:
       type: object
       additionalProperties: false
@@ -1702,6 +1734,7 @@ components:
         lossReasons:
           type: array
           items: {type: string}
+        unitNormalization: {$ref: '#/components/schemas/UnitNormalizationContract'}
     ReceiptOutput:
       type: object
       additionalProperties: false

@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func scalarLiteral(key string) ir.PhysicalExpression {
@@ -83,6 +84,54 @@ func TestRenderSetSelectorUsesCollectionVariable(t *testing.T) {
 	}
 	if strings.Contains(got, "IN child_set_1.payload") || !strings.Contains(got, "IN child_set_1") {
 		t.Fatalf("set selector iterated the collection payload instead of each item: %q", got)
+	}
+}
+
+func TestRenderUnitNormalizationConvertsPerMeasurementAndSkipsNullBeforeIdentityAssert(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{},
+		collectionKeys: map[string]struct{}{},
+		setVariables:   map[string]string{},
+		reservedVars:   map[string]struct{}{},
+	}
+	expression := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality,
+		Extract: &ir.PhysicalExtract{
+			Source:        ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
+			Selector:      spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "value"}}},
+			ExecutionMode: ir.PhysicalSelectorGeneric,
+			UnitNormalization: &ir.PhysicalUnitNormalization{
+				OriginalValue: spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "value"}}},
+				SourceSystem:  spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "system"}}},
+				SourceCode:    spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "code"}}},
+				Target:        unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"},
+				Dimension:     unit.UnitDimension{Length: 1},
+				Rules: []unit.UnitConversionRule{
+					{ID: "identity-v1", Version: "1", Kind: unit.UnitConversionIdentity, Source: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Dimension: unit.UnitDimension{Length: 1}, Scale: 1},
+					{ID: "ucum:m-to-cm", Version: "1", Kind: unit.UnitConversionLinear, Source: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "m"}, Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Dimension: unit.UnitDimension{Length: 1}, Scale: 100},
+				},
+			},
+		},
+	}
+	query, err := renderer.renderExpression(expression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valueIndex, assertIndex := strings.Index(query, "FILTER __loom_physical_unit_value"), strings.Index(query, "UNIT_IDENTITY_UNKNOWN")
+	if valueIndex < 0 || assertIndex < 0 || valueIndex > assertIndex {
+		t.Fatalf("null filtering must precede identity assertion: %s", query)
+	}
+	if !strings.Contains(query, "source_system") || !strings.Contains(query, ".scale +") {
+		t.Fatalf("unit rule identity and arithmetic missing: %s", query)
+	}
+	if len(renderer.bindVars) != 1 {
+		t.Fatalf("expected one pinned rules bind, got %#v", renderer.bindVars)
+	}
+	for _, bound := range renderer.bindVars {
+		rules, ok := bound.([]map[string]any)
+		if !ok || len(rules) != 2 || rules[0]["scale"] != float64(1) || rules[1]["scale"] != float64(100) || rules[1]["offset"] != float64(0) {
+			t.Fatalf("pinned identity/linear coefficients = %#v", bound)
+		}
 	}
 }
 

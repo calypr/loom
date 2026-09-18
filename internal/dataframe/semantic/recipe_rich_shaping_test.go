@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
@@ -147,6 +148,59 @@ func TestLowerRecipeAggregatesChecksOrderedTemporalSelectors(t *testing.T) {
 	}
 	if len(aggregates) != 1 || aggregates[0].Temporal == nil || aggregates[0].Temporal.Timestamp.CanonicalPath() != "effectiveDateTime" || aggregates[0].Temporal.Anchor.CanonicalPath() != "meta.lastUpdated" || aggregates[0].Temporal.AnchorResource != "Patient" {
 		t.Fatalf("ordered temporal aggregate = %#v", aggregates)
+	}
+}
+
+func TestLowerRecipeAggregatesResolvesQuantityNormalizationBeforeReduction(t *testing.T) {
+	scope, err := newRootScope("Patient").child("observation", scopeBinding{ResourceType: "Observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregates, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+		Name: "height_cm", Operation: recipe.AggregateMax, Expr: recipeExpr("observation.valueQuantity.value"),
+		UnitNormalization: &recipe.UnitNormalizationPolicy{
+			SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code",
+			Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"},
+			Rules:  []unit.UnitRuleReference{{ID: "ucum:m-to-cm", Version: "1"}, {ID: "identity-v1", Version: "1"}},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].UnitNormalization == nil || aggregates[0].UnitNormalization.Dimension != (unit.UnitDimension{Length: 1}) || len(aggregates[0].UnitNormalization.Rules) != 2 {
+		t.Fatalf("resolved normalization = %#v", aggregates)
+	}
+	if aggregates[0].UnitSystemSelector == nil || aggregates[0].UnitCodeSelector == nil {
+		t.Fatalf("unit identity selectors missing: %#v", aggregates[0])
+	}
+	_, err = lowerRecipeAggregates("Patient", "root", newRootScope("Patient"), []recipe.Aggregate{{
+		Name: "bad", Operation: recipe.AggregateMax, Expr: recipeExpr("gender"),
+		UnitNormalization: &recipe.UnitNormalizationPolicy{
+			SystemPath: "gender", CodePath: "gender", Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: []unit.UnitRuleReference{{ID: "identity-v1", Version: "1"}},
+		},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "integer or decimal") {
+		t.Fatalf("non-numeric normalization error = %v", err)
+	}
+	for _, tc := range []struct {
+		name, valuePath, systemPath, codePath, want string
+	}{
+		{name: "unpaired siblings", valuePath: "observation.valueQuantity.value", systemPath: "status", codePath: "valueQuantity.code", want: "must be siblings"},
+		{name: "repeated quantity", valuePath: "observation.component[].valueQuantity.value", systemPath: "component[].valueQuantity.system", codePath: "component[].valueQuantity.code", want: "does not support repeated Quantity paths"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := lowerRecipeAggregates("Observation", "observation", scope, []recipe.Aggregate{{
+				Name: "bad", Operation: recipe.AggregateMax, Expr: recipeExpr(tc.valuePath),
+				UnitNormalization: &recipe.UnitNormalizationPolicy{
+					SystemPath: tc.systemPath, CodePath: tc.codePath,
+					Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"},
+					Rules:  []unit.UnitRuleReference{{ID: "identity-v1", Version: "1"}},
+				},
+			}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("normalization error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

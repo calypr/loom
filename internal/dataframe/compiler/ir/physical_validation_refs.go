@@ -50,7 +50,51 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 			return fmt.Errorf("prepared extract cannot use fallback selectors")
 		}
 	}
+	if extract.UnitNormalization != nil {
+		normalization := extract.UnitNormalization
+		if !normalization.Target.Valid() || len(normalization.Rules) == 0 {
+			return fmt.Errorf("unit normalization target and approved rules are required")
+		}
+		if normalization.OriginalValue.CanonicalPath() != extract.Selector.CanonicalPath() {
+			return fmt.Errorf("unit normalization original value must match extract selector")
+		}
+		valuePath := normalization.OriginalValue.CanonicalPath()
+		if !strings.HasSuffix(valuePath, ".value") {
+			return fmt.Errorf("unit normalization original value must select a FHIR Quantity value")
+		}
+		quantityPath := strings.TrimSuffix(valuePath, ".value")
+		if physicalSelectorIterates(normalization.OriginalValue) || physicalSelectorIterates(normalization.SourceSystem) || physicalSelectorIterates(normalization.SourceCode) {
+			return fmt.Errorf("unit normalization requires one scalar or indexed Quantity")
+		}
+		if normalization.SourceSystem.CanonicalPath() != quantityPath+".system" || normalization.SourceCode.CanonicalPath() != quantityPath+".code" {
+			return fmt.Errorf("unit normalization system and code selectors must be siblings of the original Quantity value")
+		}
+		quantity, ok := fhirschema.ResolveFieldSemantics(extract.ResourceType, quantityPath)
+		if !ok || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
+			return fmt.Errorf("unit normalization original value must be owned by a FHIR Quantity")
+		}
+		if err := validatePhysicalSelector(extract.ResourceType, normalization.SourceSystem); err != nil {
+			return fmt.Errorf("unit normalization system selector: %w", err)
+		}
+		if err := validatePhysicalSelector(extract.ResourceType, normalization.SourceCode); err != nil {
+			return fmt.Errorf("unit normalization code selector: %w", err)
+		}
+		for index, rule := range normalization.Rules {
+			if err := rule.Validate(normalization.Target, normalization.Dimension); err != nil {
+				return fmt.Errorf("unit normalization rule %d: %w", index, err)
+			}
+		}
+	}
 	return nil
+}
+
+func physicalSelectorIterates(selector spec.Selector) bool {
+	for _, step := range selector.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePhysicalPreparedReference(reference PhysicalPreparedReference, defined map[string]bool) error {

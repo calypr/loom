@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -397,6 +398,61 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		} else if requiresSelector {
 			return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
 		}
+		if input.UnitNormalization != nil {
+			if input.Expr == nil || semanticAggregate.Selector == nil {
+				return nil, fmt.Errorf("%s.unitNormalization requires a selector expression", path)
+			}
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, semanticAggregate.Selector.CanonicalPath())
+			if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+				return nil, fmt.Errorf("%s.unitNormalization requires an integer or decimal measurement selector", path)
+			}
+			switch strings.ToUpper(operation) {
+			case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues), string(recipe.AggregateFirstOrdered):
+			default:
+				return nil, fmt.Errorf("%s.unitNormalization is not supported for aggregate operation %s", path, operation)
+			}
+			if err := input.UnitNormalization.Validate(); err != nil {
+				return nil, fmt.Errorf("%s.unitNormalization: %w", path, err)
+			}
+			system, err := recipeNodeSelector(resourceType, alias, scope, recipe.Expression{Select: alias + "." + strings.TrimPrefix(input.UnitNormalization.SystemPath, ".")}, path+".unitNormalization.systemPath")
+			if err != nil {
+				return nil, err
+			}
+			code, err := recipeNodeSelector(resourceType, alias, scope, recipe.Expression{Select: alias + "." + strings.TrimPrefix(input.UnitNormalization.CodePath, ".")}, path+".unitNormalization.codePath")
+			if err != nil {
+				return nil, err
+			}
+			valuePath := semanticAggregate.Selector.CanonicalPath()
+			if !strings.HasSuffix(valuePath, ".value") {
+				return nil, fmt.Errorf("%s.unitNormalization requires a FHIR Quantity value selector", path)
+			}
+			quantityPath := strings.TrimSuffix(valuePath, ".value")
+			quantity, quantityOK := fhirschema.ResolveFieldSemantics(resourceType, quantityPath)
+			if !quantityOK || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
+				return nil, fmt.Errorf("%s.unitNormalization selector must be owned by a FHIR Quantity", path)
+			}
+			if selectorIterates(*semanticAggregate.Selector) || selectorIterates(system) || selectorIterates(code) {
+				return nil, fmt.Errorf("%s.unitNormalization does not support repeated Quantity paths; select one indexed Quantity first", path)
+			}
+			if system.CanonicalPath() != quantityPath+".system" || code.CanonicalPath() != quantityPath+".code" {
+				return nil, fmt.Errorf("%s.unitNormalization systemPath and codePath must be siblings of the selected Quantity value", path)
+			}
+			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, system.CanonicalPath()); !ok || metadata.Primitive != fhirschema.PrimitiveString {
+				return nil, fmt.Errorf("%s.unitNormalization.systemPath must resolve to a string", path)
+			}
+			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, code.CanonicalPath()); !ok || metadata.Primitive != fhirschema.PrimitiveString {
+				return nil, fmt.Errorf("%s.unitNormalization.codePath must resolve to a string", path)
+			}
+			resolvedDimension, resolvedRules, resolveErr := unit.ResolveApprovedUnitRules(input.UnitNormalization.Rules, input.UnitNormalization.Target)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("%s.unitNormalization: %w", path, resolveErr)
+			}
+			semanticAggregate.UnitNormalization = &unit.UnitNormalization{
+				Target: input.UnitNormalization.Target, Dimension: resolvedDimension, Rules: resolvedRules,
+			}
+			semanticAggregate.UnitSystemSelector = &system
+			semanticAggregate.UnitCodeSelector = &code
+		}
 		switch operation {
 		case string(recipe.AggregateCount), string(recipe.AggregateCountDistinct):
 			semanticAggregate.ValueKind = expression.KindInteger
@@ -451,6 +507,15 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		out = append(out, semanticAggregate)
 	}
 	return out, nil
+}
+
+func selectorIterates(selector spec.Selector) bool {
+	for _, step := range selector.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
 }
 
 // lowerRecipeSlices converts representative slices into canonical bounded

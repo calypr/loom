@@ -7,6 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 // physicalSemanticBinding records the physical value and schema resource
@@ -221,8 +222,21 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		if !sourceIsSet && source.Variable != "" && len(source.Path) == 0 {
 			valueSource = ir.PhysicalValue{Variable: source.Variable, Path: []string{"payload"}}
 		}
-		value := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
-			Extract: &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Selector)}}
+		extract := &ir.PhysicalExtract{Source: valueSource, ResourceType: resourceType, Selector: *aggregate.Selector, ExecutionMode: selectorExecutionMode(resourceType, *aggregate.Selector)}
+		if aggregate.UnitNormalization != nil {
+			if aggregate.UnitSystemSelector == nil || aggregate.UnitCodeSelector == nil {
+				return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q unit normalization is missing source identity selectors", aggregate.Name)
+			}
+			extract.UnitNormalization = &ir.PhysicalUnitNormalization{
+				OriginalValue: *aggregate.Selector,
+				SourceSystem:  *aggregate.UnitSystemSelector,
+				SourceCode:    *aggregate.UnitCodeSelector,
+				Target:        aggregate.UnitNormalization.Target,
+				Dimension:     aggregate.UnitNormalization.Dimension,
+				Rules:         append([]unit.UnitConversionRule(nil), aggregate.UnitNormalization.Rules...),
+			}
+		}
+		value := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: extract}
 		aggregatePhysical.Value = &value
 	}
 	if aggregate.Predicate != nil {

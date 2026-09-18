@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +16,114 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
+
+func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	valueSelector, err := spec.ParseSelector("valueQuantity.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemSelector, err := spec.ParseSelector("valueQuantity.system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codeSelector, err := spec.ParseSelector("valueQuantity.code")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name, policy, system, code string
+		value, want                float64
+		wantUnknown                bool
+	}{
+		{name: "identity centimeters", policy: "to-centimeters", system: "http://unitsofmeasure.org", code: "cm", value: 180, want: 180},
+		{name: "linear meters to centimeters", policy: "to-centimeters", system: "http://unitsofmeasure.org", code: "m", value: 1.8, want: 180},
+		{name: "affine Celsius to Fahrenheit", policy: "to-fahrenheit", system: "http://unitsofmeasure.org", code: "Cel", value: 0, want: 32},
+		{name: "affine Fahrenheit to Celsius", policy: "to-celsius", system: "http://unitsofmeasure.org", code: "[degF]", value: 32, want: 0},
+		{name: "display label is not an identity", policy: "to-centimeters", code: "cm", value: 180, wantUnknown: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			project := "loom_unit_" + uuid.NewString()
+			payload := map[string]any{
+				"id": project, "resourceType": "Observation",
+				"valueQuantity": map[string]any{"value": tc.value, "system": tc.system, "code": tc.code, "unit": tc.code},
+			}
+			raw, marshalErr := json.Marshal(map[string]any{
+				"_key": project, "id": project, "project": project, "project_id": project,
+				"resourceType": "Observation", "payload": payload,
+			})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
+				t.Fatal(err)
+			}
+
+			policy, policyErr := unit.ResolveApprovedUnitPolicy(tc.policy, "1")
+			if policyErr != nil {
+				t.Fatal(policyErr)
+			}
+			dimension, rules, resolveErr := unit.ResolveApprovedUnitRules(policy.Rules, policy.Target)
+			if resolveErr != nil {
+				t.Fatal(resolveErr)
+			}
+			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []semantic.SemanticAggregate{{
+				Name: "normalized", OutputName: "normalized", Operation: "REQUIRE_ONE", Selector: &valueSelector,
+				UnitSystemSelector: &systemSelector, UnitCodeSelector: &codeSelector,
+				UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
+			}}}
+			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			rendered, renderErr := aql.RenderPhysicalPlan(physical)
+			if renderErr != nil {
+				t.Fatal(renderErr)
+			}
+			rows := []map[string]any{}
+			queryErr := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error {
+				rows = append(rows, row)
+				return nil
+			})
+			if tc.wantUnknown {
+				if queryErr == nil || !strings.Contains(queryErr.Error(), "UNIT_IDENTITY_UNKNOWN") {
+					t.Fatalf("query error = %v, want UNIT_IDENTITY_UNKNOWN\n%s", queryErr, rendered.Query)
+				}
+				return
+			}
+			if queryErr != nil {
+				t.Fatalf("execute unit normalization query: %v\n%s", queryErr, rendered.Query)
+			}
+			if len(rows) != 1 {
+				t.Fatalf("rows=%#v, want one normalized row", rows)
+			}
+			got, ok := rows[0]["normalized"].(float64)
+			if !ok || math.Abs(got-tc.want) > 1e-9 {
+				t.Fatalf("normalized=%#v, want %v", rows[0]["normalized"], tc.want)
+			}
+		})
+	}
+}
 
 func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")

@@ -3,6 +3,7 @@ package semantic
 import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -76,7 +77,12 @@ type SemanticAggregate struct {
 	ValueMode      string
 	RequiredValues []string
 	ValueKind      expression.ValueKind
-	Temporal       *SemanticTemporalReduction
+	// UnitNormalization is compiler-resolved and contains the pinned registry
+	// rules. Authoring/recipe references do not cross this boundary.
+	UnitNormalization  *unit.UnitNormalization
+	UnitSystemSelector *spec.Selector
+	UnitCodeSelector   *spec.Selector
+	Temporal           *SemanticTemporalReduction
 }
 
 type SemanticTemporalReduction struct {

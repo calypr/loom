@@ -26,4 +26,5 @@ type EmittedColumn struct {
 	LossReasons           []string                        `json:"lossReasons,omitempty"`
 	Filterable            bool                            `json:"filterable"`
 	Chartable             bool                            `json:"chartable"`
+	UnitNormalization     *PublicUnitNormalization        `json:"unitNormalization,omitempty"`
 }

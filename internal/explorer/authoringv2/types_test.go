@@ -20,6 +20,29 @@ func TestAggregateSourceAcceptsClosedOrderedTemporalReduction(t *testing.T) {
 	}
 }
 
+func TestAggregateUnitNormalizationAcceptsPresetAndRejectsTechnicalFields(t *testing.T) {
+	var source ColumnSource
+	if err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"MIN","path":"valueQuantity.value","unitNormalization":{"policyId":"to-centimeters","version":"1"}}}`), &source); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.validate("source"); err != nil {
+		t.Fatalf("preset normalization rejected: %v", err)
+	}
+	if source.Aggregate == nil || source.Aggregate.UnitNormalization == nil || source.Aggregate.UnitNormalization.PolicyID != "to-centimeters" {
+		t.Fatalf("normalized source = %#v", source)
+	}
+	var countSource ColumnSource
+	if err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"COUNT","path":"valueQuantity.value","unitNormalization":{"policyId":"to-centimeters","version":"1"}}}`), &countSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := countSource.validate("source"); err == nil || !strings.Contains(err.Error(), "not supported for COUNT") {
+		t.Fatalf("count normalization error = %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"MIN","path":"valueQuantity.value","unitNormalization":{"systemPath":"valueQuantity.system","codePath":"valueQuantity.code","target":{"system":"http://unitsofmeasure.org","code":"cm"},"rules":[]}}}`), &ColumnSource{}); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("technical unit fields were accepted: %v", err)
+	}
+}
+
 func testCatalog() CatalogSnapshot {
 	nodes := []CatalogNode{
 		{ID: "patient", ResourceType: "Patient", RowRootEligible: true},

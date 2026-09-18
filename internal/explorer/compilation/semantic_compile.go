@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -322,7 +323,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			lossReasons = append(lossReasons, "RELATED_LOOKUP_REDUCTION")
 			structuralSuitability = "requires-review"
 		}
-		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: sourcePath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, StructuralSuitability: structuralSuitability, LossReasons: append([]string(nil), lossReasons...), Filterable: filterable, Chartable: chartable}
+		var unitNormalization *explorer.PublicUnitNormalization
+		if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil {
+			unitNormalization = publicUnitNormalization(column.Source.Aggregate.UnitNormalization)
+		}
+		emission := explorer.EmittedColumn{EmissionID: emissionID, OutputID: document.Output.ID, NodeID: occurrence.graph.ID, SelectionID: candidateID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, PublicColumn: column.Column, Label: column.Label, LogicalType: logicalType, Nullable: true, Shape: shape, SourceResourceType: occurrence.graph.ResourceType, SourcePath: sourcePath, ChoiceArm: choiceArm, Lossless: lossless, MLReady: mlReady, StructuralSuitability: structuralSuitability, LossReasons: append([]string(nil), lossReasons...), Filterable: filterable, Chartable: chartable, UnitNormalization: unitNormalization}
 		emitted = append(emitted, emission)
 		mergeContractQuality(&contract, emission)
 		mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
@@ -411,9 +416,33 @@ func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputCo
 	return explorer.PublicOutputColumn{
 		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
-		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...),
+		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...), UnitNormalization: clonePublicUnitNormalization(column.UnitNormalization),
 		Lossless: column.Lossless, MLReady: column.MLReady, StructuralSuitability: column.StructuralSuitability, LossReasons: append([]string(nil), column.LossReasons...), Filterable: column.Filterable, Chartable: column.Chartable,
 	}
+}
+
+func publicUnitNormalization(policy *authoringv2.UnitNormalizationPolicy) *explorer.PublicUnitNormalization {
+	if policy == nil {
+		return nil
+	}
+	approved, err := unit.ResolveApprovedUnitPolicy(policy.PolicyID, policy.Version)
+	if err != nil {
+		return nil
+	}
+	rules := make([]explorer.PublicUnitRuleIdentity, 0, len(approved.Rules))
+	for _, rule := range approved.Rules {
+		rules = append(rules, explorer.PublicUnitRuleIdentity{ID: rule.ID, Version: rule.Version})
+	}
+	return &explorer.PublicUnitNormalization{Target: approved.Target, Rules: rules}
+}
+
+func clonePublicUnitNormalization(input *explorer.PublicUnitNormalization) *explorer.PublicUnitNormalization {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.Rules = append([]explorer.PublicUnitRuleIdentity(nil), input.Rules...)
+	return &copy
 }
 
 func presentationColumn(source authoringv2.Column, sourceOrder, order int, emission explorer.EmittedColumn) PresentationColumn {
@@ -624,6 +653,24 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		path := strings.Trim(strings.TrimSpace(source.Path), ".")
 		aggregate.Expr = &recipe.Expression{Select: alias + "." + path}
 	}
+	if source.UnitNormalization != nil {
+		if strings.TrimSpace(source.Path) == "" {
+			return recipe.Aggregate{}, "", fmt.Errorf("unit normalization requires a Quantity value path")
+		}
+		valuePath := strings.Trim(strings.TrimSpace(source.Path), ".")
+		systemPath, codePath, pathErr := quantityIdentityPaths(resourceType, valuePath)
+		if pathErr != nil {
+			return recipe.Aggregate{}, "", pathErr
+		}
+		approved, policyErr := unit.ResolveApprovedUnitPolicy(source.UnitNormalization.PolicyID, source.UnitNormalization.Version)
+		if policyErr != nil {
+			return recipe.Aggregate{}, "", policyErr
+		}
+		aggregate.UnitNormalization = &recipe.UnitNormalizationPolicy{
+			SystemPath: systemPath, CodePath: codePath, Target: approved.Target,
+			Rules: append([]unit.UnitRuleReference(nil), approved.Rules...),
+		}
+	}
 	if contributorWhere != nil {
 		aggregate.Where = contributorWhere
 	} else if source.Where != nil && strings.TrimSpace(source.Where.Path) != "" {
@@ -679,6 +726,31 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		return recipe.Aggregate{}, "", fmt.Errorf("unsupported aggregate operation %q", source.Operation)
 	}
 	return aggregate, logicalType, nil
+}
+
+func quantityIdentityPaths(resourceType, valuePath string) (string, string, error) {
+	if !strings.HasSuffix(valuePath, ".value") {
+		return "", "", fmt.Errorf("unit normalization path %q must select a FHIR Quantity value", valuePath)
+	}
+	if strings.Contains(valuePath, "[]") {
+		return "", "", fmt.Errorf("unit normalization path %q is repeated; select one indexed Quantity first", valuePath)
+	}
+	base := strings.TrimSuffix(valuePath, ".value")
+	systemPath, codePath := base+".system", base+".code"
+	quantity, quantityOK := fhirschema.ResolveFieldSemantics(resourceType, base)
+	if !quantityOK || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
+		return "", "", fmt.Errorf("unit normalization path %q must be owned by a FHIR Quantity", valuePath)
+	}
+	valueMetadata, valueOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, valuePath)
+	systemMetadata, systemOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, systemPath)
+	codeMetadata, codeOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, codePath)
+	if !valueOK || (valueMetadata.Primitive != fhirschema.PrimitiveInteger && valueMetadata.Primitive != fhirschema.PrimitiveDecimal) {
+		return "", "", fmt.Errorf("unit normalization path %q must resolve to an integer or decimal Quantity value", valuePath)
+	}
+	if !systemOK || systemMetadata.Primitive != fhirschema.PrimitiveString || !codeOK || codeMetadata.Primitive != fhirschema.PrimitiveString {
+		return "", "", fmt.Errorf("unit normalization Quantity path %q must expose string system and code siblings", base)
+	}
+	return systemPath, codePath, nil
 }
 
 func capabilityCandidate(snapshot capability.Snapshot, nodeID, candidateID string) (capability.Candidate, bool) {

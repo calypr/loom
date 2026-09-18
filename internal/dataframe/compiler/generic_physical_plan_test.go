@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
@@ -268,12 +269,30 @@ func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	system, err := spec.ParseSelector("valueQuantity.system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := spec.ParseSelector("valueQuantity.code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := unit.ResolveApprovedUnitPolicy("to-centimeters", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dimension, rules, err := unit.ResolveApprovedUnitRules(policy.Rules, policy.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
 		Children: []semantic.SemanticNode{{
 			Alias: "observation", ResourceType: "Observation", EdgeLabel: "subject_Patient",
 			Aggregates: []semantic.SemanticAggregate{{
 				Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
+				UnitSystemSelector: &system, UnitCodeSelector: &code,
+				UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
 				Temporal: &semantic.SemanticTemporalReduction{
 					Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
 					LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
@@ -289,7 +308,7 @@ func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "temporal_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_temporal_anchor"} {
+	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "temporal_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_temporal_anchor", "UNIT_IDENTITY_UNKNOWN", ".scale +"} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("ordered temporal query missing %q:\n%s", want, rendered.Query)
 		}

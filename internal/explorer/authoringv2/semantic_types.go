@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -56,6 +57,18 @@ type ColumnSource struct {
 	Lookup    *LookupSource    `json:"lookup,omitempty"`
 }
 
+// UnitNormalizationPolicy is intentionally a nontechnical preset reference.
+// The compiler owns target identity, dimensions, conversion rules, and FHIR
+// Quantity sibling selectors.
+type UnitNormalizationPolicy struct {
+	PolicyID string `json:"policyId"`
+	Version  string `json:"version"`
+}
+
+func (p UnitNormalizationPolicy) Validate() error {
+	return unit.ValidateUnitPolicyReference(p.PolicyID, p.Version)
+}
+
 // FieldSource is the closed payload for a direct field projection. The
 // related-selection annotation is intentionally nested in the field variant.
 // It cannot accidentally be attached to a project, lookup, or aggregate.
@@ -66,8 +79,9 @@ type FieldSource struct {
 }
 
 type AggregateSource struct {
-	Operation string `json:"operation"`
-	Path      string `json:"path,omitempty"`
+	Operation         string                   `json:"operation"`
+	Path              string                   `json:"path,omitempty"`
+	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
 	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
 	// It is deliberately omitted from the current authoring JSON contract;
 	// writable contributor intent lives on Column.Contributor instead.
@@ -99,16 +113,17 @@ type SourceWhere struct {
 // nested where object.
 func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 	type wire struct {
-		Operation      string                   `json:"operation"`
-		Path           string                   `json:"path,omitempty"`
-		RequiredValues []string                 `json:"requiredValues,omitempty"`
-		Temporal       *TemporalReductionSource `json:"temporal,omitempty"`
+		Operation         string                   `json:"operation"`
+		Path              string                   `json:"path,omitempty"`
+		UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+		RequiredValues    []string                 `json:"requiredValues,omitempty"`
+		Temporal          *TemporalReductionSource `json:"temporal,omitempty"`
 	}
 	var decoded wire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
-	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, RequiredValues: append([]string(nil), decoded.RequiredValues...), Temporal: decoded.Temporal}
+	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, UnitNormalization: cloneUnitNormalization(decoded.UnitNormalization), RequiredValues: append([]string(nil), decoded.RequiredValues...), Temporal: decoded.Temporal}
 	return nil
 }
 
@@ -245,6 +260,7 @@ func (s ColumnSource) Normalized() ColumnSource {
 	}
 	if n.Aggregate != nil {
 		aggregate := *n.Aggregate
+		aggregate.UnitNormalization = cloneUnitNormalization(n.Aggregate.UnitNormalization)
 		aggregate.RequiredValues = append([]string(nil), n.Aggregate.RequiredValues...)
 		if n.Aggregate.Where != nil {
 			where := *n.Aggregate.Where
@@ -257,6 +273,14 @@ func (s ColumnSource) Normalized() ColumnSource {
 		n.Aggregate = &aggregate
 	}
 	return n
+}
+
+func cloneUnitNormalization(input *UnitNormalizationPolicy) *UnitNormalizationPolicy {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
 }
 
 const (
@@ -537,6 +561,19 @@ func (s ColumnSource) validate(path string) error {
 	case SourceAggregate:
 		if s.Aggregate == nil {
 			return fmt.Errorf("%s aggregate source requires aggregate payload", path)
+		}
+		if s.Aggregate.UnitNormalization != nil {
+			if err := s.Aggregate.UnitNormalization.Validate(); err != nil {
+				return fmt.Errorf("%s.aggregate.unitNormalization: %w", path, err)
+			}
+			if strings.TrimSpace(s.Aggregate.Path) == "" {
+				return fmt.Errorf("%s.aggregate.unitNormalization requires aggregate.path", path)
+			}
+			switch strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation)) {
+			case "MIN", "MAX", "REQUIRE_ONE", "COLLECT", "DISTINCT_VALUES", "FIRST_ORDERED":
+			default:
+				return fmt.Errorf("%s.aggregate.unitNormalization is not supported for %s", path, s.Aggregate.Operation)
+			}
 		}
 		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {

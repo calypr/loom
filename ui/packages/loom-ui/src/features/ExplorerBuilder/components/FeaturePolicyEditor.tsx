@@ -88,6 +88,44 @@ type TemporalAggregateSource = Extract<
   ExplorerColumnSource,
   { kind: 'aggregate' }
 >['aggregate'] & { operation: 'FIRST_ORDERED' };
+type AggregateSource = Extract<ExplorerColumnSource, { kind: 'aggregate' }>;
+type UnitNormalizationDraft = NonNullable<AggregateSource['aggregate']['unitNormalization']>;
+
+const approvedUnitPolicyOptions = [
+  ['to-centimeters', 'Convert measurements to centimeters'],
+  ['to-kilograms', 'Convert measurements to kilograms'],
+  ['to-celsius', 'Convert measurements to Celsius'],
+  ['to-fahrenheit', 'Convert measurements to Fahrenheit'],
+] as const;
+
+const UnitNormalizationEditor = ({
+  current,
+  disabled,
+  onApply,
+}: {
+  readonly current?: UnitNormalizationDraft;
+  readonly disabled: boolean;
+  readonly onApply: (value: UnitNormalizationDraft | undefined) => void;
+}) => {
+  const [policyID, setPolicyID] = useState(current?.policyId ?? approvedUnitPolicyOptions[0][0]);
+
+  return (
+    <fieldset className="mt-1 grid w-full gap-2 rounded border border-violet-200 bg-violet-50/60 p-2 text-[11px] text-slate-700">
+      <legend className="px-1 font-semibold text-violet-900">Normalize measurement units</legend>
+      <label className="flex min-w-0 flex-col gap-0.5 font-medium">
+        <span>Conversion</span>
+        <select aria-label="Unit conversion preset" className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal" value={policyID} disabled={disabled} onChange={(event) => setPolicyID(event.currentTarget.value)}>
+          {approvedUnitPolicyOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <p className="text-slate-600">Loom identifies the Quantity unit fields and applies the approved conversion for each measurement.</p>
+      <div className="flex gap-2">
+        <button type="button" className="rounded bg-violet-700 px-2.5 py-1 font-semibold text-white hover:bg-violet-800 disabled:opacity-40" disabled={disabled} onClick={() => onApply({ policyId: policyID, version: '1' })}>Apply normalization</button>
+        {current ? <button type="button" className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" disabled={disabled} onClick={() => onApply(undefined)}>Remove normalization</button> : null}
+      </div>
+    </fieldset>
+  );
+};
 
 const TemporalReductionEditor = ({
   path,
@@ -279,6 +317,7 @@ export const FeaturePolicyEditor = ({
   ) => void;
 }) => {
   const [draftTemporalPath, setDraftTemporalPath] = useState<string>();
+  const [editingUnitNormalization, setEditingUnitNormalization] = useState(false);
   if (column.source.kind === 'field') {
     const source = column.source;
     const currentMode = source.field.projectionMode ?? 'FIRST';
@@ -389,10 +428,19 @@ export const FeaturePolicyEditor = ({
   }
 
   if (column.source.kind === 'aggregate') {
-    const path = column.source.aggregate.path;
-    const operation = column.source.aggregate.operation;
+    const aggregateSource = column.source;
+    const path = aggregateSource.aggregate.path;
+    const operation = aggregateSource.aggregate.operation;
     const options = path && related ? relatedValueReductionLabels : path ? fieldAggregateLabels : resourceAggregateLabels;
     const editingTemporal = operation === 'FIRST_ORDERED' || draftTemporalPath === path;
+    const unitNormalization = aggregateSource.aggregate.unitNormalization;
+    const hasUnitEvidence = Boolean(
+      candidate &&
+      !candidate.repeated &&
+      ['integer', 'decimal', 'number'].includes(candidate.logicalType.toLowerCase()) &&
+      candidate.conceptCandidates?.some((concept) => (concept.observedUnits?.length ?? 0) > 0),
+    );
+    const canNormalizeUnits = Boolean(path && hasUnitEvidence && ['MIN', 'MAX', 'REQUIRE_ONE', 'COLLECT', 'DISTINCT_VALUES', 'FIRST_ORDERED'].includes(operation));
     const summary = path
       ? `${operation === 'FIRST_ORDERED' ? 'Selects one dated value' : fieldAggregateLabels[operation as FieldAggregateOperation] ?? 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
       : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
@@ -453,10 +501,33 @@ export const FeaturePolicyEditor = ({
           </select>
         </label>
         <span>{summary}</span>
+        {canNormalizeUnits ? (
+          <button
+            type="button"
+            className="rounded border border-violet-300 bg-white px-2 py-0.5 font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
+            disabled={disabled}
+            onClick={() => setEditingUnitNormalization((value) => !value)}
+          >
+            {unitNormalization ? 'Edit unit normalization' : 'Normalize units'}
+          </button>
+        ) : null}
+        {canNormalizeUnits && (editingUnitNormalization || unitNormalization) ? (
+          <UnitNormalizationEditor
+            current={unitNormalization}
+            disabled={disabled}
+            onApply={(nextUnitNormalization) => {
+              setEditingUnitNormalization(false);
+              onSourceChange({
+                kind: 'aggregate',
+                aggregate: { ...aggregateSource.aggregate, unitNormalization: nextUnitNormalization },
+              } as ExplorerColumnSource);
+            }}
+          />
+        ) : null}
         {editingTemporal && path ? (
           <TemporalReductionEditor
             path={path}
-            current={operation === 'FIRST_ORDERED' ? column.source.aggregate : undefined}
+            current={operation === 'FIRST_ORDERED' ? aggregateSource.aggregate as TemporalAggregateSource : undefined}
             timestampCandidates={candidates.filter(
               (candidateOption) => candidateOption.logicalType.toLowerCase() === 'date_time',
             )}

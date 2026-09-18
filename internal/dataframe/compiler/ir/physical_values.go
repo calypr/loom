@@ -1,6 +1,9 @@
 package ir
 
-import "github.com/calypr/loom/internal/dataframe/spec"
+import (
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+)
 
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
 // semantic planning. Operations are ordered because AQL variables have lexical
@@ -121,6 +124,18 @@ type PhysicalExtract struct {
 	// Prepared points at a selector value projected by a prepared child set.
 	// Source remains the owning set for scope validation and diagnostics.
 	Prepared *PhysicalPreparedReference
+	// UnitNormalization retains the original measurement and exact source
+	// identity selectors until the renderer applies one approved rule per item.
+	UnitNormalization *PhysicalUnitNormalization
+}
+
+type PhysicalUnitNormalization struct {
+	OriginalValue spec.Selector
+	SourceSystem  spec.Selector
+	SourceCode    spec.Selector
+	Target        unit.UnitIdentity
+	Dimension     unit.UnitDimension
+	Rules         []unit.UnitConversionRule
 }
 
 // PhysicalPreparedReference identifies one selector column in a prepared set.
