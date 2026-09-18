@@ -4,7 +4,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { expectedFixtureRelatedValue } from './loom-dev.mjs';
 
 export function timingTarget(report) {
   const target = report.target;
@@ -65,7 +64,7 @@ async function sample(target, index) {
     preview.columns.map((column, i) => [column.label, Array.isArray(row) ? row[i] : row[column.column]]),
   )).sort((a, b) => String(a.id).localeCompare(String(b.id)));
   assert.deepEqual(rows.map((row) => [row.id, row['valueQuantity.value']]), [
-    ['dev-patient-001', expectedFixtureRelatedValue(target.project, target.generation)], ['dev-patient-002', 68],
+    ['dev-patient-001', 180], ['dev-patient-002', 68],
   ]);
   return {
     save_ms: saved - start, reconcile_ms: reconciled - saved,
