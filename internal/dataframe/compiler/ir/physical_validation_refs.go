@@ -90,8 +90,8 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 	default:
 		return fmt.Errorf("unknown aggregate operation %q", aggregate.Operation)
 	}
-	needsValue := aggregate.Operation != PhysicalCountAggregate && aggregate.Operation != PhysicalExistsAggregate
-	if needsValue != (aggregate.Value != nil) {
+	requiresValue := aggregate.Operation != PhysicalCountAggregate && aggregate.Operation != PhysicalExistsAggregate
+	if requiresValue && aggregate.Value == nil {
 		return fmt.Errorf("aggregate operation %q value presence is invalid", aggregate.Operation)
 	}
 	if aggregate.Value != nil {

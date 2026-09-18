@@ -328,9 +328,6 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	if requiresExpr && a.Expr == nil {
 		return validationError("required", path+".expr", "operation requires expr")
 	}
-	if !requiresExpr && a.Expr != nil {
-		return validationError("invalid_expr", path+".expr", "COUNT and EXISTS do not accept expr")
-	}
 	if a.Expr != nil {
 		if err := validateSelectorExpression(*a.Expr, path+".expr"); err != nil {
 			return err

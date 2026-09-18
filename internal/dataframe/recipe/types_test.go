@@ -180,6 +180,15 @@ func TestValidationAcceptsExplicitRelatedValueReductions(t *testing.T) {
 	}
 }
 
+func TestValidationAcceptsCountAndExistsOverExtractedValues(t *testing.T) {
+	for _, operation := range []string{"COUNT", "EXISTS"} {
+		input := fmt.Sprintf(`{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","aggregates":[{"name":"values","operation":%q,"expr":{"select":"name[].family"}}]}]}`, operation)
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Fatalf("expected %s over extracted values to validate, got %v", operation, err)
+		}
+	}
+}
+
 func TestValidationAcceptsTypedExpressionOperationSet(t *testing.T) {
 	for _, call := range []string{"fallback", "not", "and", "or", "eq", "neq", "gt", "gte", "lt", "lte", "contains"} {
 		bundle := Bundle{RecipeSchemaVersion: 1, Name: "ops", TranslationVersion: "1"}

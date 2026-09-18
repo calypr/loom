@@ -530,9 +530,6 @@ func (s ColumnSource) validate(path string) error {
 		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
 			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}
-		if !requiresField && strings.TrimSpace(s.Aggregate.Path) != "" {
-			return fmt.Errorf("%s aggregate operation %s forbids path", path, op)
-		}
 		if s.Aggregate.Where != nil && strings.TrimSpace(s.Aggregate.Where.Path) == "" {
 			return fmt.Errorf("%s.aggregate.where requires path", path)
 		}

@@ -78,13 +78,16 @@ func TestLowerRecipeAggregatesMapsSelectorWhereAndOperation(t *testing.T) {
 	}
 }
 
-func TestLowerRecipeAggregatesRejectsUnrepresentableWhereAndCountExpr(t *testing.T) {
+func TestLowerRecipeAggregatesCountsExtractedValuesAndRejectsUnrepresentableWhere(t *testing.T) {
 	scope := newRootScope("Patient")
-	_, err := lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
+	aggregates, err := lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
 		Name: "count", Operation: recipe.AggregateCount, Expr: recipeExpr("id"),
 	}})
-	if err == nil || !strings.Contains(err.Error(), "not accepted") {
-		t.Fatalf("expected count expression rejection, got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregates) != 1 || aggregates[0].Selector == nil || aggregates[0].Selector.CanonicalPath() != "id" || aggregates[0].ValueKind != "integer" {
+		t.Fatalf("value count aggregate = %#v", aggregates)
 	}
 	_, err = lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
 		Name: "count", Operation: recipe.AggregateCount, Where: &recipe.Filter{

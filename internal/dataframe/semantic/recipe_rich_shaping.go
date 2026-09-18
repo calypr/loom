@@ -378,8 +378,9 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			operation == string(recipe.AggregateContainsAll) ||
 			operation == string(recipe.AggregateRequireOne) ||
 			operation == string(recipe.AggregateCollect)
+		acceptsSelector := requiresSelector || operation == string(recipe.AggregateCount) || operation == string(recipe.AggregateExists)
 		if input.Expr != nil {
-			if !requiresSelector {
+			if !acceptsSelector {
 				return nil, fmt.Errorf("%s.expr is not accepted for operation %s", path, operation)
 			}
 			selector, err := recipeNodeSelector(resourceType, alias, scope, *input.Expr, path+".expr")

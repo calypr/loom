@@ -1017,6 +1017,25 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const ambiguousState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'ambiguous-require-one-does-not-publish', false,
       Boolean(ambiguousState.active?.revisionId || ambiguousState.runtime?.outputs?.length));
+    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Count values')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    const valueCounts = await evaluate(cdp, `(() => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+      const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
+      const idIndex = headers.indexOf('id');
+      const valueIndex = headers.indexOf('valueQuantity.value');
+      return rows.slice(1).map((row) => {
+        const cells = [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.textContent.trim());
+        return [cells[idIndex], cells[valueIndex]];
+      }).sort((left, right) => left[0].localeCompare(right[0]));
+    })()`);
+    recordAssertion(report, 'value-count-counts-non-null-values-not-resources', [
+      ['dev-patient-001', '2'],
+      ['dev-patient-002', '1'],
+    ], valueCounts);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
     let reducedBuilder;
     const reductionDeadline = Date.now() + 30000;

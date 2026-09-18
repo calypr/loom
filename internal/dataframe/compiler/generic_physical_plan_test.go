@@ -227,6 +227,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 		Alias: "root", ResourceType: "Patient",
 		Aggregates: []semantic.SemanticAggregate{
 			{Name: "patient_count", Operation: "COUNT"},
+			{Name: "gender_value_count", Operation: "COUNT", Selector: &gender},
 			{Name: "genders", Operation: "DISTINCT_VALUES", Selector: &gender},
 			{Name: "one_gender", Operation: "REQUIRE_ONE", Selector: &gender},
 			{Name: "all_genders", Operation: "COLLECT", Selector: &gender},
@@ -244,12 +245,12 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"LENGTH([root])", "SORTED_UNIQUE(FLATTEN(", "ASSERT(LENGTH(", "RELATIONSHIP_CARDINALITY_VIOLATION", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
+	for _, want := range []string{"LENGTH([root])", "FILTER __loom_physical_aggregate_count_value != null", "SORTED_UNIQUE(FLATTEN(", "ASSERT(LENGTH(", "RELATIONSHIP_CARDINALITY_VIOLATION", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("aggregate query missing %q:\n%s", want, rendered.Query)
 		}
 	}
-	if got := rendered.BindVars["__loom_physical_projection_2_name"]; got != "genders" {
+	if got := rendered.BindVars["__loom_physical_projection_3_name"]; got != "genders" {
 		t.Fatalf("projection bind = %#v", got)
 	}
 }

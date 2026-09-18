@@ -59,20 +59,24 @@ const resourceAggregateLabels = {
 } as const;
 
 const fieldAggregateLabels = {
+  COUNT: 'Count values',
   COUNT_DISTINCT: 'Count unique values',
   DISTINCT_VALUES: 'Collect unique values',
   MIN: 'Minimum value',
   MAX: 'Maximum value',
+  EXISTS: 'Whether any value exists',
 } as const;
 
 const relatedValueReductionLabels = {
   REQUIRE_ONE: 'Require zero or one value',
   COLLECT: 'Collect every value',
   FIRST_BY_RESOURCE_KEY: 'First record by stable resource key',
+  COUNT: fieldAggregateLabels.COUNT,
   DISTINCT_VALUES: fieldAggregateLabels.DISTINCT_VALUES,
   COUNT_DISTINCT: fieldAggregateLabels.COUNT_DISTINCT,
   MIN: fieldAggregateLabels.MIN,
   MAX: fieldAggregateLabels.MAX,
+  EXISTS: fieldAggregateLabels.EXISTS,
 } as const;
 
 type ResourceAggregateOperation = keyof typeof resourceAggregateLabels;

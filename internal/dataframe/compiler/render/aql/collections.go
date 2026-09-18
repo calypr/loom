@@ -435,6 +435,14 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	}
 	switch aggregate.Operation {
 	case ir.PhysicalCountAggregate:
+		if aggregate.Value != nil {
+			values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
+			if err != nil {
+				return "", err
+			}
+			item := r.newInternalVariable("aggregate_count_value")
+			return "LENGTH(FOR " + item + " IN FLATTEN(" + values + ") FILTER " + item + " != null RETURN 1)", nil
+		}
 		return "LENGTH(" + items + ")", nil
 	case ir.PhysicalExistsAggregate:
 		if aggregate.Value == nil {

@@ -615,7 +615,7 @@ func TestSemanticNestedOccurrenceUsesGloballyScopedAlias(t *testing.T) {
 	}
 }
 
-func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
+func TestCompileSemanticAggregateDistinguishesResourceAndValueCounts(t *testing.T) {
 	visible := true
 	document := authoringv2.Document{
 		Kind:             authoringv2.Kind,
@@ -627,6 +627,7 @@ func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
 		Columns: []authoringv2.Column{
 			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
 			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "family_count", Label: "Family value count", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Path: "name[].family"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
 		},
 	}
 
@@ -641,6 +642,14 @@ func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
 	emission := result.EmittedColumns[1]
 	if emission.SourcePath != "$resource" || emission.ProjectionMode != "COUNT" || emission.SourceResourceType != "Encounter" {
 		t.Fatalf("aggregate emission does not expose exact resource reduction: %#v", emission)
+	}
+	valueAggregate := result.Bundle.Outputs[0].Aggregates[0]
+	if valueAggregate.OutputName != "family_count" || valueAggregate.Operation != recipe.AggregateCount || valueAggregate.Expr == nil || valueAggregate.Expr.Select != "root.name[].family" {
+		t.Fatalf("value aggregate = %#v", valueAggregate)
+	}
+	valueEmission := result.EmittedColumns[2]
+	if valueEmission.SourcePath != "name[].family" || valueEmission.ProjectionMode != "COUNT" || valueEmission.SourceResourceType != "Patient" {
+		t.Fatalf("aggregate emission does not expose exact value reduction: %#v", valueEmission)
 	}
 }
 

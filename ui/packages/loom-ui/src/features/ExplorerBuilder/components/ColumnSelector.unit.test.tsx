@@ -316,6 +316,14 @@ describe('configured V2 columns', () => {
       aggregate: { operation: 'MAX', path: 'valueQuantity.value' },
     });
 
+    fireEvent.change(screen.getByRole('combobox', {
+      name: 'Across related Observation records for Observation value',
+    }), { target: { value: 'COUNT' } });
+    expect(onSourceChange).toHaveBeenLastCalledWith('observation_value', {
+      kind: 'aggregate',
+      aggregate: { operation: 'COUNT', path: 'valueQuantity.value' },
+    });
+
     const aggregateTable: DraftTable = {
       ...relatedTable,
       document: {
