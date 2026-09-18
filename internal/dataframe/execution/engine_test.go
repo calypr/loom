@@ -108,6 +108,26 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 	}
 }
 
+func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T) {
+	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(map[string]any{"id": "p1", "__loom_row_id": "stable-p1"})
+	})
+	resolved, err := e.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1", IncludeRowIdentity: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if _, err := e.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Patient", Limit: 2}, func(value map[string]any) error {
+		row = value
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if row["__loom_row_id"] != "stable-p1" {
+		t.Fatalf("comparison preview row identity = %#v", row)
+	}
+}
+
 func TestPreviewOutputExecutesOnlyRequestedOutputAndRejectsUnknownBeforeQuery(t *testing.T) {
 	queries := 0
 	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
@@ -162,6 +182,9 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 	if err != nil || count != 2 || summary.RowCount != 2 || rowsSeen != 2 {
 		t.Fatalf("limit count=%d summary=%#v rowsSeen=%d err=%v", count, summary, rowsSeen, err)
 	}
+	if summary.Complete || !summary.Truncated {
+		t.Fatalf("bounded preview completeness=%#v, want incomplete/truncated", summary)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -189,6 +212,23 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 	userErr, ok = dataframeerrors.AsUserError(err)
 	if !ok || userErr.Code() != string(dataframeerrors.CodeClientCanceled) {
 		t.Fatalf("mid-query canceled preview error = %v, want CLIENT_CANCELED", err)
+	}
+}
+
+func TestPreviewOutputMarksNaturalExhaustionComplete(t *testing.T) {
+	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(map[string]any{"id": "p1"})
+	})
+	resolved, err := e.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := e.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Patient", Limit: 2}, func(map[string]any) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !summary.Complete || summary.Truncated {
+		t.Fatalf("natural preview completeness=%#v, want complete/not truncated", summary)
 	}
 }
 

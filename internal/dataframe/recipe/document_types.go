@@ -600,6 +600,10 @@ type RuntimeBindings struct {
 	// empty list preserves the bundle's all-output behavior and is not part of
 	// recipe or schema identity.
 	OutputNames []string
+	// IncludeRowIdentity is an internal, lifecycle-scoped preview option. It
+	// exposes the already-validated stable row identity to a comparison sink;
+	// ordinary previews keep compiler-owned identity columns hidden.
+	IncludeRowIdentity bool
 }
 
 // Clone returns request-scoped bindings with independent authorization paths.

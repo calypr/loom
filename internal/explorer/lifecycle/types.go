@@ -206,6 +206,69 @@ type PreviewResult struct {
 	Summary dataframeexecution.PreviewSummary
 }
 
+// PreviewInterpretationCandidateRequest identifies an immutable candidate
+// revision and the exact draft against which it was proposed. The draft CAS
+// is checked before either receipt is compiled, but this operation never
+// saves the draft.
+type PreviewInterpretationCandidateRequest struct {
+	Project              string
+	ExplorerID           string
+	SnapshotToken        string
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	OutputID             string
+	Column               string
+	RevisionID           string
+	Limit                int
+}
+
+type CandidatePreviewCompleteness string
+
+const (
+	CandidatePreviewComplete   CandidatePreviewCompleteness = "COMPLETE"
+	CandidatePreviewIncomplete CandidatePreviewCompleteness = "INCOMPLETE"
+)
+
+type CandidatePreviewState string
+
+const (
+	CandidatePreviewUnchanged  CandidatePreviewState = "UNCHANGED"
+	CandidatePreviewChanged    CandidatePreviewState = "CHANGED"
+	CandidatePreviewResolved   CandidatePreviewState = "RESOLVED"
+	CandidatePreviewUnresolved CandidatePreviewState = "UNRESOLVED"
+)
+
+// InterpretationCandidatePreviewSample contains one stable output row. The
+// Before and After maps are keyed by the physical public column names present
+// in the preview, allowing one authored column to retain every indexed or
+// repeated physical emission.
+type InterpretationCandidatePreviewSample struct {
+	RowID  string                `json:"rowId"`
+	Before map[string]any        `json:"before"`
+	After  map[string]any        `json:"after"`
+	State  CandidatePreviewState `json:"state"`
+}
+
+// CandidatePreviewCounts describe only the bounded sample, never an
+// inferred whole-population count.
+type CandidatePreviewCounts struct {
+	Compared   int `json:"compared"`
+	Changed    int `json:"changed"`
+	Resolved   int `json:"resolved"`
+	Unresolved int `json:"unresolved"`
+}
+
+type PreviewInterpretationCandidateResult struct {
+	BaseReceiptID      string                                 `json:"baseReceiptId"`
+	CandidateReceiptID string                                 `json:"candidateReceiptId"`
+	OutputID           string                                 `json:"outputId"`
+	Column             string                                 `json:"column"`
+	RevisionID         string                                 `json:"revisionId"`
+	Completeness       CandidatePreviewCompleteness           `json:"completeness"`
+	Samples            []InterpretationCandidatePreviewSample `json:"samples"`
+	Counts             CandidatePreviewCounts                 `json:"counts"`
+}
+
 type PopulationMappingRequest struct {
 	Project    string
 	ExplorerID string

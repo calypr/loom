@@ -12,33 +12,34 @@ import (
 )
 
 const (
-	CommandCreateTable            = "CREATE_TABLE"
-	CommandDuplicateTable         = "DUPLICATE_TABLE"
-	CommandDeleteTable            = "DELETE_TABLE"
-	CommandRenameTable            = "RENAME_TABLE"
-	CommandReorderTables          = "REORDER_TABLES"
-	CommandSetTableRoot           = "SET_TABLE_ROOT"
-	CommandApplyTableRootRebase   = "APPLY_TABLE_ROOT_REBASE"
-	CommandSetTablePopulation     = "SET_TABLE_POPULATION"
-	CommandClearTablePopulation   = "CLEAR_TABLE_POPULATION"
-	CommandAddRoute               = "ADD_ROUTE"
-	CommandUpdateRouteEdge        = "UPDATE_ROUTE_EDGE"
-	CommandSetRouteMatchMode      = "SET_ROUTE_MATCH_MODE"
-	CommandRemoveRoute            = "REMOVE_ROUTE"
-	CommandAddColumn              = "ADD_COLUMN"
-	CommandAddColumnSource        = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn           = "UPDATE_COLUMN"
-	CommandSetColumnContributor   = "SET_COLUMN_CONTRIBUTOR"
-	CommandClearColumnContributor = "CLEAR_COLUMN_CONTRIBUTOR"
-	CommandUpdateColumnSource     = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn           = "REMOVE_COLUMN"
-	CommandResultTableCreated     = "TABLE_CREATED"
-	CommandResultTableChanged     = "TABLE_CHANGED"
-	CommandResultRouteAdded       = "ROUTE_ADDED"
-	CommandResultColumnAdded      = "COLUMN_ADDED"
-	InitialPresentationTable      = "TABLE"
-	InitialPresentationFilter     = "FILTER"
-	InitialPresentationChart      = "CHART"
+	CommandCreateTable                  = "CREATE_TABLE"
+	CommandDuplicateTable               = "DUPLICATE_TABLE"
+	CommandDeleteTable                  = "DELETE_TABLE"
+	CommandRenameTable                  = "RENAME_TABLE"
+	CommandReorderTables                = "REORDER_TABLES"
+	CommandSetTableRoot                 = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase         = "APPLY_TABLE_ROOT_REBASE"
+	CommandSetTablePopulation           = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation         = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute                     = "ADD_ROUTE"
+	CommandUpdateRouteEdge              = "UPDATE_ROUTE_EDGE"
+	CommandSetRouteMatchMode            = "SET_ROUTE_MATCH_MODE"
+	CommandRemoveRoute                  = "REMOVE_ROUTE"
+	CommandAddColumn                    = "ADD_COLUMN"
+	CommandAddColumnSource              = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn                 = "UPDATE_COLUMN"
+	CommandSetColumnContributor         = "SET_COLUMN_CONTRIBUTOR"
+	CommandClearColumnContributor       = "CLEAR_COLUMN_CONTRIBUTOR"
+	CommandApplyInterpretationCandidate = "APPLY_INTERPRETATION_CANDIDATE"
+	CommandUpdateColumnSource           = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn                 = "REMOVE_COLUMN"
+	CommandResultTableCreated           = "TABLE_CREATED"
+	CommandResultTableChanged           = "TABLE_CHANGED"
+	CommandResultRouteAdded             = "ROUTE_ADDED"
+	CommandResultColumnAdded            = "COLUMN_ADDED"
+	InitialPresentationTable            = "TABLE"
+	InitialPresentationFilter           = "FILTER"
+	InitialPresentationChart            = "CHART"
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
@@ -65,26 +66,36 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                string                `json:"type"`
-	OutputID            string                `json:"outputId,omitempty"`
-	SourceOutputID      string                `json:"sourceOutputId,omitempty"`
-	Title               string                `json:"title,omitempty"`
-	RootNodeID          string                `json:"rootNodeId,omitempty"`
-	SelectionRevisionID string                `json:"selectionRevisionId,omitempty"`
-	EdgeIDs             []string              `json:"edgeIds,omitempty"`
-	ParentOccurrenceID  string                `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID        string                `json:"occurrenceId,omitempty"`
-	EdgeID              string                `json:"edgeId,omitempty"`
-	MatchMode           RouteMatchMode        `json:"matchMode,omitempty"`
-	CandidateID         string                `json:"candidateId,omitempty"`
-	ProjectionMode      string                `json:"projectionMode,omitempty"`
-	InitialPresentation string                `json:"initialPresentation,omitempty"`
-	Column              string                `json:"column,omitempty"`
-	ColumnValue         *Column               `json:"columnValue,omitempty"`
-	Contributor         *ContributorPredicate `json:"contributor,omitempty"`
-	Source              *ColumnSource         `json:"source,omitempty"`
-	RowChange           *RowChangeProposal    `json:"rowChange,omitempty"`
-	OutputIDs           []string              `json:"outputIds,omitempty"`
+	Type                    string                        `json:"type"`
+	OutputID                string                        `json:"outputId,omitempty"`
+	SourceOutputID          string                        `json:"sourceOutputId,omitempty"`
+	Title                   string                        `json:"title,omitempty"`
+	RootNodeID              string                        `json:"rootNodeId,omitempty"`
+	SelectionRevisionID     string                        `json:"selectionRevisionId,omitempty"`
+	EdgeIDs                 []string                      `json:"edgeIds,omitempty"`
+	ParentOccurrenceID      string                        `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID            string                        `json:"occurrenceId,omitempty"`
+	EdgeID                  string                        `json:"edgeId,omitempty"`
+	MatchMode               RouteMatchMode                `json:"matchMode,omitempty"`
+	CandidateID             string                        `json:"candidateId,omitempty"`
+	ProjectionMode          string                        `json:"projectionMode,omitempty"`
+	InitialPresentation     string                        `json:"initialPresentation,omitempty"`
+	Column                  string                        `json:"column,omitempty"`
+	ColumnValue             *Column                       `json:"columnValue,omitempty"`
+	Contributor             *ContributorPredicate         `json:"contributor,omitempty"`
+	Source                  *ColumnSource                 `json:"source,omitempty"`
+	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
+	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
+	OutputIDs               []string                      `json:"outputIds,omitempty"`
+}
+
+// ApplyInterpretationCandidate is the closed, receipt-backed payload for an
+// interpretation repair. The receipt ID and revision ID are both required:
+// the former proves the preview that was shown to the user, while the latter
+// prevents replaying that preview with a different immutable revision.
+type ApplyInterpretationCandidate struct {
+	CandidateReceiptID string `json:"candidateReceiptId"`
+	RevisionID         string `json:"revisionId"`
 }
 
 func (c *Command) UnmarshalJSON(raw []byte) error {
@@ -240,6 +251,15 @@ func (c Command) validate() error {
 	case CommandClearColumnContributor:
 		if !required(c.OutputID, c.Column) {
 			return fmt.Errorf("CLEAR_COLUMN_CONTRIBUTOR requires outputId and column")
+		}
+	case CommandApplyInterpretationCandidate:
+		if !required(c.OutputID, c.Column) || c.InterpretationCandidate == nil {
+			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires outputId, column, and interpretationCandidate")
+		}
+		if !required(c.InterpretationCandidate.CandidateReceiptID, c.InterpretationCandidate.RevisionID) ||
+			c.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(c.InterpretationCandidate.CandidateReceiptID) ||
+			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
+			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
 	case CommandAddColumnSource:
 		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
@@ -649,6 +669,35 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			if current.Column != command.Column {
 				continue
 			}
+			current.Contributor = nil
+			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
+		}
+		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandApplyInterpretationCandidate:
+		if strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column) == "" ||
+			command.InterpretationCandidate == nil ||
+			strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) == "" ||
+			strings.TrimSpace(command.InterpretationCandidate.RevisionID) == "" ||
+			command.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) ||
+			command.InterpretationCandidate.RevisionID != strings.TrimSpace(command.InterpretationCandidate.RevisionID) {
+			return result, fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires outputId, column, and exact interpretationCandidate payload")
+		}
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		for index := range workspace.Documents[document].Columns {
+			current := &workspace.Documents[document].Columns[index]
+			if current.Column != command.Column {
+				continue
+			}
+			revisionID := command.InterpretationCandidate.RevisionID
+			current.Interpretation = &FeatureInterpretation{
+				Kind:   FeatureInterpretationPinned,
+				Pinned: &PinnedInterpretation{RevisionID: revisionID},
+			}
+			// A pinned human interpretation owns the feature meaning. Any inline
+			// contributor is stale for this exact candidate and must not survive.
 			current.Contributor = nil
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}

@@ -39,8 +39,9 @@ const (
 
 // PreviewRequest selects one compiled output and bounds its preview rows.
 type PreviewRequest struct {
-	Output string
-	Limit  int
+	Output             string
+	Limit              int
+	IncludeRowIdentity bool
 }
 
 // PreviewSummary is safe execution metadata for one preview output. It does
@@ -55,6 +56,12 @@ type PreviewSummary struct {
 	TraversalCount   int
 	LoweringDuration time.Duration
 	QueryDuration    time.Duration
+	// Complete is true only when the execution naturally exhausted before
+	// reaching its configured row limit. Truncated is explicit when the
+	// bounded preview stopped at errPreviewLimit; callers must not infer full
+	// population facts from a bounded result.
+	Complete  bool
+	Truncated bool
 }
 
 type Config struct {
@@ -542,7 +549,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := validatePreviewPlan(query, limit); err != nil {
 		return PreviewSummary{}, err
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted)}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
@@ -557,7 +564,13 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		if err != nil {
 			return err
 		}
-		public := publicPreviewRow(resolvedRow, stream.Columns)
+		includeRowIdentity := request.IncludeRowIdentity || resolved.Semantic.SemanticPlan.Bindings.IncludeRowIdentity
+		if includeRowIdentity {
+			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, query.BindVars); err != nil {
+				return err
+			}
+		}
+		public := publicPreviewRow(resolvedRow, stream.Columns, includeRowIdentity)
 		if err := visit(public); err != nil {
 			visitorErr = err
 			return err
@@ -575,6 +588,10 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	}
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
 		return summary, normalizePreviewError(queryErr, true)
+	}
+	if errors.Is(queryErr, errPreviewLimit) {
+		summary.Complete = false
+		summary.Truncated = true
 	}
 	if err := contextError(ctx); err != nil {
 		return summary, err
@@ -637,11 +654,16 @@ func normalizePreviewError(err error, backend bool) error {
 	return dataframeerrors.Normalize(err)
 }
 
-func publicPreviewRow(row map[string]any, columns []string) map[string]any {
+func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity bool) map[string]any {
 	public := make(map[string]any, len(columns))
 	for _, column := range columns {
 		if value, ok := row[column]; ok {
 			public[column] = value
+		}
+	}
+	if includeRowIdentity {
+		if value, ok := row["__loom_row_id"]; ok {
+			public["__loom_row_id"] = value
 		}
 	}
 	return public

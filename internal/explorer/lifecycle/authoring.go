@@ -31,8 +31,10 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
 			return validationErr
 		}
-		_, validationErr := s.resolveWorkspaceInterpretations(ctx, project, workspace, snapshot)
-		return validationErr
+		if _, validationErr := s.resolveWorkspaceInterpretations(ctx, project, workspace, snapshot); validationErr != nil {
+			return validationErr
+		}
+		return s.validateInterpretationCandidateCommands(ctx, project, explorerID, request, workspace, snapshot)
 	})
 	switch {
 	case errors.Is(err, explorer.ErrDraftConflict):

@@ -273,7 +273,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 		ReceiptLookup: service.CompilationReceiptForExplorer,
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
-			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath {
+			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath || bindings.IncludeRowIdentity {
 				t.Fatalf("preview bindings widened or requested publication metadata: receipt=%#v bindings=%#v", receipt, bindings)
 			}
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
