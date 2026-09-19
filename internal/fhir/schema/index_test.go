@@ -1,6 +1,9 @@
 package schema
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNewIndexCopiesDefinitionsAndElements(t *testing.T) {
 	targets := []ResourceType{"FutureTarget"}
@@ -83,6 +86,106 @@ func TestNewIndexRejectsDuplicateDefinitionsAndElements(t *testing.T) {
 				t.Fatal("NewIndex accepted invalid definitions")
 			}
 		})
+	}
+}
+
+func TestNewIndexRejectsDanglingReferences(t *testing.T) {
+	tests := []struct {
+		name        string
+		definitions []Definition
+	}{
+		{
+			name: "object reference",
+			definitions: []Definition{{
+				Name: "Root",
+				Elements: []Element{{
+					Name:           "value",
+					ReferencedType: "MissingObject",
+				}},
+			}},
+		},
+		{
+			name: "array reference",
+			definitions: []Definition{{
+				Name: "Root",
+				Elements: []Element{{
+					Name:             "items",
+					JSONType:         JSONTypeArray,
+					ArrayElementType: "MissingArrayItem",
+				}},
+			}},
+		},
+		{
+			name: "nested inline object reference",
+			definitions: []Definition{{
+				Name: "Root",
+				Elements: []Element{{
+					Name: "backbone",
+					Elements: []Element{{
+						Name:           "value",
+						ReferencedType: "MissingNestedObject",
+					}},
+				}},
+			}},
+		},
+		{
+			name: "nested inline array reference",
+			definitions: []Definition{{
+				Name: "Root",
+				Elements: []Element{{
+					Name: "backbone",
+					ArrayElements: []Element{{
+						Name:             "items",
+						JSONType:         JSONTypeArray,
+						ArrayElementType: "MissingNestedArrayItem",
+					}},
+				}},
+			}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewIndex(test.definitions); err == nil {
+				t.Fatal("NewIndex accepted a dangling definition reference")
+			} else if !strings.Contains(err.Error(), "Missing") {
+				t.Fatalf("NewIndex error = %v, want missing definition context", err)
+			}
+		})
+	}
+}
+
+func TestReadDefinitionUsesImmutableViews(t *testing.T) {
+	index, err := NewIndex([]Definition{{
+		Name: "Root",
+		Elements: []Element{{
+			Name: "identifier",
+			Elements: []Element{{
+				Name: "system",
+			}},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+
+	definition, ok := index.ReadDefinition("Root")
+	elements := definition.Elements()
+	if !ok || elements.Len() != 1 {
+		t.Fatalf("ReadDefinition = %#v, %v", definition, ok)
+	}
+	element, ok := elements.At(0)
+	if !ok || element.Name() != "identifier" || element.Elements().Len() != 1 {
+		t.Fatalf("read-only element view did not retain metadata: %#v, %v", element, ok)
+	}
+
+	snapshot := element.Snapshot()
+	snapshot.Name = "changed"
+	snapshot.Elements[0].Name = "changed"
+	again, ok := elements.At(0)
+	child, childOK := again.Elements().At(0)
+	if !ok || !childOK || again.Name() != "identifier" || child.Name() != "system" {
+		t.Fatal("mutating an element snapshot changed the read-only index view")
 	}
 }
 

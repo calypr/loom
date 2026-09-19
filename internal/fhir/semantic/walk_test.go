@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/fhir/schema"
@@ -88,6 +89,40 @@ func TestWalkReturnsAnExactCopyOfEachReferencedObject(t *testing.T) {
 	got.RawJSON[0] = '['
 	if payload[valueOffset] != 'B' {
 		t.Fatal("mutating occurrence raw JSON changed the root payload")
+	}
+}
+
+func TestWalkDoesNotCloneReferencedDefinitionForEveryOccurrence(t *testing.T) {
+	const (
+		occurrenceCount = 96
+		definitionDepth = 48
+	)
+	index := deepOccurrenceIndex(t, definitionDepth)
+	var payload strings.Builder
+	payload.WriteString(`{"items":[`)
+	for item := 0; item < occurrenceCount; item++ {
+		if item > 0 {
+			payload.WriteByte(',')
+		}
+		payload.WriteString(`{}`)
+	}
+	payload.WriteString(`]}`)
+	manyOccurrences := []byte(payload.String())
+	noOccurrences := []byte(`{"items":[]}`)
+	visit := func(Occurrence) error { return nil }
+	measure := func(json []byte) float64 {
+		return testing.AllocsPerRun(5, func() {
+			if err := Walk(index, "FutureRoot", json, visit); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+		})
+	}
+	allocationsWithItems := measure(manyOccurrences)
+	allocationsWithoutItems := measure(noOccurrences)
+	allocationsPerOccurrence := (allocationsWithItems - allocationsWithoutItems) / occurrenceCount
+	t.Logf("Walk added %.1f allocations per repeated occurrence", allocationsPerOccurrence)
+	if allocationsPerOccurrence > 20 {
+		t.Fatalf("Walk used %.1f allocations per repeated occurrence; want at most 20 (deep definition depth %d)", allocationsPerOccurrence, definitionDepth)
 	}
 }
 
@@ -187,6 +222,33 @@ func futureIndex(t *testing.T) *schema.Index {
 	})
 	if err != nil {
 		t.Fatalf("create future schema index: %v", err)
+	}
+	return index
+}
+
+func deepOccurrenceIndex(t *testing.T, depth int) *schema.Index {
+	t.Helper()
+	elements := []schema.Element{{Name: "leaf", JSONType: "string"}}
+	for level := 0; level < depth; level++ {
+		elements = []schema.Element{{
+			Name:     fmt.Sprintf("unused%d", level),
+			JSONType: schema.JSONTypeObject,
+			Elements: elements,
+		}}
+	}
+	index, err := schema.NewIndex([]schema.Definition{
+		{
+			Name: "FutureRoot",
+			Elements: []schema.Element{{
+				Name:             "items",
+				JSONType:         schema.JSONTypeArray,
+				ArrayElementType: "DeepDatatype",
+			}},
+		},
+		{Name: "DeepDatatype", Elements: elements},
+	})
+	if err != nil {
+		t.Fatalf("create deep occurrence index: %v", err)
 	}
 	return index
 }

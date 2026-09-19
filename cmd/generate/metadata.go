@@ -38,7 +38,7 @@ func generateFHIRSchema(schema *Schema, path string) error {
 			writeGeneratedStringSlice(&sb, "Required", def.Required, 2)
 		}
 		sb.WriteString("\t\tProperties: []Property{\n")
-		writeGeneratedProperties(&sb, def.Properties, 3)
+		writeGeneratedProperties(&sb, schema, def.Properties, 3)
 		sb.WriteString("\t\t},\n")
 		sb.WriteString("\t},\n")
 	}
@@ -178,7 +178,7 @@ func propertyType(prop *Property) string {
 	return ""
 }
 
-func writeGeneratedProperties(sb *strings.Builder, props map[string]*Property, indent int) {
+func writeGeneratedProperties(sb *strings.Builder, schema *Schema, props map[string]*Property, indent int) {
 	keys := make([]string, 0, len(props))
 	for k := range props {
 		keys = append(keys, k)
@@ -199,9 +199,9 @@ func writeGeneratedProperties(sb *strings.Builder, props map[string]*Property, i
 			writeIndent(sb, indent+1)
 			sb.WriteString(fmt.Sprintf("Format: %q,\n", prop.Format))
 		}
-		if prop.Ref != "" {
+		if ref := schemaDefinitionRefName(schema, prop.Ref); ref != "" {
 			writeIndent(sb, indent+1)
-			sb.WriteString(fmt.Sprintf("Ref: %q,\n", refName(prop.Ref)))
+			sb.WriteString(fmt.Sprintf("Ref: %q,\n", ref))
 		}
 		if prop.ChoiceGroup != "" {
 			writeIndent(sb, indent+1)
@@ -252,14 +252,14 @@ func writeGeneratedProperties(sb *strings.Builder, props map[string]*Property, i
 				writeIndent(sb, indent+1)
 				sb.WriteString(fmt.Sprintf("ItemFormat: %q,\n", prop.Items.Format))
 			}
-			if prop.Items.Ref != "" {
+			if ref := schemaDefinitionRefName(schema, prop.Items.Ref); ref != "" {
 				writeIndent(sb, indent+1)
-				sb.WriteString(fmt.Sprintf("ItemRef: %q,\n", refName(prop.Items.Ref)))
+				sb.WriteString(fmt.Sprintf("ItemRef: %q,\n", ref))
 			}
 			if len(prop.Items.Properties) > 0 {
 				writeIndent(sb, indent+1)
 				sb.WriteString("ItemProperties: []Property{\n")
-				writeGeneratedProperties(sb, prop.Items.Properties, indent+2)
+				writeGeneratedProperties(sb, schema, prop.Items.Properties, indent+2)
 				writeIndent(sb, indent+1)
 				sb.WriteString("},\n")
 			}
@@ -267,13 +267,28 @@ func writeGeneratedProperties(sb *strings.Builder, props map[string]*Property, i
 		if len(prop.Properties) > 0 {
 			writeIndent(sb, indent+1)
 			sb.WriteString("Properties: []Property{\n")
-			writeGeneratedProperties(sb, prop.Properties, indent+2)
+			writeGeneratedProperties(sb, schema, prop.Properties, indent+2)
 			writeIndent(sb, indent+1)
 			sb.WriteString("},\n")
 		}
 		writeIndent(sb, indent)
 		sb.WriteString("},\n")
 	}
+}
+
+func schemaDefinitionRefName(schema *Schema, ref string) string {
+	if schema == nil || schema.ID == "" || ref == "" {
+		return ""
+	}
+	prefix := strings.TrimRight(schema.ID, "/") + "/"
+	if !strings.HasPrefix(ref, prefix) {
+		return ""
+	}
+	name := strings.TrimPrefix(ref, prefix)
+	if name == "" || strings.Contains(name, "/") {
+		return ""
+	}
+	return name
 }
 
 func writeGeneratedStringSlice(sb *strings.Builder, fieldName string, values []string, indent int) {

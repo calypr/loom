@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/calypr/loom/internal/fhir/schema"
 )
@@ -17,10 +18,23 @@ func main() {
 	if len(os.Args) > 1 {
 		root = os.Args[1]
 	}
+	violations, err := semanticResourceTypeViolations(root)
+	if err != nil {
+		fail("check semantic ResourceType literals: %v", err)
+	}
+	if len(violations) > 0 {
+		for _, violation := range violations {
+			fmt.Fprintln(os.Stderr, violation)
+		}
+		fail("semantic production package contains hardcoded concrete FHIR ResourceType names")
+	}
+}
+
+func semanticResourceTypeViolations(root string) ([]string, error) {
 	dir := filepath.Join(root, "internal", "fhir", "semantic")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		fail("read semantic package: %v", err)
+		return nil, fmt.Errorf("read semantic package: %w", err)
 	}
 	resourceTypes := make(map[string]struct{})
 	for _, resourceType := range schema.ResourceTypes() {
@@ -30,13 +44,13 @@ func main() {
 	fset := token.NewFileSet()
 	violations := make([]string, 0)
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
-			fail("parse %s: %v", path, err)
+			return nil, fmt.Errorf("parse %s: %w", path, err)
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING {
@@ -45,12 +59,7 @@ func main() {
 			return true
 		})
 	}
-	if len(violations) > 0 {
-		for _, violation := range violations {
-			fmt.Fprintln(os.Stderr, violation)
-		}
-		fail("semantic package contains hardcoded concrete FHIR ResourceType names")
-	}
+	return violations, nil
 }
 
 func checkLiteral(literal *ast.BasicLit, resourceTypes map[string]struct{}, fset *token.FileSet, path string, violations *[]string) {

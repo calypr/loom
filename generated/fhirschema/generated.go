@@ -175,7 +175,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:  "period",
@@ -302,7 +301,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -397,7 +395,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -584,7 +581,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "pages",
@@ -658,7 +654,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:     "notAvailableTime",
@@ -754,7 +749,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -808,7 +802,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -941,7 +934,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -1040,7 +1032,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -1145,7 +1136,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -1215,7 +1205,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -1282,7 +1271,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -1332,7 +1320,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "reference",
@@ -1443,7 +1430,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -1680,7 +1666,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -1869,7 +1854,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -1927,7 +1911,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -1998,7 +1981,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "name",
@@ -2073,7 +2055,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:  "period",
@@ -2194,7 +2175,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -2297,7 +2277,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "mustSupport",
@@ -2423,7 +2402,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "path",
@@ -2499,7 +2477,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "path",
@@ -2595,7 +2572,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:            "path",
@@ -2673,7 +2649,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "path",
@@ -2913,7 +2888,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "media",
@@ -3118,7 +3092,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -3167,7 +3140,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -3238,7 +3210,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:            "name",
@@ -3333,7 +3304,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -3616,7 +3586,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -3789,7 +3758,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "mode",
@@ -3875,7 +3843,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -3940,7 +3907,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -4021,7 +3987,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -4136,7 +4101,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:  "maxDosePerAdministration",
@@ -4264,7 +4228,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "rateQuantity",
@@ -4378,7 +4341,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -4484,7 +4446,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "name",
@@ -4539,7 +4500,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "name",
@@ -4618,7 +4578,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -5106,7 +5065,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -5401,7 +5359,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -5581,7 +5538,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -5703,7 +5659,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -5785,7 +5740,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -5994,7 +5948,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "managingEntity",
@@ -6137,7 +6090,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -6293,7 +6245,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -6397,7 +6348,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "period",
@@ -6499,7 +6449,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "period",
@@ -6694,7 +6643,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "location",
@@ -6967,7 +6915,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "modality",
@@ -7088,7 +7035,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -7192,7 +7138,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -7331,7 +7276,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "marketingAuthorizationHolder",
@@ -7556,7 +7500,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "medication",
@@ -7806,7 +7749,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "method",
@@ -7930,7 +7872,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -7994,7 +7935,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "lotNumber",
@@ -8073,7 +8013,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -8384,7 +8323,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "medication",
@@ -8697,7 +8635,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -8769,7 +8706,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -8844,7 +8780,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -9085,7 +9020,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "medication",
@@ -9245,7 +9179,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -9331,7 +9264,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "profile",
@@ -9433,7 +9365,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -9494,7 +9425,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -9878,7 +9808,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -10214,7 +10143,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -10402,7 +10330,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "low",
@@ -10495,7 +10422,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -10671,7 +10597,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -10790,7 +10715,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -10889,7 +10813,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "max",
@@ -11136,7 +11059,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "managingOrganization",
@@ -11271,7 +11193,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -11344,7 +11265,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -11439,7 +11359,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -11525,7 +11444,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -11694,7 +11612,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -11803,7 +11720,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -11883,7 +11799,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -12061,7 +11976,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "location",
@@ -12385,7 +12299,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "location",
@@ -12712,7 +12625,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "manipulated",
@@ -12797,7 +12709,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -12905,7 +12816,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",
@@ -12967,7 +12877,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "low",
@@ -13018,7 +12927,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "numerator",
@@ -13076,7 +12984,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "lowNumerator",
@@ -13151,7 +13058,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "reference",
@@ -13281,7 +13187,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "publicationDate",
@@ -13567,7 +13472,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -13839,7 +13743,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -13957,7 +13860,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14034,7 +13936,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14112,7 +14013,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14190,7 +14090,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14275,7 +14174,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14371,7 +14269,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -14510,7 +14407,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -14640,7 +14536,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "milestone",
@@ -14753,7 +14648,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -14899,7 +14793,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "lowerLimit",
@@ -14992,7 +14885,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "onBehalfOf",
@@ -15210,7 +15102,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -15440,7 +15331,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "method",
@@ -15525,7 +15415,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "location",
@@ -15603,7 +15492,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -15685,7 +15573,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "method",
@@ -15879,7 +15766,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "meta",
@@ -16067,7 +15953,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "manufacturer",
@@ -16281,7 +16166,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -16348,7 +16232,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -16464,7 +16347,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "measurementType",
@@ -16564,7 +16446,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:               "method",
@@ -16673,7 +16554,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -16802,7 +16682,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -16872,7 +16751,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17013,7 +16891,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17124,7 +17001,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17210,7 +17086,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17346,7 +17221,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17405,7 +17279,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -17786,7 +17659,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name: "location",
@@ -18128,7 +18000,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -18801,7 +18672,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -19376,7 +19246,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -19427,7 +19296,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -19526,7 +19394,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "modifierExtension",
@@ -19745,7 +19612,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "offset",
@@ -19881,7 +19747,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "name",
@@ -19992,7 +19857,6 @@ var Definitions = map[string]Definition{
 				Name:     "links",
 				Kind:     "array",
 				ItemKind: "object",
-				ItemRef:  "links",
 			},
 			{
 				Name:        "resourceType",

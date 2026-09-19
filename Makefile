@@ -77,6 +77,7 @@ gqlgen-check: graphql-check
 test:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./... -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run $(GOFLAGS) ./scripts/check_fhir_semantic_resource_types.go
 	node --test scripts/loom-dev.test.mjs
 
 dev-test:

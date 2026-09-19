@@ -5,6 +5,7 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"testing"
 )
@@ -164,6 +165,36 @@ func TestFHIRSchemaMetadataRetainsSemanticFields(t *testing.T) {
 		if !bytes.Contains(generated, []byte(field)) {
 			t.Errorf("generated FHIR metadata omitted %s", field)
 		}
+	}
+}
+
+func TestFHIRSchemaMetadataKeepsExternalRefsAsArrayShapeOnly(t *testing.T) {
+	schema := loadCheckedInGraphFHIRSchema(t)
+	links := schema.Defs["Address"].Properties["links"]
+	if links == nil || links.Items == nil || links.Items.Ref != "https://json-schema.org/draft/2020-12/links" {
+		t.Fatalf("Address.links source schema changed unexpectedly: %#v", links)
+	}
+	if got := schemaDefinitionRefName(schema, links.Items.Ref); got != "" {
+		t.Fatalf("external links schema reference became definition %q", got)
+	}
+	if got := schemaDefinitionRefName(schema, schema.ID+"/Patient"); got != "Patient" {
+		t.Fatalf("FHIR schema-rooted reference became %q, want Patient", got)
+	}
+
+	generatedPath := filepath.Join(t.TempDir(), "generated.go")
+	if err := generateFHIRSchema(schema, generatedPath); err != nil {
+		t.Fatalf("generate FHIR schema metadata: %v", err)
+	}
+	generated, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read generated FHIR metadata: %v", err)
+	}
+	if bytes.Contains(generated, []byte(`ItemRef: "links"`)) {
+		t.Fatal("external JSON Schema link reference was emitted as a FHIR array element type")
+	}
+	arrayShape := regexp.MustCompile(`Name: "links",\n\s*Kind: "array",\n\s*ItemKind: "object",`)
+	if !arrayShape.Match(generated) {
+		t.Fatal("external links reference did not retain its array/object shape")
 	}
 }
 

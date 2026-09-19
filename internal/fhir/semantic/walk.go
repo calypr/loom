@@ -37,7 +37,7 @@ func Walk(index *schema.Index, root schema.DefinitionName, payload []byte, visit
 	if visit == nil {
 		return fmt.Errorf("walk FHIR definition %q: visitor is nil", root)
 	}
-	definition, ok := index.Definition(root)
+	definition, ok := index.ReadDefinition(root)
 	if !ok {
 		return fmt.Errorf("walk FHIR definition %q: definition is not in the schema index", root)
 	}
@@ -45,26 +45,30 @@ func Walk(index *schema.Index, root schema.DefinitionName, payload []byte, visit
 	if err != nil {
 		return err
 	}
-	return walkElements(index, root, definition.Elements, object, "", "", nil, visit)
+	return walkElements(index, root, definition.Elements(), object, "", "", nil, visit)
 }
 
 func walkElements(
 	index *schema.Index,
 	root schema.DefinitionName,
-	elements []schema.Element,
+	elements schema.ElementListView,
 	object map[string]json.RawMessage,
 	canonicalPrefix string,
 	ownerPrefix string,
 	repeated []RepeatedBoundary,
 	visit func(Occurrence) error,
 ) error {
-	for _, element := range elements {
-		value, exists := object[element.Name]
+	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
+		element, ok := elements.At(elementIndex)
+		if !ok {
+			return fmt.Errorf("walk FHIR definition %q: schema element index %d is unavailable", root, elementIndex)
+		}
+		value, exists := object[element.Name()]
 		if !exists {
 			continue
 		}
-		canonicalPath := joinPath(canonicalPrefix, element.Name)
-		ownerPath := joinPath(ownerPrefix, element.Name)
+		canonicalPath := joinPath(canonicalPrefix, element.Name())
+		ownerPath := joinPath(ownerPrefix, element.Name())
 		if isArray(element) {
 			if isNull(value) {
 				continue
@@ -84,7 +88,7 @@ func walkElements(
 					OwnerPath:     itemOwnerPath,
 					Index:         itemIndex,
 				})
-				if err := walkObjectValue(index, root, element.ArrayElementType, element.ArrayElements, element, item, itemCanonicalPath, itemOwnerPath, boundaries, visit); err != nil {
+				if err := walkObjectValue(index, root, element.ArrayElementType(), element.ArrayElements(), element, item, itemCanonicalPath, itemOwnerPath, boundaries, visit); err != nil {
 					return err
 				}
 			}
@@ -96,7 +100,7 @@ func walkElements(
 		if isNull(value) {
 			continue
 		}
-		if err := walkObjectValue(index, root, element.ReferencedType, element.Elements, element, value, canonicalPath, ownerPath, repeated, visit); err != nil {
+		if err := walkObjectValue(index, root, element.ReferencedType(), element.Elements(), element, value, canonicalPath, ownerPath, repeated, visit); err != nil {
 			return err
 		}
 	}
@@ -107,8 +111,8 @@ func walkObjectValue(
 	index *schema.Index,
 	root schema.DefinitionName,
 	referencedType schema.DefinitionName,
-	inlineElements []schema.Element,
-	element schema.Element,
+	inlineElements schema.ElementListView,
+	element schema.ElementView,
 	raw json.RawMessage,
 	canonicalPath string,
 	ownerPath string,
@@ -120,9 +124,9 @@ func walkObjectValue(
 		return err
 	}
 	if referencedType != "" {
-		definition, ok := index.Definition(referencedType)
+		definition, ok := index.ReadDefinition(referencedType)
 		if !ok {
-			return nil
+			return fmt.Errorf("walk FHIR path %q: referenced definition %q is missing from the schema index", ownerPath, referencedType)
 		}
 		occurrence := Occurrence{
 			RootDefinition:     root,
@@ -130,13 +134,13 @@ func walkObjectValue(
 			CanonicalPath:      canonicalPath,
 			OwnerPath:          ownerPath,
 			RepeatedBoundaries: cloneRepeatedBoundaries(repeated),
-			Element:            cloneElement(element),
+			Element:            element.Snapshot(),
 			RawJSON:            append(json.RawMessage(nil), raw...),
 		}
 		if err := visit(occurrence); err != nil {
 			return err
 		}
-		return walkElements(index, root, definition.Elements, object, canonicalPath, ownerPath, repeated, visit)
+		return walkElements(index, root, definition.Elements(), object, canonicalPath, ownerPath, repeated, visit)
 	}
 	return walkElements(index, root, inlineElements, object, canonicalPath, ownerPath, repeated, visit)
 }
@@ -152,16 +156,16 @@ func decodeObject(raw []byte, path string) (map[string]json.RawMessage, error) {
 	return object, nil
 }
 
-func isArray(element schema.Element) bool {
-	return element.JSONType == schema.JSONTypeArray
+func isArray(element schema.ElementView) bool {
+	return element.JSONType() == schema.JSONTypeArray
 }
 
-func isObject(element schema.Element) bool {
-	return element.JSONType == schema.JSONTypeObject || element.ReferencedType != "" || len(element.Elements) > 0
+func isObject(element schema.ElementView) bool {
+	return element.JSONType() == schema.JSONTypeObject || element.ReferencedType() != "" || element.Elements().Len() > 0
 }
 
-func isObjectArrayElement(element schema.Element) bool {
-	return element.ArrayElementType != "" || element.ItemJSONType == schema.JSONTypeObject || len(element.ArrayElements) > 0
+func isObjectArrayElement(element schema.ElementView) bool {
+	return element.ArrayElementType() != "" || element.ItemJSONType() == schema.JSONTypeObject || element.ArrayElements().Len() > 0
 }
 
 func isNull(value []byte) bool {
@@ -184,23 +188,4 @@ func appendRepeatedBoundary(boundaries []RepeatedBoundary, next RepeatedBoundary
 
 func cloneRepeatedBoundaries(boundaries []RepeatedBoundary) []RepeatedBoundary {
 	return append([]RepeatedBoundary(nil), boundaries...)
-}
-
-func cloneElement(element schema.Element) schema.Element {
-	element.Elements = cloneElements(element.Elements)
-	element.ArrayElements = cloneElements(element.ArrayElements)
-	element.RequiredChildren = append([]string(nil), element.RequiredChildren...)
-	element.ReferenceTargetTypes = append([]schema.ResourceType(nil), element.ReferenceTargetTypes...)
-	return element
-}
-
-func cloneElements(elements []schema.Element) []schema.Element {
-	if len(elements) == 0 {
-		return nil
-	}
-	cloned := make([]schema.Element, len(elements))
-	for i, element := range elements {
-		cloned[i] = cloneElement(element)
-	}
-	return cloned
 }

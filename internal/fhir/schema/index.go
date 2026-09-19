@@ -27,6 +27,22 @@ type Index struct {
 	definitions map[DefinitionName]Definition
 }
 
+// DefinitionView reads a definition's elements without exposing its slices.
+// Its zero value represents an empty definition.
+type DefinitionView struct {
+	elements []Element
+}
+
+// ElementListView reads a list of elements without exposing its backing slice.
+type ElementListView struct {
+	elements []Element
+}
+
+// ElementView reads one element without exposing its nested slices.
+type ElementView struct {
+	element *Element
+}
+
 // Definition contains one generated or synthetic FHIR definition.
 type Definition struct {
 	Name             DefinitionName
@@ -75,6 +91,11 @@ func NewIndex(definitions []Definition) (*Index, error) {
 		}
 		index.definitions[definition.Name] = cloneDefinition(definition)
 	}
+	for _, definition := range definitions {
+		if err := validateElementReferences(definition.Name, index.definitions[definition.Name].Elements, index.definitions); err != nil {
+			return nil, err
+		}
+	}
 	return index, nil
 }
 
@@ -89,6 +110,98 @@ func (i *Index) Definition(name DefinitionName) (Definition, bool) {
 		return Definition{}, false
 	}
 	return cloneDefinition(definition), true
+}
+
+// ReadDefinition returns a read-only view for traversal. Use Definition when
+// callers need an independently mutable copy of all metadata.
+func (i *Index) ReadDefinition(name DefinitionName) (DefinitionView, bool) {
+	if i == nil {
+		return DefinitionView{}, false
+	}
+	definition, ok := i.definitions[name]
+	if !ok {
+		return DefinitionView{}, false
+	}
+	return DefinitionView{elements: definition.Elements}, true
+}
+
+// Elements returns a read-only view of the definition's elements.
+func (v DefinitionView) Elements() ElementListView {
+	return ElementListView{elements: v.elements}
+}
+
+// Len returns the number of elements in the list.
+func (v ElementListView) Len() int {
+	return len(v.elements)
+}
+
+// At returns a read-only view of the indexed element.
+func (v ElementListView) At(index int) (ElementView, bool) {
+	return elementAt(v.elements, index)
+}
+
+// Name returns the element name.
+func (v ElementView) Name() string {
+	if v.element == nil {
+		return ""
+	}
+	return v.element.Name
+}
+
+// JSONType returns the element's JSON type.
+func (v ElementView) JSONType() JSONType {
+	if v.element == nil {
+		return ""
+	}
+	return v.element.JSONType
+}
+
+// ReferencedType returns the element's referenced definition, if any.
+func (v ElementView) ReferencedType() DefinitionName {
+	if v.element == nil {
+		return ""
+	}
+	return v.element.ReferencedType
+}
+
+// ItemJSONType returns the JSON type of an array item.
+func (v ElementView) ItemJSONType() JSONType {
+	if v.element == nil {
+		return ""
+	}
+	return v.element.ItemJSONType
+}
+
+// ArrayElementType returns the array item's referenced definition, if any.
+func (v ElementView) ArrayElementType() DefinitionName {
+	if v.element == nil {
+		return ""
+	}
+	return v.element.ArrayElementType
+}
+
+// Elements returns a read-only view of inline object elements.
+func (v ElementView) Elements() ElementListView {
+	if v.element == nil {
+		return ElementListView{}
+	}
+	return ElementListView{elements: v.element.Elements}
+}
+
+// ArrayElements returns a read-only view of inline array-item elements.
+func (v ElementView) ArrayElements() ElementListView {
+	if v.element == nil {
+		return ElementListView{}
+	}
+	return ElementListView{elements: v.element.ArrayElements}
+}
+
+// Snapshot returns an independently mutable copy of the element metadata.
+func (v ElementView) Snapshot() Element {
+	if v.element == nil {
+		return Element{}
+	}
+	return cloneElement(*v.element)
 }
 
 // Definitions returns all definitions in name order. Each definition owns
@@ -198,6 +311,43 @@ func validateElementNames(definitionName DefinitionName, elements []Element) err
 	return nil
 }
 
+func validateElementReferences(definitionName DefinitionName, elements []Element, definitions map[DefinitionName]Definition) error {
+	return validateElementReferencesAt(definitionName, elements, definitions, "")
+}
+
+func validateElementReferencesAt(definitionName DefinitionName, elements []Element, definitions map[DefinitionName]Definition, prefix string) error {
+	for _, element := range elements {
+		path := element.Name
+		if prefix != "" {
+			path = prefix + "." + element.Name
+		}
+		if element.ReferencedType != "" {
+			if _, exists := definitions[element.ReferencedType]; !exists {
+				return fmt.Errorf("definition %q element %q references missing definition %q", definitionName, path, element.ReferencedType)
+			}
+		}
+		if element.ArrayElementType != "" {
+			if _, exists := definitions[element.ArrayElementType]; !exists {
+				return fmt.Errorf("definition %q element %q has array element reference to missing definition %q", definitionName, path, element.ArrayElementType)
+			}
+		}
+		if err := validateElementReferencesAt(definitionName, element.Elements, definitions, path); err != nil {
+			return err
+		}
+		if err := validateElementReferencesAt(definitionName, element.ArrayElements, definitions, path+"[]"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func elementAt(elements []Element, index int) (ElementView, bool) {
+	if index < 0 || index >= len(elements) {
+		return ElementView{}, false
+	}
+	return ElementView{element: &elements[index]}, true
+}
+
 func cloneDefinition(definition Definition) Definition {
 	definition.RequiredElements = cloneStrings(definition.RequiredElements)
 	definition.Elements = cloneElements(definition.Elements)
@@ -210,11 +360,15 @@ func cloneElements(elements []Element) []Element {
 	}
 	cloned := make([]Element, len(elements))
 	for i, element := range elements {
-		cloned[i] = element
-		cloned[i].Elements = cloneElements(element.Elements)
-		cloned[i].ArrayElements = cloneElements(element.ArrayElements)
-		cloned[i].RequiredChildren = cloneStrings(element.RequiredChildren)
-		cloned[i].ReferenceTargetTypes = append([]ResourceType(nil), element.ReferenceTargetTypes...)
+		cloned[i] = cloneElement(element)
 	}
 	return cloned
+}
+
+func cloneElement(element Element) Element {
+	element.Elements = cloneElements(element.Elements)
+	element.ArrayElements = cloneElements(element.ArrayElements)
+	element.RequiredChildren = cloneStrings(element.RequiredChildren)
+	element.ReferenceTargetTypes = append([]ResourceType(nil), element.ReferenceTargetTypes...)
+	return element
 }
