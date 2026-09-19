@@ -179,18 +179,18 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 // persists both the new draft and the bounded last-command replay record in
 // one compare-and-swap. Older command IDs are rejected by draft CAS.
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil)
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil)
 }
 
 // ApplyWorkspaceCommandsChecked is the mutation boundary for workflows that
-// need an external immutable reference validated before the draft CAS. The
-// checker runs after the pure command reducer and before any owner fields are
-// changed or SaveDraft is called.
-func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
-	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, checker)
+// need external immutable references resolved and validated before the draft
+// CAS. The preparer runs against the single loaded workspace before reduction;
+// the checker runs against the fully reduced workspace before SaveDraft.
+func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, prepare, checker)
 }
 
-func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -235,7 +235,22 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	if err != nil {
 		return nil, err
 	}
-	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, request.Commands)
+	commands := cloneAuthoringCommands(request.Commands)
+	if prepare != nil {
+		commands, err = prepare(ctx, workspace, commands)
+		if err != nil {
+			return nil, err
+		}
+		if len(commands) != len(request.Commands) {
+			return nil, fmt.Errorf("prepared authoring command count changed")
+		}
+		for index := range commands {
+			if commands[index].Type != request.Commands[index].Type {
+				return nil, fmt.Errorf("prepared authoring command type changed at index %d", index)
+			}
+		}
+	}
+	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +287,16 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	}
 	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
 }
+
+func cloneAuthoringCommands(commands []authoringv2.Command) []authoringv2.Command {
+	cloned := make([]authoringv2.Command, len(commands))
+	copy(cloned, commands)
+	for i := range cloned {
+		cloned[i].SemanticSelections = append([]authoringv2.SemanticSelection(nil), commands[i].SemanticSelections...)
+	}
+	return cloned
+}
+
 func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revision, error) {
 	e, err := s.store.Get(ctx, projectid.Legacy(project), id)
 	if err != nil {

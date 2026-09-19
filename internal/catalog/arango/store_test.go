@@ -183,6 +183,121 @@ func TestReadRetainedSemanticInventoryPageUsesScopedKeysetAndPreservesAuthPath(t
 	}
 }
 
+func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	build.State = catalog.SemanticInventoryComplete
+	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	buildRow := semanticInventoryTestRow(t, build)
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:system", Code: "code", Display: "Label"},
+		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+		LogicalType:   "decimal",
+		Population:    2,
+		Completeness:  catalog.SemanticComplete,
+		Status:        "SUPPORTED",
+		RuleHint:      "OBSERVATION_CODE_VALUE",
+		RuleVersion:   "3",
+	}
+	entryRow := semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
+	client := &evidenceClient{
+		rows: map[string][]map[string]any{
+			semanticInventoryBuildByKeyAQL:               {buildRow},
+			semanticInventoryResolveIndexedSelectionsAQL: {entryRow},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := false
+	result, err := adapter.ResolveSemanticInventorySelections(context.Background(), catalog.SemanticInventoryResolveOptions{
+		Project: "project", DatasetGeneration: "generation", AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths: []string{"/scope-a"},
+		References:        []catalog.SemanticInventoryReference{{ConceptID: "concept-a", BindingID: "binding-a"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != catalog.SemanticInventoryComplete || len(result.Entries) != 1 || result.Entries[0].ConceptID != "concept-a" || result.Entries[0].Observation.Population != 2 {
+		t.Fatalf("resolved inventory = %#v", result)
+	}
+	if len(client.queries) != 2 || client.queries[1] != semanticInventoryResolveIndexedSelectionsAQL {
+		t.Fatalf("selection queries = %v, want indexed exact lookup", client.queries)
+	}
+	vars := client.vars[1]
+	if vars["project"] != "project" || vars["dataset_generation"] != "generation" || vars["build_id"] != build.BuildID || vars["auth_resource_paths_unrestricted"] != false || vars["auth_resource_paths"] == nil || vars["observation_schema"] != build.ObservationSchema {
+		t.Fatalf("indexed resolver identity/scope binds = %#v", vars)
+	}
+	refs, ok := vars["references"].([]map[string]interface{})
+	if !ok || !reflect.DeepEqual(refs, []map[string]interface{}{{"binding_id": "binding-a", "concept_id": "concept-a"}}) {
+		t.Fatalf("indexed resolver refs = %#v", vars["references"])
+	}
+	query := client.queries[1]
+	for _, fragment := range []string{
+		"FOR d IN fhir_semantic_inventory_entries",
+		"FILTER d.project == @project",
+		"FILTER d.dataset_generation == @dataset_generation",
+		"FILTER d.build_id == @build_id",
+		"FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths",
+		"FILTER d.binding_id == requested.binding_id",
+		"FILTER d.concept_id == requested.concept_id",
+		"COLLECT AGGREGATE population = SUM(d.observation.population)",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("indexed selection query missing %q: %s", fragment, query)
+		}
+	}
+	if strings.Index(query, "FILTER @auth_resource_paths_unrestricted") > strings.Index(query, "COLLECT AGGREGATE") {
+		t.Fatalf("resolver aggregates before authorization filtering: %s", query)
+	}
+}
+
+func TestResolveSemanticInventorySelectionsFallsBackForLegacyBuild(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	build.State = catalog.SemanticInventoryComplete
+	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	buildRow := semanticInventoryTestRow(t, build)
+	entry := catalog.SemanticInventoryEntry{ConceptID: "concept-a", BindingID: "binding-a", Observation: catalog.SemanticObservation{SchemaVersion: catalog.SemanticObservationSchemaVersion}}
+	entryRow := semanticInventoryTestRow(t, entry)
+	client := &evidenceClient{
+		rows: map[string][]map[string]any{
+			semanticInventoryBuildByKeyAQL:        {buildRow},
+			semanticInventoryResolveSelectionsAQL: {entryRow},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := true
+	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), catalog.SemanticInventoryResolveOptions{
+		Project: "project", DatasetGeneration: "generation", AuthResourcePathsUnrestricted: &unrestricted,
+		References: []catalog.SemanticInventoryReference{{ConceptID: "concept-a", BindingID: "binding-a"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.queries) != 2 || client.queries[1] != semanticInventoryResolveSelectionsAQL {
+		t.Fatalf("legacy selection queries = %v, want contribution fallback", client.queries)
+	}
+}
+
+func semanticInventoryTestRow(t *testing.T, value any) map[string]any {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(encoded, &row); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
 func TestReadMissingRetainedSourceCollectionDoesNotQueryOrCreateIt(t *testing.T) {
 	client := &evidenceClient{collections: map[string]bool{"Observation": false}}
 	adapter, err := New(client)

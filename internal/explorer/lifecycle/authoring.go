@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -19,15 +21,44 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		return nil, malformed("commands", err.Error(), err)
 	}
-	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {
+	if s.config.Capability.Catalog == nil {
 		return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
-	snapshot, err := s.config.Capability.Token(ctx, project, request.SnapshotToken)
+	semanticCommand := request.Commands[0].Type == authoringv2.CommandAddSemanticSelections
+	var snapshot capability.Snapshot
+	var authorized AuthorizedCapability
+	var err error
+	if semanticCommand {
+		if s.config.Capability.ForCompilation == nil {
+			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized semantic inventory resolution is not configured", nil)
+		}
+		authorized, err = s.config.Capability.ForCompilation(ctx, project, request.SnapshotToken)
+		snapshot = authorized.Snapshot
+		if err == nil {
+			if scopeErr := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); scopeErr != nil {
+				return nil, conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, scopeErr)
+			}
+		}
+	} else {
+		if s.config.Capability.Token == nil {
+			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
+		}
+		snapshot, err = s.config.Capability.Token(ctx, project, request.SnapshotToken)
+	}
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
+	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
+		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
-	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, func(workspace authoringv2.Workspace) error {
+	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
+	if semanticCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
+		}
+	}
+	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
 			return validationErr
 		}
@@ -42,10 +73,94 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	case errors.Is(err, explorer.ErrAuthoringCommandConflict):
 		return nil, conflict("commands", "COMMAND_ID_CONFLICT", "commandId was already used for different intent", nil, err)
 	case err != nil:
+		var lifecycleErr *Error
+		if errors.As(err, &lifecycleErr) {
+			return nil, lifecycleErr
+		}
 		return nil, unprocessable("commands", "INVALID_AUTHORING_COMMAND", err.Error(), err)
 	default:
 		return response, nil
 	}
+}
+
+func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized AuthorizedCapability, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+	if s.config.ResolveSemanticInventorySelections == nil {
+		return nil, unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
+	}
+	if len(commands) != 1 || commands[0].Type != authoringv2.CommandAddSemanticSelections {
+		return nil, malformed("commands", "ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request", nil)
+	}
+	command := &commands[0]
+	document := findSemanticOutput(workspace, command.OutputID)
+	if document == nil || strings.TrimSpace(document.RootResourceType) == "" || document.Route.ResourceType != document.RootResourceType {
+		return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
+	}
+	rowRootAllowed := false
+	for _, node := range authorized.Snapshot.Nodes {
+		rowRootAllowed = rowRootAllowed || node.RowRootEligible && node.ResourceType == document.RootResourceType
+	}
+	if !rowRootAllowed {
+		return nil, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
+	}
+	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
+	references := make([]catalog.SemanticInventoryReference, 0, len(command.SemanticSelections))
+	seen := make(map[string]struct{}, len(command.SemanticSelections))
+	for _, selection := range command.SemanticSelections {
+		identity := selection.BindingID + "\x00" + selection.ConceptID
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		references = append(references, catalog.SemanticInventoryReference{ConceptID: selection.ConceptID, BindingID: selection.BindingID})
+	}
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+		Project:                       projectid.Legacy(authorized.Snapshot.Identity.Project),
+		DatasetGeneration:             authorized.Snapshot.Identity.Generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		References:                    references,
+	})
+	if err != nil {
+		return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
+	}
+	expectedBuildID := catalog.SemanticInventoryBuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != expectedBuildID {
+		return nil, conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
+	}
+	expectedContext, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
+	if err != nil {
+		return nil, err
+	}
+	if command.ContextToken != expectedContext {
+		return nil, conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
+	}
+	byIdentity := make(map[string]catalog.SemanticInventoryEntry, len(resolved.Entries))
+	for _, entry := range resolved.Entries {
+		identity := entry.BindingID + "\x00" + entry.ConceptID
+		if _, exists := byIdentity[identity]; exists {
+			return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "semantic inventory returned duplicate selection identities", nil)
+		}
+		byIdentity[identity] = entry
+	}
+	for index := range command.SemanticSelections {
+		selection := &command.SemanticSelections[index]
+		identity := selection.BindingID + "\x00" + selection.ConceptID
+		entry, found := byIdentity[identity]
+		if !found {
+			return nil, unprocessable("commands", "INVALID_SEMANTIC_SELECTION", "a selected concept binding is unavailable in the current authorized inventory", nil)
+		}
+		selection.ResolvedObservation = &entry
+	}
+	return commands, nil
+}
+
+func findSemanticOutput(workspace authoringv2.Workspace, outputID string) *authoringv2.Document {
+	for index := range workspace.Documents {
+		if workspace.Documents[index].Output.ID == outputID {
+			return &workspace.Documents[index]
+		}
+	}
+	return nil
 }
 
 func (s *Service) compile(ctx context.Context, request compileRequest) (*explorer.CompilationReceipt, error) {

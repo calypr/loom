@@ -378,13 +378,14 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	lifecycleConfig := lifecycle.Config{
-		SemanticInventory:            catalogStore.PageSemanticInventory,
-		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,
-		InterpretationRepository:     explorerStore,
-		PopulationMappingCursorCodec: populationMappingCursorCodec,
-		SelectionSourceResolver:      published.SelectionSourceAdapter{Reader: materializationReader},
-		SelectionReferenceValidator:  explorerStore.ValidateSelectionReferences,
-		CompileReceipt:               compileReceipt,
+		SemanticInventory:                  catalogStore.PageSemanticInventory,
+		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
+		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
+		InterpretationRepository:           explorerStore,
+		PopulationMappingCursorCodec:       populationMappingCursorCodec,
+		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},
+		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
+		CompileReceipt:                     compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)

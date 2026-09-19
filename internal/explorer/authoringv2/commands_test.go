@@ -2,10 +2,12 @@ package authoringv2
 
 import (
 	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -212,6 +214,160 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 	column := updated.Documents[0].Columns[0]
 	if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Path != "" || column.LogicalType != "decimal" {
 		t.Fatalf("correlated source was not preserved as typed input: %#v", column)
+	}
+}
+
+func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	selections := []SemanticSelection{
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "First label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-b-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-b-shared", "binding-observation", "urn:system:b", "shared", "")},
+		{ConceptID: "concept-system-a-other", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-encounter", "encounter-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-a-other", "binding-observation", "urn:system:a", "other", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "Changed label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "FIRST", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+	}
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: outputID, ContextToken: "context", SemanticSelections: selections}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultSemanticSelectionsAdded || len(results[0].SemanticSelections) != len(selections) {
+		t.Fatalf("results = %#v", results)
+	}
+	gotStatuses := []string{}
+	gotColumnIDs := []string{}
+	for _, result := range results[0].SemanticSelections {
+		gotStatuses = append(gotStatuses, result.Status)
+		gotColumnIDs = append(gotColumnIDs, result.ColumnID)
+	}
+	wantStatuses := []string{SemanticSelectionAdded, SemanticSelectionAdded, SemanticSelectionAdded, SemanticSelectionAlreadyPresent, SemanticSelectionAdded}
+	if !reflect.DeepEqual(gotStatuses, wantStatuses) {
+		t.Fatalf("selection statuses = %v, want %v", gotStatuses, wantStatuses)
+	}
+	if gotColumnIDs[0] != gotColumnIDs[3] || gotColumnIDs[0] == gotColumnIDs[1] || gotColumnIDs[0] == gotColumnIDs[2] || gotColumnIDs[0] == gotColumnIDs[4] {
+		t.Fatalf("semantic column identities do not distinguish coding system, code, route, or value policy: %v", gotColumnIDs)
+	}
+	document := updated.Documents[0]
+	if len(document.Route.Children) != 2 || len(document.Route.Children[0].Children) != 0 || len(document.Route.Children[1].Children) != 1 {
+		t.Fatalf("route was not reused and allocated by selected edge path: %#v", document.Route)
+	}
+	if len(document.Columns) != 4 {
+		t.Fatalf("columns = %d, want four unique semantic identities", len(document.Columns))
+	}
+	keys := map[string]fhirschema.CorrelatedKey{}
+	modes := map[string]string{}
+	for _, column := range document.Columns {
+		keys[column.Column] = *column.Source.Lookup.Key
+		modes[column.Column] = column.Source.Lookup.ProjectionMode
+	}
+	if keys[gotColumnIDs[0]] != (fhirschema.CorrelatedKey{System: "urn:system:a", Code: "shared"}) || keys[gotColumnIDs[1]] != (fhirschema.CorrelatedKey{System: "urn:system:b", Code: "shared"}) || keys[gotColumnIDs[2]].Code != "other" {
+		t.Fatalf("resolved coding keys = %#v", keys)
+	}
+	if modes[gotColumnIDs[0]] != "VALUE" || modes[gotColumnIDs[4]] != "FIRST" {
+		t.Fatalf("value policies = %#v", modes)
+	}
+}
+
+func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selections := []SemanticSelection{
+		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
+		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
+	}
+	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context", SemanticSelections: selections}}); err == nil || !strings.Contains(err.Error(), "version-specific") {
+		t.Fatalf("versioned last selection error = %v", err)
+	}
+	after, err := workspace.Digest()
+	if err != nil || after != before || len(workspace.Documents[0].Route.Children) != 0 || len(workspace.Documents[0].Columns) != 0 {
+		t.Fatalf("failed semantic batch mutated original workspace: digest %q -> %q err=%v workspace=%#v", before, after, err, workspace)
+	}
+}
+
+func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	document := workspaceDocument("patients")
+	order := 0
+	document.Columns[0].Table.Order = &order
+	document.Route.Children = []RouteNode{{OccurrenceID: "authored-encounter", ResourceType: "Encounter", Relationship: "encounters"}}
+	document.FixedFilters = []FixedFilter{{Column: "patient_id", Values: []string{"active"}}}
+	document.Actions = []Action{{Type: "export", Title: "Export"}}
+	existingRoute := append([]RouteNode(nil), document.Route.Children...)
+	existingColumns := append([]Column(nil), document.Columns...)
+	existingFilters := append([]FixedFilter(nil), document.FixedFilters...)
+	existingActions := append([]Action(nil), document.Actions...)
+	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{document}, Tabs: []Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
+	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{
+		Type: CommandAddSemanticSelections, OutputID: "patients", ContextToken: "context",
+		SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDocument := updated.Documents[0]
+	if len(updatedDocument.Route.Children) != 2 || !reflect.DeepEqual(updatedDocument.Route.Children[0], existingRoute[0]) || !reflect.DeepEqual(updatedDocument.Columns[0], existingColumns[0]) || !reflect.DeepEqual(updatedDocument.FixedFilters, existingFilters) || !reflect.DeepEqual(updatedDocument.Actions, existingActions) {
+		t.Fatalf("existing graph-authored configuration changed: %#v", updatedDocument)
+	}
+}
+
+func TestSemanticSelectionIntentRequiresExplicitPolicyAndRejectsTrustedPayload(t *testing.T) {
+	command := Command{Type: CommandAddSemanticSelections, OutputID: "out", ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", ProjectionMode: "VALUE"}}}
+	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "routeEdgeIds must be explicit") {
+		t.Fatalf("omitted route list error = %v", err)
+	}
+	command.SemanticSelections[0].RouteEdgeIDs = []string{}
+	command.SemanticSelections[0].ProjectionMode = ""
+	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "projectionMode") {
+		t.Fatalf("missing projection mode error = %v", err)
+	}
+	raw := `{"type":"ADD_SEMANTIC_SELECTIONS","outputId":"out","contextToken":"context","semanticSelections":[{"conceptId":"concept","bindingId":"binding","routeEdgeIds":[],"projectionMode":"VALUE","resolvedObservation":{"observation":{}}}]}`
+	var decoded Command
+	if err := json.Unmarshal([]byte(raw), &decoded); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("client trusted observation payload was accepted: %v", err)
+	}
+}
+
+func semanticSelectionCatalog() CatalogSnapshot {
+	catalogSnapshot := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer", SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "snapshot", Complete: true,
+		Nodes: []CatalogNode{
+			{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+			{ID: "encounter", ResourceType: "Encounter"},
+			{ID: "observation", ResourceType: "Observation"},
+		},
+		Edges: []CatalogEdge{
+			{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"},
+			{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+			{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
+		},
+		Candidates:  []CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"}},
+		RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	return catalogSnapshot
+}
+
+func semanticSelectionEntry(conceptID, bindingID, system, code, version string) *catalog.SemanticInventoryEntry {
+	return &catalog.SemanticInventoryEntry{
+		ConceptID: conceptID,
+		BindingID: bindingID,
+		Observation: catalog.SemanticObservation{
+			SchemaVersion: catalog.SemanticObservationSchemaVersion,
+			Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+			Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
+			Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "3",
+		},
 	}
 }
 

@@ -114,9 +114,10 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 type Config struct {
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
-	SelectionMembersCollection string
-	Capability                 CapabilityResolver
-	SemanticInventory          func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
+	SelectionMembersCollection         string
+	Capability                         CapabilityResolver
+	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
+	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
 	// InterpretationRepository resolves exact immutable revision IDs. It is
 	// intentionally narrow so lifecycle cannot accidentally depend on heads or
 	// unrelated Explorer persistence methods.

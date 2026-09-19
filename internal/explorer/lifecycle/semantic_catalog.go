@@ -105,12 +105,10 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if err != nil {
 		return result, err
 	}
-	identity, err := json.Marshal([]string{"semantic-browse/v1", snapshot.Identity.Project, req.ExplorerID, snapshot.Token, snapshot.Identity.AuthorizationScopeDigest, req.RowRoot, "all-authorized", page.Build.BuildID})
+	result.ContextToken, err = semanticInventoryContextToken(snapshot, req.ExplorerID, req.RowRoot, page.Build.BuildID)
 	if err != nil {
 		return result, err
 	}
-	digest := sha256.Sum256(identity)
-	result.ContextToken = hex.EncodeToString(digest[:])
 	if req.Cursor != "" && cursor.Context != result.ContextToken {
 		return BrowseSemanticInventoryResponse{}, conflict("catalog", "STALE_CATALOG_CURSOR", "catalog context changed; restart search", nil, nil)
 	}
@@ -138,4 +136,13 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		result.NextCursor = base64.RawURLEncoding.EncodeToString(raw)
 	}
 	return result, nil
+}
+
+func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {
+	identity, err := json.Marshal([]string{"semantic-browse/v1", snapshot.Identity.Project, explorerID, snapshot.Token, snapshot.Identity.AuthorizationScopeDigest, rowRoot, "all-authorized", buildID})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(identity)
+	return hex.EncodeToString(digest[:]), nil
 }

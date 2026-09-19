@@ -215,6 +215,145 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	assertCodePopulation(t, replayed, "shared-000", 2)
 }
 
+func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *testing.T) {
+	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
+		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run semantic inventory Arango proof")
+	}
+	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
+	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
+	if endpoint == "" || database == "" {
+		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := arangostore.Open(ctx, endpoint, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	store, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareSemanticInventoryBackfill(ctx); err != nil {
+		t.Fatal(err)
+	}
+	project := "c01-resolve-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
+	build := catalog.NewSemanticInventoryBuild(project, generation, "")
+	build.SourceKind = catalog.SemanticInventorySourceRetained
+	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
+		t.Fatal(err)
+	}
+	conceptID, bindingID := "concept-shared", "binding-shared"
+	rows := make([]json.RawMessage, 0, 3)
+	for _, scope := range []string{"scope-a", "scope-b"} {
+		unit := "mg"
+		if scope == "scope-b" {
+			unit = "mmol/L"
+		}
+		observation := catalog.SemanticObservation{
+			SchemaVersion: catalog.SemanticObservationSchemaVersion,
+			Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+			Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:c01", Code: "shared", Display: "Label " + scope},
+			Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+			LogicalType:   "decimal",
+			ObservedUnits: []string{unit},
+			Population:    1,
+			Examples:      []string{"Observation/" + scope},
+			Completeness:  catalog.SemanticComplete,
+			Status:        "SUPPORTED",
+			RuleHint:      "OBSERVATION_CODE_VALUE",
+			RuleVersion:   "3",
+		}
+		entry := map[string]any{
+			"_key":               strings.ReplaceAll(uuid.NewString(), "-", ""),
+			"project":            project,
+			"dataset_generation": generation,
+			"build_id":           build.BuildID,
+			"source_kind":        build.SourceKind,
+			"auth_resource_path": scope,
+			"resource_type":      "Observation",
+			"binding_id":         bindingID,
+			"concept_id":         conceptID,
+			"example":            "Observation/" + scope,
+			"observation":        observation,
+		}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows = append(rows, encoded)
+	}
+	privateObservation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:c01", Code: "scope-b-only", Display: "Private label"},
+		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+		LogicalType:   "decimal", Population: 1, Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "3",
+	}
+	privateRow, err := json.Marshal(map[string]any{
+		"_key":               strings.ReplaceAll(uuid.NewString(), "-", ""),
+		"project":            project,
+		"dataset_generation": generation,
+		"build_id":           build.BuildID,
+		"source_kind":        build.SourceKind,
+		"auth_resource_path": "scope-b",
+		"resource_type":      "Observation",
+		"binding_id":         "binding-scope-b-only",
+		"concept_id":         "concept-scope-b-only",
+		"example":            "Observation/private",
+		"observation":        privateObservation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows = append(rows, privateRow)
+	if err := client.InsertBatchRaw(ctx, catalog.SemanticInventoryEntryCollection, rows, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteSemanticInventoryBuild(ctx, build, 3, ""); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(paths []string, unrestricted bool) catalog.SemanticInventoryResolveResult {
+		t.Helper()
+		result, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+			Project: project, DatasetGeneration: generation,
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(unrestricted),
+			AuthResourcePaths:             paths,
+			References:                    []catalog.SemanticInventoryReference{{ConceptID: conceptID, BindingID: bindingID}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	a := resolve([]string{"scope-a"}, false)
+	if len(a.Entries) != 1 || a.Entries[0].Observation.Population != 1 || a.Entries[0].Observation.Key.Display != "Label scope-a" {
+		t.Fatalf("scope-a resolver result = %+v", a)
+	}
+	unauthorized, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+		Project: project, DatasetGeneration: generation,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
+		AuthResourcePaths:             []string{"scope-a"},
+		References:                    []catalog.SemanticInventoryReference{{ConceptID: "concept-scope-b-only", BindingID: "binding-scope-b-only"}},
+	})
+	if err != nil || len(unauthorized.Entries) != 0 {
+		t.Fatalf("out-of-scope exact selection result = %+v err=%v", unauthorized, err)
+	}
+	combined := resolve([]string{"scope-a", "scope-b"}, false)
+	if len(combined.Entries) != 1 || combined.Entries[0].Observation.Population != 2 || !combined.Entries[0].Observation.ExamplesTruncated || !combined.Entries[0].Observation.ObservedUnitsTruncated {
+		t.Fatalf("combined resolver result = %+v; want one aggregated row with truthful bounded evidence", combined)
+	}
+	unrestricted := resolve(nil, true)
+	if len(unrestricted.Entries) != 1 || unrestricted.Entries[0].Observation.Population != 2 {
+		t.Fatalf("unrestricted resolver result = %+v", unrestricted)
+	}
+}
+
 func inventoryCodes(prefix string, count int) []string {
 	codes := make([]string, count)
 	for i := range codes {

@@ -38,6 +38,9 @@ type fakeStore struct {
 	activationErrors   []error
 	release            dataset.ProjectRelease
 	revision           int64
+	saveDraftCalls     int
+	saveDraftHook      func(explorer.Explorer) error
+	copyGet            bool
 	order              *[]string
 	selection          *explorer.SelectionRevision
 	selectionMembers   []explorer.SelectionMember
@@ -64,6 +67,12 @@ func (f *fakeStore) Get(_ context.Context, _, id string) (*explorer.Explorer, er
 		return nil, explorer.ErrNotFound
 	}
 	if f.created != nil {
+		if f.copyGet {
+			value := *f.created
+			value.DraftConfig = append([]byte(nil), f.created.DraftConfig...)
+			value.LastAuthoringCommandResults = append([]byte(nil), f.created.LastAuthoringCommandResults...)
+			return &value, nil
+		}
 		return f.created, nil
 	}
 	if f.state.ExplorerID != "" {
@@ -73,6 +82,12 @@ func (f *fakeStore) Get(_ context.Context, _, id string) (*explorer.Explorer, er
 }
 
 func (f *fakeStore) SaveDraft(_ context.Context, value explorer.Explorer, _ int64, _ ...string) (*explorer.Explorer, error) {
+	f.saveDraftCalls++
+	if f.saveDraftHook != nil {
+		if err := f.saveDraftHook(value); err != nil {
+			return nil, err
+		}
+	}
 	if f.applyErr != nil {
 		return nil, f.applyErr
 	}

@@ -106,6 +106,29 @@ type SemanticInventoryPageOptions struct {
 	Limit                         int
 }
 
+// SemanticInventoryReference identifies one immutable catalog row without
+// including observed payload or caller-chosen storage identities.
+type SemanticInventoryReference struct {
+	ConceptID string `json:"concept_id"`
+	BindingID string `json:"binding_id"`
+}
+
+// SemanticInventoryResolveOptions is the bounded, authorization-scoped lookup
+// used when a user applies selected catalog rows to an authoring workspace.
+type SemanticInventoryResolveOptions struct {
+	Project                       string
+	DatasetGeneration             string
+	AuthResourcePathsUnrestricted *bool
+	AuthResourcePaths             []string
+	References                    []SemanticInventoryReference
+}
+
+type SemanticInventoryResolveResult struct {
+	Build   SemanticInventoryBuild
+	State   SemanticInventoryState
+	Entries []SemanticInventoryEntry
+}
+
 type SemanticInventoryPage struct {
 	Entries    []SemanticInventoryEntry `json:"entries"`
 	Build      SemanticInventoryBuild   `json:"build"`

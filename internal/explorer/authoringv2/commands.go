@@ -8,38 +8,43 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
-	CommandCreateTable                  = "CREATE_TABLE"
-	CommandDuplicateTable               = "DUPLICATE_TABLE"
-	CommandDeleteTable                  = "DELETE_TABLE"
-	CommandRenameTable                  = "RENAME_TABLE"
-	CommandReorderTables                = "REORDER_TABLES"
-	CommandSetTableRoot                 = "SET_TABLE_ROOT"
-	CommandApplyTableRootRebase         = "APPLY_TABLE_ROOT_REBASE"
-	CommandSetTablePopulation           = "SET_TABLE_POPULATION"
-	CommandClearTablePopulation         = "CLEAR_TABLE_POPULATION"
-	CommandAddRoute                     = "ADD_ROUTE"
-	CommandUpdateRouteEdge              = "UPDATE_ROUTE_EDGE"
-	CommandSetRouteMatchMode            = "SET_ROUTE_MATCH_MODE"
-	CommandRemoveRoute                  = "REMOVE_ROUTE"
-	CommandAddColumn                    = "ADD_COLUMN"
-	CommandAddColumnSource              = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn                 = "UPDATE_COLUMN"
-	CommandSetColumnContributor         = "SET_COLUMN_CONTRIBUTOR"
-	CommandClearColumnContributor       = "CLEAR_COLUMN_CONTRIBUTOR"
-	CommandApplyInterpretationCandidate = "APPLY_INTERPRETATION_CANDIDATE"
-	CommandUpdateColumnSource           = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn                 = "REMOVE_COLUMN"
-	CommandResultTableCreated           = "TABLE_CREATED"
-	CommandResultTableChanged           = "TABLE_CHANGED"
-	CommandResultRouteAdded             = "ROUTE_ADDED"
-	CommandResultColumnAdded            = "COLUMN_ADDED"
-	InitialPresentationTable            = "TABLE"
-	InitialPresentationFilter           = "FILTER"
-	InitialPresentationChart            = "CHART"
+	CommandCreateTable                   = "CREATE_TABLE"
+	CommandDuplicateTable                = "DUPLICATE_TABLE"
+	CommandDeleteTable                   = "DELETE_TABLE"
+	CommandRenameTable                   = "RENAME_TABLE"
+	CommandReorderTables                 = "REORDER_TABLES"
+	CommandSetTableRoot                  = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase          = "APPLY_TABLE_ROOT_REBASE"
+	CommandSetTablePopulation            = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation          = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute                      = "ADD_ROUTE"
+	CommandUpdateRouteEdge               = "UPDATE_ROUTE_EDGE"
+	CommandSetRouteMatchMode             = "SET_ROUTE_MATCH_MODE"
+	CommandRemoveRoute                   = "REMOVE_ROUTE"
+	CommandAddColumn                     = "ADD_COLUMN"
+	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn                  = "UPDATE_COLUMN"
+	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
+	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
+	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
+	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn                  = "REMOVE_COLUMN"
+	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
+	CommandResultTableCreated            = "TABLE_CREATED"
+	CommandResultTableChanged            = "TABLE_CHANGED"
+	CommandResultRouteAdded              = "ROUTE_ADDED"
+	CommandResultColumnAdded             = "COLUMN_ADDED"
+	CommandResultSemanticSelectionsAdded = "SEMANTIC_SELECTIONS_ADDED"
+	SemanticSelectionAdded               = "ADDED"
+	SemanticSelectionAlreadyPresent      = "ALREADY_PRESENT"
+	InitialPresentationTable             = "TABLE"
+	InitialPresentationFilter            = "FILTER"
+	InitialPresentationChart             = "CHART"
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
@@ -86,7 +91,30 @@ type Command struct {
 	Source                  *ColumnSource                 `json:"source,omitempty"`
 	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
 	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
+	ContextToken            string                        `json:"contextToken,omitempty"`
+	SemanticSelections      []SemanticSelection           `json:"semanticSelections,omitempty"`
 	OutputIDs               []string                      `json:"outputIds,omitempty"`
+}
+
+// SemanticSelection is client intent plus an internal-only resolution filled
+// by lifecycle after authorization and context checks.
+type SemanticSelection struct {
+	ConceptID           string                          `json:"conceptId"`
+	BindingID           string                          `json:"bindingId"`
+	RouteEdgeIDs        []string                        `json:"routeEdgeIds"`
+	ProjectionMode      string                          `json:"projectionMode"`
+	Title               string                          `json:"title,omitempty"`
+	ResolvedObservation *catalog.SemanticInventoryEntry `json:"-"`
+}
+
+func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {
+	type wire SemanticSelection
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*s = SemanticSelection(decoded)
+	return nil
 }
 
 // ApplyInterpretationCandidate is the closed, receipt-backed payload for an
@@ -109,11 +137,19 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 }
 
 type CommandResult struct {
-	Type         string `json:"type"`
-	OutputID     string `json:"outputId,omitempty"`
-	TabID        string `json:"tabId,omitempty"`
-	OccurrenceID string `json:"occurrenceId,omitempty"`
-	Column       string `json:"column,omitempty"`
+	Type               string                    `json:"type"`
+	OutputID           string                    `json:"outputId,omitempty"`
+	TabID              string                    `json:"tabId,omitempty"`
+	OccurrenceID       string                    `json:"occurrenceId,omitempty"`
+	Column             string                    `json:"column,omitempty"`
+	SemanticSelections []SemanticSelectionResult `json:"semanticSelections,omitempty"`
+}
+
+type SemanticSelectionResult struct {
+	ConceptID string `json:"conceptId"`
+	BindingID string `json:"bindingId"`
+	ColumnID  string `json:"columnId"`
+	Status    string `json:"status"`
 }
 
 type ApplyCommandsResponse struct {
@@ -138,10 +174,17 @@ func (r ApplyCommandsRequest) Validate() error {
 	if len(r.Commands) == 0 {
 		return fmt.Errorf("at least one command is required")
 	}
+	semanticCommandCount := 0
 	for i, command := range r.Commands {
+		if command.Type == CommandAddSemanticSelections {
+			semanticCommandCount++
+		}
 		if err := command.validate(); err != nil {
 			return fmt.Errorf("commands[%d]: %w", i, err)
 		}
+	}
+	if semanticCommandCount > 0 && (semanticCommandCount != 1 || len(r.Commands) != 1) {
+		return fmt.Errorf("ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request")
 	}
 	return nil
 }
@@ -283,6 +326,15 @@ func (c Command) validate() error {
 	case CommandRemoveColumn:
 		if !required(c.OutputID, c.Column) {
 			return fmt.Errorf("REMOVE_COLUMN requires outputId and column")
+		}
+	case CommandAddSemanticSelections:
+		if !required(c.OutputID, c.ContextToken) || len(c.SemanticSelections) == 0 || len(c.SemanticSelections) > 100 {
+			return fmt.Errorf("ADD_SEMANTIC_SELECTIONS requires outputId, contextToken, and between 1 and 100 selections")
+		}
+		for i, selection := range c.SemanticSelections {
+			if err := selection.validate(); err != nil {
+				return fmt.Errorf("semanticSelections[%d]: %w", i, err)
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported command type %q", c.Type)
@@ -619,6 +671,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(workspace.Documents[document].Columns))
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
+	case CommandAddSemanticSelections:
+		return applySemanticSelections(workspace, catalog, commandID, index, command)
 	case CommandUpdateColumn:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
