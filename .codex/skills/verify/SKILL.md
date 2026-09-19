@@ -35,7 +35,7 @@ status.
 
 ## Drive
 
-Run the browser path:
+Run the complete browser path:
 
 ```bash
 make verify-fast
@@ -43,11 +43,13 @@ make verify-fast
 
 The driver launches a temporary headless Chrome profile through CDP. It uses
 accessible roles, labels, and visible text to create a new per-run Explorer,
-create a table, choose Patient as the root, add the supported
-`Patient -> Observation` relationship, choose nested and scalar fields, click
-Preview, and click Publish. It then reads the published materialization through
-the API as independent proof, opens Viewer, loads and applies a filter, clicks
-Download CSV, parses the CSV, and reloads Viewer.
+author row grain and related features, exercise reduction and interpretation
+controls, Preview, and Publish. It independently reads the exact published
+materialization, opens Viewer, applies a filter, explains a cell from its FHIR
+contributors, follows a repair action back to Builder, and returns to Viewer.
+It then downloads the server-built training artifact, parses the ZIP, and
+checks its fixed members, immutable publication identity, schema, literal rows,
+membership, and member checksums before reloading Viewer.
 
 Every run uses a unique `loom_dev_verify_<run-id>` project and checks that it
 has no Explorers or fixture generation before seeding. The stable
@@ -78,10 +80,29 @@ its DOM evidence. `.artifacts/loom-dev/report.json` holds the latest command
 report. These reports contain `status`,
 `scenario`, `target`, `assertions`, `timings`, and `evidencePaths`.
 
-Evidence includes initial, preview, and post-reload DOM snapshots, the parsed
-CSV, the new materialization identity, and the failed-build log when the full
-path runs. The driver does not write credentials, raw network traces, or
-authorization headers.
+Evidence includes initial, preview, explanation, repair, and post-reload DOM
+snapshots; the downloaded training artifact; the new materialization identity;
+and the failed-build log when the full path runs. The driver does not write
+credentials, raw network traces, or authorization headers.
+
+## External open-access fixture
+
+The same mounted stack can load a reusable FHIR directory without copying it
+into the repository. Supply a unique project and generation, the absolute
+fixture path, and a bounded load timeout to `make dev`, `make dev-doctor`, or
+`make verify-current`:
+
+```bash
+LOOM_DEV_PROJECT=loom_dev_cda_fhir \
+LOOM_DEV_GENERATION=cda-fhir-v1 \
+LOOM_DEV_FIXTURE_DIR=/absolute/path/to/CDA-FHIR/META \
+LOOM_DEV_FIXTURE_TIMEOUT_MS=3600000 \
+make dev
+```
+
+`verify-current` proves that the populated Builder and both source watchers
+remain usable. Use `verify-fast` or `verify-full` for the isolated, destructive
+end-to-end product journey; they intentionally create a fresh owned project.
 
 ## Cleanup
 
@@ -118,10 +139,11 @@ The implemented checks are:
 | --- | --- |
 | Isolated target | Compose project, ports, volumes, and fixture validation |
 | Source iteration | Vite CSS HMR and Air build recovery in `verify-full` |
-| Builder authoring | Explorer creation, table creation, root and relationship controls |
-| Preview | Literal fixture rows, nested family values, related Observation value, and physical-column contract |
-| Publication | New runtime and materialization identity for the current fixture generation |
-| Viewer | Filtered rows, parsed CSV, and data after reload |
+| Builder authoring | Explorer creation, table creation, root/relationship controls, deliberate reductions, and interpretation revision apply/cancel |
+| Preview | Literal fixture rows, nested values, related-resource reductions, interpretation differences, and physical-column contract |
+| Publication | Exact receipt, quality report, runtime, and materialization identity for the current fixture generation |
+| Evidence and repair | Targeted cell contributors, missing/null distinction, and receipt-owned repair focus |
+| Viewer | Filtered rows, exact training-artifact ZIP, member checksums, and data after reload |
 
 The fixture intentionally does not claim correctness for multiple related
 resources projected with `FIRST`. The existing `verify-loom-ui` skill targets

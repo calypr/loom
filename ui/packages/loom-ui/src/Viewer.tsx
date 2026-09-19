@@ -63,6 +63,14 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   queueMicrotask(() => URL.revokeObjectURL(url));
 };
 
+const downloadNative = (url: string, fileName: string): void => {
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.rel = 'noopener';
+  anchor.click();
+};
+
 const artifactRequestKey = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
   return `artifact-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -119,8 +127,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
           outputId: output.outputId,
           idempotencyKey: artifactRequestKey(),
         });
-        const blob = await client.downloadArtifact({ project, explorerId, artifactId: artifact.id });
-        downloadBlob(blob, artifact.filename);
+        downloadNative(client.artifactDownloadURL({ project, explorerId, artifactId: artifact.id }), artifact.filename);
       } else {
         const targetOutput = action?.output
           ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output

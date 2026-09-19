@@ -386,10 +386,9 @@ export interface LoomClient {
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
   ) => Promise<Artifact>;
-  readonly downloadArtifact: (
-    args: DownloadArtifactArgs,
-    signal?: AbortSignal,
-  ) => Promise<Blob>;
+  /** Native-download URL for a completed artifact. The browser streams this
+   * response to its download manager instead of materializing a dataset Blob. */
+  readonly artifactDownloadURL: (args: DownloadArtifactArgs) => string;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
     signal?: AbortSignal,
@@ -702,28 +701,6 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       });
     }
   };
-  const requestBlob = async (path: string, signal?: AbortSignal): Promise<Blob> => {
-    try {
-      const response = await fetcher(urlFor(path), {
-        signal,
-        credentials: options.credentials ?? 'same-origin',
-        headers: { Accept: 'application/zip', ...(options.headers ?? {}) },
-      });
-      if (!response.ok) throw new LoomRequestError(await requestError(response));
-      if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/zip') {
-        throw new LoomRequestError({ status: 502, code: 'INVALID_ARTIFACT_RESPONSE', message: 'Loom returned an invalid training artifact response.', retryable: false });
-      }
-      return response.blob();
-    } catch (error) {
-      if (error instanceof LoomRequestError) throw error;
-      if (signal?.aborted) throw error;
-      throw new LoomRequestError({
-        status: 'FETCH_ERROR',
-        message: error instanceof Error ? error.message : String(error),
-        retryable: true,
-      });
-    }
-  };
   const evictCached = (key: string): void => {
     const entry = cache.get(key);
     if (!entry) return;
@@ -923,8 +900,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       outputId: args.outputId,
       idempotencyKey: args.idempotencyKey,
     }, signal)).then((value) => artifactSchema.parse(value));
-  const downloadArtifact = (args: DownloadArtifactArgs, signal?: AbortSignal) =>
-    requestBlob(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`, signal);
+  const artifactDownloadURL = (args: DownloadArtifactArgs): string =>
+    urlFor(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`);
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
     getCached(
       `interpretations:${canonicalProject(args.project)}`,
@@ -1096,7 +1073,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     populationMapping,
     cellTrace,
     prepareArtifact,
-    downloadArtifact,
+    artifactDownloadURL,
     listInterpretationLibraries,
     getInterpretationRevision,
     createInterpretationRevision,

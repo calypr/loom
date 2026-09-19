@@ -15,7 +15,7 @@ feature. Read the matching recipe before changing a scenario.
 ## Proof rules
 
 Run `make verify-fast` for the complete browser scenario. Read its report and
-linked DOM and CSV evidence. Failed or skipped assertions are not passes.
+linked DOM and training-artifact evidence. Failed or skipped assertions are not passes.
 Setup uses ingestion APIs. Authoring, preview, publication, filtering, and
 download use the real UI. Independent GraphQL reads check the stored result.
 
@@ -26,12 +26,14 @@ values. Do not replace browser assertions with API-only checks.
 
 - [Author a dataframe](authoring.md).
 - [Preview and publish](publication.md).
-- [Filter and export](viewer.md).
+- [Explain, filter, and export](viewer.md).
 - [Iterate on source](iteration.md).
 
 ## Not covered
 
-Authentication, real NCPI scale, multiple Observations per Patient, aggregate
-authoring, projection editing, missingness profiling, pagination, charts, and
-immutable training exports are outside this map. Add a real user path and
-literal expected outcome when implementing one of those features.
+Authentication, real NCPI scale, pagination, charts, and every possible FHIR
+interpretation remain outside this map. The fixture does cover multiple
+Observations per Patient, deliberate reduction, immutable interpretation
+revisions, publication-quality evidence, targeted cell explanation, repair
+focus, and exact training artifacts. Add a real user path and literal expected
+outcome when extending coverage.

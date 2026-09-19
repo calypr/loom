@@ -26,17 +26,19 @@ describe('Loom Explorer Viewer', () => {
     const prepareArtifact = vi.spyOn(client, 'prepareArtifact').mockResolvedValue({
       id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', filename: 'loom-dataset-artifact-v1.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
     });
-    const downloadArtifact = vi.spyOn(client, 'downloadArtifact').mockResolvedValue(new Blob(['zip'], { type: 'application/zip' }));
-    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:artifact') });
-    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const artifactDownloadURL = vi.spyOn(client, 'artifactDownloadURL');
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
     render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Download training artifact' }));
 
-    await waitFor(() => expect(downloadArtifact).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId }));
+    await waitFor(() => expect(artifactDownloadURL).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId }));
     expect(prepareArtifact).toHaveBeenCalledWith(expect.objectContaining({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients' }));
     expect(click).toHaveBeenCalledTimes(1);
+    expect(click.mock.instances[0]).toMatchObject({
+      href: expect.stringContaining(`/artifacts/${artifactId}`),
+      download: 'loom-dataset-artifact-v1.zip',
+    });
   });
 
   it('renders server rows and opens the public row details hook', async () => {
