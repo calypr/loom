@@ -117,10 +117,18 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			return nil
 		})
 		if err != nil {
-			if reports := qualityReportsFromError(qualityReports, err); len(reports) > len(qualityReports) {
+			evidenceErr := error(nil)
+			if quality != nil {
+				_, evidenceErr = quality.fail(err)
+			}
+			reports := qualityReportsFromError(qualityReports, evidenceErr)
+			if len(reports) > len(qualityReports) {
 				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
 					err = errors.Join(err, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
 				}
+			}
+			if evidenceErr != nil {
+				err = errors.Join(err, evidenceErr)
 			}
 			return fail(fmt.Errorf("output %q stream: %w", output.Name, err))
 		}

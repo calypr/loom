@@ -2115,7 +2115,7 @@ components:
         rowId: {type: string, minLength: 1}
         column: {type: string, minLength: 1}
         value: {}
-        status: {type: string, enum: [VALUE, NO_MATCH, RECORDED_NULL, AMBIGUOUS, INCOMPLETE]}
+        status: {type: string, enum: [VALUE, NO_MATCH, RECORDED_NULL, AMBIGUOUS, INVALID_TYPE, INCOMPATIBLE_UNIT, INCOMPLETE]}
         contributions:
           type: array
           items: {$ref: '#/components/schemas/CellTraceContribution'}

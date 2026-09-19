@@ -57,6 +57,7 @@ export const QualitySummary = ({ output, runtime }: { readonly output: ExplorerR
   if (!report) return null;
   const affectedColumns = report.columns.filter((column) => column.missing + column.recordedNull + column.emptyArray > 0);
   const absentCells = affectedColumns.reduce((total, column) => total + column.missing + column.recordedNull + column.emptyArray, 0);
+  const issueCount = report.issues.ambiguous + report.issues.invalidType + report.issues.incompatibleUnit;
   return (
     <Paper component="section" withBorder radius="md" p="sm" mb="sm" aria-label="Dataset quality">
       <Group justify="space-between" align="flex-start" gap="sm" wrap="wrap">
@@ -80,6 +81,14 @@ export const QualitySummary = ({ output, runtime }: { readonly output: ExplorerR
           Row identity needs attention: {report.keyIntegrity.missing.toLocaleString()} missing and {report.keyIntegrity.duplicate.toLocaleString()} duplicate keys.
         </Text>
       ) : null}
+      {issueCount > 0 ? (
+        <Text c="orange" size="xs" mt={4}>
+          Feature checks found {report.issues.ambiguous.toLocaleString()} ambiguous, {report.issues.invalidType.toLocaleString()} invalid-type, and {report.issues.incompatibleUnit.toLocaleString()} incompatible-unit values.
+        </Text>
+      ) : null}
+      {report.omissions?.map((omission) => (
+        <Text key={omission.code} c="orange" size="xs" mt={4}>{omission.detail}</Text>
+      ))}
     </Paper>
   );
 };

@@ -60,6 +60,16 @@ const cellTraceAmbiguousSchema = z.object({
   status: z.literal('AMBIGUOUS'),
 }).strict();
 
+const cellTraceInvalidTypeSchema = z.object({
+  ...completeTraceFields,
+  status: z.literal('INVALID_TYPE'),
+}).strict();
+
+const cellTraceIncompatibleUnitSchema = z.object({
+  ...completeTraceFields,
+  status: z.literal('INCOMPATIBLE_UNIT'),
+}).strict();
+
 const cellTraceIncompleteSchema = z.object({
   rowId: z.string().min(1),
   column: z.string().min(1),
@@ -80,6 +90,8 @@ export const cellTraceResponseSchema = z.object({
     cellTraceNoMatchSchema,
     cellTraceRecordedNullSchema,
     cellTraceAmbiguousSchema,
+    cellTraceInvalidTypeSchema,
+    cellTraceIncompatibleUnitSchema,
     cellTraceIncompleteSchema,
   ]),
 }).strict();

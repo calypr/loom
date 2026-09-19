@@ -931,6 +931,15 @@ export interface ExplorerQualityReportV1 {
     readonly missing: number;
     readonly duplicate: number;
   };
+  readonly limits: {
+    readonly maxRows: number;
+    readonly maxDistinctKeys: number;
+  };
+  readonly issues: {
+    readonly ambiguous: number;
+    readonly invalidType: number;
+    readonly incompatibleUnit: number;
+  };
   readonly omissions?: ReadonlyArray<{ readonly code: string; readonly detail: string }>;
 }
 
@@ -1133,6 +1142,15 @@ const qualityReportSchema = z
       distinct: z.number().int().nonnegative(),
       missing: z.number().int().nonnegative(),
       duplicate: z.number().int().nonnegative(),
+    }).strict(),
+    limits: z.object({
+      maxRows: z.number().int().nonnegative(),
+      maxDistinctKeys: z.number().int().nonnegative(),
+    }).strict(),
+    issues: z.object({
+      ambiguous: z.number().int().nonnegative(),
+      invalidType: z.number().int().nonnegative(),
+      incompatibleUnit: z.number().int().nonnegative(),
     }).strict(),
     omissions: z.array(z.object({ code: z.string(), detail: z.string() }).strict()).optional(),
   })

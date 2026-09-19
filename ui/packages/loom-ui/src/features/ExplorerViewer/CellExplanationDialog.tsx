@@ -26,6 +26,10 @@ const explanationFor = (trace: CellTrace): string => {
       return 'A matching source record exists, but its selected value is empty.';
     case 'AMBIGUOUS':
       return 'More than one source value matched. Review the feature rule before using this value for training.';
+    case 'INVALID_TYPE':
+      return 'The matching source value does not have the type required by this feature.';
+    case 'INCOMPATIBLE_UNIT':
+      return 'The matching measurement cannot be converted to the unit required by this feature.';
     case 'INCOMPLETE':
       return 'Loom reached its evidence limit before locating this row. This result does not mean the source value is absent.';
     default: {
@@ -40,6 +44,8 @@ const repairLabel = (trace: CellTrace): string | undefined => {
     case 'NO_MATCH': return 'Review matching rules';
     case 'RECORDED_NULL': return 'Review null handling';
     case 'AMBIGUOUS': return 'Resolve matching rule';
+    case 'INVALID_TYPE': return 'Review value type';
+    case 'INCOMPATIBLE_UNIT': return 'Review unit mapping';
     case 'VALUE':
     case 'INCOMPLETE': return undefined;
     default: {

@@ -1,6 +1,7 @@
 package publication
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 const DefaultQualityPolicyVersion = "loom.quality/v1"
@@ -57,6 +60,23 @@ type ColumnQuality struct {
 	EmptyArray   int64  `json:"emptyArray"`
 }
 
+// QualityLimits records the exact bounds under which the full-population
+// report was produced. A complete report is meaningful only together with
+// the limits that could have stopped its scan.
+type QualityLimits struct {
+	MaxRows         int64 `json:"maxRows"`
+	MaxDistinctKeys int64 `json:"maxDistinctKeys"`
+}
+
+// QualityIssues counts data-dependent failures enforced by the same stream
+// that materializes the candidate publication. Successful reports therefore
+// contain explicit zeroes instead of leaving these checks implicit.
+type QualityIssues struct {
+	Ambiguous        int64 `json:"ambiguous"`
+	InvalidType      int64 `json:"invalidType"`
+	IncompatibleUnit int64 `json:"incompatibleUnit"`
+}
+
 type KeyIntegrity struct {
 	Distinct  int64 `json:"distinct"`
 	Missing   int64 `json:"missing"`
@@ -79,6 +99,8 @@ type QualityReport struct {
 	RowCount          int64               `json:"rowCount"`
 	Columns           []ColumnQuality     `json:"columns"`
 	KeyIntegrity      KeyIntegrity        `json:"keyIntegrity"`
+	Limits            QualityLimits       `json:"limits"`
+	Issues            QualityIssues       `json:"issues"`
 	Omissions         []QualityOmission   `json:"omissions,omitempty"`
 }
 
@@ -171,6 +193,7 @@ func newQualityAccumulator(identity PublicationIdentity, output OutputStream, po
 		DatasetGeneration: identity.DatasetGeneration, ScopeDigest: identity.ScopeDigest,
 		Output: output.Name, PolicyVersion: policy.Version,
 		Completeness: QualityComplete, Verdict: QualityPassed,
+		Limits:    QualityLimits{MaxRows: policy.MaxRows, MaxDistinctKeys: policy.MaxDistinctKeys},
 		Omissions: append([]QualityOmission(nil), policy.Omissions...),
 	}
 	accumulator := &qualityAccumulator{
@@ -191,6 +214,44 @@ func newQualityAccumulator(identity PublicationIdentity, output OutputStream, po
 		accumulator.report.Omissions = append(accumulator.report.Omissions, QualityOmission{Code: "KEY_INTEGRITY_NOT_AVAILABLE", Detail: "The compiled output has no stable identity projection."})
 	}
 	return accumulator
+}
+
+// fail finalizes evidence for a stream that did not reach natural exhaustion.
+// Known semantic failures are complete negative findings; cancellation and
+// infrastructure failures are incomplete because absence was not proven.
+func (a *qualityAccumulator) fail(cause error) (QualityReport, error) {
+	if a == nil {
+		return QualityReport{}, nil
+	}
+	if userErr, ok := dataframeerrors.AsUserError(cause); ok {
+		switch dataframeerrors.ErrorCode(userErr.Code()) {
+		case dataframeerrors.CodeRelationshipCardinalityViolation, dataframeerrors.CodeTemporalTieAmbiguous:
+			a.report.Issues.Ambiguous++
+			a.report.Verdict = QualityFailed
+			a.finish()
+			return a.report, &QualityFailedError{Reports: []QualityReport{a.report}}
+		case dataframeerrors.CodeUnitIdentityUnknown, dataframeerrors.CodeUnitDimensionIncompatible:
+			a.report.Issues.IncompatibleUnit++
+			a.report.Verdict = QualityFailed
+			a.finish()
+			return a.report, &QualityFailedError{Reports: []QualityReport{a.report}}
+		case dataframeerrors.CodeInvalidData, dataframeerrors.CodeRecipeContractViolation:
+			a.report.Issues.InvalidType++
+			a.report.Verdict = QualityFailed
+			a.finish()
+			return a.report, &QualityFailedError{Reports: []QualityReport{a.report}}
+		}
+	}
+	a.report.Completeness = QualityIncomplete
+	code, detail := "STREAM_INTERRUPTED", "The quality scan ended before the publication stream was exhausted."
+	if errors.Is(cause, context.DeadlineExceeded) {
+		code, detail = "TIME_LIMIT_EXCEEDED", "The quality scan exceeded its execution deadline."
+	} else if errors.Is(cause, context.Canceled) {
+		code, detail = "SCAN_CANCELED", "The quality scan was canceled before completion."
+	}
+	a.report.Omissions = append(a.report.Omissions, QualityOmission{Code: code, Detail: detail})
+	a.finish()
+	return a.report, &QualityIncompleteError{Reports: []QualityReport{a.report}}
 }
 
 func (a *qualityAccumulator) observe(row map[string]any) error {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 const defaultCellTraceWitnessRows int64 = 1_000_000
@@ -25,6 +26,8 @@ const (
 	CellTraceNoMatch      CellTraceStatus = "NO_MATCH"
 	CellTraceRecordedNull CellTraceStatus = "RECORDED_NULL"
 	CellTraceAmbiguous    CellTraceStatus = "AMBIGUOUS"
+	CellTraceInvalidType  CellTraceStatus = "INVALID_TYPE"
+	CellTraceInvalidUnit  CellTraceStatus = "INCOMPATIBLE_UNIT"
 	CellTraceIncomplete   CellTraceStatus = "INCOMPLETE"
 )
 
@@ -126,6 +129,9 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		return CellTraceResult{RowID: rowID, Column: column, Status: CellTraceIncomplete, OmissionCode: "TRACE_WITNESS_INCOMPLETE", Complete: false}, nil
 	}
 	if err != nil {
+		if status, omission, ok := cellTraceFailureStatus(err); ok {
+			return CellTraceResult{RowID: rowID, Column: column, Status: status, OmissionCode: omission, Contributions: []CellTraceContribution{}, Complete: true}, nil
+		}
 		return CellTraceResult{}, fmt.Errorf("execute cell trace: %w", err)
 	}
 	return CellTraceResult{}, fmt.Errorf("published row %q was not found in output %q", rowID, request.Output)
@@ -209,5 +215,22 @@ func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
 }
 
 func validCellTraceStatus(status CellTraceStatus) bool {
-	return status == CellTraceValue || status == CellTraceNoMatch || status == CellTraceRecordedNull || status == CellTraceAmbiguous
+	return status == CellTraceValue || status == CellTraceNoMatch || status == CellTraceRecordedNull || status == CellTraceAmbiguous || status == CellTraceInvalidType || status == CellTraceInvalidUnit
+}
+
+func cellTraceFailureStatus(err error) (CellTraceStatus, string, bool) {
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		return "", "", false
+	}
+	switch dataframeerrors.ErrorCode(userErr.Code()) {
+	case dataframeerrors.CodeRelationshipCardinalityViolation, dataframeerrors.CodeTemporalTieAmbiguous:
+		return CellTraceAmbiguous, userErr.Code(), true
+	case dataframeerrors.CodeUnitIdentityUnknown, dataframeerrors.CodeUnitDimensionIncompatible:
+		return CellTraceInvalidUnit, userErr.Code(), true
+	case dataframeerrors.CodeInvalidData, dataframeerrors.CodeRecipeContractViolation:
+		return CellTraceInvalidType, userErr.Code(), true
+	default:
+		return "", "", false
+	}
 }

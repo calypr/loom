@@ -343,6 +343,9 @@ func TestPublishProducesReceiptBoundCompleteQualityReport(t *testing.T) {
 	if report.KeyIntegrity.Missing != 0 || report.KeyIntegrity.Duplicate != 0 || report.KeyIntegrity.Distinct != 3 {
 		t.Fatalf("key integrity = %#v", report.KeyIntegrity)
 	}
+	if report.Limits != (QualityLimits{MaxRows: 10, MaxDistinctKeys: 10}) || report.Issues != (QualityIssues{}) {
+		t.Fatalf("quality bounds/issues = %#v / %#v", report.Limits, report.Issues)
+	}
 	columns := map[string]ColumnQuality{}
 	for _, column := range report.Columns {
 		columns[column.Column] = column
@@ -430,5 +433,40 @@ func TestPublishRetainsFailedKeyIntegrityEvidenceBeforeAbort(t *testing.T) {
 	report := target.tx.quality[0]
 	if report.Verdict != QualityFailed || report.KeyIntegrity.Duplicate != 1 || report.Completeness != QualityComplete || report.ID == "" {
 		t.Fatalf("failed attempt evidence = %#v", report)
+	}
+}
+
+func TestPublishRetainsInterruptedAndSemanticFailureEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		failure      error
+		completeness QualityCompleteness
+		verdict      QualityVerdict
+		issues       QualityIssues
+		omission     string
+	}{
+		{name: "canceled", failure: context.Canceled, completeness: QualityIncomplete, verdict: QualityPassed, omission: "SCAN_CANCELED"},
+		{name: "deadline", failure: context.DeadlineExceeded, completeness: QualityIncomplete, verdict: QualityPassed, omission: "TIME_LIMIT_EXCEEDED"},
+		{name: "ambiguous", failure: dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, ""), completeness: QualityComplete, verdict: QualityFailed, issues: QualityIssues{Ambiguous: 1}},
+		{name: "invalid type", failure: dataframeerrors.NewError(dataframeerrors.CodeInvalidData, ""), completeness: QualityComplete, verdict: QualityFailed, issues: QualityIssues{InvalidType: 1}},
+		{name: "unit", failure: dataframeerrors.NewError(dataframeerrors.CodeUnitDimensionIncompatible, ""), completeness: QualityComplete, verdict: QualityFailed, issues: QualityIssues{IncompatibleUnit: 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target := &fakeTarget{}
+			_, err := Publish(context.Background(), target, PublicationIdentity{Name: "r", Project: "p", ReceiptID: "receipt-a"}, []OutputStream{{
+				Name: "patients", Columns: []LogicalColumn{{Name: "__loom_row_id", Kind: "string", IsIdentity: true}},
+				Stream: func(context.Context, func(map[string]any) error) error { return test.failure },
+			}}, Limits{Quality: QualityPolicy{Version: "quality-v1", MaxRows: 10, MaxDistinctKeys: 10}})
+			if err == nil || target.tx == nil || !target.tx.rolledBack || target.tx.committed || len(target.tx.quality) != 1 {
+				t.Fatalf("failure=%v tx=%#v quality=%#v", err, target.tx, target.tx.quality)
+			}
+			report := target.tx.quality[0]
+			if report.Completeness != test.completeness || report.Verdict != test.verdict || report.Issues != test.issues || report.ID == "" {
+				t.Fatalf("report=%#v", report)
+			}
+			if test.omission != "" && (len(report.Omissions) == 0 || report.Omissions[len(report.Omissions)-1].Code != test.omission) {
+				t.Fatalf("omissions=%#v, want %s", report.Omissions, test.omission)
+			}
+		})
 	}
 }

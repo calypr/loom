@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -72,6 +73,28 @@ func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
 	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "later", Column: "gender", MaxWitnessRows: 1})
 	if err != nil || result.Complete || result.Status != CellTraceIncomplete || result.OmissionCode == "" {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
+	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	for _, test := range []struct {
+		code   dataframeerrors.ErrorCode
+		status CellTraceStatus
+	}{
+		{code: dataframeerrors.CodeTemporalTieAmbiguous, status: CellTraceAmbiguous},
+		{code: dataframeerrors.CodeUnitDimensionIncompatible, status: CellTraceInvalidUnit},
+		{code: dataframeerrors.CodeInvalidData, status: CellTraceInvalidType},
+	} {
+		t.Run(string(test.code), func(t *testing.T) {
+			engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+				return dataframeerrors.NewError(test.code, "")
+			}}
+			result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-1", Column: "feature"})
+			if err != nil || !result.Complete || result.Status != test.status || result.OmissionCode != string(test.code) || result.Contributions == nil {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
 	}
 }
 
