@@ -57,6 +57,34 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	}
 }
 
+func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t *testing.T) {
+	components := make([]any, 1000)
+	for i := range components {
+		components[i] = inventoryTestComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
+	}
+	emitter := NewSemanticInventoryEmitter("project", "generation")
+	contributions := make([]SemanticInventoryContribution, 0, len(components))
+	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution SemanticInventoryContribution) {
+		contributions = append(contributions, contribution)
+	})
+	if len(contributions) != 1000 {
+		t.Fatalf("retained emitter events = %d, want 1000 concepts", len(contributions))
+	}
+	concepts := map[string]struct{}{}
+	for _, contribution := range contributions {
+		concepts[contribution.ConceptID] = struct{}{}
+		if contribution.SourceKind != SemanticInventorySourceRetained || contribution.AuthResourcePath != "scope-a" || contribution.SourceID != "retained:Observation/key-1" {
+			t.Fatalf("retained contribution identity = %+v", contribution)
+		}
+		if len(contribution.Observation.Examples) > maxSemanticExamples {
+			t.Fatalf("retained contribution examples = %d, exceeds %d", len(contribution.Observation.Examples), maxSemanticExamples)
+		}
+	}
+	if len(concepts) != 1000 {
+		t.Fatalf("retained unique concept IDs = %d, want 1000", len(concepts))
+	}
+}
+
 func TestSemanticInventoryIdentitySeparatesCodingVersionButNotDisplay(t *testing.T) {
 	base := inventoryTestObservation("v1", "original label")
 	renamed := inventoryTestObservation("v1", "updated label")

@@ -16,6 +16,8 @@ const (
 	SemanticInventorySchemaVersion   = 1
 	SemanticObservationRuleVersion   = 3
 	SemanticInventoryPageLimit       = 50
+	SemanticInventorySourceFile      = "file"
+	SemanticInventorySourceRetained  = "retained_vertex"
 )
 
 var ErrSemanticInventoryCursorMismatch = errors.New("semantic inventory cursor does not match request")
@@ -31,20 +33,39 @@ const (
 	SemanticInventoryInvalidated SemanticInventoryState = "invalidated"
 )
 
+const (
+	SemanticInventorySourceAvailabilityUnknown  = "unknown"
+	SemanticInventorySourceAvailabilityVerified = "verified"
+	SemanticInventorySourceAvailabilityUnproven = "unproven"
+)
+
 // SemanticInventoryBuild records completeness for one immutable source generation.
 type SemanticInventoryBuild struct {
-	Key               string                 `json:"_key"`
-	Project           string                 `json:"project"`
-	DatasetGeneration string                 `json:"dataset_generation"`
-	BuildID           string                 `json:"build_id"`
-	State             SemanticInventoryState `json:"state"`
-	ObservationSchema int                    `json:"observation_schema"`
-	InventorySchema   int                    `json:"inventory_schema"`
-	RuleVersion       int                    `json:"rule_version"`
-	AuthResourcePath  string                 `json:"auth_resource_path,omitempty"`
-	ScannedResources  int64                  `json:"scanned_resources"`
-	Checkpoint        string                 `json:"checkpoint,omitempty"`
-	Diagnostics       []string               `json:"diagnostics,omitempty"`
+	Key                string                      `json:"_key"`
+	Project            string                      `json:"project"`
+	DatasetGeneration  string                      `json:"dataset_generation"`
+	BuildID            string                      `json:"build_id"`
+	State              SemanticInventoryState      `json:"state"`
+	ObservationSchema  int                         `json:"observation_schema"`
+	InventorySchema    int                         `json:"inventory_schema"`
+	RuleVersion        int                         `json:"rule_version"`
+	SourceKind         string                      `json:"source_kind,omitempty"`
+	SourceAvailability string                      `json:"source_availability,omitempty"`
+	AuthResourcePath   string                      `json:"auth_resource_path,omitempty"`
+	ScannedResources   int64                       `json:"scanned_resources"`
+	Checkpoint         string                      `json:"checkpoint,omitempty"`
+	SourceCheckpoint   SemanticInventoryCheckpoint `json:"source_checkpoint,omitempty"`
+	LeaseToken         string                      `json:"lease_token,omitempty"`
+	LeaseExpiresAt     int64                       `json:"lease_expires_at,omitempty"`
+	Diagnostics        []string                    `json:"diagnostics,omitempty"`
+}
+
+// SemanticInventoryCheckpoint is a typed keyset cursor over immutable retained
+// resource collections. Key is scoped to Collection and advances only after
+// its source contributions have been persisted.
+type SemanticInventoryCheckpoint struct {
+	Collection string `json:"collection,omitempty"`
+	Key        string `json:"key,omitempty"`
 }
 
 // SemanticInventoryContribution is one semantic-emitter event tied to a
@@ -56,6 +77,7 @@ type SemanticInventoryContribution struct {
 	AuthResourcePath  string              `json:"auth_resource_path,omitempty"`
 	ResourceType      string              `json:"resource_type"`
 	BuildID           string              `json:"build_id"`
+	SourceKind        string              `json:"source_kind,omitempty"`
 	SourceID          string              `json:"source_id"`
 	Ordinal           int                 `json:"ordinal"`
 	ConceptID         string              `json:"concept_id"`
@@ -120,16 +142,52 @@ func SemanticInventoryBuildKey(project, datasetGeneration string) string {
 func NewSemanticInventoryBuild(project, datasetGeneration, authResourcePath string) SemanticInventoryBuild {
 	buildID := SemanticInventoryBuildID(project, datasetGeneration)
 	return SemanticInventoryBuild{
-		Key:               SemanticInventoryBuildKey(project, datasetGeneration),
-		Project:           project,
-		DatasetGeneration: NormalizeDatasetGeneration(datasetGeneration),
-		BuildID:           buildID,
-		State:             SemanticInventoryRunning,
-		ObservationSchema: SemanticObservationSchemaVersion,
-		InventorySchema:   SemanticInventorySchemaVersion,
-		RuleVersion:       SemanticObservationRuleVersion,
-		AuthResourcePath:  authResourcePath,
+		Key:                SemanticInventoryBuildKey(project, datasetGeneration),
+		Project:            project,
+		DatasetGeneration:  NormalizeDatasetGeneration(datasetGeneration),
+		BuildID:            buildID,
+		State:              SemanticInventoryRunning,
+		ObservationSchema:  SemanticObservationSchemaVersion,
+		InventorySchema:    SemanticInventorySchemaVersion,
+		RuleVersion:        SemanticObservationRuleVersion,
+		SourceKind:         SemanticInventorySourceFile,
+		SourceAvailability: SemanticInventorySourceAvailabilityUnknown,
+		AuthResourcePath:   authResourcePath,
 	}
+}
+
+// SemanticInventoryEmitter runs the same semantic walker as the profiler but
+// does not retain field summaries or per-scope maps. It is intended for
+// bounded scans of already-retained resources.
+type SemanticInventoryEmitter struct {
+	project           string
+	datasetGeneration string
+}
+
+func NewSemanticInventoryEmitter(project, datasetGeneration string) SemanticInventoryEmitter {
+	return SemanticInventoryEmitter{project: project, datasetGeneration: NormalizeDatasetGeneration(datasetGeneration)}
+}
+
+func semanticInventorySourceKind(kind string) string {
+	if kind == SemanticInventorySourceRetained {
+		return kind
+	}
+	return SemanticInventorySourceFile
+}
+
+func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourceType, authResourcePath, sourceID string, sink SemanticInventoryObservationSink) {
+	if payload == nil || sourceID == "" || sink == nil {
+		return
+	}
+	p := Profiler{
+		project:            e.project,
+		datasetGeneration:  e.datasetGeneration,
+		authResourcePath:   authResourcePath,
+		resourceType:       resourceType,
+		semanticOnly:       true,
+		semanticSourceKind: SemanticInventorySourceRetained,
+	}
+	p.observeSemanticObservations(payload, sourceID, sink)
 }
 
 func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, observation SemanticObservation, examples []any) SemanticInventoryContribution {
@@ -153,22 +211,29 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 		example = observation.Examples[0]
 	}
 	buildID := SemanticInventoryBuildID(p.project, p.datasetGeneration)
+	keyParts := []string{
+		"semantic-inventory-contribution/v1",
+		p.project,
+		NormalizeDatasetGeneration(p.datasetGeneration),
+		p.authResourcePath,
+		p.resourceType,
+		buildID,
+		sourceID,
+		strconv.Itoa(ordinal),
+	}
+	if p.semanticSourceKind == SemanticInventorySourceRetained {
+		keyParts = append(keyParts, p.semanticSourceKind)
+	}
 	return SemanticInventoryContribution{
 		Key: catalogIdentityDigest(
-			"semantic-inventory-contribution/v1",
-			p.project,
-			NormalizeDatasetGeneration(p.datasetGeneration),
-			p.authResourcePath,
-			p.resourceType,
-			buildID,
-			sourceID,
-			strconv.Itoa(ordinal),
+			keyParts...,
 		),
 		Project:           p.project,
 		DatasetGeneration: NormalizeDatasetGeneration(p.datasetGeneration),
 		AuthResourcePath:  p.authResourcePath,
 		ResourceType:      p.resourceType,
 		BuildID:           buildID,
+		SourceKind:        semanticInventorySourceKind(p.semanticSourceKind),
 		SourceID:          sourceID,
 		Ordinal:           ordinal,
 		ConceptID:         conceptID,

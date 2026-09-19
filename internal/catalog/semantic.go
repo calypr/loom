@@ -377,6 +377,9 @@ func semanticValueType(value any) string {
 }
 
 func (p *Profiler) ensureSemanticStat(path string) *fieldCatalogStats {
+	if p.semanticOnly {
+		return nil
+	}
 	stat, ok := p.stats[path]
 	if !ok {
 		if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {

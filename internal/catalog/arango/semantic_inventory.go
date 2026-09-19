@@ -7,11 +7,220 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	store "github.com/calypr/loom/internal/store/arango"
 )
 
-var ErrInvalidSemanticInventoryPage = errors.New("invalid semantic inventory page request")
+var (
+	ErrInvalidSemanticInventoryPage  = errors.New("invalid semantic inventory page request")
+	ErrSemanticInventoryClaimed      = errors.New("semantic inventory backfill is already claimed")
+	ErrSemanticInventoryClaimLost    = errors.New("semantic inventory backfill claim was lost")
+	ErrRetainedSemanticSourceMissing = errors.New("retained semantic inventory source is missing despite field-profile evidence")
+)
+
+type RetainedSemanticInventoryRow struct {
+	Key              string          `json:"key"`
+	AuthResourcePath *string         `json:"auth_resource_path"`
+	Payload          json.RawMessage `json:"payload"`
+}
+
+type RetainedSemanticInventoryPage struct {
+	Rows         []RetainedSemanticInventoryRow
+	HasMore      bool
+	SourceExists bool
+}
+
+// PrepareSemanticInventoryBackfill bootstraps only the derived inventory
+// collections. Retained resource collections are never created or changed.
+func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
+	return s.client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
+			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_id"},
+		}},
+		{Name: catalog.SemanticInventoryBuildCollection, Indexes: [][]string{
+			{"project", "dataset_generation"},
+		}},
+	}})
+}
+
+// ReadRetainedSemanticInventoryPage returns at most limit retained source
+// vertices in stable _key order, without loading a resource collection into
+// application memory.
+func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (RetainedSemanticInventoryPage, error) {
+	canonical, ok := fhirschema.ConcreteResourceType(collection)
+	if !ok || canonical != collection || strings.TrimSpace(project) == "" || catalog.NormalizeDatasetGeneration(generation) == "" || limit < 1 || limit > 1000 {
+		return RetainedSemanticInventoryPage{}, ErrInvalidSemanticInventoryPage
+	}
+	exists, err := s.client.CollectionExists(ctx, collection)
+	if err != nil {
+		return RetainedSemanticInventoryPage{}, err
+	}
+	if !exists {
+		profileEvidence, err := s.retainedSourceFieldProfileExists(ctx, project, generation, collection)
+		if err != nil {
+			return RetainedSemanticInventoryPage{}, err
+		}
+		if profileEvidence {
+			return RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s", ErrRetainedSemanticSourceMissing, project, generation, collection)
+		}
+		return RetainedSemanticInventoryPage{Rows: []RetainedSemanticInventoryRow{}}, nil
+	}
+	page := RetainedSemanticInventoryPage{Rows: make([]RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
+	err = s.client.QueryRows(ctx, retainedSemanticInventorySourcePageAQL, limit+1, map[string]interface{}{
+		"@collection":        collection,
+		"project":            project,
+		"dataset_generation": catalog.NormalizeDatasetGeneration(generation),
+		"after_key":          afterKey,
+		"limit":              limit + 1,
+	}, func(row map[string]any) error {
+		var source RetainedSemanticInventoryRow
+		if err := decodeInventoryRow(row, &source); err != nil {
+			return err
+		}
+		if source.Key == "" {
+			return fmt.Errorf("retained %s source row is missing _key", collection)
+		}
+		page.Rows = append(page.Rows, source)
+		return nil
+	})
+	if err != nil {
+		return RetainedSemanticInventoryPage{}, fmt.Errorf("read retained %s source page: %w", collection, err)
+	}
+	if len(page.Rows) > limit {
+		page.Rows = page.Rows[:limit]
+		page.HasMore = true
+	}
+	return page, nil
+}
+
+func (s *Store) retainedSourceFieldProfileExists(ctx context.Context, project, generation, resourceType string) (bool, error) {
+	exists, err := s.client.CollectionExists(ctx, catalog.FieldCatalogCollection)
+	if err != nil || !exists {
+		return false, err
+	}
+	found := false
+	err = s.client.QueryRows(ctx, retainedSemanticInventoryFieldProfileAQL, 1, map[string]interface{}{
+		"project": project, "dataset_generation": catalog.NormalizeDatasetGeneration(generation), "resource_type": resourceType,
+	}, func(map[string]any) error {
+		found = true
+		return nil
+	})
+	return found, err
+}
+
+// ClaimSemanticInventoryBackfill atomically acquires or resumes the retained
+// source scanner. A complete build is returned with claimed=false and is not
+// rewritten, which prevents file and retained-vertex contribution sets from
+// being mixed by a second scan.
+func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, lease time.Duration) (catalog.SemanticInventoryBuild, bool, error) {
+	if err := catalog.ValidateSemanticInventoryBuild(build); err != nil {
+		return catalog.SemanticInventoryBuild{}, false, err
+	}
+	if build.SourceKind != catalog.SemanticInventorySourceRetained || strings.TrimSpace(token) == "" || lease <= 0 {
+		return catalog.SemanticInventoryBuild{}, false, errors.New("invalid semantic inventory backfill claim")
+	}
+	build.State = catalog.SemanticInventoryRunning
+	build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{}
+	build.ScannedResources = 0
+	build.Checkpoint = ""
+	build.Diagnostics = nil
+	now := time.Now()
+	var claimed catalog.SemanticInventoryBuild
+	found := false
+	err := s.client.QueryRows(ctx, claimSemanticInventoryBackfillAQL, 1, map[string]interface{}{
+		"key":              build.Key,
+		"build":            build,
+		"source_kind":      catalog.SemanticInventorySourceRetained,
+		"token":            token,
+		"now":              now.UnixMilli(),
+		"lease_expires_at": now.Add(lease).UnixMilli(),
+	}, func(row map[string]any) error {
+		if err := decodeInventoryRow(row, &claimed); err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return catalog.SemanticInventoryBuild{}, false, fmt.Errorf("claim semantic inventory backfill: %w", err)
+	}
+	if found {
+		return claimed, true, nil
+	}
+	current, exists, err := s.semanticInventoryBuildByKey(ctx, build.Key)
+	if err != nil {
+		return catalog.SemanticInventoryBuild{}, false, err
+	}
+	if exists && current.State == catalog.SemanticInventoryComplete {
+		return current, false, nil
+	}
+	return catalog.SemanticInventoryBuild{}, false, ErrSemanticInventoryClaimed
+}
+
+func (s *Store) AdvanceSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration) (catalog.SemanticInventoryBuild, error) {
+	return s.updateSemanticInventoryBackfill(ctx, advanceSemanticInventoryBackfillAQL, build, token, expected, next, scanned, lease, "")
+}
+
+func (s *Store) CompleteSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, scanned int64) (catalog.SemanticInventoryBuild, error) {
+	return s.updateSemanticInventoryBackfill(ctx, completeSemanticInventoryBackfillAQL, build, token, expected, build.SourceCheckpoint, scanned, 0, "")
+}
+
+func (s *Store) FailSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token, diagnostic string) error {
+	if strings.TrimSpace(diagnostic) == "" {
+		diagnostic = "backfill failed"
+	}
+	_, err := s.updateSemanticInventoryBackfill(ctx, failSemanticInventoryBackfillAQL, build, token, catalog.SemanticInventoryCheckpoint{}, build.SourceCheckpoint, build.ScannedResources, 0, diagnostic)
+	return err
+}
+
+func (s *Store) updateSemanticInventoryBackfill(ctx context.Context, query string, build catalog.SemanticInventoryBuild, token string, expected, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration, diagnostic string) (catalog.SemanticInventoryBuild, error) {
+	var updated catalog.SemanticInventoryBuild
+	found := false
+	now := time.Now()
+	bindVars := map[string]interface{}{"key": build.Key, "token": token}
+	switch query {
+	case advanceSemanticInventoryBackfillAQL:
+		bindVars["expected_collection"] = expected.Collection
+		bindVars["expected_key"] = expected.Key
+		bindVars["next_collection"] = next.Collection
+		bindVars["next_key"] = next.Key
+		bindVars["scanned_resources"] = max(scanned, 0)
+		bindVars["now"] = now.UnixMilli()
+		bindVars["lease_expires_at"] = now.Add(lease).UnixMilli()
+		bindVars["source_availability"] = build.SourceAvailability
+	case completeSemanticInventoryBackfillAQL:
+		bindVars["expected_collection"] = expected.Collection
+		bindVars["expected_key"] = expected.Key
+		bindVars["scanned_resources"] = max(scanned, 0)
+		bindVars["now"] = now.UnixMilli()
+		bindVars["source_availability"] = build.SourceAvailability
+	case failSemanticInventoryBackfillAQL:
+		if len(diagnostic) > 512 {
+			diagnostic = diagnostic[:512]
+		}
+		bindVars["diagnostic"] = diagnostic
+	default:
+		return catalog.SemanticInventoryBuild{}, errors.New("unknown semantic inventory backfill operation")
+	}
+	err := s.client.QueryRows(ctx, query, 1, bindVars, func(row map[string]any) error {
+		if err := decodeInventoryRow(row, &updated); err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return catalog.SemanticInventoryBuild{}, fmt.Errorf("update semantic inventory backfill: %w", err)
+	}
+	if !found {
+		return catalog.SemanticInventoryBuild{}, ErrSemanticInventoryClaimLost
+	}
+	return updated, nil
+}
 
 func (s *Store) BeginSemanticInventoryBuild(ctx context.Context, build catalog.SemanticInventoryBuild) error {
 	if err := catalog.ValidateSemanticInventoryBuild(build); err != nil {
@@ -141,11 +350,18 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 	if !unrestricted {
 		page.Build.ScannedResources = 0
 		page.Build.Checkpoint = ""
+		page.Build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{}
+		page.Build.LeaseToken = ""
+		page.Build.LeaseExpiresAt = 0
 		page.Build.Diagnostics = nil
 		page.Build.AuthResourcePath = ""
 	}
 	if build.State != catalog.SemanticInventoryComplete || build.BuildID == "" {
 		return page, nil
+	}
+	sourceKind := build.SourceKind
+	if sourceKind == "" {
+		sourceKind = catalog.SemanticInventorySourceFile
 	}
 	inventoryExists, err := s.client.CollectionExists(ctx, catalog.SemanticInventoryCollection)
 	if err != nil {
@@ -162,6 +378,7 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 		"project":                          opts.Project,
 		"dataset_generation":               catalog.NormalizeDatasetGeneration(opts.DatasetGeneration),
 		"build_id":                         build.BuildID,
+		"source_kind":                      sourceKind,
 		"auth_resource_paths_unrestricted": unrestricted,
 		"auth_resource_paths":              paths,
 		"resource_type":                    opts.ResourceType,
@@ -324,6 +541,7 @@ LET identities = (
     FILTER candidate.project == @project
     FILTER candidate.dataset_generation == @dataset_generation
     FILTER candidate.build_id == @build_id
+    FILTER NOT_NULL(candidate.source_kind, "file") == @source_kind
     FILTER @auth_resource_paths_unrestricted == true OR candidate.auth_resource_path IN @auth_resource_paths
     FILTER @resource_type == "" OR candidate.resource_type == @resource_type
     FILTER @query == "" OR CONTAINS(LOWER(NOT_NULL(candidate.observation.key.system, "")), LOWER(@query))
@@ -343,6 +561,7 @@ FOR identity IN identities
       FILTER d.project == @project
       FILTER d.dataset_generation == @dataset_generation
       FILTER d.build_id == @build_id
+      FILTER NOT_NULL(d.source_kind, "file") == @source_kind
       FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
       FILTER @resource_type == "" OR d.resource_type == @resource_type
       FILTER d.binding_id == identity.binding_id
@@ -395,3 +614,102 @@ FOR identity IN identities
       }
   )
   RETURN FIRST(observation_rows)`
+
+const retainedSemanticInventorySourcePageAQL = `
+FOR d IN @@collection
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER @after_key == "" OR d._key > @after_key
+  SORT d._key
+  LIMIT @limit
+  RETURN {key: d._key, auth_resource_path: d.auth_resource_path, payload: d.payload}`
+
+const retainedSemanticInventoryFieldProfileAQL = `
+FOR d IN fhir_field_catalog
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.resource_type == @resource_type
+  FILTER d.doc_count > 0
+  LIMIT 1
+  RETURN 1`
+
+const claimSemanticInventoryBackfillAQL = `
+LET current_build = DOCUMENT("fhir_semantic_inventory_builds", @key)
+FILTER current_build == null OR (
+  current_build.state != "complete"
+  AND (NOT_NULL(current_build.lease_expires_at, 0) <= @now OR current_build.lease_token == @token)
+)
+UPSERT {_key: @key}
+  INSERT MERGE(@build, {
+    state: "running",
+    source_kind: @source_kind,
+    source_availability: "unknown",
+    source_checkpoint: {collection: "", key: ""},
+    lease_token: @token,
+    lease_expires_at: @lease_expires_at
+  })
+  UPDATE MERGE(OLD, {
+    state: "running",
+    source_kind: @source_kind,
+    source_availability: OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_availability, "unknown") : "unknown",
+    scanned_resources: OLD.source_kind == @source_kind ? NOT_NULL(OLD.scanned_resources, 0) : 0,
+    checkpoint: "",
+    source_checkpoint: OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_checkpoint, {collection: "", key: ""}) : {collection: "", key: ""},
+    diagnostics: [],
+    lease_token: @token,
+    lease_expires_at: @lease_expires_at
+  })
+  IN fhir_semantic_inventory_builds
+  OPTIONS {exclusive: true}
+RETURN NEW`
+
+const advanceSemanticInventoryBackfillAQL = `
+FOR d IN fhir_semantic_inventory_builds
+  FILTER d._key == @key
+  FILTER d.state == "running"
+  FILTER d.lease_token == @token
+  FILTER d.lease_expires_at > @now
+  FILTER NOT_NULL(d.source_checkpoint.collection, "") == @expected_collection
+  FILTER NOT_NULL(d.source_checkpoint.key, "") == @expected_key
+  UPDATE d WITH {
+    source_checkpoint: {collection: @next_collection, key: @next_key},
+    scanned_resources: @scanned_resources,
+    source_availability: @source_availability,
+    lease_expires_at: @lease_expires_at,
+    diagnostics: []
+  } IN fhir_semantic_inventory_builds
+  OPTIONS {exclusive: true}
+  RETURN NEW`
+
+const completeSemanticInventoryBackfillAQL = `
+FOR d IN fhir_semantic_inventory_builds
+  FILTER d._key == @key
+  FILTER d.state == "running"
+  FILTER d.lease_token == @token
+  FILTER d.lease_expires_at > @now
+  FILTER NOT_NULL(d.source_checkpoint.collection, "") == @expected_collection
+  FILTER NOT_NULL(d.source_checkpoint.key, "") == @expected_key
+  UPDATE d WITH {
+    state: "complete",
+    scanned_resources: @scanned_resources,
+    source_availability: @source_availability,
+    lease_token: "",
+    lease_expires_at: 0,
+    diagnostics: []
+  } IN fhir_semantic_inventory_builds
+  OPTIONS {exclusive: true}
+  RETURN NEW`
+
+const failSemanticInventoryBackfillAQL = `
+FOR d IN fhir_semantic_inventory_builds
+  FILTER d._key == @key
+  FILTER d.state == "running"
+  FILTER d.lease_token == @token
+  UPDATE d WITH {
+    state: "failed",
+    lease_token: "",
+    lease_expires_at: 0,
+    diagnostics: [@diagnostic]
+  } IN fhir_semantic_inventory_builds
+  OPTIONS {exclusive: true}
+  RETURN NEW`

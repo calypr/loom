@@ -99,6 +99,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		{"project", "dataset_generation", "build_id"},
 		{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 		{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
+		{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 		{"project", "dataset_generation", "build_id", "source_id"},
 	} {
 		if !containsIndex(inventory.Indexes, required) {

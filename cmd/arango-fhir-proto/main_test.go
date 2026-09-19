@@ -133,6 +133,38 @@ func TestParseActivateCommandRequiresValidGeneration(t *testing.T) {
 	}
 }
 
+func TestParseBackfillSemanticInventoryRequiresScopedBoundedRequest(t *testing.T) {
+	config, err := parseBackfillSemanticInventoryCommand([]string{
+		"--project", "cda-project", "--generation", "cda-v1",
+		"--url", "http://arangodb:8529", "--database", "loom-test",
+		"--page-size", "700", "--batch-size", "1200",
+	}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Options.Project != "cda-project" || config.Options.DatasetGeneration != "cda-v1" || config.Options.PageSize != 700 || config.Options.BatchSize != 1200 {
+		t.Fatalf("parsed backfill request = %+v", config)
+	}
+	if config.Connection.URL != "http://arangodb:8529" || config.Connection.Database != "loom-test" {
+		t.Fatalf("parsed backfill connection = %+v", config.Connection)
+	}
+
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"--generation", "g"}, want: "--project is required"},
+		{args: []string{"--project", "p"}, want: "--generation is required"},
+		{args: []string{"--project", "p", "--generation", "g", "--page-size", "1001"}, want: "--page-size"},
+		{args: []string{"--project", "p", "--generation", "g", "--batch-size", "5001"}, want: "--batch-size"},
+	} {
+		_, err := parseBackfillSemanticInventoryCommand(test.args, flag.ContinueOnError)
+		if err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("parse backfill %v error = %v, want %q", test.args, err, test.want)
+		}
+	}
+}
+
 func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 	fields, _, err := parseDiscoverPopulatedFieldOptions([]string{
 		"--project", "project-a",

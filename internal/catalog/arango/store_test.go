@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/catalog"
 	store "github.com/calypr/loom/internal/store/arango"
@@ -142,6 +145,144 @@ func TestStoreAuditsInvalidRelationshipEndpoints(t *testing.T) {
 	}
 	if summary.InvalidEdgeCount != 2 || len(summary.InvalidRelations) != 1 || summary.InvalidRelations[0].FromType != "qualification" || summary.InvalidRelations[0].ToType != "issuer" {
 		t.Fatalf("audit summary = %#v", summary)
+	}
+}
+
+func TestReadRetainedSemanticInventoryPageUsesScopedKeysetAndPreservesAuthPath(t *testing.T) {
+	client := &evidenceClient{
+		rows: map[string][]map[string]any{
+			retainedSemanticInventorySourcePageAQL: {{
+				"key": "source-2", "auth_resource_path": "scope-a",
+				"payload": map[string]any{"resourceType": "Observation", "id": "obs-2"},
+			}},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "source-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 1 || page.Rows[0].Key != "source-2" || page.Rows[0].AuthResourcePath == nil || *page.Rows[0].AuthResourcePath != "scope-a" {
+		t.Fatalf("retained source page = %+v", page)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(page.Rows[0].Payload, &payload); err != nil || payload["resourceType"] != "Observation" {
+		t.Fatalf("retained source payload = %s, err %v", page.Rows[0].Payload, err)
+	}
+	if len(client.vars) != 1 || client.vars[0]["project"] != "project" || client.vars[0]["dataset_generation"] != "generation" || client.vars[0]["after_key"] != "source-1" || client.vars[0]["@collection"] != "Observation" {
+		t.Fatalf("retained source bind vars = %+v", client.vars)
+	}
+	query := client.queries[0]
+	for _, fragment := range []string{"FILTER d.project == @project", "FILTER d.dataset_generation == @dataset_generation", "d._key > @after_key", "SORT d._key", "RETURN {key: d._key"} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("retained source query missing %q: %s", fragment, query)
+		}
+	}
+}
+
+func TestReadMissingRetainedSourceCollectionDoesNotQueryOrCreateIt(t *testing.T) {
+	client := &evidenceClient{collections: map[string]bool{"Observation": false}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
+	if err != nil || len(page.Rows) != 0 || len(client.queries) != 0 {
+		t.Fatalf("absent retained collection page=%+v err=%v queries=%d", page, err, len(client.queries))
+	}
+}
+
+func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulation(t *testing.T) {
+	client := &evidenceClient{
+		collections: map[string]bool{"Observation": false, catalog.FieldCatalogCollection: true},
+		rows: map[string][]map[string]any{
+			retainedSemanticInventoryFieldProfileAQL: {{"present": 1}},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
+	if !errors.Is(err, ErrRetainedSemanticSourceMissing) {
+		t.Fatalf("missing profiled source error = %v, want ErrRetainedSemanticSourceMissing", err)
+	}
+	if len(client.queries) != 1 || client.queries[0] != retainedSemanticInventoryFieldProfileAQL {
+		t.Fatalf("missing source evidence queries = %v", client.queries)
+	}
+}
+
+func TestSemanticInventoryBackfillMutationQueriesBindOnlyUsedVariables(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	build.SourceKind = catalog.SemanticInventorySourceRetained
+	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	build.LeaseToken = "owner"
+	build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "a"}
+	encoded, err := json.Marshal(build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(encoded, &row); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		query string
+		call  func(*Store) error
+		want  []string
+	}{
+		{
+			name:  "advance",
+			query: advanceSemanticInventoryBackfillAQL,
+			call: func(adapter *Store) error {
+				_, err := adapter.AdvanceSemanticInventoryBackfill(context.Background(), build, "owner", build.SourceCheckpoint, catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "b"}, 7, time.Minute)
+				return err
+			},
+			want: []string{"expected_collection", "expected_key", "key", "lease_expires_at", "next_collection", "next_key", "now", "scanned_resources", "source_availability", "token"},
+		},
+		{
+			name:  "complete",
+			query: completeSemanticInventoryBackfillAQL,
+			call: func(adapter *Store) error {
+				_, err := adapter.CompleteSemanticInventoryBackfill(context.Background(), build, "owner", build.SourceCheckpoint, 7)
+				return err
+			},
+			want: []string{"expected_collection", "expected_key", "key", "now", "scanned_resources", "source_availability", "token"},
+		},
+		{
+			name:  "fail",
+			query: failSemanticInventoryBackfillAQL,
+			call: func(adapter *Store) error {
+				return adapter.FailSemanticInventoryBackfill(context.Background(), build, "owner", "failed")
+			},
+			want: []string{"diagnostic", "key", "token"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &evidenceClient{rows: map[string][]map[string]any{test.query: {row}}}
+			adapter, err := New(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.call(adapter); err != nil {
+				t.Fatal(err)
+			}
+			if len(client.vars) != 1 {
+				t.Fatalf("bind variable captures = %d, want 1", len(client.vars))
+			}
+			got := make([]string, 0, len(client.vars[0]))
+			for key := range client.vars[0] {
+				got = append(got, key)
+			}
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("bind variables = %v, want exactly %v", got, test.want)
+			}
+		})
 	}
 }
 
