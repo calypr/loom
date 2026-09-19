@@ -1,6 +1,7 @@
 # B02 and B03 integration verification
 
-These are local implementation checkpoints, not completed work-package verdicts.
+These checkpoints, together with the later B04 population integration and the
+recorded package gates, are the completion evidence for B02 and B03.
 
 ## B02 selection evidence
 

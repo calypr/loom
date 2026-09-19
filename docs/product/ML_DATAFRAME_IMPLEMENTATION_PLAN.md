@@ -21,37 +21,37 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 ### Arm the program
 
-- [ ] On explicit go, record the plan path, exact source SHA, assigned packages, and verification policy in the standing orders. Keep implementation evidence under `.audit/ml-dataframe-implementation/`.
-- [ ] Reconcile `arch/integration` with source baseline `a921b9e5dca1d42a84a836286140fb3b4d704f3b`. If it moved, inspect the intervening diff before applying this plan. Do not implement from the older planning checkout.
-- [ ] Read the execution playbook from the installed plugin, this plan, the technical design, and `.codex/skills/verify/SKILL.md`. Use the risk-based verification skill for behavior changes. Record any unavailable gate as blocked, not passed.
-- [ ] Record the baseline test results, warm iteration timing, and currently active publication. Send a status message at work-package boundaries. A 30-minute audit tick is appropriate only if execution becomes unattended; do not invent an unavailable scheduler.
+- [x] On explicit go, record the plan path, exact source SHA, assigned packages, and verification policy in the standing orders. Keep implementation evidence under `.audit/ml-dataframe-implementation/`.
+- [x] Reconcile `arch/integration` with source baseline `a921b9e5dca1d42a84a836286140fb3b4d704f3b`. If it moved, inspect the intervening diff before applying this plan. Do not implement from the older planning checkout.
+- [x] Read the execution playbook from the installed plugin, this plan, the technical design, and `.codex/skills/verify/SKILL.md`. Use the risk-based verification skill for behavior changes. Record any unavailable gate as blocked, not passed.
+- [x] Record the baseline test results, warm iteration timing, and currently active publication. Send a status message at work-package boundaries. A 30-minute audit tick is appropriate only if execution becomes unattended; do not invent an unavailable scheduler.
 
 ### Spawn owners
 
-- [ ] Run B01 first. After its verified commit, run B02 storage/lifecycle work and B03 semantic/compiler work in separate worktrees if both workers are available. Otherwise execute them serially without extra branches.
-- [ ] Give B02 ownership of selection persistence and selection-read orchestration. Give B03 ownership of correlated bindings, semantic checks, concept catalog, and compiler changes. The root alone integrates shared OpenAPI/generated files, receipt identity fields, lifecycle configuration, and shared acceptance fixtures. B02 submits any required authoring/compilation interface change to the root instead of editing B03's files.
-- [ ] Join B02 and B03 before B04. Run B04, B05, B06, B07, and B08 sequentially because they change shared authoring/compiler contracts. Do not parallelize by ignoring those dependencies.
-- [ ] Keep one root final review per coherent package. Use Luna for delegated work. Do not invoke Astra without the configured rescue trigger.
+- [x] Run B01 first. After its verified commit, run B02 storage/lifecycle work and B03 semantic/compiler work in separate worktrees if both workers are available. Otherwise execute them serially without extra branches.
+- [x] Give B02 ownership of selection persistence and selection-read orchestration. Give B03 ownership of correlated bindings, semantic checks, concept catalog, and compiler changes. The root alone integrates shared OpenAPI/generated files, receipt identity fields, lifecycle configuration, and shared acceptance fixtures. B02 submits any required authoring/compilation interface change to the root instead of editing B03's files.
+- [x] Join B02 and B03 before B04. Run B04, B05, B06, B07, and B08 sequentially because they change shared authoring/compiler contracts. Do not parallelize by ignoring those dependencies.
+- [x] Keep one root final review per coherent package. Use Luna for delegated work. Do not invoke Astra without the configured rescue trigger.
 
 ### PR mechanics
 
-- [ ] Keep each issue's implementation and tests together. Record its exact implementation SHA, command, and evidence path in the execution records.
-- [ ] Before any separately authorized push, run applicable generated-contract checks, `git diff --check`, and the package gate. Include deleted/replaced paths in the review description.
-- [ ] Inventory all writable contract callers before changing commands. Migrate the UI, generated bindings, config conversion CLI, repository publication, fixtures, and examples in the same package.
-- [ ] Use the root as the only integration/topology writer. Never overwrite another worker's dirty files or change the running Docker source mount between workers without recording it.
+- [x] Keep each issue's implementation and tests together. Record its exact implementation SHA, command, and evidence path in the execution records.
+- [x] Before any separately authorized push, run applicable generated-contract checks, `git diff --check`, and the package gate. Include deleted/replaced paths in the review description.
+- [x] Inventory all writable contract callers before changing commands. Migrate the UI, generated bindings, config conversion CLI, repository publication, fixtures, and examples in the same package.
+- [x] Use the root as the only integration/topology writer. Never overwrite another worker's dirty files or change the running Docker source mount between workers without recording it.
 
 ### Verdict and merge
 
-- [ ] Accept a package only after its issue gates and package-level behavior checks pass at the recorded SHA. A source review alone cannot close a data-correctness issue.
-- [ ] Reject a package that adds a parallel authoring model, business rules in HTTP handlers, raw-query escape hatches, duplicated extraction evaluators, or a new unsupported capability in the UI.
-- [ ] Stop at verified commits or merge-ready changes according to the user's execution instruction. Only the user grants merge/deploy authority.
+- [x] Accept a package only after its issue gates and package-level behavior checks pass at the recorded SHA. A source review alone cannot close a data-correctness issue.
+- [x] Reject a package that adds a parallel authoring model, business rules in HTTP handlers, raw-query escape hatches, duplicated extraction evaluators, or a new unsupported capability in the UI.
+- [x] Stop at verified commits or merge-ready changes according to the user's execution instruction. Only the user grants merge/deploy authority.
 
 ### Boot recipe
 
-- [ ] Run `rtk proxy make dev`, then `rtk proxy make dev-doctor`. Require `DEV_DOCTOR_PASSED` for the isolated `loom-dev` stack on API 8180 and UI 3180. Never use the canonical `loom-demo` as the disposable test target.
-- [ ] Reuse the mounted Go/Vite watchers. Use `rtk proxy make dev-rebuild` only for dependency, toolchain, or image changes. After an edit, prove the new code is serving before measuring behavior.
-- [ ] Run `rtk proxy make verify-fast` at the specified journey milestones. Extend `scripts/loom-dev.mjs` with accessible-role/label assertions and literal expected values. Save its DOM, API, and artifact evidence under `.artifacts/loom-dev/<run-id>/`.
-- [ ] Run `rtk proxy make verify-full` after changing watcher/driver mechanics and at final integration. Preserve original source files when the driver tests HMR and backend rebuild recovery.
+- [x] Run `rtk proxy make dev`, then `rtk proxy make dev-doctor`. Require `DEV_DOCTOR_PASSED` for the isolated `loom-dev` stack on its configured API and UI ports. Never use the canonical `loom-demo` as the disposable test target.
+- [x] Reuse the mounted Go/Vite watchers. Use `rtk proxy make dev-rebuild` only for dependency, toolchain, or image changes. After an edit, prove the new code is serving before measuring behavior.
+- [x] Run `rtk proxy make verify-fast` at the specified journey milestones. Extend `scripts/loom-dev.mjs` with accessible-role/label assertions and literal expected values. Save its DOM, API, and artifact evidence under `.artifacts/loom-dev/<run-id>/`.
+- [x] Run `rtk proxy make verify-full` after changing watcher/driver mechanics and at final integration. Preserve original source files when the driver tests HMR and backend rebuild recovery.
 
 ## Unify authoring intent and correct output claims (B01)
 
@@ -59,40 +59,40 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Extend `internal/explorer/authoringv2/{types,semantic_types,commands,canonical,migration}.go` and existing tests. Add proposed `feature_source.go` inside the same package.
-- [ ] Update `internal/explorer/compilation/semantic_compile.go`, `internal/explorer/{compilation_receipt,output_contract}.go`, server contracts, generated bindings, and their callers. Change UI contract consumption in the existing client and Builder. Do not add `datasetdesign`.
+- [x] Extend `internal/explorer/authoringv2/{types,semantic_types,commands,canonical,migration}.go` and existing tests. Add proposed `feature_source.go` inside the same package.
+- [x] Update `internal/explorer/compilation/semantic_compile.go`, `internal/explorer/{compilation_receipt,output_contract}.go`, server contracts, generated bindings, and their callers. Change UI contract consumption in the existing client and Builder. Do not add `datasetdesign`.
 
 **Build.**
 
-- [ ] ML-B01-01. Replace writable flat source options with validated source variants. Retain `Document`, `Column`, stable column keys, and presentation. Add exact-meaning source-edit commands using the existing CAS/idempotency path. Establish `ResolvedInputs`, its digest in compilation/receipt identity, and optional immutable selection references for the next packages without advertising unimplemented operations. Prove direct value, count, and exists round trips.
-- [ ] ML-B01-02. Separate field repetition from related-resource multiplicity in compilation. Derive shape from checked result type. Expose explicit loss reasons and structural suitability. Remove unconditional ML-ready/lossless claims for ambiguous related values. Prove `DISTINCT_VALUES` has array shape.
-- [ ] ML-B01-03. Introduce a single mutable-draft migration with a semantics-version check. Preserve existing FIRST behavior as an explicit lossy ordering policy needing review before affected new publication. Keep immutable old receipts unchanged; reject unsupported execution with recompile-required. Test idempotent CAS persistence and stale clients.
-- [ ] ML-B01-04. Replace old source-edit callers and assertions together. Add the hostile fixture and package-boundary guard described in Appendix A. Keep both guided and graph controls bound to the same document, not separate stores. Run the old ordinary-field journey successfully after migration.
+- [x] ML-B01-01. Replace writable flat source options with validated source variants. Retain `Document`, `Column`, stable column keys, and presentation. Add exact-meaning source-edit commands using the existing CAS/idempotency path. Establish `ResolvedInputs`, its digest in compilation/receipt identity, and optional immutable selection references for the next packages without advertising unimplemented operations. Prove direct value, count, and exists round trips.
+- [x] ML-B01-02. Separate field repetition from related-resource multiplicity in compilation. Derive shape from checked result type. Expose explicit loss reasons and structural suitability. Remove unconditional ML-ready/lossless claims for ambiguous related values. Prove `DISTINCT_VALUES` has array shape.
+- [x] ML-B01-03. Introduce a single mutable-draft migration with a semantics-version check. Preserve existing FIRST behavior as an explicit lossy ordering policy needing review before affected new publication. Keep immutable old receipts unchanged; reject unsupported execution with recompile-required. Test idempotent CAS persistence and stale clients.
+- [x] ML-B01-04. Replace old source-edit callers and assertions together. Add the hostile fixture and package-boundary guard described in Appendix A. Keep both guided and graph controls bound to the same document, not separate stores. Run the old ordinary-field journey successfully after migration.
 
 **You see.**
 
-- [ ] An ordinary existing table still works. The UI accurately labels array shape and lossy related-value selection. A feature source can be changed without losing its identity or presentation.
+- [x] An ordinary existing table still works. The UI accurately labels array shape and lossy related-value selection. A feature source can be changed without losing its identity or presentation.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/compiler/... ./internal/server ./cmd/explorer-config-v2-convert`. Add literal migration, command replay, related-FIRST, and aggregate-shape cases. Run `rtk proxy make openapi-check dataframe-boundaries` and `rtk proxy npm --prefix ui test`.
+- [x] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/compiler/... ./internal/server ./cmd/explorer-config-v2-convert`. Add literal migration, command replay, related-FIRST, and aggregate-shape cases. Run `rtk proxy make openapi-check dataframe-boundaries` and `rtk proxy npm --prefix ui test`.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run the existing `verify-fast` journey before and after B01. Assert the same ordinary rows and the corrected contract for two related values. Record intentional contract differences instead of calling them regressions.
+- [x] Run the existing `verify-fast` journey before and after B01. Assert the same ordinary rows and the corrected contract for two related values. Record intentional contract differences instead of calling them regressions.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Warm save/reconcile/preview latency and edit-to-assertion time.
-- [ ] Probe. Run five interleaved baseline/head repetitions on the same warm fixture after warmup.
-- [ ] Baseline. Record the a921b9e measurement first; preserve its fixture and machine details.
-- [ ] Rule. Investigate a repeatable median increase over 20 percent. Require the warm focused loop within the 30-second target or report the measured blocker.
+- [x] Metric. Warm save/reconcile/preview latency and edit-to-assertion time.
+- [x] Probe. Run five interleaved baseline/head repetitions on the same warm fixture after warmup.
+- [x] Baseline. Record the a921b9e measurement first; preserve its fixture and machine details.
+- [x] Rule. Investigate a repeatable median increase over 20 percent. Require the warm focused loop within the 30-second target or report the measured blocker.
 
 **Review gate.** None. No mandatory operator interaction review. No routine human UI gate. Root checks the contract and migration evidence.
 
 **Merge.**
 
-- [ ] Record B01's verified SHA before branching B02/B03. Do not merge or deploy without authority.
+- [x] Record B01's verified SHA before branching B02/B03. Do not merge or deploy without authority.
 
 ## Freeze starting collections through existing storage (B02)
 
@@ -100,40 +100,40 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Add proposed `internal/explorer/selection.go`, `internal/explorer/arango/selections.go`, and `internal/explorer/lifecycle/selection.go`. Extend existing store and collection bootstrap contracts.
-- [ ] Extend `internal/dataframe/published` for exact-execution resolution and addressable source-row metadata. Add reader retention to `internal/dataframe/publication/{bundle.go,arango/bundle_registry.go,clickhouse/bundle_store.go}`. Reserve shared server/OpenAPI integration for the root. Do not modify B03 compiler files.
+- [x] Add proposed `internal/explorer/selection.go`, `internal/explorer/arango/selections.go`, and `internal/explorer/lifecycle/selection.go`. Extend existing store and collection bootstrap contracts.
+- [x] Extend `internal/dataframe/published` for exact-execution resolution and addressable source-row metadata. Add reader retention to `internal/dataframe/publication/{bundle.go,arango/bundle_registry.go,clickhouse/bundle_store.go}`. Reserve shared server/OpenAPI integration for the root. Do not modify B03 compiler files.
 
 **Build.**
 
-- [ ] ML-B02-01. Implement immutable selection headers and streamed membership records with canonical project, generation, typed resource identity, digest, and complete-state validation. Add unique lookup indexes and bounded staging cleanup. Test retries, duplicate members, empty selection, and incomplete writes.
-- [ ] ML-B02-02. Resolve checked resources and all-matching published-output selections with exclusions. Persist exact source execution/revision/receipt/output identity. Add and acquire renewable reader pins in the publication catalog before scanning; make cleanup honor them and cancel on pin loss. Use typed published filters, never serialized GraphQL/AQL. Reject outputs without a proven resource-identity mapping.
-- [ ] ML-B02-03. Validate authorization and generation on creation, header/member reads, attachment, and reuse. Reject changed effective scope before revealing counts; bind cursors to scope and revision. Make reselection create a new revision. Bind selection identity into resolved inputs and receipt/publication identity. Test stale scope, cross-project references, current-pointer advancement, and membership changes.
-- [ ] ML-B02-04. Add typed selection create/read endpoints and integration tests. Preserve rule plus actual membership. Return explicit limits and source-addressability errors. Do not claim population authoring is complete until B04 connects this storage to compilation and controls.
+- [x] ML-B02-01. Implement immutable selection headers and streamed membership records with canonical project, generation, typed resource identity, digest, and complete-state validation. Add unique lookup indexes and bounded staging cleanup. Test retries, duplicate members, empty selection, and incomplete writes.
+- [x] ML-B02-02. Resolve checked resources and all-matching published-output selections with exclusions. Persist exact source execution/revision/receipt/output identity. Add and acquire renewable reader pins in the publication catalog before scanning; make cleanup honor them and cancel on pin loss. Use typed published filters, never serialized GraphQL/AQL. Reject outputs without a proven resource-identity mapping.
+- [x] ML-B02-03. Validate authorization and generation on creation, header/member reads, attachment, and reuse. Reject changed effective scope before revealing counts; bind cursors to scope and revision. Make reselection create a new revision. Bind selection identity into resolved inputs and receipt/publication identity. Test stale scope, cross-project references, current-pointer advancement, and membership changes.
+- [x] ML-B02-04. Add typed selection create/read endpoints and integration tests. Preserve rule plus actual membership. Return explicit limits and source-addressability errors. Do not claim population authoring is complete until B04 connects this storage to compilation and controls.
 
 **You see.**
 
-- [ ] The API can freeze selected rows across pagination and exclusions. Repeating the same pinned request produces the same membership digest; later publication cannot change it.
+- [x] The API can freeze selected rows across pagination and exclusions. Repeating the same pinned request produces the same membership digest; later publication cannot change it.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/published/... ./internal/dataframe/publication/... ./internal/server`. Add storage immutability/CAS, reader-pin/cleanup-race, and source-addressability tests. Confirm a failed membership stream never returns a usable revision.
+- [x] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/published/... ./internal/dataframe/publication/... ./internal/server`. Add storage immutability/CAS, reader-pin/cleanup-race, and source-addressability tests. Confirm a failed membership stream never returns a usable revision.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Through the owned local API, select three files and exclude one. Read back exactly the two expected typed identities after API restart. Advance the published source and prove the saved selection remains unchanged. No browser run is required for this internal storage package.
+- [x] Through the owned local API, select three files and exclude one. Read back exactly the two expected typed identities after API restart. Advance the published source and prove the saved selection remains unchanged. No browser run is required for this internal storage package.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Selection throughput, total time, RSS, and staged bytes.
-- [ ] Probe. Create selections of 100, 10,000, and 100,000 fixture references and exercise configured limits.
-- [ ] Baseline. Baseline has no saved-selection operation. Record source-reader throughput separately; do not claim an end-to-end speedup.
-- [ ] Rule. Require bounded batches, exact membership, and explicit failure at row/byte/time limits. Reject proportional whole-membership memory buffering. Target a small warm selection request within 30 seconds.
+- [x] Metric. Selection throughput, total time, RSS, and staged bytes.
+- [x] Probe. Create selections of 100, 10,000, and 100,000 fixture references and exercise configured limits.
+- [x] Baseline. Baseline has no saved-selection operation. Record source-reader throughput separately; do not claim an end-to-end speedup.
+- [x] Rule. Require bounded batches, exact membership, and explicit failure at row/byte/time limits. Reject proportional whole-membership memory buffering. Target a small warm selection request within 30 seconds.
 
 **Review gate.** None. No mandatory operator interaction review. No routine human gate. Root checks security, failure visibility, and ownership.
 
 **Merge.**
 
-- [ ] Integrate the B02 worktree without B03 file edits. Re-run its focused gate on the combined B02/B03 head before B04.
+- [x] Integrate the B02 worktree without B03 file edits. Re-run its focused gate on the combined B02/B03 head before B04.
 
 ## Preserve correlated FHIR concept values (B03)
 
@@ -141,40 +141,40 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Extend `internal/catalog`, `internal/explorer/capability`, `internal/fhir/schema`, `internal/dataframe/{spec,expression,semantic}`, and `internal/dataframe/compiler/{ir,lower,render/aql}`.
-- [ ] Extend feature-binding validation in `authoringv2` and compilation. Use new focused files where appropriate; do not grow all binding cases inside `semantic_compile.go`. Root integrates shared generated contracts.
+- [x] Extend `internal/catalog`, `internal/explorer/capability`, `internal/fhir/schema`, `internal/dataframe/{spec,expression,semantic}`, and `internal/dataframe/compiler/{ir,lower,render/aql}`.
+- [x] Extend feature-binding validation in `authoringv2` and compilation. Use new focused files where appropriate; do not grow all binding cases inside `semantic_compile.go`. Root integrates shared generated contracts.
 
 **Build.**
 
-- [ ] ML-B03-01. Preserve system/code identity, extension ancestry, choice arm, unit observations, and evidence completeness in catalog concept candidates. Expose supported and unresolved candidates without fabricating friendly equivalence.
-- [ ] ML-B03-02. Extend typed correlated predicates/extraction so system and code bind within one Coding item and its owning repeated component. Reuse `PhysicalPivotMap` and scoped expressions. Prove the same pairing behavior for filters and projected values.
-- [ ] ML-B03-03. Replace hard-coded string-coalescing lookup behavior with validated bindings and declared result types. Preserve raw values and produce typed invalid/mixed-arm outcomes in execution, without waiting for B07's reporting UI. Keep unmatched data accessible. Avoid adding a second Go evaluator.
-- [ ] ML-B03-04. Add cross-element, colliding-code-system, nested-extension, and mixed-choice tests through semantic lowering and real Arango execution. Add candidate/receipt lineage assertions that preserve exact structural binding.
+- [x] ML-B03-01. Preserve system/code identity, extension ancestry, choice arm, unit observations, and evidence completeness in catalog concept candidates. Expose supported and unresolved candidates without fabricating friendly equivalence.
+- [x] ML-B03-02. Extend typed correlated predicates/extraction so system and code bind within one Coding item and its owning repeated component. Reuse `PhysicalPivotMap` and scoped expressions. Prove the same pairing behavior for filters and projected values.
+- [x] ML-B03-03. Replace hard-coded string-coalescing lookup behavior with validated bindings and declared result types. Preserve raw values and produce typed invalid/mixed-arm outcomes in execution, without waiting for B07's reporting UI. Keep unmatched data accessible. Avoid adding a second Go evaluator.
+- [x] ML-B03-04. Add cross-element, colliding-code-system, nested-extension, and mixed-choice tests through semantic lowering and real Arango execution. Add candidate/receipt lineage assertions that preserve exact structural binding.
 
 **You see.**
 
-- [ ] Two equal code strings in different coding systems remain distinguishable. Component B's value cannot populate component A's feature. An unknown binding is visible, not silently dropped.
+- [x] Two equal code strings in different coding systems remain distinguishable. Component B's value cannot populate component A's feature. An unknown binding is visible, not silently dropped.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/catalog/... ./internal/fhir/schema/... ./internal/dataframe/spec/... ./internal/dataframe/semantic/... ./internal/dataframe/compiler/... ./internal/explorer/capability/... ./internal/explorer/compilation/...`. Add literal paired-value expectations, not only rendered-query assertions.
+- [x] Run `rtk proxy go test ./internal/catalog/... ./internal/fhir/schema/... ./internal/dataframe/spec/... ./internal/dataframe/semantic/... ./internal/dataframe/compiler/... ./internal/explorer/capability/... ./internal/explorer/compilation/...`. Add literal paired-value expectations, not only rendered-query assertions.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Execute the correlated fixture through receipt Preview on the owned stack. Assert discriminating literal values plus binding/choice metadata for both coding systems and components. Repeat with a missing system and incompatible choice arm. Per-cell contribution reporting arrives in B07; no full browser journey is required here.
+- [x] Execute the correlated fixture through receipt Preview on the owned stack. Assert discriminating literal values plus binding/choice metadata for both coding systems and components. Repeat with a missing system and incompatible choice arm. Per-cell contribution reporting arrives in B07; no full browser journey is required here.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Paired-binding extraction latency, allocations, and scan count with tracing off.
-- [ ] Probe. Run direct-field baseline/head cases and the new paired fixture with identical row counts.
-- [ ] Baseline. Record direct-field behavior and timings first. The paired semantics are new and have no equivalent old baseline.
-- [ ] Rule. Investigate a repeated direct-field median regression over 20 percent. Reject per-feature full-dataset scans; require the small paired preview within the 30-second warm iteration target.
+- [x] Metric. Paired-binding extraction latency, allocations, and scan count with tracing off.
+- [x] Probe. Run direct-field baseline/head cases and the new paired fixture with identical row counts.
+- [x] Baseline. Record direct-field behavior and timings first. The paired semantics are new and have no equivalent old baseline.
+- [x] Rule. Investigate a repeated direct-field median regression over 20 percent. Reject per-feature full-dataset scans; require the small paired preview within the 30-second warm iteration target.
 
 **Review gate.** None. No mandatory operator interaction review. Root reviews literal pairing evidence before mapping controls can depend on it.
 
 **Merge.**
 
-- [ ] Integrate B03 and B02; verify shared contracts once on the combined head. Advance only after both semantic and membership probes pass.
+- [x] Integrate B03 and B02; verify shared contracts once on the combined head. Advance only after both semantic and membership probes pass.
 
 ## Separate selected populations from row grain and feature scope (B04)
 
