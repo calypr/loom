@@ -378,6 +378,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	lifecycleConfig := lifecycle.Config{
+		SemanticInventory:            catalogStore.PageSemanticInventory,
 		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,
 		InterpretationRepository:     explorerStore,
 		PopulationMappingCursorCodec: populationMappingCursorCodec,

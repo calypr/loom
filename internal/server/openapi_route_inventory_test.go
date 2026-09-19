@@ -47,8 +47,8 @@ func TestGeneratedRoutesExactlyMatchOpenAPISpec(t *testing.T) {
 			t.Errorf("registered route is absent from OpenAPI: %s", route)
 		}
 	}
-	if len(got) != 33 || len(want) != 33 {
-		t.Errorf("route count got=%d spec=%d, want 33", len(got), len(want))
+	if len(got) != 34 || len(want) != 34 {
+		t.Errorf("route count got=%d spec=%d, want 34", len(got), len(want))
 	}
 }
 

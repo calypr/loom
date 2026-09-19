@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
@@ -115,6 +116,7 @@ type Config struct {
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection string
 	Capability                 CapabilityResolver
+	SemanticInventory          func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
 	// InterpretationRepository resolves exact immutable revision IDs. It is
 	// intentionally narrow so lifecycle cannot accidentally depend on heads or
 	// unrelated Explorer persistence methods.

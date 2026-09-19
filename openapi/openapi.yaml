@@ -161,6 +161,29 @@ paths:
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: browseExplorerSemanticInventory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SemanticInventoryBrowseRequest'}
+      responses:
+        '200':
+          description: Authorized observed bindings, not resolved column recipes. Occurrence counts describe source events, not row fill rates. Ordinary structural fields remain in the Builder capability catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SemanticInventoryBrowseResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2010,6 +2033,47 @@ components:
         maxSteps: {type: integer, minimum: 0}
         allowRepeatedEdges: {type: boolean}
         allowSelfLoops: {type: boolean}
+    SemanticInventoryBrowseRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, rowRoot]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        rowRoot: {type: string, minLength: 1}
+        resourceType: {type: string}
+        query: {type: string, maxLength: 256}
+        cursor: {type: string, maxLength: 4096}
+        limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+    SemanticInventoryBrowseResponse:
+      type: object
+      additionalProperties: false
+      required: [contextToken, buildId, state, entries]
+      properties:
+        contextToken: {type: string, minLength: 1}
+        buildId: {type: string}
+        state: {type: string, enum: [unknown, not_started, running, complete, failed, invalidated]}
+        nextCursor: {type: string}
+        entries:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/SemanticInventoryItem'}
+    SemanticInventoryItem:
+      type: object
+      additionalProperties: false
+      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences]
+      properties:
+        conceptId: {type: string}
+        bindingId: {type: string}
+        resourceType: {type: string}
+        sourcePath: {type: string}
+        system: {type: string}
+        code: {type: string}
+        codingVersion: {type: string}
+        display: {type: string}
+        valueSelector: {type: string}
+        valueType: {type: string}
+        owningScope: {type: string}
+        occurrences: {type: integer, format: int64, minimum: 0}
     CandidateSearchRequest:
       type: object
       additionalProperties: false

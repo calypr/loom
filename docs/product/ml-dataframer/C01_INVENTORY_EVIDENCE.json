@@ -5,7 +5,7 @@
   "status": "partial",
   "implementationSha": "b27ec4004fb44a3c9feb9f85d10d93f7ec8f7919",
   "integrationBranch": "arch/integration",
-  "scope": "Generation-ingest semantic contributions, durable build status, and authorized catalog-store pagination",
+  "scope": "Generation-ingest semantic contributions, durable build status, authorized catalog-store pagination, and read-only authoring inventory transport",
   "verification": [
     {
       "command": "GOCACHE=/private/tmp/loom-c01-go-cache go test ./internal/catalog ./internal/catalog/arango ./internal/ingest",
@@ -65,6 +65,35 @@
       "scannedResourcesForEach": 14
     }
   ],
+  "browseTransportVerification": {
+    "date": "2026-09-19",
+    "route": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+    "commands": [
+      "GOCACHE=/private/tmp/loom-c01-go-cache go test ./internal/explorer/lifecycle ./internal/server -count=1",
+      "make openapi-check"
+    ],
+    "result": "pass",
+    "liveChecks": [
+      "Existing loom_dev_c01_fixture returns complete inventory and two successive two-entry pages",
+      "Context token is stable between pages",
+      "Changing the search query while reusing a cursor returns HTTP 409",
+      "Existing loom_dev_cda_fhir returns HTTP 200, unknown inventory, and zero entries before backfill",
+      "CDA Builder remains draft version 4"
+    ],
+    "testChecks": [
+      "Restricted and empty-restricted authorization are explicitly forwarded to storage",
+      "A scope digest mismatch prevents any inventory read",
+      "Changing row root or build invalidates the outer cursor",
+      "Stale snapshot and oversized page requests are rejected",
+      "Client-supplied authorization paths cannot broaden the effective scope",
+      "Project read denial returns HTTP 403 before reading inventory"
+    ],
+    "limitations": [
+      "This endpoint exposes observed semantic bindings, not add-ready recipes or the complete combined scalar-field catalog",
+      "Live Docker uses allow-all authentication; denial behavior is tested through the generated HTTP route",
+      "No new frontend UI or atomic selected-feature authoring is included"
+    ]
+  },
   "correctedDuringVerification": [
     "Restricted incomplete-build metadata bypassed redaction",
     "Display filtering before aggregation undercounted concepts",
@@ -77,7 +106,7 @@
   "remaining": [
     "Backfill and resume from retained resources for existing generations, including CDA-FHIR",
     "Query-plan and production-scale performance evidence",
-    "Catalog API context and selected-reference resolution",
+    "Combined field/concept catalog, selected-reference resolution, and apply-context enforcement",
     "Atomic selected-feature authoring and retry recovery",
     "Version-specific compiler matching or explicit unsupported readiness",
     "Catalog UI integrated with the retained traversal graph",
