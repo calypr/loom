@@ -309,3 +309,20 @@ func TestCapabilityEvidenceFieldEnrichmentPreservesSemanticObservations(t *testi
 		t.Fatalf("semantic observation = %#v", observation)
 	}
 }
+
+func TestPageSemanticInventoryTreatsMissingCollectionsAsUnknown(t *testing.T) {
+	client := &evidenceClient{collections: map[string]bool{}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.PageSemanticInventory(context.Background(), catalog.SemanticInventoryPageOptions{
+		Project: "p", DatasetGeneration: "legacy-generation",
+	})
+	if err != nil || page.State != catalog.SemanticInventoryUnknown || len(page.Entries) != 0 {
+		t.Fatalf("page = %#v err=%v, want unknown empty inventory", page, err)
+	}
+	if len(client.queries) != 0 {
+		t.Fatalf("queries = %d, want no AQL against absent legacy collections", len(client.queries))
+	}
+}

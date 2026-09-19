@@ -26,6 +26,14 @@ func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 
 const generationCleanupTimeout = 10 * time.Second
 
+func totalResourceRows(resources map[string]int) int64 {
+	var total int64
+	for _, count := range resources {
+		total += int64(count)
+	}
+	return total
+}
+
 // Cleanup actions receive independent deadlines. A stalled manifest transition
 // cannot consume the close deadline, so failure cleanup may use two windows.
 func boundedGenerationCleanup(parent context.Context, timeout time.Duration, cleanup func(context.Context) error) error {
@@ -180,8 +188,23 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return err
 		})
 	}()
+	inventoryBuild := catalog.NewSemanticInventoryBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
+	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
+		return summary, err
+	}
+	inventoryComplete := false
+	defer func() {
+		if err == nil || inventoryComplete {
+			return
+		}
+		diagnostic := err.Error()
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark semantic inventory build failed", func(cleanupCtx context.Context) error {
+			return catalogStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
+		})
+	}()
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
+	lastInventoryCheckpoint := ""
 	for _, file := range files {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -223,6 +246,11 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.BatchCounts["edge_insert"] += result.EdgeBatches
 		for name, seconds := range result.StageSeconds {
 			summary.StageSeconds[name] += seconds
+		}
+		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
+		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
+		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
 		}
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
@@ -299,6 +327,10 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
+		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
+	}
+	inventoryComplete = true
 	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr

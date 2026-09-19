@@ -42,6 +42,16 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 }
 
 func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) {
+	p.observePayload(payload, timings, "", nil)
+}
+
+// ObservePayloadWithInventory profiles a source record and emits each semantic
+// observation through the same extractor used by the bounded field summary.
+func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
+	p.observePayload(payload, timings, sourceID, sink)
+}
+
+func (p *Profiler) observePayload(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
 	if payload == nil {
 		return
 	}
@@ -87,7 +97,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
-	p.observeSemanticObservations(payload)
+	p.observeSemanticObservations(payload, sourceID, sink)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
 }
 

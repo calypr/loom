@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,21 +47,22 @@ func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*catalog.Prof
 }
 
 type fileLoadResult struct {
-	ResourceType       string
-	Rows               int
-	VerticesBuilt      int
-	EdgesBuilt         int
-	VerticesInserted   int
-	EdgesInserted      int
-	ValidationErrors   int
-	GenerationErrors   int
-	EdgeErrors         int
-	VertexBatches      int
-	EdgeBatches        int
-	StageSeconds       map[string]float64
-	Catalog            *catalog.Profiler
-	RelationshipCounts map[catalog.RelationshipKey]int64
-	RowErrors          []RowErrorSample
+	ResourceType             string
+	Rows                     int
+	VerticesBuilt            int
+	EdgesBuilt               int
+	VerticesInserted         int
+	EdgesInserted            int
+	ValidationErrors         int
+	GenerationErrors         int
+	EdgeErrors               int
+	VertexBatches            int
+	EdgeBatches              int
+	SemanticInventoryBatches int
+	StageSeconds             map[string]float64
+	Catalog                  *catalog.Profiler
+	RelationshipCounts       map[catalog.RelationshipKey]int64
+	RowErrors                []RowErrorSample
 }
 
 const rowErrorSampleLimit = 10
@@ -74,6 +76,7 @@ type fileWriteTask struct {
 	collection         string
 	docs               []json.RawMessage
 	relationshipCounts map[catalog.RelationshipKey]int64
+	replace            bool
 }
 
 type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
@@ -96,6 +99,10 @@ func loadFile(
 ) (result fileLoadResult, err error) {
 	resourceType := ResourceTypeFromPath(file)
 	result.ResourceType = resourceType
+	semanticSourceFile := ""
+	if catalog.NormalizeDatasetGeneration(datasetGeneration) != "" {
+		semanticSourceFile = semanticInventorySourceFileID(opts.MetaDir, file)
+	}
 	class := schema.GetClass(resourceType)
 	if class == nil {
 		return result, fmt.Errorf("%s: class %q not found in graph schema", filepath.Base(file), resourceType)
@@ -213,6 +220,8 @@ func loadFile(
 			localCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
+			semanticInventoryBatch := make([]json.RawMessage, 0, opts.BatchSize)
+			semanticInventoryFailed := false
 
 			flushVertexBatch := func() bool {
 				if len(vertexBatch) == 0 {
@@ -251,6 +260,22 @@ func loadFile(
 					return false
 				}
 			}
+			flushSemanticInventoryBatch := func() bool {
+				if len(semanticInventoryBatch) == 0 {
+					return true
+				}
+				waitStart := time.Now()
+				select {
+				case writeChan <- fileWriteTask{collection: catalog.SemanticInventoryCollection, docs: semanticInventoryBatch, replace: true}:
+					localTimings["semantic_inventory_queue_wait"] += time.Since(waitStart).Seconds()
+					localTimings["semantic_inventory_batches"]++
+					semanticInventoryBatch = make([]json.RawMessage, 0, opts.BatchSize)
+					return true
+				case <-fileCtx.Done():
+					localTimings["semantic_inventory_queue_wait"] += time.Since(waitStart).Seconds()
+					return false
+				}
+			}
 
 			for {
 				select {
@@ -258,7 +283,7 @@ func loadFile(
 					return
 				case line, open := <-linesChan:
 					if !open {
-						if !flushVertexBatch() || !flushEdgeBatch() {
+						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() {
 							return
 						}
 						select {
@@ -289,7 +314,29 @@ func loadFile(
 						continue
 					}
 
-					localCatalog.ObservePayload(built.payload, localTimings)
+					if semanticSourceFile == "" {
+						localCatalog.ObservePayload(built.payload, localTimings)
+					} else {
+						sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
+						localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, func(contribution catalog.SemanticInventoryContribution) {
+							if semanticInventoryFailed || fileCtx.Err() != nil {
+								return
+							}
+							encoded, encodeErr := json.Marshal(contribution)
+							if encodeErr != nil {
+								semanticInventoryFailed = true
+								setPipelineErr(fmt.Errorf("encode semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, encodeErr))
+								return
+							}
+							semanticInventoryBatch = append(semanticInventoryBatch, encoded)
+							if len(semanticInventoryBatch) >= opts.BatchSize && !flushSemanticInventoryBatch() {
+								semanticInventoryFailed = true
+							}
+						})
+						if fileCtx.Err() != nil {
+							return
+						}
+					}
 					vertexBatch = append(vertexBatch, built.vertex)
 					atomic.AddInt64(&fileVertices, 1)
 					if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
@@ -353,16 +400,20 @@ func loadFile(
 						return
 					}
 					insertStart := time.Now()
-					if insertErr := insert(fileCtx, client, task.collection, task.docs, overwrite, opts.WriteAPI); insertErr != nil {
+					taskOverwrite := overwrite || task.replace
+					if insertErr := insert(fileCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI); insertErr != nil {
 						setPipelineErr(insertErr)
 						return
 					}
 					elapsed := time.Since(insertStart).Seconds()
-					if task.collection == EdgeCollection {
+					switch task.collection {
+					case EdgeCollection:
 						localTimings["edge_insert"] += elapsed
 						atomic.AddInt64(&edgesInserted, int64(len(task.docs)))
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
-					} else {
+					case catalog.SemanticInventoryCollection:
+						localTimings["semantic_inventory_insert"] += elapsed
+					default:
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
 					}
@@ -406,6 +457,8 @@ func loadFile(
 				result.VertexBatches += int(value)
 			case "edge_batches":
 				result.EdgeBatches += int(value)
+			case "semantic_inventory_batches":
+				result.SemanticInventoryBatches += int(value)
 			default:
 				result.StageSeconds[key] += value
 			}
@@ -424,4 +477,21 @@ func loadFile(
 	}
 	result.Catalog = mergedCatalog
 	return result, nil
+}
+
+func semanticInventorySourceFileID(root, file string) string {
+	absoluteRoot, rootErr := filepath.Abs(root)
+	absoluteFile, fileErr := filepath.Abs(file)
+	if rootErr != nil || fileErr != nil {
+		return filepath.ToSlash(filepath.Clean(file))
+	}
+	relative, err := filepath.Rel(absoluteRoot, absoluteFile)
+	if err != nil {
+		return filepath.ToSlash(filepath.Clean(absoluteFile))
+	}
+	return filepath.ToSlash(filepath.Clean(relative))
+}
+
+func semanticInventorySourceRecordID(sourceFile string, line int) string {
+	return sourceFile + "#" + strconv.Itoa(line)
 }

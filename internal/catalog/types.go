@@ -225,22 +225,23 @@ const (
 // extensible strings so new FHIR profiles can remain visible without changing
 // the storage envelope.
 type SemanticObservation struct {
-	SchemaVersion     int                             `json:"schema_version"`
-	Source            SemanticObservationSource       `json:"source"`
-	Key               SemanticObservationKey          `json:"key"`
-	Value             SemanticObservationValue        `json:"value"`
-	OwningScope       string                          `json:"owning_scope,omitempty"`
-	ExtensionURLPath  []string                        `json:"extension_url_path,omitempty"`
-	ChoiceArm         string                          `json:"choice_arm,omitempty"`
-	LogicalType       string                          `json:"logical_type,omitempty"`
-	ObservedUnits     []string                        `json:"observed_units,omitempty"`
-	Completeness      SemanticObservationCompleteness `json:"completeness"`
-	Status            string                          `json:"status,omitempty"`
-	Population        int64                           `json:"population"`
-	Examples          []string                        `json:"examples,omitempty"`
-	ExamplesTruncated bool                            `json:"examples_truncated"`
-	RuleHint          string                          `json:"rule_hint,omitempty"`
-	RuleVersion       string                          `json:"rule_version,omitempty"`
+	SchemaVersion          int                             `json:"schema_version"`
+	Source                 SemanticObservationSource       `json:"source"`
+	Key                    SemanticObservationKey          `json:"key"`
+	Value                  SemanticObservationValue        `json:"value"`
+	OwningScope            string                          `json:"owning_scope,omitempty"`
+	ExtensionURLPath       []string                        `json:"extension_url_path,omitempty"`
+	ChoiceArm              string                          `json:"choice_arm,omitempty"`
+	LogicalType            string                          `json:"logical_type,omitempty"`
+	ObservedUnits          []string                        `json:"observed_units,omitempty"`
+	ObservedUnitsTruncated bool                            `json:"observed_units_truncated,omitempty"`
+	Completeness           SemanticObservationCompleteness `json:"completeness"`
+	Status                 string                          `json:"status,omitempty"`
+	Population             int64                           `json:"population"`
+	Examples               []string                        `json:"examples,omitempty"`
+	ExamplesTruncated      bool                            `json:"examples_truncated"`
+	RuleHint               string                          `json:"rule_hint,omitempty"`
+	RuleVersion            string                          `json:"rule_version,omitempty"`
 }
 
 // ConceptCandidate is the public catalog vocabulary used by Builder and
@@ -258,6 +259,7 @@ type SemanticObservationSource struct {
 type SemanticObservationKey struct {
 	Selector string `json:"selector,omitempty"`
 	System   string `json:"system,omitempty"`
+	Version  string `json:"version,omitempty"`
 	Code     string `json:"code,omitempty"`
 	Display  string `json:"display,omitempty"`
 }

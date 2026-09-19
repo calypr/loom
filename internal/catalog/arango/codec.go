@@ -159,11 +159,14 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 		if observation.ExamplesTruncated, err = decodeBool(row["examples_truncated"]); err != nil {
 			return nil, err
 		}
+		if observation.ObservedUnitsTruncated, err = decodeBool(row["observed_units_truncated"]); err != nil {
+			return nil, err
+		}
 		if source, ok := row["source"].(map[string]any); ok {
 			observation.Source = catalog.SemanticObservationSource{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
 		}
 		if key, ok := row["key"].(map[string]any); ok {
-			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
+			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
 		}
 		if value, ok := row["value"].(map[string]any); ok {
 			observation.Value = catalog.SemanticObservationValue{Selector: stringValue(value["selector"]), Type: stringValue(value["type"])}

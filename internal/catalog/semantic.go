@@ -17,23 +17,30 @@ import (
 )
 
 const (
-	SemanticObservationSchemaVersion = 2
+	SemanticObservationSchemaVersion = 3
 	maxSemanticObservations          = 512
 	maxSemanticExamples              = 32
 	maxSemanticExampleBytes          = 256
 )
 
-func (p *Profiler) observeSemanticObservations(payload map[string]any) {
+func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) {
+	ordinal := 0
+	emit := func(observation SemanticObservation, examples []any) {
+		if sourceID != "" && sink != nil {
+			sink(p.semanticInventoryContribution(sourceID, ordinal, observation, examples))
+			ordinal++
+		}
+	}
 	profile := semanticProfileForPayload(payload)
 	if p.resourceType == "Observation" {
-		p.observeObservationSemantics(payload, profile)
+		p.observeObservationSemantics(payload, profile, emit)
 	}
-	walkSemanticValue(payload, "", nil, p, profile)
+	walkSemanticValue(payload, "", nil, p, profile, emit)
 }
 
-func (p *Profiler) observeObservationSemantics(payload map[string]any, profile string) {
+func (p *Profiler) observeObservationSemantics(payload map[string]any, profile string, emit func(SemanticObservation, []any)) {
 	if code, ok := payload["code"].(map[string]any); ok {
-		p.emitObservationCodeValue("", code, payload, profile)
+		p.emitObservationCodeValue("", code, payload, profile, emit)
 	}
 	components, _ := payload["component"].([]any)
 	for _, raw := range components {
@@ -43,12 +50,12 @@ func (p *Profiler) observeObservationSemantics(payload map[string]any, profile s
 		}
 		code, ok := component["code"].(map[string]any)
 		if ok {
-			p.emitObservationCodeValue("component[]", code, component, profile)
+			p.emitObservationCodeValue("component[]", code, component, profile, emit)
 		}
 	}
 }
 
-func (p *Profiler) emitObservationCodeValue(owner string, code map[string]any, ownerValue map[string]any, profile string) {
+func (p *Profiler) emitObservationCodeValue(owner string, code map[string]any, ownerValue map[string]any, profile string, emit func(SemanticObservation, []any)) {
 	valueSelectors := semanticChoiceValues(p.resourceType, ownerValue)
 	if len(valueSelectors) == 0 {
 		return
@@ -58,13 +65,13 @@ func (p *Profiler) emitObservationCodeValue(owner string, code map[string]any, o
 		// Preserve an unresolved text/code candidate. A missing Coding is not
 		// equivalent to a matching Coding and must remain visible.
 		for _, value := range valueSelectors {
-			p.emitSemantic(owner, code, nil, value, profile, "OBSERVATION_CODE_VALUE")
+			p.emitSemantic(owner, code, nil, value, profile, "OBSERVATION_CODE_VALUE", emit)
 		}
 		return
 	}
 	for _, coding := range codings {
 		for _, value := range valueSelectors {
-			p.emitSemantic(owner, code, coding, value, profile, "OBSERVATION_CODE_VALUE")
+			p.emitSemantic(owner, code, coding, value, profile, "OBSERVATION_CODE_VALUE", emit)
 		}
 	}
 }
@@ -94,13 +101,14 @@ func semanticChoiceValues(resourceType string, value map[string]any) []semanticC
 	return result
 }
 
-func (p *Profiler) emitSemantic(owner string, code map[string]any, coding map[string]any, value semanticChoiceValue, profile, rule string) {
+func (p *Profiler) emitSemantic(owner string, code map[string]any, coding map[string]any, value semanticChoiceValue, profile, rule string, emit func(SemanticObservation, []any)) {
 	key := SemanticObservationKey{Selector: "code.coding[]"}
 	if coding == nil {
 		key.Selector = "code.text"
 		key.Display = stringValue(code["text"])
 	} else {
 		key.System = stringValue(coding["system"])
+		key.Version = stringValue(coding["version"])
 		key.Code = stringValue(coding["code"])
 		key.Display = stringValue(coding["display"])
 	}
@@ -140,11 +148,12 @@ func (p *Profiler) emitSemantic(owner string, code map[string]any, coding map[st
 		Completeness:  SemanticComplete,
 		Status:        status,
 		RuleHint:      rule,
-		RuleVersion:   "2",
+		RuleVersion:   strconv.Itoa(SemanticObservationRuleVersion),
 	}
 	if stat := p.ensureSemanticStat(storagePath); stat != nil {
 		stat.addSemanticObservation(observation, []any{semanticExampleValue(value)})
 	}
+	emit(observation, []any{semanticExampleValue(value)})
 }
 
 func semanticExampleValue(value semanticChoiceValue) any {
@@ -170,15 +179,15 @@ func semanticExampleValue(value semanticChoiceValue) any {
 	return value.Value
 }
 
-func walkSemanticValue(value any, path string, ancestors []string, profiler *Profiler, profile string) {
+func walkSemanticValue(value any, path string, ancestors []string, profiler *Profiler, profile string, emit func(SemanticObservation, []any)) {
 	switch typed := value.(type) {
 	case map[string]any:
 		isExtension := strings.HasSuffix(path, "extension[]")
 		if isExtension {
-			profiler.emitExtensionSemantic(typed, path, ancestors, profile)
+			profiler.emitExtensionSemantic(typed, path, ancestors, profile, emit)
 		}
 		if strings.HasSuffix(path, "identifier[]") {
-			profiler.emitIdentifierSemantic(typed, path, profile)
+			profiler.emitIdentifierSemantic(typed, path, profile, emit)
 		}
 		for _, key := range sortedKeys(typed) {
 			child := typed[key]
@@ -195,18 +204,18 @@ func walkSemanticValue(value any, path string, ancestors []string, profiler *Pro
 					nextAncestors = append(append([]string(nil), ancestors...), url)
 				}
 			}
-			walkSemanticValue(child, childPath, nextAncestors, profiler, profile)
+			walkSemanticValue(child, childPath, nextAncestors, profiler, profile, emit)
 		}
 	case []any:
 		for _, item := range typed {
 			if item != nil {
-				walkSemanticValue(item, path, ancestors, profiler, profile)
+				walkSemanticValue(item, path, ancestors, profiler, profile, emit)
 			}
 		}
 	}
 }
 
-func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile string) {
+func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile string, emit func(SemanticObservation, []any)) {
 	raw, ok := value["value"]
 	if !ok || raw == nil {
 		return
@@ -217,7 +226,7 @@ func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile st
 		Key:           SemanticObservationKey{Selector: path + ".system", System: stringValue(value["system"])},
 		Value:         SemanticObservationValue{Selector: path + ".value", Type: semanticValueType(raw)},
 		OwningScope:   path, LogicalType: semanticValueType(raw), Completeness: SemanticComplete,
-		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: "2",
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(SemanticObservationRuleVersion),
 	}
 	if observation.Key.System == "" {
 		observation.Status = "UNRESOLVED_SYSTEM"
@@ -225,9 +234,10 @@ func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile st
 	if stat := p.ensureSemanticStat(path); stat != nil {
 		stat.addSemanticObservation(observation, []any{raw})
 	}
+	emit(observation, []any{raw})
 }
 
-func (p *Profiler) emitExtensionSemantic(value map[string]any, path string, ancestors []string, profile string) {
+func (p *Profiler) emitExtensionSemantic(value map[string]any, path string, ancestors []string, profile string, emit func(SemanticObservation, []any)) {
 	url := strings.TrimSpace(stringValue(value["url"]))
 	if url == "" {
 		return
@@ -251,11 +261,12 @@ func (p *Profiler) emitExtensionSemantic(value map[string]any, path string, ance
 			Value:         SemanticObservationValue{Selector: path + "." + valuePath, Type: valueType},
 			OwningScope:   path, ExtensionURLPath: append(append([]string(nil), ancestors...), url), ChoiceArm: key,
 			LogicalType: valueType, ObservedUnits: semanticObservedUnits(value[key]), Completeness: SemanticComplete,
-			Status: status, RuleHint: "EXTENSION_URL_VALUE", RuleVersion: "2",
+			Status: status, RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(SemanticObservationRuleVersion),
 		}
 		if stat := p.ensureSemanticStat(path); stat != nil {
 			stat.addSemanticObservation(observation, []any{value[key]})
 		}
+		emit(observation, []any{value[key]})
 	}
 }
 
@@ -420,7 +431,7 @@ func semanticObservationKey(observation SemanticObservation) string {
 	return strings.Join([]string{
 		observation.Source.Canonical, observation.Source.Profile, observation.Source.Path,
 		observation.OwningScope, strings.Join(observation.ExtensionURLPath, "\x1f"),
-		observation.Key.Selector, observation.Key.System, observation.Key.Code, observation.Key.Display,
+		observation.Key.Selector, observation.Key.System, observation.Key.Version, observation.Key.Code, observation.Key.Display,
 		observation.Value.Selector, observation.Value.Type, observation.ChoiceArm, observation.LogicalType,
 		observation.RuleHint, observation.RuleVersion,
 	}, "\x00")
