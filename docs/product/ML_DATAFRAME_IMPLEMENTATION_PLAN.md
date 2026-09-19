@@ -305,40 +305,40 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Extend `dataframe/execution` with optional typed evidence sinks and compiler evidence projections. Add proposed `explorer/evidence.go`, `explorer/lifecycle/evidence.go`, and immutable evidence persistence in the existing Arango adapter.
-- [ ] Extend lifecycle publication validation and the feature/Preview/Viewer evidence controls. Retain the existing atomic release activation path.
+- [x] Extend `dataframe/execution` with optional typed evidence sinks and compiler evidence projections. Add proposed `explorer/evidence.go`, `explorer/lifecycle/evidence.go`, and immutable evidence persistence in the existing Arango adapter.
+- [x] Extend lifecycle publication validation and the feature/Preview/Viewer evidence controls. Retain the existing atomic release activation path.
 
 **Build.**
 
-- [ ] ML-B07-01. Produce cell status and contribution evidence from the same compiled operators as values, before lossy reductions. Implement targeted row/feature trace with bounded pagination. Do not store every cell's full provenance in every Preview response.
-- [ ] ML-B07-02. Compute full-population quality separately from bounded Preview. Create reports only after receipt identity exists, and bind them to receipt, generation, scope, output, and check-policy version. Never include their future digest in the receipt. Include completeness, limits, key integrity, coverage, ambiguity, invalid units/types, and explicit omissions.
-- [ ] ML-B07-03. Gate activation on invariants checked during the materialization stream. Keep prior publication active after cancellation or quality failure. Never retrofit a report digest into an immutable receipt or use sampled evidence as full approval.
-- [ ] ML-B07-04. Add reason-specific repair links and a cell explanation panel using one server-owned descriptor. Keep ordinary users out of FHIR details unless they expand them. Distinguish no observation from a recorded null and from ambiguous data.
+- [x] ML-B07-01. Produce cell status and contribution evidence from the same compiled operators as values, before lossy reductions. Implement targeted row/feature trace with bounded pagination. Do not store every cell's full provenance in every Preview response.
+- [x] ML-B07-02. Compute full-population quality separately from bounded Preview. Create reports only after receipt identity exists, and bind them to receipt, generation, scope, output, and check-policy version. Never include their future digest in the receipt. Include completeness, limits, key integrity, coverage, ambiguity, invalid units/types, and explicit omissions.
+- [x] ML-B07-03. Gate activation on invariants checked during the materialization stream. Keep prior publication active after cancellation or quality failure. Never retrofit a report digest into an immutable receipt or use sampled evidence as full approval.
+- [x] ML-B07-04. Add reason-specific repair links and a cell explanation panel using one server-owned descriptor. Keep ordinary users out of FHIR details unless they expand them. Distinguish no observation from a recorded null and from ambiguous data.
 
 **You see.**
 
-- [ ] The same cell value and contributing record appear in Preview, trace, publication, and Viewer. A timeout says incomplete. A failed check cannot replace the current published dataset.
+- [x] The same cell value and contributing record appear in Preview, trace, publication, and Viewer. A timeout says incomplete. A failed check cannot replace the current published dataset.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/execution/... ./internal/dataframe/compiler/... ./internal/dataframe/publication/... ./internal/server` and UI tests. Assert stream cancellation, missing evidence, mismatched identities, restricted-empty authorization, and activation failure behavior.
+- [x] Run `rtk proxy go test ./internal/explorer/... ./internal/dataframe/execution/... ./internal/dataframe/compiler/... ./internal/dataframe/publication/... ./internal/server` and UI tests. Assert stream cancellation, missing evidence, mismatched identities, restricted-empty authorization, and activation failure behavior.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Extend `verify-fast` to inspect a value and each missing-value reason, focus a repair, recheck, and publish. Force an incomplete full check and an activation failure. Assert the former publication stays readable and no hidden-record counts leak.
+- [x] Extend `verify-fast` to inspect a value and each missing-value reason, focus a repair, recheck, and publish. Force an incomplete full check and an activation failure. Assert the former publication stays readable and no hidden-record counts leak.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Tracing-disabled latency, targeted-trace latency, full-scan throughput, RSS, and evidence bytes.
-- [ ] Probe. Compare tracing off, one-cell trace, and full quality scan on the same receipt fixture.
-- [ ] Baseline. Record existing preview time and memory before enabling evidence generation.
-- [ ] Rule. Investigate over 20 percent repeatable overhead with tracing off. Require bounded trace pages and no full-data buffering. Full scans must honor configured time/memory limits and cannot report complete after timeout.
+- [x] Metric. Tracing-disabled latency, targeted-trace latency, full-scan throughput, RSS, and evidence bytes.
+- [x] Probe. Compare tracing off, one-cell trace, and full quality scan on the same receipt fixture.
+- [x] Baseline. Record existing preview time and memory before enabling evidence generation.
+- [x] Rule. Investigate over 20 percent repeatable overhead with tracing off. Require bounded trace pages and no full-data buffering. Full scans must honor configured time/memory limits and cannot report complete after timeout.
 
 **Review gate.** None. No mandatory operator interaction review. Root checks identity, security, and exact value/evidence agreement.
 
 **Merge.**
 
-- [ ] Record complete and failed publication evidence at the verified head before B08.
+- [x] Record complete and failed publication evidence at the verified head before B08. See `docs/product/ml-dataframe/B07_EVIDENCE_VERIFICATION.md`.
 
 ## Export a pinned artifact and verify the integrated product (B08)
 
@@ -346,46 +346,46 @@ The existing `scripts/validate_architecture_plan.py` validates task-record struc
 
 **Files.**
 
-- [ ] Add generic stream/archive encoding inside `internal/dataframe/published` and Explorer manifest/completion orchestration in proposed `internal/explorer/lifecycle/export.go`. Reuse exact execution reads and reader pins introduced by B02. Extend server routes and existing download controls.
-- [ ] Extend `scripts/loom-dev.mjs`, driver tests, and `.codex/skills/verify` feature coverage. Regenerate OpenAPI bindings from their source; never hand-edit generated contracts.
+- [x] Add generic stream/archive encoding inside `internal/dataframe/published` and Explorer manifest/completion orchestration in proposed `internal/explorer/lifecycle/export.go`. Reuse exact execution reads and reader pins introduced by B02. Extend server routes and existing download controls.
+- [x] Extend `scripts/loom-dev.mjs`, driver tests, and `.codex/skills/verify` feature coverage. Regenerate OpenAPI bindings from their source; never hand-edit generated contracts.
 
 **Build.**
 
-- [ ] ML-B08-01. Resolve one published revision/output using existing `BundleCatalog.GetExecution` and validate all identities. Acquire, renew, and release the B02 read-retention pin during preparation; abort on pin loss or unavailable materialization. Never fall back to latest-by-selector.
-- [ ] ML-B08-02. Stream data and metadata into a bounded temporary artifact, finalize checksums, and expose only complete downloads. Include selection membership, interpretation revisions, schema, quality, provenance, and null/array encoding. Handle cancellation, storage limits, restart, expiry, and authorization recheck.
-- [ ] ML-B08-03. Replace whole-dataset browser buffering with the server artifact path. Keep existing table paging. Test concurrent republish, later-page failure, null versus empty-string round trip, and explicit arrays. No partial artifact appears complete.
-- [ ] ML-B08-04. Run the complete integrated suites and user journeys. Update verification skill coverage and record unsupported/deferred capabilities. Close tasks only with implementation SHA and evidence. Verify that no duplicate authoring path or retired writable source representation remains.
+- [x] ML-B08-01. Resolve one published revision/output using existing `BundleCatalog.GetExecution` and validate all identities. Acquire, renew, and release the B02 read-retention pin during preparation; abort on pin loss or unavailable materialization. Never fall back to latest-by-selector.
+- [x] ML-B08-02. Stream data and metadata into a bounded temporary artifact, finalize checksums, and expose only complete downloads. Include selection membership, interpretation revisions, schema, quality, provenance, and null/array encoding. Handle cancellation, storage limits, restart, expiry, and authorization recheck.
+- [x] ML-B08-03. Replace whole-dataset browser buffering with the server artifact path. Keep existing table paging. Test concurrent republish, later-page failure, null versus empty-string round trip, and explicit arrays. No partial artifact appears complete.
+- [x] ML-B08-04. Run the complete integrated suites and user journeys. Update verification skill coverage and record unsupported/deferred capabilities. Close tasks only with implementation SHA and evidence. Verify that no duplicate authoring path or retired writable source representation remains.
 
 **You see.**
 
-- [ ] A researcher downloads exactly the table they checked, with its definitions and source membership. Publishing B during export A cannot change A. A failed export remains a failure.
+- [x] A researcher downloads exactly the table they checked, with its definitions and source membership. Publishing B during export A cannot change A. A failed export remains a failure.
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `rtk proxy go test ./...`, `rtk proxy make openapi-check graphql-check dataframe-boundaries`, `rtk proxy npm --prefix ui test`, UI/demo builds, and `rtk proxy node --test scripts/loom-dev.test.mjs`. Run generator consistency checks for every changed generated contract.
+- [x] Run `rtk proxy go test ./...`, `rtk proxy make openapi-check graphql-check dataframe-boundaries`, `rtk proxy npm --prefix ui test`, UI/demo builds, and `rtk proxy node --test scripts/loom-dev.test.mjs`. Run generator consistency checks for every changed generated contract.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run extended `verify-fast`, then `verify-full`. Unpack the downloaded artifact and compare literal rows, member checksums, scope, membership, and revision identities. Exercise concurrent publication and failed preparation through the real API. Preserve reports and parsed members, not only screenshots.
+- [x] Run extended `verify-fast`, then `verify-full`. Unpack the downloaded artifact and compare literal rows, member checksums, scope, membership, and revision identities. Exercise concurrent publication and failed preparation through the real API. Preserve reports and parsed members, not only screenshots.
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Artifact preparation time, server/browser memory, archive bytes, and warm watcher timings.
-- [ ] Probe. Run small and multi-page downloads, concurrent republish, injected failure, and verify-full.
-- [ ] Baseline. Record current CSV export memory/time and existing HMR/Go rebuild timing first.
-- [ ] Rule. Reject browser memory growth proportional to the whole dataset and partial-success artifacts. Record full export latency separately from the 30-second warm edit-to-assertion target.
+- [x] Metric. Artifact preparation time, server/browser memory, archive bytes, and warm watcher timings.
+- [x] Probe. Run small and multi-page downloads, concurrent republish, injected failure, and verify-full.
+- [x] Baseline. Record current CSV export memory/time and existing HMR/Go rebuild timing first.
+- [x] Rule. Reject browser memory growth proportional to the whole dataset and partial-success artifacts. Record full export latency separately from the 30-second warm edit-to-assertion target.
 
 **Review gate.** None. No mandatory operator interaction review. Root provides one final integrated verdict. The user retains merge/deploy authority.
 
 **Merge.**
 
-- [ ] Deliver verified commit/branch identities, completed task records, known limits, and real evidence. Do not claim performance gains without baseline/head measurements.
+- [x] Deliver verified commit/branch identities, completed task records, known limits, and real evidence. Do not claim performance gains without baseline/head measurements. See `docs/product/ml-dataframe/B08_INTEGRATED_VERIFICATION.md`.
 
 ## Close the program
 
-- [ ] Mark every implementation issue with its verified SHA and evidence. Keep failed or unsupported capabilities blocked rather than silently removing their acceptance criteria.
-- [ ] Re-run the plan-record validator. Refresh GitNexus after source changes. Preserve old immutable publications and the pre-migration draft backup.
-- [ ] Deliver the integrated product with its acceptance report. No manual triple-check by the user is required for the automated acceptance scenarios.
+- [x] Mark every implementation issue with its verified SHA and evidence. Keep failed or unsupported capabilities blocked rather than silently removing their acceptance criteria.
+- [x] Re-run the plan-record validator. Refresh GitNexus after source changes. Preserve old immutable publications and the pre-migration draft backup.
+- [x] Deliver the integrated product with its acceptance report. No manual triple-check by the user is required for the automated acceptance scenarios.
 
 ## Appendix A. Prototype evidence
 
