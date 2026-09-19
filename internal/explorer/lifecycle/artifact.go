@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
@@ -280,13 +282,13 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	}
 	quality, err := artifactQualityReport(*revision, request.OutputID, *receipt)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence", err)
+		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence: "+err.Error(), err)
 	}
 	materialization, err := s.config.PublishedReader.ExactExecutionMaterialization(ctx, revision.Publication.ExecutionID, request.OutputID)
 	if err != nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "MATERIALIZATION_UNAVAILABLE", "the exact published output is not available", err)
 	}
-	if err := validateArtifactMaterialization(materialization, *revision, *receipt, request.OutputID); err != nil {
+	if err := validateArtifactMaterialization(materialization, *revision, *receipt, authorized.Scope, request.OutputID); err != nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "MATERIALIZATION_IDENTITY_CHANGED", "the exact published output no longer matches the revision", nil, err)
 	}
 	return receipt, revision, authorized, materialization, quality, nil
@@ -356,8 +358,25 @@ func artifactQualityReport(revision explorer.Revision, outputID string, receipt 
 	if found == nil {
 		return publication.QualityReport{}, fmt.Errorf("quality report for output %q is missing", outputID)
 	}
-	if found.ReceiptID != receipt.ID || found.Project != receipt.Project || found.DatasetGeneration != receipt.SourceGeneration || found.ScopeDigest != receipt.AuthorizationScopeDigest || found.Completeness != publication.QualityComplete || found.Verdict != publication.QualityPassed || found.PolicyVersion != publication.DefaultQualityPolicyVersion {
-		return publication.QualityReport{}, fmt.Errorf("quality report for output %q is not complete and receipt-bound", outputID)
+	checks := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"receipt", found.ReceiptID, receipt.ID},
+		{"project", projectid.Canonical(found.Project), projectid.Canonical(receipt.Project)},
+		{"generation", found.DatasetGeneration, receipt.SourceGeneration},
+		{"completeness", string(found.Completeness), string(publication.QualityComplete)},
+		{"verdict", string(found.Verdict), string(publication.QualityPassed)},
+		{"policy", found.PolicyVersion, publication.DefaultQualityPolicyVersion},
+	}
+	for _, check := range checks {
+		if check.got != check.want {
+			return publication.QualityReport{}, fmt.Errorf("quality report for output %q has mismatched %s", outputID, check.name)
+		}
+	}
+	if strings.TrimSpace(found.ScopeDigest) == "" {
+		return publication.QualityReport{}, fmt.Errorf("quality report for output %q has no publication scope", outputID)
 	}
 	return *found, nil
 }
@@ -396,9 +415,16 @@ func artifactMetadata(receipt *explorer.CompilationReceipt, revision *explorer.R
 	return selectionRaw, interpretations, provenance, qualityRaw, nil
 }
 
-func validateArtifactMaterialization(materialization dataframepublished.Materialization, revision explorer.Revision, receipt explorer.CompilationReceipt, outputID string) error {
+func validateArtifactMaterialization(materialization dataframepublished.Materialization, revision explorer.Revision, receipt explorer.CompilationReceipt, scope authscope.ReadScope, outputID string) error {
 	if projectid.Canonical(materialization.Project) != projectid.Canonical(receipt.Project) || materialization.DatasetGeneration != receipt.SourceGeneration || materialization.ReceiptID != receipt.ID || materialization.Revision != revision.Publication.ExecutionID || materialization.Name == "" || outputID == "" {
 		return fmt.Errorf("materialization identity does not match receipt/revision")
+	}
+	expectedPaths := append([]string(nil), scope.AuthResourcePaths...)
+	actualPaths := append([]string(nil), materialization.AuthResourcePaths...)
+	slices.Sort(expectedPaths)
+	slices.Sort(actualPaths)
+	if materialization.ScopeUnrestricted != scope.Unrestricted() || !slices.Equal(actualPaths, expectedPaths) {
+		return fmt.Errorf("materialization authorization scope does not match current receipt authorization")
 	}
 	return nil
 }

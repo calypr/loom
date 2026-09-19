@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+
+test('development evidence compares canonical project identities', () => {
+  assert.equal(canonicalProjectID('loom_dev_verify_run-1234'), 'loom_dev_verify_run/1234');
+  assert.equal(canonicalProjectID('study/project'), 'study/project');
+  assert.equal(canonicalProjectID('project-a'), 'project-a');
+});
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);

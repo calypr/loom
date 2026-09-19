@@ -136,7 +136,7 @@ func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, 
 	report := publication.QualityReport{ID: "quality-patients", ReceiptID: receipt.ID, Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest, Output: "patients", PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed}
 	revision := &explorer.Revision{ID: "revision-a", Project: receipt.Project, ExplorerID: receipt.ExplorerID, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: "execution-a"}, QualityReports: []publication.QualityReport{report}, Status: explorer.RevisionReady}
 	backend := &artifactBackend{fakeStore: &fakeStore{receipt: receipt}, revision: revision}
-	materialization := dataframepublished.Materialization{Revision: "execution-a", ReceiptID: receipt.ID, SchemaDigest: "schema-a", Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, Name: "Patient", State: dataframepublished.StateReady, Columns: []dataframepublished.Column{{Name: "patient_id", LogicalType: "string"}, {Name: "auth_resource_path", LogicalType: "string"}}, SourceRow: &publication.SourceRowMetadata{ResourceType: "Patient", IDColumn: "patient_id"}}
+	materialization := dataframepublished.Materialization{Revision: "execution-a", ReceiptID: receipt.ID, SchemaDigest: "schema-a", Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, Name: "Patient", State: dataframepublished.StateReady, ScopeUnrestricted: true, Columns: []dataframepublished.Column{{Name: "patient_id", LogicalType: "string"}, {Name: "auth_resource_path", LogicalType: "string"}}, SourceRow: &publication.SourceRowMetadata{ResourceType: "Patient", IDColumn: "patient_id"}}
 	reader := &fakeArtifactReader{materialization: materialization, rows: []map[string]any{{"patient_id": "p1", "auth_resource_path": "private"}}}
 	artifactStore := newMemoryArtifactStore()
 	return backend, artifactStore, reader, snapshot, receipt
@@ -183,6 +183,38 @@ func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	archive, err := io.ReadAll(opened)
 	if err != nil || !bytes.HasPrefix(archive, []byte("PK")) {
 		t.Fatalf("archive read err=%v prefix=%q", err, archive[:minInt(len(archive), 2)])
+	}
+}
+
+func TestArtifactQualityAcceptsLegacyStorageProjectIdentity(t *testing.T) {
+	receipt := explorer.CompilationReceipt{ID: "receipt", Project: "study_program/project", SourceGeneration: "generation", AuthorizationScopeDigest: "scope"}
+	revision := explorer.Revision{QualityReports: []publication.QualityReport{{
+		ReceiptID: "receipt", Project: "study_program-project", DatasetGeneration: "generation", ScopeDigest: "scope", Output: "patients",
+		PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
+	}}}
+	if _, err := artifactQualityReport(revision, "patients", receipt); err != nil {
+		t.Fatalf("legacy storage identity was rejected: %v", err)
+	}
+}
+
+func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
+	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
+	reader.materialization.ScopeUnrestricted = false
+	reader.materialization.AuthResourcePaths = []string{"/broader/scope"}
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "wrong-scope"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "MATERIALIZATION_IDENTITY_CHANGED" {
+		t.Fatalf("scope mismatch error = %v", err)
 	}
 }
 

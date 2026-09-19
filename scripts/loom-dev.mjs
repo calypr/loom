@@ -31,6 +31,17 @@ const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
 
+export const canonicalProjectID = (raw) => {
+  const value = String(raw ?? '').trim().replace(/^\/+|\/+$/g, '');
+  if (!value || value.includes('/')) return value;
+  const separator = value.indexOf('-');
+  if (separator <= 0 || separator === value.length - 1) return value;
+  const program = value.slice(0, separator);
+  return program !== program.toLowerCase() || program.includes('_')
+    ? `${program}/${value.slice(separator + 1)}`
+    : value;
+};
+
 const waitSync = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 
 const withPortRegistryLock = (registryPath, operation) => {
@@ -1684,7 +1695,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const schema = JSON.parse(archive.get('schema.json').toString('utf8'));
     const csvRows = parseCSV(archive.get('data.csv').toString('utf8'));
     recordAssertion(report, 'training-artifact-is-bound-to-published-revision', {
-      project: target.fixtureProject,
+      project: canonicalProjectID(target.fixtureProject),
       datasetGeneration: target.fixtureGeneration,
       executionId: runtime.publication.executionId,
       outputId: output.outputId,
@@ -1698,7 +1709,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     });
     recordAssertion(report, 'training-artifact-schema-matches-data', schema.columns.map((column) => column.name), csvRows[0] ?? []);
     recordAssertion(report, 'training-artifact-has-full-published-row-count', 2, manifest.rows);
-    recordAssertion(report, 'training-artifact-has-full-published-membership', ['dev-patient-001', 'dev-patient-002'], csvRows.slice(1).map((row) => row[0]).sort());
+    const artifactIDIndex = (csvRows[0] ?? []).indexOf(idColumn.runtime.column);
+    recordAssertion(report, 'training-artifact-has-row-identity-column', true, artifactIDIndex >= 0);
+    recordAssertion(report, 'training-artifact-has-full-published-membership', ['dev-patient-001', 'dev-patient-002'], csvRows.slice(1).map((row) => row[artifactIDIndex]).sort());
     recordAssertion(report, 'training-artifact-member-checksums-match', true, manifest.members.every((member) => {
       const bytes = archive.get(member.name);
       return Boolean(bytes) && bytes.length === member.bytes && createHash('sha256').update(bytes).digest('hex') === member.sha256;
