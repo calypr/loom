@@ -1,10 +1,14 @@
 package semantic
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -30,6 +34,62 @@ func TestWalkFindsDatatypesFromSyntheticFutureDefinition(t *testing.T) {
 	}
 	if got := findOccurrence(t, occurrences, "extension[].extension[].valueIdentifier"); got.ReferencedType != "Identifier" {
 		t.Fatalf("nested extension choice occurrence = %#v", got)
+	}
+}
+
+func TestWalkUsesGeneratedIndexOnObservationFixture(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatalf("GeneratedIndex: %v", err)
+	}
+	payload := readNDJSONLine(t, "../../../testdata/devloop-fixture/Observation.ndjson", 4)
+	occurrences := walkOccurrences(t, index, "Observation", payload)
+
+	concept := findOccurrence(t, occurrences, "code")
+	if concept.ReferencedType != "CodeableConcept" {
+		t.Fatalf("Observation.code type = %q, want CodeableConcept", concept.ReferencedType)
+	}
+	coding := findOccurrence(t, occurrences, "code.coding[]")
+	if coding.ReferencedType != "Coding" || coding.OwnerPath != "code.coding[0]" {
+		t.Fatalf("Observation.code.coding occurrence = %#v", coding)
+	}
+
+	quantityOwners := occurrencesAt(t, occurrences, "component[].valueQuantity", "Quantity")
+	wantQuantityOwners := []string{"component[0].valueQuantity", "component[1].valueQuantity"}
+	if len(quantityOwners) != len(wantQuantityOwners) {
+		t.Fatalf("component valueQuantity occurrences = %d, want %d", len(quantityOwners), len(wantQuantityOwners))
+	}
+	for index, wantOwner := range wantQuantityOwners {
+		occurrence := quantityOwners[index]
+		if occurrence.OwnerPath != wantOwner || len(occurrence.RepeatedBoundaries) != 1 {
+			t.Errorf("component quantity occurrence = %#v, want owner %q and one repeated boundary", occurrence, wantOwner)
+			continue
+		}
+		boundary := occurrence.RepeatedBoundaries[0]
+		if boundary.CanonicalPath != "component[]" || boundary.OwnerPath != strings.TrimSuffix(wantOwner, ".valueQuantity") || boundary.Index != index {
+			t.Errorf("component quantity boundary = %#v, want owner %q at index %d", boundary, strings.TrimSuffix(wantOwner, ".valueQuantity"), index)
+		}
+	}
+
+	nestedExtensions := occurrencesAt(t, occurrences, "extension[].extension[]", "Extension")
+	wantExtensionOwners := []string{"extension[0].extension[0]", "extension[1].extension[0]"}
+	if len(nestedExtensions) != len(wantExtensionOwners) {
+		t.Fatalf("nested Extension occurrences = %d, want %d", len(nestedExtensions), len(wantExtensionOwners))
+	}
+	for index, wantOwner := range wantExtensionOwners {
+		occurrence := nestedExtensions[index]
+		if occurrence.OwnerPath != wantOwner || len(occurrence.RepeatedBoundaries) != 2 {
+			t.Errorf("nested Extension occurrence = %#v, want owner %q and two repeated boundaries", occurrence, wantOwner)
+			continue
+		}
+		outer, inner := occurrence.RepeatedBoundaries[0], occurrence.RepeatedBoundaries[1]
+		wantOuterOwner := strings.TrimSuffix(wantOwner, ".extension[0]")
+		if outer.CanonicalPath != "extension[]" || outer.OwnerPath != wantOuterOwner || outer.Index != index {
+			t.Errorf("outer Extension boundary = %#v, want owner %q at index %d", outer, wantOuterOwner, index)
+		}
+		if inner.CanonicalPath != "extension[].extension[]" || inner.OwnerPath != wantOwner || inner.Index != 0 {
+			t.Errorf("nested Extension boundary = %#v, want owner %q at index 0", inner, wantOwner)
+		}
 	}
 }
 
@@ -263,6 +323,51 @@ func walkOccurrences(t *testing.T, index *schema.Index, root schema.DefinitionNa
 		t.Fatalf("Walk: %v", err)
 	}
 	return occurrences
+}
+
+func occurrencesAt(t *testing.T, occurrences []Occurrence, canonicalPath string, referencedType schema.DefinitionName) []Occurrence {
+	t.Helper()
+	matched := make([]Occurrence, 0)
+	for _, occurrence := range occurrences {
+		if occurrence.CanonicalPath == canonicalPath && occurrence.ReferencedType == referencedType {
+			matched = append(matched, occurrence)
+		}
+	}
+	return matched
+}
+
+func readNDJSONLine(t *testing.T, relativePath string, lineNumber int) []byte {
+	t.Helper()
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve semantic test source path")
+	}
+	fixturePath := filepath.Join(filepath.Dir(sourcePath), relativePath)
+	file, err := os.Open(fixturePath)
+	if err != nil {
+		t.Fatalf("open fixture %s: %v", fixturePath, err)
+	}
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close fixture %s: %v", fixturePath, err)
+		}
+	})
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024), 1<<20)
+	for currentLine := 1; currentLine <= lineNumber; currentLine++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				t.Fatalf("read fixture %s line %d: %v", fixturePath, currentLine, err)
+			}
+			t.Fatalf("fixture %s has no line %d", fixturePath, lineNumber)
+		}
+		if currentLine == lineNumber {
+			return append([]byte(nil), scanner.Bytes()...)
+		}
+	}
+	t.Fatalf("fixture line number %d was not reached", lineNumber)
+	return nil
 }
 
 func findOccurrence(t *testing.T, occurrences []Occurrence, canonicalPath string) Occurrence {
