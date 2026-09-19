@@ -19,6 +19,41 @@ func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
 	}
 }
 
+func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "1")
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS", "2")
+	t.Setenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE", "true")
+
+	options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.RecipeQualityMaxRows != 1 || options.Server.RecipeQualityMaxDistinctKeys != 2 || !options.Server.DevActivationConflictOnce {
+		t.Fatalf("dev fault overrides = %#v", options.Server)
+	}
+
+	secure := DefaultConfig()
+	secure.Server.RecipeQualityMaxRows = 17
+	secure.Auth.Basic.Username = "loom"
+	secure.Auth.Basic.Password = "secret"
+	if err := applyDevFaultOverrides(&secure); err != nil {
+		t.Fatalf("authenticated override check = %v", err)
+	}
+	if secure.Server.RecipeQualityMaxRows != 17 || secure.Server.DevActivationConflictOnce {
+		t.Fatalf("authenticated config was changed by dev fault overrides: %#v", secure.Server)
+	}
+}
+
+func TestDevFaultOverridesRejectInvalidValues(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "zero")
+	cfg := DefaultConfig()
+	cfg.Server.AllowUnauthenticated = true
+	cfg.Auth.AllowUnauthenticated = true
+	if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), "LOOM_DEV_RECIPE_QUALITY_MAX_ROWS") {
+		t.Fatalf("invalid quality limit error = %v", err)
+	}
+}
+
 func TestLocalWorkspaceWritebackRequiresNoAuth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.json")
 	if _, err := parseServerOptions([]string{"--dataframer-recipe", "recipe.json", "--local-workspace-writeback", path, "--local-workspace-project", "project-a"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "requires unauthenticated") {

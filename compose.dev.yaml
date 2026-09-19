@@ -33,6 +33,10 @@ services:
       # loom-dev.mjs injects a stable per-worktree key for this local no-auth
       # stack; production server configuration remains fail-closed.
       LOOM_POPULATION_MAPPING_CURSOR_SECRET: ${LOOM_POPULATION_MAPPING_CURSOR_SECRET:-}
+      # Fault injectors are accepted only by the API's --no-auth dev mode.
+      LOOM_DEV_RECIPE_QUALITY_MAX_ROWS: ${LOOM_DEV_RECIPE_QUALITY_MAX_ROWS:-}
+      LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS: ${LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS:-}
+      LOOM_DEV_ACTIVATION_CONFLICT_ONCE: ${LOOM_DEV_ACTIVATION_CONFLICT_ONCE:-}
     build:
       context: ${LOOM_DEV_SOURCE_ROOT:-.}
       dockerfile: Dockerfile.dev

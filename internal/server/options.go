@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,10 @@ type ServerConfig struct {
 	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
 	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
 	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
+	// DevActivationConflictOnce is intentionally not configurable through YAML.
+	// It is a one-shot fault injector for the isolated, --no-auth development
+	// stack and is ignored unless both server and auth are unauthenticated.
+	DevActivationConflictOnce bool `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -142,6 +147,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
 		}
+		if err := applyDevFaultOverrides(&cfg); err != nil {
+			return Config{}, err
+		}
 		if strings.TrimSpace(localWorkspaceWriteback) != "" {
 			cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
 			cfg.Server.LocalWorkspaceProject = localWorkspaceProject
@@ -175,6 +183,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	if noAuth {
 		cfg.Server.AllowUnauthenticated = true
 		cfg.Auth.AllowUnauthenticated = true
+	}
+	if err := applyDevFaultOverrides(&cfg); err != nil {
+		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid server config: %w", err)
@@ -218,6 +229,37 @@ func applyEnvironment(cfg Config) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
+// These switches provide deterministic fault scenarios for the isolated dev
+// Compose stack without creating a production request or OpenAPI surface.
+func applyDevFaultOverrides(cfg *Config) error {
+	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
+		return nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS must be a positive integer")
+		}
+		cfg.Server.RecipeQualityMaxRows = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS must be a positive integer")
+		}
+		cfg.Server.RecipeQualityMaxDistinctKeys = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE")); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("LOOM_DEV_ACTIVATION_CONFLICT_ONCE must be boolean")
+		}
+		cfg.Server.DevActivationConflictOnce = value
+	}
+	return nil
 }
 
 func (c Config) Validate() error {

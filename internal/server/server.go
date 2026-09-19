@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -255,6 +256,8 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	verificationStore := publicationVerificationStore{executions: publishedRegistry}
 	releaseService := &publicationcontract.ReleaseService{Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
+	var activationConflictOnce atomic.Bool
+	activationConflictOnce.Store(serverConfig.Server.DevActivationConflictOnce)
 	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
 		active, err := releaseService.Active(ctx, project)
@@ -281,6 +284,13 @@ func run(ctx context.Context, serverConfig Config) error {
 			Project: project, Generation: generation, GitCommit: generation,
 			OptionalSelectors: selectors,
 		})
+		// Return a deliberately stale CAS revision exactly once in the isolated
+		// dev fault scenario. The candidate remains retained for audit, while
+		// PublishAuthoring's atomic activation fails without moving the prior
+		// active release pointer or exposing candidate rows.
+		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
+			expectedRevision++
+		}
 		return release, expectedRevision, err
 	}
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {

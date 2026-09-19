@@ -1685,8 +1685,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickButton('Close cell explanation')`);
     await waitForBrowser(cdp, `![...document.querySelectorAll('[role="dialog"]')].some((candidate) => candidate.innerText.includes('Why is valueQuantity.value'))`);
 
+    const trainingArtifactDownloadStarted = Date.now();
     await browserEval(cdp, `clickButton('Download training artifact')`);
     const archivePath = await findDownloadedArchive(downloadDir);
+    report.timings.training_artifact_download_ms = Date.now() - trainingArtifactDownloadStarted;
+    report.target.trainingArtifactBytes = statSync(archivePath).size;
     recordEvidence(report, archivePath);
     const archive = readStoredZip(archivePath);
     const requiredMembers = ['data.csv', 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json'];
