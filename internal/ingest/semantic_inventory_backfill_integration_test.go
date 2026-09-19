@@ -1,12 +1,10 @@
 package ingest
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,18 +44,14 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	if err := store.PrepareSemanticInventoryBackfill(ctx); err != nil {
 		t.Fatal(err)
 	}
-	fixtureDir := t.TempDir()
-	pathA := filepath.Join(fixtureDir, "scope-a", "Observation.ndjson")
-	pathB := filepath.Join(fixtureDir, "scope-b", "Observation.ndjson")
-	payloadA := backfillIntegrationPayload(t, pathA, "scope-a", 1000)
-	payloadB := backfillIntegrationPayload(t, pathB, "scope-b", 2)
+	payloadA := backfillIntegrationPayload("scope-a", 1000)
+	payloadB := backfillIntegrationPayload("scope-b", 2)
 	keys := []string{"c01_" + strings.ReplaceAll(uuid.NewString(), "-", ""), "c01_" + strings.ReplaceAll(uuid.NewString(), "-", "")}
 	fixtureDocs := make([]map[string]any, 2)
 	for index, fixture := range []struct {
-		path    string
 		payload map[string]any
 		scope   string
-	}{{pathA, payloadA, "scope-a"}, {pathB, payloadB, "scope-b"}} {
+	}{{payloadA, "scope-a"}, {payloadB, "scope-b"}} {
 		doc := map[string]any{
 			"_key": keys[index], "project": project, "dataset_generation": generation,
 			"auth_resource_path": fixture.scope, "payload": fixture.payload,
@@ -68,7 +62,7 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 		}
 		fixtureDocs[index] = doc
 		if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{encoded}, false, ""); err != nil {
-			t.Fatalf("insert isolated retained source %s: %v", filepath.Base(fixture.path), err)
+			t.Fatalf("insert isolated retained source %s: %v", fixture.scope, err)
 		}
 	}
 	before := readBackfillIntegrationSources(t, ctx, store, project, generation)
@@ -120,15 +114,7 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	}
 }
 
-func backfillIntegrationPayload(t *testing.T, path, scope string, distinct int) map[string]any {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+func backfillIntegrationPayload(scope string, distinct int) map[string]any {
 	codes := []string{}
 	if scope == "scope-a" {
 		for index := 0; index < distinct; index++ {
@@ -144,32 +130,7 @@ func backfillIntegrationPayload(t *testing.T, path, scope string, distinct int) 
 			"valueQuantity": map[string]any{"value": 1.0, "unit": "mg"},
 		})
 	}
-	payload := map[string]any{"resourceType": "Observation", "id": scope, "component": components}
-	if err := json.NewEncoder(file).Encode(payload); err != nil {
-		_ = file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	fixture, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fixture.Close()
-	scanner := bufio.NewScanner(fixture)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	if !scanner.Scan() {
-		t.Fatalf("read generated fixture %s: %v", path, scanner.Err())
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(scanner.Bytes(), &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if scanner.Scan() {
-		t.Fatalf("fixture %s unexpectedly contains multiple rows", path)
-	}
-	return decoded
+	return map[string]any{"resourceType": "Observation", "id": scope, "component": components}
 }
 
 func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string) map[string]catalogarango.RetainedSemanticInventoryRow {

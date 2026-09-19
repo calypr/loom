@@ -1,10 +1,66 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+const backfillSignalChildEnv = "LOOM_C01_BACKFILL_SIGNAL_CHILD"
+const backfillSignalReadyEnv = "LOOM_C01_BACKFILL_SIGNAL_READY"
+
+func TestBackfillSemanticInventorySignalCancelsProcessContext(t *testing.T) {
+	if os.Getenv(backfillSignalChildEnv) == "1" {
+		readyPath := os.Getenv(backfillSignalReadyEnv)
+		err := withBackfillSignalCancellation(context.Background(), func(ctx context.Context) error {
+			if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		if !errors.Is(err, context.Canceled) {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackfillSemanticInventorySignalCancelsProcessContext$")
+	cmd.Env = append(os.Environ(), backfillSignalChildEnv+"=1", backfillSignalReadyEnv+"="+readyPath)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(readyPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			t.Fatal("child did not enter the backfill signal context")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("send SIGTERM to backfill subprocess: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("backfill subprocess did not cleanly observe SIGTERM: %v", err)
+	}
+}
 
 func TestParseGenerationLoadWiresImmutableDataset(t *testing.T) {
 	config, err := parseLoadCommand([]string{

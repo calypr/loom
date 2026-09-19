@@ -199,7 +199,7 @@ func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulatio
 	client := &evidenceClient{
 		collections: map[string]bool{"Observation": false, catalog.FieldCatalogCollection: true},
 		rows: map[string][]map[string]any{
-			retainedSemanticInventoryFieldProfileAQL: {{"present": 1}},
+			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 1}},
 		},
 	}
 	adapter, err := New(client)
@@ -212,6 +212,63 @@ func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulatio
 	}
 	if len(client.queries) != 1 || client.queries[0] != retainedSemanticInventoryFieldProfileAQL {
 		t.Fatalf("missing source evidence queries = %v", client.queries)
+	}
+}
+
+func TestReadEmptyInitialRetainedSourceFailsWhenGenerationFieldProfileProvesPopulation(t *testing.T) {
+	client := &evidenceClient{
+		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+		rows: map[string][]map[string]any{
+			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 12}},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
+	if !errors.Is(err, ErrRetainedSemanticSourceMissing) {
+		t.Fatalf("empty profiled source error = %v, want ErrRetainedSemanticSourceMissing", err)
+	}
+	if !strings.Contains(retainedSemanticInventoryFieldProfileAQL, "RETURN {doc_count: d.doc_count}") {
+		t.Fatalf("field-profile query must return an object row for QueryRows: %s", retainedSemanticInventoryFieldProfileAQL)
+	}
+}
+
+func TestReadEmptyRetainedSourceWithoutProfileEvidenceIsGenuinelyEmpty(t *testing.T) {
+	client := &evidenceClient{
+		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
+	if err != nil || !page.SourceExists || len(page.Rows) != 0 {
+		t.Fatalf("genuinely empty retained source page=%+v err=%v", page, err)
+	}
+	if len(client.queries) != 2 || client.queries[0] != retainedSemanticInventorySourcePageAQL || client.queries[1] != retainedSemanticInventoryFieldProfileAQL {
+		t.Fatalf("empty source evidence queries = %v", client.queries)
+	}
+}
+
+func TestReadExhaustedRetainedSourceDoesNotTreatPositiveProfileAsMissing(t *testing.T) {
+	client := &evidenceClient{
+		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+		rows: map[string][]map[string]any{
+			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 12}},
+		},
+	}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "source-z", 100)
+	if err != nil || !page.SourceExists || len(page.Rows) != 0 {
+		t.Fatalf("exhausted retained source page=%+v err=%v, want empty without rechecking source population", page, err)
+	}
+	if len(client.queries) != 1 || client.queries[0] != retainedSemanticInventorySourcePageAQL {
+		t.Fatalf("exhausted source unexpectedly queried population evidence: %v", client.queries)
 	}
 }
 

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
@@ -53,7 +55,9 @@ func main() {
 	case "activate-generation":
 		err = runActivateGeneration(ctx, os.Args[2:])
 	case "backfill-semantic-inventory":
-		err = runBackfillSemanticInventory(ctx, os.Args[2:])
+		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
+			return runBackfillSemanticInventory(ctx, os.Args[2:])
+		})
 	default:
 		usage()
 		os.Exit(2)
@@ -62,6 +66,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func withBackfillSignalCancellation(ctx context.Context, run func(context.Context) error) error {
+	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return run(signalCtx)
 }
 
 type loadCommandConfig struct {

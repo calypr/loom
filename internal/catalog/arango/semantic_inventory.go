@@ -94,6 +94,15 @@ func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, 
 		page.Rows = page.Rows[:limit]
 		page.HasMore = true
 	}
+	if len(page.Rows) == 0 && afterKey == "" {
+		profileEvidence, err := s.retainedSourceFieldProfileExists(ctx, project, generation, collection)
+		if err != nil {
+			return RetainedSemanticInventoryPage{}, err
+		}
+		if profileEvidence {
+			return RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s has no retained rows", ErrRetainedSemanticSourceMissing, project, generation, collection)
+		}
+	}
 	return page, nil
 }
 
@@ -162,50 +171,41 @@ func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalo
 }
 
 func (s *Store) AdvanceSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration) (catalog.SemanticInventoryBuild, error) {
-	return s.updateSemanticInventoryBackfill(ctx, advanceSemanticInventoryBackfillAQL, build, token, expected, next, scanned, lease, "")
+	now := time.Now()
+	return s.executeSemanticInventoryBackfill(ctx, advanceSemanticInventoryBackfillAQL, map[string]interface{}{
+		"key": build.Key, "token": token,
+		"expected_collection": expected.Collection, "expected_key": expected.Key,
+		"next_collection": next.Collection, "next_key": next.Key,
+		"scanned_resources": max(scanned, 0), "now": now.UnixMilli(),
+		"lease_expires_at": now.Add(lease).UnixMilli(), "source_availability": build.SourceAvailability,
+	})
 }
 
 func (s *Store) CompleteSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, scanned int64) (catalog.SemanticInventoryBuild, error) {
-	return s.updateSemanticInventoryBackfill(ctx, completeSemanticInventoryBackfillAQL, build, token, expected, build.SourceCheckpoint, scanned, 0, "")
+	return s.executeSemanticInventoryBackfill(ctx, completeSemanticInventoryBackfillAQL, map[string]interface{}{
+		"key": build.Key, "token": token,
+		"expected_collection": expected.Collection, "expected_key": expected.Key,
+		"scanned_resources": max(scanned, 0), "now": time.Now().UnixMilli(),
+		"source_availability": build.SourceAvailability,
+	})
 }
 
 func (s *Store) FailSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token, diagnostic string) error {
 	if strings.TrimSpace(diagnostic) == "" {
 		diagnostic = "backfill failed"
 	}
-	_, err := s.updateSemanticInventoryBackfill(ctx, failSemanticInventoryBackfillAQL, build, token, catalog.SemanticInventoryCheckpoint{}, build.SourceCheckpoint, build.ScannedResources, 0, diagnostic)
+	if len(diagnostic) > 512 {
+		diagnostic = diagnostic[:512]
+	}
+	_, err := s.executeSemanticInventoryBackfill(ctx, failSemanticInventoryBackfillAQL, map[string]interface{}{
+		"key": build.Key, "token": token, "diagnostic": diagnostic,
+	})
 	return err
 }
 
-func (s *Store) updateSemanticInventoryBackfill(ctx context.Context, query string, build catalog.SemanticInventoryBuild, token string, expected, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration, diagnostic string) (catalog.SemanticInventoryBuild, error) {
+func (s *Store) executeSemanticInventoryBackfill(ctx context.Context, query string, bindVars map[string]interface{}) (catalog.SemanticInventoryBuild, error) {
 	var updated catalog.SemanticInventoryBuild
 	found := false
-	now := time.Now()
-	bindVars := map[string]interface{}{"key": build.Key, "token": token}
-	switch query {
-	case advanceSemanticInventoryBackfillAQL:
-		bindVars["expected_collection"] = expected.Collection
-		bindVars["expected_key"] = expected.Key
-		bindVars["next_collection"] = next.Collection
-		bindVars["next_key"] = next.Key
-		bindVars["scanned_resources"] = max(scanned, 0)
-		bindVars["now"] = now.UnixMilli()
-		bindVars["lease_expires_at"] = now.Add(lease).UnixMilli()
-		bindVars["source_availability"] = build.SourceAvailability
-	case completeSemanticInventoryBackfillAQL:
-		bindVars["expected_collection"] = expected.Collection
-		bindVars["expected_key"] = expected.Key
-		bindVars["scanned_resources"] = max(scanned, 0)
-		bindVars["now"] = now.UnixMilli()
-		bindVars["source_availability"] = build.SourceAvailability
-	case failSemanticInventoryBackfillAQL:
-		if len(diagnostic) > 512 {
-			diagnostic = diagnostic[:512]
-		}
-		bindVars["diagnostic"] = diagnostic
-	default:
-		return catalog.SemanticInventoryBuild{}, errors.New("unknown semantic inventory backfill operation")
-	}
 	err := s.client.QueryRows(ctx, query, 1, bindVars, func(row map[string]any) error {
 		if err := decodeInventoryRow(row, &updated); err != nil {
 			return err
@@ -631,7 +631,7 @@ FOR d IN fhir_field_catalog
   FILTER d.resource_type == @resource_type
   FILTER d.doc_count > 0
   LIMIT 1
-  RETURN 1`
+  RETURN {doc_count: d.doc_count}`
 
 const claimSemanticInventoryBackfillAQL = `
 LET current_build = DOCUMENT("fhir_semantic_inventory_builds", @key)
