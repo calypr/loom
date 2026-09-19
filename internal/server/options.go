@@ -44,7 +44,8 @@ type ServerConfig struct {
 	// DevActivationConflictOnce is intentionally not configurable through YAML.
 	// It is a one-shot fault injector for the isolated, --no-auth development
 	// stack and is ignored unless both server and auth are unauthenticated.
-	DevActivationConflictOnce bool `yaml:"-"`
+	DevActivationConflictOnce bool          `yaml:"-"`
+	DevArtifactRowDelay       time.Duration `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -258,6 +259,20 @@ func applyDevFaultOverrides(cfg *Config) error {
 			return fmt.Errorf("LOOM_DEV_ACTIVATION_CONFLICT_ONCE must be boolean")
 		}
 		cfg.Server.DevActivationConflictOnce = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ARTIFACT_MAX_ROWS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("LOOM_DEV_ARTIFACT_MAX_ROWS must be a positive integer")
+		}
+		cfg.Server.ArtifactMaxRows = value
+	}
+	if raw := strings.TrimSpace(os.Getenv("LOOM_DEV_ARTIFACT_ROW_DELAY_MS")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 0 {
+			return fmt.Errorf("LOOM_DEV_ARTIFACT_ROW_DELAY_MS must be a non-negative integer")
+		}
+		cfg.Server.DevArtifactRowDelay = time.Duration(value) * time.Millisecond
 	}
 	return nil
 }

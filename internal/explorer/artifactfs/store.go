@@ -50,7 +50,7 @@ func (s *Store) Begin(ctx context.Context, record explorer.ArtifactRecord) (expl
 		if !sameIdentity(existing, record) {
 			return nil, nil, fmt.Errorf("artifact id collision")
 		}
-		if existing.State != explorer.ArtifactFailed && existing.ExpiresAt.After(s.now()) {
+		if existing.ExpiresAt.After(s.now()) {
 			return nil, &existing, nil
 		}
 		for _, suffix := range []string{".staging", ".zip", ".json"} {

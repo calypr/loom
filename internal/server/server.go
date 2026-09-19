@@ -373,6 +373,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	var artifactPublishedReader lifecycle.ArtifactPublishedReader
 	if materializationReader != nil {
 		artifactPublishedReader = materializationReader
+		if serverConfig.Server.DevArtifactRowDelay > 0 {
+			artifactPublishedReader = artifactDelayReader{next: artifactPublishedReader, delay: serverConfig.Server.DevArtifactRowDelay}
+		}
 	}
 	lifecycleConfig := lifecycle.Config{
 		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,

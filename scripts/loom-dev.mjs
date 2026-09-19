@@ -879,7 +879,7 @@ const navigate = async (cdp, url) => {
   await waitForBrowser(cdp, `document.readyState === 'complete'`, 30000);
 };
 
-const parseCSV = (text) => {
+export const parseCSV = (text) => {
   const rows = [];
   let row = [];
   let cell = '';
@@ -909,7 +909,7 @@ const findDownloadedArchive = async (directory, timeout = 30000) => {
   throw new Error('viewer did not download a training artifact');
 };
 
-const readStoredZip = (path) => {
+export const readStoredZip = (path) => {
   const archive = readFileSync(path);
   let eocd = -1;
   for (let offset = archive.length - 22; offset >= Math.max(0, archive.length - 65557); offset -= 1) {

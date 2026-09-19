@@ -23,12 +23,14 @@ func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
 	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "1")
 	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS", "2")
 	t.Setenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE", "true")
+	t.Setenv("LOOM_DEV_ARTIFACT_MAX_ROWS", "3")
+	t.Setenv("LOOM_DEV_ARTIFACT_ROW_DELAY_MS", "25")
 
 	options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
 	if err != nil {
 		t.Fatalf("parseServerOptions() error = %v", err)
 	}
-	if options.Server.RecipeQualityMaxRows != 1 || options.Server.RecipeQualityMaxDistinctKeys != 2 || !options.Server.DevActivationConflictOnce {
+	if options.Server.RecipeQualityMaxRows != 1 || options.Server.RecipeQualityMaxDistinctKeys != 2 || !options.Server.DevActivationConflictOnce || options.Server.ArtifactMaxRows != 3 || options.Server.DevArtifactRowDelay != 25*time.Millisecond {
 		t.Fatalf("dev fault overrides = %#v", options.Server)
 	}
 
@@ -39,7 +41,7 @@ func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
 	if err := applyDevFaultOverrides(&secure); err != nil {
 		t.Fatalf("authenticated override check = %v", err)
 	}
-	if secure.Server.RecipeQualityMaxRows != 17 || secure.Server.DevActivationConflictOnce {
+	if secure.Server.RecipeQualityMaxRows != 17 || secure.Server.DevActivationConflictOnce || secure.Server.ArtifactMaxRows != 10_000_000 || secure.Server.DevArtifactRowDelay != 0 {
 		t.Fatalf("authenticated config was changed by dev fault overrides: %#v", secure.Server)
 	}
 }
@@ -51,6 +53,25 @@ func TestDevFaultOverridesRejectInvalidValues(t *testing.T) {
 	cfg.Auth.AllowUnauthenticated = true
 	if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), "LOOM_DEV_RECIPE_QUALITY_MAX_ROWS") {
 		t.Fatalf("invalid quality limit error = %v", err)
+	}
+}
+
+func TestDevArtifactFaultOverridesRejectInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name, key, value string
+	}{
+		{name: "row limit", key: "LOOM_DEV_ARTIFACT_MAX_ROWS", value: "zero"},
+		{name: "row delay", key: "LOOM_DEV_ARTIFACT_ROW_DELAY_MS", value: "-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			cfg := DefaultConfig()
+			cfg.Server.AllowUnauthenticated = true
+			cfg.Auth.AllowUnauthenticated = true
+			if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("invalid artifact fault error = %v", err)
+			}
+		})
 	}
 }
 

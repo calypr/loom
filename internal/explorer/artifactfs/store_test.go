@@ -88,8 +88,15 @@ func TestStoreAbortAndExpiryNeverExposeArchive(t *testing.T) {
 		t.Fatalf("failed artifact open error = %v", err)
 	}
 	retry, existing, err := store.Begin(context.Background(), record)
+	if err != nil || retry != nil || existing == nil || existing.State != explorer.ArtifactFailed || existing.FailureCode != "STREAM_FAILED" {
+		t.Fatalf("idempotent failed artifact begin stage=%T existing=%#v err=%v", retry, existing, err)
+	}
+
+	record.IdempotencyKey = "request-2"
+	record.ID, _ = explorer.ArtifactID(record)
+	retry, existing, err = store.Begin(context.Background(), record)
 	if err != nil || retry == nil || existing != nil {
-		t.Fatalf("failed artifact retry stage=%T existing=%#v err=%v", retry, existing, err)
+		t.Fatalf("new-key artifact retry stage=%T existing=%#v err=%v", retry, existing, err)
 	}
 	_, _ = retry.Abort(context.Background(), "RETRY_STOPPED")
 
