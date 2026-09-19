@@ -776,6 +776,13 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 		t.Fatalf("publish failure=%v", err)
 	}
 
+	store.publishErr = dataset.ErrReleaseActivationConflict
+	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
+	var activationFailure *Error
+	if !errors.As(err, &activationFailure) || activationFailure.Class != ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
+		t.Fatalf("activation failure=%#v, want PUBLICATION_ACTIVATION_CONFLICT", err)
+	}
+
 	store.publishErr = nil
 	store.published = false
 	config.PersistPublishedWorkspace = func(context.Context, string, string, []byte) error {

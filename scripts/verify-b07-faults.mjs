@@ -2,9 +2,11 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { createDevSession, commandEnvironment } from './loom-dev.mjs';
 import { parseVerifyFastReport } from './measure-b07-evidence.mjs';
 
@@ -123,14 +125,50 @@ const outputID = (report, state) => String(
     ?? '',
 ).trim();
 
-const readPublishedPreview = async (target, explorerId, receiptId, outputId) => {
-  const result = await postJSON(authoringURL(target, explorerId, '/preview'), { receiptId, outputId, limit: 25 });
-  if (!result.response.ok) throw new Error(`published preview failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
+export const publishedRowsRequest = (target, state, outputId) => {
+  const output = state?.runtime?.outputs?.find((candidate) => candidate.outputId === outputId || candidate.name === outputId)
+    ?? state?.runtime?.outputs?.[0];
+  assert.ok(output, `published Explorer has no runtime output ${outputId}`);
+  const columns = (output.columns ?? []).map((column) => column.column).filter(Boolean);
+  assert.ok(output.selector && columns.length > 0, 'published output has no GraphQL selector or physical columns');
   return {
-    rows: Array.isArray(result.value?.rows) ? result.value.rows : [],
-    totalCount: Number(result.value?.totalCount ?? result.value?.count ?? result.value?.rows?.length ?? 0),
-    columns: Array.isArray(result.value?.columns) ? result.value.columns : [],
+    query: dataframeOutputQuery('B07FaultPublishedRows'),
+    variables: { input: { projectId: target.fixtureProject, selector: output.selector, columns, first: 25 } },
   };
+};
+
+const readPublishedData = async (target, state, outputId) => {
+  const result = await postJSON(`${target.apiUrl}/graphql/graph`, publishedRowsRequest(target, state, outputId));
+  if (!result.response.ok || result.value?.errors?.length) {
+    throw new Error(`published GraphQL read failed: HTTP ${result.response.status} ${result.text.slice(0, 800)}`);
+  }
+  const page = result.value?.data?.dataframeRows;
+  assert.ok(page && Array.isArray(page.rows), 'published GraphQL read returned no rows');
+  assert.ok(page.materialization?.id, 'published GraphQL read returned no materialization identity');
+  return {
+    rows: page.rows,
+    columns: page.columns,
+    totalCount: Number(page.totalCount ?? page.rows.length),
+    materialization: {
+      id: page.materialization.id,
+      revision: page.materialization.revision,
+      projectId: page.materialization.projectId,
+      datasetGeneration: page.materialization.datasetGeneration,
+      rowCount: Number(page.materialization.rowCount),
+      selector: page.materialization.selector,
+    },
+  };
+};
+
+const rowsDigest = (rows) => createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+
+const retainedPublishedData = async (target, state, outputId, baseline) => {
+  const current = await readPublishedData(target, state, outputId);
+  assert.deepEqual(current.rows, baseline.rows, 'prior published GraphQL rows changed after fault');
+  assert.deepEqual(current.columns, baseline.columns, 'prior published GraphQL columns changed after fault');
+  assert.deepEqual(current.materialization, baseline.materialization, 'prior published materialization identity changed after fault');
+  assert.equal(current.totalCount, baseline.totalCount, 'prior published GraphQL count changed after fault');
+  return current;
 };
 
 const freshReceipt = async (target, explorerId, label) => {
@@ -197,14 +235,21 @@ const run = async (reportPath, outputPath) => {
   const baselineReceiptId = String(baselineReports[0].receiptId ?? '');
   const baselineOutputId = outputID(report, baselineState);
   assert.ok(baselineReceiptId && baselineOutputId, 'baseline publication identity is incomplete');
-  const baselinePreview = await readPublishedPreview(target, explorerId, baselineReceiptId, baselineOutputId);
-  assert.ok(baselinePreview.rows.length > 0, 'baseline publication is not readable');
+  const baselinePublished = await readPublishedData(target, baselineState, baselineOutputId);
+  assert.ok(baselinePublished.rows.length > 0, 'baseline publication is not readable from GraphQL');
 
   const result = {
     status: 'passed',
     generated_at: new Date().toISOString(),
     source: { report: absoluteReportPath, compose_project: target.composeProject, api_url: target.apiUrl, project: target.fixtureProject, generation: target.fixtureGeneration, explorer_id: explorerId, output_id: baselineOutputId },
-    baseline: { signature: baselineSignature, receipt_id: baselineReceiptId, row_count: baselinePreview.rows.length, total_count: baselinePreview.totalCount },
+    baseline: {
+      signature: baselineSignature,
+      receipt_id: baselineReceiptId,
+      row_count: baselinePublished.rows.length,
+      total_count: baselinePublished.totalCount,
+      rows_sha256: rowsDigest(baselinePublished.rows),
+      materialization: baselinePublished.materialization,
+    },
     scenarios: {},
     limitations: ['The isolated loom-dev Compose server uses --no-auth; this proves publication fault isolation and response redaction, not an independent 401/403 authorization denial.'],
   };
@@ -219,7 +264,7 @@ const run = async (reportPath, outputPath) => {
     assert.ok([500, 503].includes(incomplete.response.status), `incomplete quality scan returned HTTP ${incomplete.response.status}`);
     assert.equal(incompleteSignature.revisionId, baselineSignature.revisionId, 'incomplete quality scan moved active revision');
     assert.equal(incompleteSignature.executionId, baselineSignature.executionId, 'incomplete quality scan moved active execution');
-    assert.deepEqual(await readPublishedPreview(target, explorerId, baselineReceiptId, baselineOutputId), baselinePreview, 'prior publication changed after incomplete scan');
+    const incompletePublished = await retainedPublishedData(target, incompleteState, baselineOutputId, baselinePublished);
     assertNoPublicationLeak(incomplete, incompleteReceiptId, ['INCOMPLETE_FULL_QUALITY_SCAN']);
     result.scenarios.incomplete_full_quality_scan = {
       receipt_id: incompleteReceiptId,
@@ -227,7 +272,7 @@ const run = async (reportPath, outputPath) => {
       http_status: incomplete.response.status,
       error_code: errorCode(incomplete.value),
       retained_signature: incompleteSignature,
-      retained_preview: { row_count: baselinePreview.rows.length, total_count: baselinePreview.totalCount },
+      retained_published: { row_count: incompletePublished.rows.length, total_count: incompletePublished.totalCount, rows_sha256: rowsDigest(incompletePublished.rows), materialization: incompletePublished.materialization },
       prior_readable: true,
       restricted_data_or_counts_leaked: false,
     };
@@ -239,14 +284,14 @@ const run = async (reportPath, outputPath) => {
     const conflictState = await readState(target, explorerId);
     const conflictSignature = publicationStateSignature(conflictState);
     assert.equal(conflict.response.ok, false, 'activation conflict unexpectedly published');
-    assert.ok([409, 500].includes(conflict.response.status), `activation conflict returned HTTP ${conflict.response.status}`);
+    assert.equal(conflict.response.status, 409, `activation conflict returned HTTP ${conflict.response.status}`);
+    assert.equal(errorCode(conflict.value), 'PUBLICATION_ACTIVATION_CONFLICT', 'activation conflict returned the wrong public error code');
     assert.equal(conflictSignature.revisionId, baselineSignature.revisionId, 'activation conflict moved active revision');
     assert.equal(conflictSignature.executionId, baselineSignature.executionId, 'activation conflict moved active execution');
-    assert.deepEqual(await readPublishedPreview(target, explorerId, baselineReceiptId, baselineOutputId), baselinePreview, 'prior publication changed after activation conflict');
-    assertNoPublicationLeak(conflict, conflictReceiptId, ['ACTIVATION_CONFLICT']);
+    const conflictPublished = await retainedPublishedData(target, conflictState, baselineOutputId, baselinePublished);
+    assertNoPublicationLeak(conflict, conflictReceiptId);
     const conflictLogs = logsFor(target);
-    const conflictProven = conflictLogs.includes('project release activation compare-and-swap conflict');
-    assert.equal(conflictProven, true, 'API logs did not prove the activation CAS conflict');
+    const conflictProven = conflict.response.status === 409 && errorCode(conflict.value) === 'PUBLICATION_ACTIVATION_CONFLICT';
     const logPath = join(evidenceDirectory, 'b07-activation-conflict.log');
     writeFileSync(logPath, conflictLogs, { mode: 0o600 });
     result.scenarios.activation_conflict = {
@@ -254,10 +299,10 @@ const run = async (reportPath, outputPath) => {
       http_status: conflict.response.status,
       error_code: errorCode(conflict.value),
       retained_signature: conflictSignature,
-      retained_preview: { row_count: baselinePreview.rows.length, total_count: baselinePreview.totalCount },
+      retained_published: { row_count: conflictPublished.rows.length, total_count: conflictPublished.totalCount, rows_sha256: rowsDigest(conflictPublished.rows), materialization: conflictPublished.materialization },
       prior_readable: true,
       restricted_data_or_counts_leaked: false,
-      conflict_log_proven: conflictProven,
+      conflict_proven: conflictProven,
       log_path: logPath,
     };
   } finally {

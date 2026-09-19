@@ -28,6 +28,7 @@ type Reader struct {
 	Logger                 *slog.Logger
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver
+	ActiveReleaseResolver  publication.ActiveReleaseResolver
 }
 
 type Filter struct {

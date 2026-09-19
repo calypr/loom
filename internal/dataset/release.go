@@ -97,6 +97,12 @@ type ReleaseRepository interface {
 	CompareAndSwapActivateRelease(context.Context, ProjectRelease, int64) (ActiveRelease, error)
 }
 
+// ActiveReleaseResolver exposes the immutable publication bindings selected by
+// the active project release without granting readers mutation access.
+type ActiveReleaseResolver interface {
+	ReadActiveRelease(context.Context, string) (ActiveRelease, error)
+}
+
 type ReleaseService struct {
 	Manifests ManifestReader
 	Releases  ReleaseRepository
