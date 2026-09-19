@@ -108,6 +108,13 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			},
 		},
 		arangostore.CollectionSpec{
+			Name: catalog.SemanticInventoryEntryCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
+			},
+		},
+		arangostore.CollectionSpec{
 			Name: catalog.SemanticInventoryBuildCollection,
 			Indexes: [][]string{
 				{"project", "dataset_generation"},

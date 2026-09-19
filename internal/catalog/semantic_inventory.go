@@ -11,13 +11,15 @@ import (
 )
 
 const (
-	SemanticInventoryCollection      = "fhir_semantic_inventory"
-	SemanticInventoryBuildCollection = "fhir_semantic_inventory_builds"
-	SemanticInventorySchemaVersion   = 1
-	SemanticObservationRuleVersion   = 3
-	SemanticInventoryPageLimit       = 50
-	SemanticInventorySourceFile      = "file"
-	SemanticInventorySourceRetained  = "retained_vertex"
+	SemanticInventoryCollection        = "fhir_semantic_inventory"
+	SemanticInventoryEntryCollection   = "fhir_semantic_inventory_entries"
+	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
+	SemanticInventorySchemaVersion     = 1
+	SemanticInventoryEntryIndexVersion = 2
+	SemanticObservationRuleVersion     = 3
+	SemanticInventoryPageLimit         = 50
+	SemanticInventorySourceFile        = "file"
+	SemanticInventorySourceRetained    = "retained_vertex"
 )
 
 var ErrSemanticInventoryCursorMismatch = errors.New("semantic inventory cursor does not match request")
@@ -48,6 +50,7 @@ type SemanticInventoryBuild struct {
 	State              SemanticInventoryState      `json:"state"`
 	ObservationSchema  int                         `json:"observation_schema"`
 	InventorySchema    int                         `json:"inventory_schema"`
+	EntryIndexVersion  int                         `json:"entry_index_version,omitempty"`
 	RuleVersion        int                         `json:"rule_version"`
 	SourceKind         string                      `json:"source_kind,omitempty"`
 	SourceAvailability string                      `json:"source_availability,omitempty"`

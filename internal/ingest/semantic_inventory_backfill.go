@@ -44,19 +44,20 @@ type SemanticInventoryBackfillCollectionResult struct {
 }
 
 type SemanticInventoryBackfillReport struct {
-	Project            string                                               `json:"project"`
-	DatasetGeneration  string                                               `json:"dataset_generation"`
-	BuildID            string                                               `json:"build_id"`
-	State              catalog.SemanticInventoryState                       `json:"state"`
-	NoOp               bool                                                 `json:"no_op"`
-	ScannedThisRun     int64                                                `json:"scanned_this_run"`
-	ScannedTotal       int64                                                `json:"scanned_total"`
-	Contributions      int64                                                `json:"contributions_written"`
-	Checkpoint         catalog.SemanticInventoryCheckpoint                  `json:"checkpoint"`
-	SourceAvailability string                                               `json:"source_availability"`
-	MissingCollections []string                                             `json:"source_availability_unproven_collections,omitempty"`
-	Collections        map[string]SemanticInventoryBackfillCollectionResult `json:"collections"`
-	ElapsedSeconds     float64                                              `json:"elapsed_seconds"`
+	Project             string                                               `json:"project"`
+	DatasetGeneration   string                                               `json:"dataset_generation"`
+	BuildID             string                                               `json:"build_id"`
+	State               catalog.SemanticInventoryState                       `json:"state"`
+	NoOp                bool                                                 `json:"no_op"`
+	EntriesMaterialized bool                                                 `json:"entries_materialized,omitempty"`
+	ScannedThisRun      int64                                                `json:"scanned_this_run"`
+	ScannedTotal        int64                                                `json:"scanned_total"`
+	Contributions       int64                                                `json:"contributions_written"`
+	Checkpoint          catalog.SemanticInventoryCheckpoint                  `json:"checkpoint"`
+	SourceAvailability  string                                               `json:"source_availability"`
+	MissingCollections  []string                                             `json:"source_availability_unproven_collections,omitempty"`
+	Collections         map[string]SemanticInventoryBackfillCollectionResult `json:"collections"`
+	ElapsedSeconds      float64                                              `json:"elapsed_seconds"`
 }
 
 type semanticInventoryBackfillBackend interface {
@@ -67,6 +68,7 @@ type semanticInventoryBackfillBackend interface {
 	CompleteSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, catalog.SemanticInventoryCheckpoint, int64) (catalog.SemanticInventoryBuild, error)
 	FailSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, string) error
 	WriteSemanticInventoryContributions(context.Context, []catalog.SemanticInventoryContribution, int) error
+	EnsureSemanticInventoryEntries(context.Context, catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, error)
 }
 
 // BackfillSemanticInventory reconstructs the inventory from retained immutable
@@ -118,6 +120,13 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 		Collections:        map[string]SemanticInventoryBackfillCollectionResult{},
 	}
 	if !claimed {
+		if build.EntryIndexVersion < catalog.SemanticInventoryEntryIndexVersion {
+			build, err = backend.EnsureSemanticInventoryEntries(ctx, build)
+			if err != nil {
+				return SemanticInventoryBackfillReport{}, err
+			}
+			report.EntriesMaterialized = true
+		}
 		report.NoOp = true
 		report.State = build.State
 		report.ScannedTotal = build.ScannedResources

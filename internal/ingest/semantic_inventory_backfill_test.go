@@ -348,6 +348,7 @@ func (f *backfillFake) CompleteSemanticInventoryBackfill(_ context.Context, buil
 	f.build.State = catalog.SemanticInventoryComplete
 	f.build.ScannedResources = scanned
 	f.build.SourceAvailability = build.SourceAvailability
+	f.build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
 	f.build.LeaseToken = ""
 	f.build.LeaseExpiresAt = 0
 	return f.build, nil
@@ -376,4 +377,10 @@ func (f *backfillFake) WriteSemanticInventoryContributions(_ context.Context, co
 		f.contributions[contribution.Key] = contribution
 	}
 	return nil
+}
+
+func (f *backfillFake) EnsureSemanticInventoryEntries(_ context.Context, build catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, error) {
+	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	f.build = build
+	return build, nil
 }

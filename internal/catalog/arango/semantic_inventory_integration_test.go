@@ -60,6 +60,10 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
+		{Name: catalog.SemanticInventoryEntryCollection, Indexes: [][]string{
+			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
+		}},
 		{Name: catalog.SemanticInventoryBuildCollection, Indexes: [][]string{{"project", "dataset_generation"}}},
 	}}); err != nil {
 		t.Fatal(err)
@@ -146,6 +150,9 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	searched := collectSemanticInventoryPages(t, ctx, store, options)
 	assertInventoryEntries(t, searched, inventoryCodes("shared", 100), "search")
 	assertCodePopulation(t, searched, "shared-000", 2)
+	options.Query = "valueQuantity.value"
+	searched = collectSemanticInventoryPages(t, ctx, store, options)
+	assertInventoryEntries(t, searched, expectedCombined, "value path search")
 	options.Query = ""
 
 	options.AuthResourcePaths = nil
