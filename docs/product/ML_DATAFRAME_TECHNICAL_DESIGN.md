@@ -1,5 +1,7 @@
 # Technical design for researcher-authored dataframes
 
+Historical design for B01-B08. For remaining user-facing work, use the [C01-C12 delivery plan](ML_DATAFRAMER_DELIVERY_PLAN.md) and its [current architecture reference](ml-dataframer/ARCHITECTURE.md). Proposed capabilities in this document are not all present in the frontend.
+
 This is the proposed target architecture for the [implementation plan](ML_DATAFRAME_IMPLEMENTATION_PLAN.md). It replaces the separate wizard-adapter design in the earlier product plan. Proposed names below are not claims that the corresponding types or endpoints already exist.
 
 The source baseline is `arch/integration` at `a921b9e5dca1d42a84a836286140fb3b4d704f3b`. Package ownership follows `docs/PACKAGE_AUDIT.csv` and the implementation checked in `/private/tmp/loom-arch-integration`. The [gap analysis](BACKEND_GAP_ANALYSIS_20260916.md) records the initial evidence.

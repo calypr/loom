@@ -1,5 +1,7 @@
 # Implement researcher-authored ML dataframes
 
+Historical B01-B08 execution record. Checked boxes below describe the recorded implementation work, not completion of the nontechnical ML dataframe product. The [C01-C12 delivery plan](ML_DATAFRAMER_DELIVERY_PLAN.md) defines the remaining user-facing work and requires end-to-end authoring from ordinary UI entry points. Preserve the B evidence as history; do not use API-prepared state as proof that users can create it.
+
 Build collection selection, deliberate row grain, meaningful features, interpretation repair, and reproducible exports on Loom's existing execution path.
 Use the [technical design](ML_DATAFRAME_TECHNICAL_DESIGN.md) for contracts and ownership, and the [gap analysis](BACKEND_GAP_ANALYSIS_20260916.md) for evidence.
 Execute B01, then independent B02 and B03, then B04 through B08.

@@ -2,6 +2,8 @@
 
 > Superseded on 2026-09-16. This document records the earlier Patient-first proposal, not the execution contract. Use [the implementation plan](ML_DATAFRAME_IMPLEMENTATION_PLAN.md) and [technical design](ML_DATAFRAME_TECHNICAL_DESIGN.md). The current execution tables contain B01-B08, which replace F1-F4. Do not implement the separate `DatasetDesignV1` adapter or the Patient-only workflow below.
 
+The current proposed continuation is the [C01-C12 ML dataframe delivery plan](ML_DATAFRAMER_DELIVERY_PLAN.md). B01-B08 are historical implementation records, not proof that the complete nontechnical product exists.
+
 ## Product promise
 
 A researcher can create a defensible training table without knowing FHIR paths, Loom recipes, AQL, or storage column names.
