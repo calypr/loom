@@ -2047,11 +2047,12 @@ components:
     SemanticInventoryBrowseResponse:
       type: object
       additionalProperties: false
-      required: [contextToken, buildId, state, entries]
+      required: [contextToken, buildId, state, sourceAvailability, entries]
       properties:
         contextToken: {type: string, minLength: 1}
         buildId: {type: string}
         state: {type: string, enum: [unknown, not_started, running, complete, failed, invalidated]}
+        sourceAvailability: {type: string, enum: [unknown, verified, unproven]}
         nextCursor: {type: string}
         entries:
           type: array

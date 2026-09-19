@@ -42,11 +42,12 @@ type SemanticInventoryItem struct {
 }
 
 type BrowseSemanticInventoryResponse struct {
-	ContextToken string                         `json:"contextToken"`
-	BuildID      string                         `json:"buildId"`
-	State        catalog.SemanticInventoryState `json:"state"`
-	Entries      []SemanticInventoryItem        `json:"entries"`
-	NextCursor   string                         `json:"nextCursor,omitempty"`
+	ContextToken       string                         `json:"contextToken"`
+	BuildID            string                         `json:"buildId"`
+	State              catalog.SemanticInventoryState `json:"state"`
+	SourceAvailability string                         `json:"sourceAvailability"`
+	Entries            []SemanticInventoryItem        `json:"entries"`
+	NextCursor         string                         `json:"nextCursor,omitempty"`
 }
 
 type semanticBrowseCursor struct {
@@ -114,6 +115,10 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return BrowseSemanticInventoryResponse{}, conflict("catalog", "STALE_CATALOG_CURSOR", "catalog context changed; restart search", nil, nil)
 	}
 	result.BuildID, result.State = page.Build.BuildID, page.State
+	result.SourceAvailability = page.Build.SourceAvailability
+	if result.SourceAvailability == "" {
+		result.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnknown
+	}
 	result.Entries = make([]SemanticInventoryItem, 0, len(page.Entries))
 	for _, entry := range page.Entries {
 		observation := entry.Observation

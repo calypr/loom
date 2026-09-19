@@ -34,12 +34,12 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 					if opts.Cursor != "" && opts.Cursor != "inner-page" {
 						t.Fatalf("cursor was not unwrapped: %q", opts.Cursor)
 					}
-					return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: buildID, Checkpoint: "private", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: catalog.SemanticObservation{Key: catalog.SemanticObservationKey{System: "system", Code: "code", Version: "v1"}, Population: 3}}}, NextCursor: "inner-page"}, nil
+					return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: buildID, SourceAvailability: catalog.SemanticInventorySourceAvailabilityUnproven, Checkpoint: "private", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: catalog.SemanticObservation{Key: catalog.SemanticObservationKey{System: "system", Code: "code", Version: "v1"}, Population: 3}}}, NextCursor: "inner-page"}, nil
 				},
 			}}
 			req := BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
 			first, err := service.BrowseSemanticInventory(context.Background(), req)
-			if err != nil || len(first.Entries) != 1 || first.Entries[0].Occurrences != 3 || first.Entries[0].CodingVersion != "v1" || first.ContextToken == "" || first.NextCursor == "" {
+			if err != nil || len(first.Entries) != 1 || first.Entries[0].Occurrences != 3 || first.Entries[0].CodingVersion != "v1" || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
 			req.Cursor = first.NextCursor
@@ -93,7 +93,7 @@ func TestBrowseSemanticInventoryUnknownRemainsUnknown(t *testing.T) {
 		},
 	}}
 	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
-	if err != nil || result.State != catalog.SemanticInventoryUnknown || result.Entries == nil || len(result.Entries) != 0 {
+	if err != nil || result.State != catalog.SemanticInventoryUnknown || result.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnknown || result.Entries == nil || len(result.Entries) != 0 {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
 }
