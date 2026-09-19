@@ -31,6 +31,10 @@ type ServerConfig struct {
 	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
 	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
 	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
+	ArtifactDirectory             string                      `yaml:"artifact_directory"`
+	ArtifactTTL                   time.Duration               `yaml:"artifact_ttl"`
+	ArtifactMaxRows               int64                       `yaml:"artifact_max_rows"`
+	ArtifactMaxBytes              int64                       `yaml:"artifact_max_bytes"`
 	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
 	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
 	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
@@ -74,6 +78,8 @@ func DefaultConfig() Config {
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: 25,
 			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
+			ArtifactDirectory: "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
+			ArtifactMaxRows: 10_000_000, ArtifactMaxBytes: 2 << 30,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
 	}
@@ -203,6 +209,9 @@ func applyEnvironment(cfg Config) (Config, error) {
 	if cfg.Server.PopulationMappingCursorSecret == "" {
 		cfg.Server.PopulationMappingCursorSecret = os.Getenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET")
 	}
+	if value := strings.TrimSpace(os.Getenv("LOOM_ARTIFACT_DIRECTORY")); value != "" {
+		cfg.Server.ArtifactDirectory = value
+	}
 	if raw := strings.TrimSpace(os.Getenv("LOOM_REQUIRED_DATAFRAME_SELECTORS")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.Server.RequiredDataframeSelectors); err != nil {
 			return Config{}, fmt.Errorf("parse LOOM_REQUIRED_DATAFRAME_SELECTORS: %w", err)
@@ -218,6 +227,9 @@ func (c Config) Validate() error {
 	}
 	if cfg.Server.RecipeQualityMaxRows <= 0 || cfg.Server.RecipeQualityMaxDistinctKeys <= 0 {
 		return errors.New("server recipe quality limits must be positive")
+	}
+	if strings.TrimSpace(cfg.Server.ArtifactDirectory) == "" || cfg.Server.ArtifactTTL <= 0 || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
+		return errors.New("server artifact directory, TTL, row limit, and byte limit must be configured")
 	}
 	if strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) != "" && !(cfg.Server.AllowUnauthenticated || cfg.Auth.AllowUnauthenticated) {
 		return errors.New("server.local_workspace_writeback requires unauthenticated local-development mode")

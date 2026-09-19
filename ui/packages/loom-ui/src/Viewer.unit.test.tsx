@@ -10,12 +10,35 @@ const state = {
   apiVersion: 'loom.calypr.org/explorer-state/v1', kind: 'ExplorerState', project: 'NCPI_ACCEPTANCE', explorerId: 'default', title: 'Clinical Explorer', management: 'interactive',
   draft: { version: 1, digest: 'digest' }, active: {}, generated: {}, activeUrl: '/viewer',
   runtime: {
-    generation: 'generation-1', outputs: [{ outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient', selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' }, columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }], table: { columns: [{ column: 'patient_id', label: 'Patient ID', visible: true }] }, filters: [], charts: [], fixedFilters: {}, actions: [] }], sharedFilters: {}, diagnostics: [],
+    generation: 'generation-1', publication: { state: 'READY', revisionId: 'revision-1', executionId: 'execution-1' }, outputs: [{ outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient', selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' }, columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }], table: { columns: [{ column: 'patient_id', label: 'Patient ID', visible: true }] }, filters: [], charts: [], fixedFilters: {}, actions: [] }], sharedFilters: {}, diagnostics: [],
     qualityReports: [{ id: 'quality-1', receiptId: 'receipt-1', project: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', scopeDigest: 'scope-1', output: 'patients', policyVersion: 'loom.quality/v1', completeness: 'COMPLETE', verdict: 'PASSED', rowCount: 1, columns: [{ column: 'patient_id', present: 1, missing: 0, recordedNull: 0, emptyArray: 0 }], keyIntegrity: { distinct: 1, missing: 0, duplicate: 0 }, limits: { maxRows: 1000, maxDistinctKeys: 1000 }, issues: { ambiguous: 0, invalidType: 0, incompatibleUnit: 0 } }],
   },
 };
 
 describe('Loom Explorer Viewer', () => {
+  it('prepares and downloads an exact server-side training artifact', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(state), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [['patient-1']], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
+    });
+    const client = createLoomClient({ fetch });
+    const artifactId = `artifact_${'0'.repeat(64)}`;
+    const prepareArtifact = vi.spyOn(client, 'prepareArtifact').mockResolvedValue({
+      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', filename: 'loom-dataset-artifact-v1.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
+    });
+    const downloadArtifact = vi.spyOn(client, 'downloadArtifact').mockResolvedValue(new Blob(['zip'], { type: 'application/zip' }));
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:artifact') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download training artifact' }));
+
+    await waitFor(() => expect(downloadArtifact).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId }));
+    expect(prepareArtifact).toHaveBeenCalledWith(expect.objectContaining({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients' }));
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it('renders server rows and opens the public row details hook', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
       if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(state), { status: 200 }));

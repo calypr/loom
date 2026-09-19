@@ -408,6 +408,65 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: prepareExplorerArtifact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArtifactPrepareRequest'}
+      responses:
+        '200':
+          description: Complete immutable training artifact prepared from one exact publication.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Artifact'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '413': {$ref: '#/components/responses/AuthoringPayloadTooLarge'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+      - name: artifactId
+        in: path
+        required: true
+        schema: {type: string, pattern: '^artifact_[0-9a-f]{64}$'}
+    get:
+      operationId: downloadExplorerArtifact
+      responses:
+        '200':
+          description: Exact completed training artifact archive.
+          headers:
+            Content-Disposition:
+              schema: {type: string}
+            X-Loom-Artifact-SHA256:
+              schema: {type: string, pattern: '^[0-9a-f]{64}$'}
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '410':
+          description: The artifact expired.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /health:
     get:
       operationId: getHealth
@@ -2199,6 +2258,38 @@ components:
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
+    ArtifactPrepareRequest:
+      type: object
+      additionalProperties: false
+      required: [revisionId, outputId, idempotencyKey]
+      properties:
+        revisionId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        idempotencyKey: {type: string, minLength: 1, maxLength: 200}
+    Artifact:
+      type: object
+      additionalProperties: false
+      required: [id, project, explorerId, revisionId, outputId, receiptId, executionId, datasetGeneration, schemaDigest, state, filename, mediaType, archiveSha256, bytes, rows, features, createdAt, completedAt, expiresAt]
+      properties:
+        id: {type: string, pattern: '^artifact_[0-9a-f]{64}$'}
+        project: {type: string, minLength: 1}
+        explorerId: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        receiptId: {type: string, minLength: 1}
+        executionId: {type: string, minLength: 1}
+        datasetGeneration: {type: string, minLength: 1}
+        schemaDigest: {type: string, minLength: 1}
+        state: {type: string, enum: [COMPLETE]}
+        filename: {type: string, minLength: 1}
+        mediaType: {type: string, enum: [application/zip]}
+        archiveSha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        bytes: {type: integer, format: int64, minimum: 1}
+        rows: {type: integer, format: int64, minimum: 0}
+        features: {type: integer, minimum: 0}
+        createdAt: {type: string, format: date-time}
+        completedAt: {type: string, format: date-time}
+        expiresAt: {type: string, format: date-time}
     PublishRequest:
       type: object
       additionalProperties: false

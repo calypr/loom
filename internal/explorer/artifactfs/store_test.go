@@ -87,6 +87,11 @@ func TestStoreAbortAndExpiryNeverExposeArchive(t *testing.T) {
 	if _, _, err := store.Open(context.Background(), record.ID); !errors.Is(err, ErrArtifactUnavailable) {
 		t.Fatalf("failed artifact open error = %v", err)
 	}
+	retry, existing, err := store.Begin(context.Background(), record)
+	if err != nil || retry == nil || existing != nil {
+		t.Fatalf("failed artifact retry stage=%T existing=%#v err=%v", retry, existing, err)
+	}
+	_, _ = retry.Abort(context.Background(), "RETRY_STOPPED")
 
 	expired := artifactRecord(t)
 	expired.IdempotencyKey = "expired"
@@ -94,5 +99,33 @@ func TestStoreAbortAndExpiryNeverExposeArchive(t *testing.T) {
 	expired.ExpiresAt = time.Now().UTC().Add(-time.Second)
 	if _, _, err := store.Begin(context.Background(), expired); err == nil {
 		t.Fatal("expired artifact record was accepted")
+	}
+}
+
+func TestStoreReplacesExpiredCompleteArtifact(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+	record := artifactRecord(t)
+	record.ExpiresAt = now.Add(time.Hour)
+	stage, _, err := store.Begin(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = stage.Write([]byte("old"))
+	if _, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "old", Bytes: 3}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+	record.ExpiresAt = now.Add(time.Hour)
+	retry, existing, err := store.Begin(context.Background(), record)
+	if err != nil || retry == nil || existing != nil {
+		t.Fatalf("expired artifact retry stage=%T existing=%#v err=%v", retry, existing, err)
+	}
+	if _, err := os.Stat(store.path(record.ID, ".zip")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired archive remained visible: %v", err)
 	}
 }

@@ -33,6 +33,7 @@ import (
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/ingest"
@@ -304,6 +305,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer service: %w", err)
 	}
+	artifactStore, err := artifactfs.New(serverConfig.Server.ArtifactDirectory)
+	if err != nil {
+		return fmt.Errorf("create Explorer artifact store: %w", err)
+	}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -355,6 +360,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure population mapping cursor signing: %w", err)
 	}
+	var artifactPublishedReader lifecycle.ArtifactPublishedReader
+	if materializationReader != nil {
+		artifactPublishedReader = materializationReader
+	}
 	lifecycleConfig := lifecycle.Config{
 		SelectionMembersCollection:   explorerarango.SelectionMembersCollection,
 		InterpretationRepository:     explorerStore,
@@ -374,6 +383,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
+		ArtifactStore:    artifactStore,
+		PublishedReader:  artifactPublishedReader,
+		ArtifactTTL:      serverConfig.Server.ArtifactTTL,
+		ArtifactMaxRows:  serverConfig.Server.ArtifactMaxRows,
+		ArtifactMaxBytes: serverConfig.Server.ArtifactMaxBytes,
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")

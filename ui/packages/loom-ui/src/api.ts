@@ -126,6 +126,16 @@ export interface CellTraceArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
 }
 
+export interface PrepareArtifactArgs extends ExplorerAuthoringStateArgs {
+  readonly revisionId: string;
+  readonly outputId: string;
+  readonly idempotencyKey: string;
+}
+
+export interface DownloadArtifactArgs extends ExplorerAuthoringStateArgs {
+  readonly artifactId: string;
+}
+
 export interface CreateInterpretationRevisionArgs extends ExplorerAuthoringProjectArgs {
   readonly libraryId: string;
   readonly parentRevisionId?: string;
@@ -178,6 +188,29 @@ export const populationMappingResponseSchema = z.object({
   diagnostics: z.array(populationMappingDiagnosticSchema),
 }).strict();
 export type PopulationMappingResponse = z.infer<typeof populationMappingResponseSchema>;
+
+export const artifactSchema = z.object({
+  id: z.string().regex(/^artifact_[0-9a-f]{64}$/),
+  project: z.string().min(1),
+  explorerId: z.string().min(1),
+  revisionId: z.string().min(1),
+  outputId: z.string().min(1),
+  receiptId: z.string().min(1),
+  executionId: z.string().min(1),
+  datasetGeneration: z.string().min(1),
+  schemaDigest: z.string().min(1),
+  state: z.literal('COMPLETE'),
+  filename: z.string().min(1),
+  mediaType: z.literal('application/zip'),
+  archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  bytes: z.number().int().positive(),
+  rows: z.number().int().nonnegative(),
+  features: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+}).strict();
+export type Artifact = z.infer<typeof artifactSchema>;
 
 export interface PublishExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
@@ -349,6 +382,14 @@ export interface LoomClient {
     args: CellTraceArgs,
     signal?: AbortSignal,
   ) => Promise<CellTraceResponse>;
+  readonly prepareArtifact: (
+    args: PrepareArtifactArgs,
+    signal?: AbortSignal,
+  ) => Promise<Artifact>;
+  readonly downloadArtifact: (
+    args: DownloadArtifactArgs,
+    signal?: AbortSignal,
+  ) => Promise<Blob>;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
     signal?: AbortSignal,
@@ -661,6 +702,28 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       });
     }
   };
+  const requestBlob = async (path: string, signal?: AbortSignal): Promise<Blob> => {
+    try {
+      const response = await fetcher(urlFor(path), {
+        signal,
+        credentials: options.credentials ?? 'same-origin',
+        headers: { Accept: 'application/zip', ...(options.headers ?? {}) },
+      });
+      if (!response.ok) throw new LoomRequestError(await requestError(response));
+      if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/zip') {
+        throw new LoomRequestError({ status: 502, code: 'INVALID_ARTIFACT_RESPONSE', message: 'Loom returned an invalid training artifact response.', retryable: false });
+      }
+      return response.blob();
+    } catch (error) {
+      if (error instanceof LoomRequestError) throw error;
+      if (signal?.aborted) throw error;
+      throw new LoomRequestError({
+        status: 'FETCH_ERROR',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: true,
+      });
+    }
+  };
   const evictCached = (key: string): void => {
     const entry = cache.get(key);
     if (!entry) return;
@@ -854,6 +917,14 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.offset === undefined ? {} : { offset: args.offset }),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal)).then((value) => cellTraceResponseSchema.parse(value));
+  const prepareArtifact = (args: PrepareArtifactArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/artifacts'), withJson({
+      revisionId: args.revisionId,
+      outputId: args.outputId,
+      idempotencyKey: args.idempotencyKey,
+    }, signal)).then((value) => artifactSchema.parse(value));
+  const downloadArtifact = (args: DownloadArtifactArgs, signal?: AbortSignal) =>
+    requestBlob(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`, signal);
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
     getCached(
       `interpretations:${canonicalProject(args.project)}`,
@@ -1024,6 +1095,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     preview,
     populationMapping,
     cellTrace,
+    prepareArtifact,
+    downloadArtifact,
     listInterpretationLibraries,
     getInterpretationRevision,
     createInterpretationRevision,

@@ -63,6 +63,11 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   queueMicrotask(() => URL.revokeObjectURL(url));
 };
 
+const artifactRequestKey = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  return `artifact-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
 const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions' | 'onRepairFeature'>) => {
   const runtimeQuery = useLoomRuntime({ project, explorerId: explorerId ?? 'default' });
   if (runtimeQuery.isLoading && !runtimeQuery.data) return <Center mih="45vh"><Stack align="center" gap="sm"><Loader size="sm" /><Text size="sm">Loading published Explorer…</Text></Stack></Center>;
@@ -97,13 +102,25 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
     onActiveOutputChange?.(nextOutputId);
   };
   const runAction = async (action?: ViewerRuntimeAction) => {
-    const actionKey = action?.type ?? 'download';
+    const actionKey = action?.type ?? 'artifact';
     setPendingAction(actionKey);
     setActionError(undefined);
     try {
       const customAction = action ? customActions?.[action.type] : undefined;
       if (action && customAction) {
         await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
+      } else if (!action) {
+        const revisionId = runtime.publication?.revisionId;
+        if (!revisionId) throw new Error('This published Explorer is missing the exact revision required for a training artifact.');
+        const artifact = await client.prepareArtifact({
+          project,
+          explorerId,
+          revisionId,
+          outputId: output.outputId,
+          idempotencyKey: artifactRequestKey(),
+        });
+        const blob = await client.downloadArtifact({ project, explorerId, artifactId: artifact.id });
+        downloadBlob(blob, artifact.filename);
       } else {
         const targetOutput = action?.output
           ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
@@ -172,7 +189,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
             <Title order={1} fz={{ base: 24, md: 30 }}>{output.title}</Title>
           </div>
           <Group gap="xs" wrap="wrap">
-            <Button loading={pendingAction === 'download'} onClick={() => { void runAction(); }}>Download CSV</Button>
+            <Button loading={pendingAction === 'artifact'} onClick={() => { void runAction(); }}>Download training artifact</Button>
             {output.actions?.map((action, index) => (
               <Button variant="default" key={`${action.type}-${index}`} loading={pendingAction === action.type} onClick={() => { void runAction(action); }}>
                 {action.title}

@@ -75,6 +75,27 @@ func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
 	}
 }
 
+func TestArtifactConfigurationHasBoundedDefaultsAndEnvironmentOverride(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.ArtifactDirectory == "" || cfg.Server.ArtifactTTL != 24*time.Hour || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
+		t.Fatalf("artifact defaults = %#v", cfg.Server)
+	}
+	t.Setenv("LOOM_ARTIFACT_DIRECTORY", filepath.Join(t.TempDir(), "exports"))
+	loaded, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.ArtifactDirectory != os.Getenv("LOOM_ARTIFACT_DIRECTORY") {
+		t.Fatalf("artifact directory = %q", loaded.Server.ArtifactDirectory)
+	}
+	loaded.Server.ArtifactMaxBytes = 0
+	loaded.Auth.AllowUnauthenticated = true
+	loaded.Server.ClickHouse.Enabled = false
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "artifact directory") {
+		t.Fatalf("invalid artifact bound error = %v", err)
+	}
+}
+
 func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {

@@ -885,17 +885,46 @@ const parseCSV = (text) => {
   return rows;
 };
 
-const findDownloadedCSV = async (directory, timeout = 10000) => {
+const findDownloadedArchive = async (directory, timeout = 30000) => {
   const started = Date.now();
   while (Date.now() - started < timeout) {
-    const files = readdirSync(directory).filter((file) => file.endsWith('.csv'));
+    const files = readdirSync(directory).filter((file) => file.endsWith('.zip'));
     if (files.length) {
       const path = join(directory, files.sort().at(-1));
       if (!existsSync(`${path}.crdownload`)) return path;
     }
     await sleep(200);
   }
-  throw new Error('viewer did not download a CSV file');
+  throw new Error('viewer did not download a training artifact');
+};
+
+const readStoredZip = (path) => {
+  const archive = readFileSync(path);
+  let eocd = -1;
+  for (let offset = archive.length - 22; offset >= Math.max(0, archive.length - 65557); offset -= 1) {
+    if (archive.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break; }
+  }
+  if (eocd < 0) throw new Error('training artifact has no ZIP end record');
+  const entries = archive.readUInt16LE(eocd + 10);
+  let cursor = archive.readUInt32LE(eocd + 16);
+  const members = new Map();
+  for (let index = 0; index < entries; index += 1) {
+    if (archive.readUInt32LE(cursor) !== 0x02014b50) throw new Error('training artifact central directory is invalid');
+    const method = archive.readUInt16LE(cursor + 10);
+    const compressedBytes = archive.readUInt32LE(cursor + 20);
+    const nameBytes = archive.readUInt16LE(cursor + 28);
+    const extraBytes = archive.readUInt16LE(cursor + 30);
+    const commentBytes = archive.readUInt16LE(cursor + 32);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const name = archive.subarray(cursor + 46, cursor + 46 + nameBytes).toString('utf8');
+    if (method !== 0 || archive.readUInt32LE(localOffset) !== 0x04034b50) throw new Error(`training artifact member ${name} is not a stored ZIP entry`);
+    const localNameBytes = archive.readUInt16LE(localOffset + 26);
+    const localExtraBytes = archive.readUInt16LE(localOffset + 28);
+    const dataOffset = localOffset + 30 + localNameBytes + localExtraBytes;
+    members.set(name, archive.subarray(dataOffset, dataOffset + compressedBytes));
+    cursor += 46 + nameBytes + extraBytes + commentBytes;
+  }
+  return members;
 };
 
 export const graphQLRowsRequest = (target, selector, columns, filters = []) => ({
@@ -1645,16 +1674,35 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickButton('Close cell explanation')`);
     await waitForBrowser(cdp, `![...document.querySelectorAll('[role="dialog"]')].some((candidate) => candidate.innerText.includes('Why is valueQuantity.value'))`);
 
-    await browserEval(cdp, `clickButton('Download CSV')`);
-    const csvPath = await findDownloadedCSV(downloadDir);
-    recordEvidence(report, csvPath);
-    const csvRows = parseCSV(readFileSync(csvPath, 'utf8'));
-    const expectedCSV = {
-      headers: output.columns.filter((column) => column.visible).map((column) => column.column),
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(maximumRelatedValue)]],
-    };
-    recordAssertion(report, 'downloaded-csv-has-generated-physical-headers', expectedCSV.headers, csvRows[0] ?? []);
-    recordAssertion(report, 'downloaded-csv-has-exact-filtered-rows', expectedCSV.rows, csvRows.slice(1));
+    await browserEval(cdp, `clickButton('Download training artifact')`);
+    const archivePath = await findDownloadedArchive(downloadDir);
+    recordEvidence(report, archivePath);
+    const archive = readStoredZip(archivePath);
+    const requiredMembers = ['data.csv', 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json'];
+    recordAssertion(report, 'training-artifact-has-fixed-members', requiredMembers, [...archive.keys()]);
+    const manifest = JSON.parse(archive.get('manifest.json').toString('utf8'));
+    const schema = JSON.parse(archive.get('schema.json').toString('utf8'));
+    const csvRows = parseCSV(archive.get('data.csv').toString('utf8'));
+    recordAssertion(report, 'training-artifact-is-bound-to-published-revision', {
+      project: target.fixtureProject,
+      datasetGeneration: target.fixtureGeneration,
+      executionId: runtime.publication.executionId,
+      outputId: output.outputId,
+      revisionId: runtime.publication.revisionId,
+    }, {
+      project: manifest.identity.project,
+      datasetGeneration: manifest.identity.datasetGeneration,
+      executionId: manifest.identity.executionId,
+      outputId: manifest.identity.outputId,
+      revisionId: manifest.identity.revisionId,
+    });
+    recordAssertion(report, 'training-artifact-schema-matches-data', schema.columns.map((column) => column.name), csvRows[0] ?? []);
+    recordAssertion(report, 'training-artifact-has-full-published-row-count', 2, manifest.rows);
+    recordAssertion(report, 'training-artifact-has-full-published-membership', ['dev-patient-001', 'dev-patient-002'], csvRows.slice(1).map((row) => row[0]).sort());
+    recordAssertion(report, 'training-artifact-member-checksums-match', true, manifest.members.every((member) => {
+      const bytes = archive.get(member.name);
+      return Boolean(bytes) && bytes.length === member.bytes && createHash('sha256').update(bytes).digest('hex') === member.sha256;
+    }));
 
     await cdp.send('Page.reload', { ignoreCache: false });
     await waitForBrowser(cdp, `document.readyState === 'complete'`);

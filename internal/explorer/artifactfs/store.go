@@ -50,7 +50,14 @@ func (s *Store) Begin(ctx context.Context, record explorer.ArtifactRecord) (expl
 		if !sameIdentity(existing, record) {
 			return nil, nil, fmt.Errorf("artifact id collision")
 		}
-		return nil, &existing, nil
+		if existing.State != explorer.ArtifactFailed && existing.ExpiresAt.After(s.now()) {
+			return nil, &existing, nil
+		}
+		for _, suffix := range []string{".staging", ".zip", ".json"} {
+			if removeErr := os.Remove(s.path(record.ID, suffix)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				return nil, nil, fmt.Errorf("replace retryable artifact: %w", removeErr)
+			}
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, err
 	}

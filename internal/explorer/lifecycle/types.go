@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
@@ -56,6 +57,15 @@ type CompileReceiptRequest struct {
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
+
+// ArtifactPublishedReader is the exact-output surface lifecycle needs when
+// materializing a durable artifact. Keeping this contract narrow makes it
+// impossible for artifact orchestration to accidentally follow a moving
+// project-current pointer or bypass the published reader's read pin.
+type ArtifactPublishedReader interface {
+	ExactExecutionMaterialization(context.Context, string, string) (dataframepublished.Materialization, error)
+	StreamExactExport(context.Context, dataframepublished.ExactExportRequest, dataframepublished.ExactExportVisitor) (dataframepublished.ExactExportResult, error)
+}
 
 // PopulationMappingExecutor is the narrow lifecycle-to-execution adapter.
 // Lifecycle supplies the validated receipt, scope bindings, and immutable
@@ -121,6 +131,13 @@ type Config struct {
 	CellTrace                    CellTraceExecutor
 	MaterializeReceipt           ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
+	ArtifactStore                explorer.ArtifactStore
+	PublishedReader              ArtifactPublishedReader
+	// Artifact limits are deployment policy, never caller-controlled request
+	// fields. Zero uses lifecycle's conservative defaults.
+	ArtifactTTL      time.Duration
+	ArtifactMaxRows  int64
+	ArtifactMaxBytes int64
 
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator

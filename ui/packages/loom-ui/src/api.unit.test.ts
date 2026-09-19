@@ -623,6 +623,22 @@ describe('Loom project paths', () => {
     expect(secondBody.variables.input.after).toBe('next');
   });
 
+  it('validates artifact preparation and downloads the binary archive', async () => {
+    const artifactId = `artifact_${'0'.repeat(64)}`;
+    const artifact = {
+      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', filename: 'loom-dataset-artifact-v1.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 3, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(artifact), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(new Blob(['zip'], { type: 'application/zip' }), { status: 200, headers: { 'Content-Type': 'application/zip' } }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.prepareArtifact({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', idempotencyKey: 'request-1' })).resolves.toEqual(artifact);
+    await expect(client.downloadArtifact({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId })).resolves.toMatchObject({ type: 'application/zip' });
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/artifacts');
+    expect(fetch.mock.calls[1]?.[0]).toBe(`/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/artifacts/${artifactId}`);
+  });
+
   it('preserves a typed stale-cursor conflict from GraphQL', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
       errors: [{ message: 'The page cursor is stale.', extensions: { code: 'STALE_CURSOR', retryable: false } }],
