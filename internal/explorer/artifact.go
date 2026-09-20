@@ -9,6 +9,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 )
 
 type ArtifactState string
@@ -22,29 +24,30 @@ const (
 // ArtifactRecord is the durable server-side identity of one exact training
 // artifact. The archive is downloadable only when State is COMPLETE.
 type ArtifactRecord struct {
-	ID                       string        `json:"id"`
-	Project                  string        `json:"project"`
-	ExplorerID               string        `json:"explorerId"`
-	RevisionID               string        `json:"revisionId"`
-	OutputID                 string        `json:"outputId"`
-	ReceiptID                string        `json:"receiptId"`
-	ExecutionID              string        `json:"executionId"`
-	DatasetGeneration        string        `json:"datasetGeneration"`
-	SchemaDigest             string        `json:"schemaDigest"`
-	AuthorizationScopeDigest string        `json:"authorizationScopeDigest"`
-	SnapshotToken            string        `json:"snapshotToken"`
-	IdempotencyKey           string        `json:"idempotencyKey"`
-	State                    ArtifactState `json:"state"`
-	Filename                 string        `json:"filename"`
-	MediaType                string        `json:"mediaType"`
-	ArchiveSHA256            string        `json:"archiveSha256,omitempty"`
-	Bytes                    int64         `json:"bytes,omitempty"`
-	Rows                     int64         `json:"rows,omitempty"`
-	Features                 int           `json:"features,omitempty"`
-	FailureCode              string        `json:"failureCode,omitempty"`
-	CreatedAt                time.Time     `json:"createdAt"`
-	CompletedAt              *time.Time    `json:"completedAt,omitempty"`
-	ExpiresAt                time.Time     `json:"expiresAt"`
+	ID                       string                            `json:"id"`
+	Project                  string                            `json:"project"`
+	ExplorerID               string                            `json:"explorerId"`
+	RevisionID               string                            `json:"revisionId"`
+	OutputID                 string                            `json:"outputId"`
+	ReceiptID                string                            `json:"receiptId"`
+	ExecutionID              string                            `json:"executionId"`
+	DatasetGeneration        string                            `json:"datasetGeneration"`
+	SchemaDigest             string                            `json:"schemaDigest"`
+	AuthorizationScopeDigest string                            `json:"authorizationScopeDigest"`
+	SnapshotToken            string                            `json:"snapshotToken"`
+	IdempotencyKey           string                            `json:"idempotencyKey"`
+	State                    ArtifactState                     `json:"state"`
+	Format                   dataframepublished.ArtifactFormat `json:"format"`
+	Filename                 string                            `json:"filename"`
+	MediaType                string                            `json:"mediaType"`
+	ArchiveSHA256            string                            `json:"archiveSha256,omitempty"`
+	Bytes                    int64                             `json:"bytes,omitempty"`
+	Rows                     int64                             `json:"rows,omitempty"`
+	Features                 int                               `json:"features,omitempty"`
+	FailureCode              string                            `json:"failureCode,omitempty"`
+	CreatedAt                time.Time                         `json:"createdAt"`
+	CompletedAt              *time.Time                        `json:"completedAt,omitempty"`
+	ExpiresAt                time.Time                         `json:"expiresAt"`
 }
 
 func ArtifactID(record ArtifactRecord) (string, error) {

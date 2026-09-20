@@ -1,6 +1,6 @@
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
-import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
 import { ChartToggle, QualitySummary, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
 import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './features/ExplorerViewer/components';
 import { runtimeSessionKey } from './features/ExplorerViewer/model';
@@ -51,6 +51,12 @@ type CellExplanationState =
   | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
   | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
 
+type DatasetDownloadState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'preparing'; readonly outputId: string; readonly requestToken: number }
+  | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
+  | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
+
 const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
   [pages[0], ...pages.slice(1), page];
 
@@ -61,14 +67,6 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   anchor.download = fileName;
   anchor.click();
   queueMicrotask(() => URL.revokeObjectURL(url));
-};
-
-const downloadNative = (url: string, fileName: string): void => {
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.rel = 'noopener';
-  anchor.click();
 };
 
 const artifactRequestKey = (): string => {
@@ -90,12 +88,19 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
   const [pendingAction, setPendingAction] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+  const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
+  const datasetDownloadRequest = useRef(0);
   const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
   const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
     ?? runtime.outputs[0];
   const outputId = output?.outputId ?? '';
+  const previousOutputId = useRef(outputId);
+  if (previousOutputId.current !== outputId) {
+    previousOutputId.current = outputId;
+    datasetDownloadRequest.current += 1;
+  }
   const request = useMemo(() => output ? outputRequestFor(project, runtime, { ...state, activeOutputId: outputId }, output) : undefined, [output, outputId, project, runtime, state]);
   const resultQuery = useLoomOutput(request ?? { project, selector: { recipe: '', translationVersion: '', output: '' }, columns: [] }, { enabled: Boolean(request) });
   const resultCache = useRef(new Map<string, LoomOutputResult>());
@@ -106,30 +111,43 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
 
   const selectOutput = (nextOutputId: string | null) => {
     if (!nextOutputId) return;
+    datasetDownloadRequest.current += 1;
+    setDatasetDownload({ kind: 'idle' });
     dispatch({ type: 'selectOutput', outputId: nextOutputId });
     onActiveOutputChange?.(nextOutputId);
   };
-  const runAction = async (action?: ViewerRuntimeAction) => {
-    const actionKey = action?.type ?? 'artifact';
+  const prepareDatasetDownload = async () => {
+    const requestToken = datasetDownloadRequest.current + 1;
+    datasetDownloadRequest.current = requestToken;
+    const requestOutputId = output.outputId;
+    setDatasetDownload({ kind: 'preparing', outputId: requestOutputId, requestToken });
+    try {
+      const revisionId = runtime.publication?.revisionId;
+      if (!revisionId) throw new Error('This published Explorer is missing the exact revision required for a training artifact.');
+      const artifact = await client.prepareArtifact({
+        project,
+        explorerId,
+        revisionId,
+        outputId: output.outputId,
+        idempotencyKey: artifactRequestKey(),
+      });
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'ready', outputId: requestOutputId, requestToken, artifact });
+    } catch (error) {
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'error', outputId: requestOutputId, requestToken, message: error instanceof Error ? error.message : 'The dataset download could not be prepared.' });
+    }
+  };
+  const runAction = async (action: ViewerRuntimeAction) => {
+    const actionKey = action.type;
     setPendingAction(actionKey);
     setActionError(undefined);
     try {
-      const customAction = action ? customActions?.[action.type] : undefined;
-      if (action && customAction) {
+      const customAction = customActions?.[action.type];
+      if (customAction) {
         await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
-      } else if (!action) {
-        const revisionId = runtime.publication?.revisionId;
-        if (!revisionId) throw new Error('This published Explorer is missing the exact revision required for a training artifact.');
-        const artifact = await client.prepareArtifact({
-          project,
-          explorerId,
-          revisionId,
-          outputId: output.outputId,
-          idempotencyKey: artifactRequestKey(),
-        });
-        downloadNative(client.artifactDownloadURL({ project, explorerId, artifactId: artifact.id }), artifact.filename);
       } else {
-        const targetOutput = action?.output
+        const targetOutput = action.output
           ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
           : output;
         const targetRequest = targetOutput.outputId === output.outputId
@@ -137,11 +155,11 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
           : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
         const exportRequest = {
           ...targetRequest,
-          ...(action?.columns ? { columns: action.columns } : {}),
-          ...(action?.exportHeaders ? { exportHeaders: action.exportHeaders } : {}),
+          ...(action.columns ? { columns: action.columns } : {}),
+          ...(action.exportHeaders ? { exportHeaders: action.exportHeaders } : {}),
         };
         const blob = await client.exportOutput(exportRequest);
-        downloadBlob(blob, action?.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
+        downloadBlob(blob, action.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'The action could not be completed.');
@@ -183,6 +201,14 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
   const currentTrace = currentTracePage?.trace;
   const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
+  const preparedArtifact = datasetDownload.kind === 'ready'
+    && datasetDownload.outputId === outputId
+    && datasetDownload.requestToken === datasetDownloadRequest.current
+    ? datasetDownload.artifact
+    : undefined;
+  const preparedOutput = preparedArtifact
+    ? runtime.outputs.find((candidate) => candidate.outputId === preparedArtifact.outputId)
+    : undefined;
 
   return (
     <main className="loom-viewer min-h-screen bg-[var(--loom-viewer-bg)] px-4 py-3 text-[var(--loom-viewer-text)] md:px-8 lg:px-12" aria-label="Loom Explorer Viewer">
@@ -196,7 +222,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
             <Title order={1} fz={{ base: 24, md: 30 }}>{output.title}</Title>
           </div>
           <Group gap="xs" wrap="wrap">
-            <Button loading={pendingAction === 'artifact'} onClick={() => { void runAction(); }}>Download training artifact</Button>
+            <Button loading={datasetDownload.kind === 'preparing' && datasetDownload.outputId === outputId} onClick={() => { void prepareDatasetDownload(); }}>Download dataset</Button>
             {output.actions?.map((action, index) => (
               <Button variant="default" key={`${action.type}-${index}`} loading={pendingAction === action.type} onClick={() => { void runAction(action); }}>
                 {action.title}
@@ -205,6 +231,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
           </Group>
         </Group>
         {actionError ? <Alert color="red" title="Action failed" withCloseButton onClose={() => setActionError(undefined)} mb="md">{actionError}</Alert> : null}
+        {datasetDownload.kind === 'error' && datasetDownload.outputId === outputId && datasetDownload.requestToken === datasetDownloadRequest.current ? <Alert color="red" title="Dataset download failed" withCloseButton onClose={() => setDatasetDownload({ kind: 'idle' })} mb="md">{datasetDownload.message}</Alert> : null}
         <Tabs value={outputId} onChange={selectOutput}>
           <Tabs.List aria-label="Output tables" className="loom-viewer-tabs-list flex-nowrap overflow-x-auto">
             {runtime.outputs.map((candidate) => (
@@ -253,6 +280,49 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
             ? renderRowDetails(overlay.row)
             : <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">{Object.entries(overlay.row).map(([key, value]) => <React.Fragment key={key}><dt className="font-semibold text-slate-500">{key}</dt><dd className="m-0 break-words">{textFor(value)}</dd></React.Fragment>)}</dl>
           : null}
+      </Modal>
+      <Modal opened={Boolean(preparedArtifact)} onClose={() => setDatasetDownload({ kind: 'idle' })} title="Download dataset" closeButtonProps={{ 'aria-label': 'Close dataset download' }} centered size="lg">
+        {preparedArtifact ? (
+          <Stack gap="md">
+            <Text size="sm">
+              Loom prepared {preparedArtifact.rows.toLocaleString()} {preparedArtifact.rows === 1 ? 'row' : 'rows'} from the complete authorized population. Each row represents {preparedOutput?.rowLabel || 'the published row definition'}.
+            </Text>
+            <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt className="font-semibold text-slate-500">Representation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Typed scalar CSV in a ZIP archive' : 'Typed JSON Lines in a ZIP archive'}</dd>
+              <dt className="font-semibold text-slate-500">Columns</dt>
+              <dd className="m-0">{preparedArtifact.features.toLocaleString()} declared output columns</dd>
+              <dt className="font-semibold text-slate-500">Value preservation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Scalar values retain declared types through schema.json; null and empty values remain distinct.' : 'Structured and repeated values retain native JSON types, row identity, nulls, and missing values.'}</dd>
+              <dt className="font-semibold text-slate-500">Source generation</dt>
+              <dd className="m-0 break-all">{preparedArtifact.datasetGeneration}</dd>
+              <dt className="font-semibold text-slate-500">Schema digest</dt>
+              <dd className="m-0 break-all">{preparedArtifact.schemaDigest}</dd>
+            </dl>
+            <section aria-label="Declared output types" className="max-h-48 overflow-y-auto rounded border border-slate-200 p-3">
+              <Stack gap="xs">
+                {preparedOutput?.columns.map((column) => (
+                  <Group key={column.column} justify="space-between" gap="sm" wrap="nowrap">
+                    <Text size="sm" fw={600}>{column.label}</Text>
+                    <Text size="xs" c="dimmed">{column.logicalType}{column.repeated ? ' · repeated' : ''}</Text>
+                  </Group>
+                ))}
+              </Stack>
+            </section>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setDatasetDownload({ kind: 'idle' })}>Cancel</Button>
+              <Button
+                component="a"
+                href={client.artifactDownloadURL({ project, explorerId, artifactId: preparedArtifact.id })}
+                download={preparedArtifact.filename}
+                rel="noopener"
+                onClick={() => setDatasetDownload({ kind: 'idle' })}
+              >
+                Download ZIP
+              </Button>
+            </Group>
+          </Stack>
+        ) : null}
       </Modal>
       <CellExplanationDialog
         coordinate={cellExplanation.kind === 'closed' ? undefined : cellExplanation.coordinate}

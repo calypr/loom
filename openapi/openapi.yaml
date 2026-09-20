@@ -2930,7 +2930,7 @@ components:
     Artifact:
       type: object
       additionalProperties: false
-      required: [id, project, explorerId, revisionId, outputId, receiptId, executionId, datasetGeneration, schemaDigest, state, filename, mediaType, archiveSha256, bytes, rows, features, createdAt, completedAt, expiresAt]
+      required: [id, project, explorerId, revisionId, outputId, receiptId, executionId, datasetGeneration, schemaDigest, state, format, filename, mediaType, archiveSha256, bytes, rows, features, createdAt, completedAt, expiresAt]
       properties:
         id: {type: string, pattern: '^artifact_[0-9a-f]{64}$'}
         project: {type: string, minLength: 1}
@@ -2942,6 +2942,7 @@ components:
         datasetGeneration: {type: string, minLength: 1}
         schemaDigest: {type: string, minLength: 1}
         state: {type: string, enum: [COMPLETE]}
+        format: {type: string, enum: [CSV, JSONL]}
         filename: {type: string, minLength: 1}
         mediaType: {type: string, enum: [application/zip]}
         archiveSha256: {type: string, pattern: '^[0-9a-f]{64}$'}

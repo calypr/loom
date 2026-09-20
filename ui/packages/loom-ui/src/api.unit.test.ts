@@ -1007,7 +1007,7 @@ describe('Loom project paths', () => {
   it('validates artifact preparation and exposes a native download URL', async () => {
     const artifactId = `artifact_${'0'.repeat(64)}`;
     const artifact = {
-      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', filename: 'loom-dataset-artifact-v1.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 3, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
+      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', format: 'CSV', filename: 'loom-dataset-artifact-v2.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 3, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
     };
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify(artifact), { status: 200, headers: { 'Content-Type': 'application/json' } }));

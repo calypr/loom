@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -235,6 +236,9 @@ func validateRecord(record explorer.ArtifactRecord) error {
 	if !safeID(record.ID) || strings.TrimSpace(record.Project) == "" || strings.TrimSpace(record.ExplorerID) == "" || strings.TrimSpace(record.RevisionID) == "" || strings.TrimSpace(record.OutputID) == "" || strings.TrimSpace(record.ReceiptID) == "" || strings.TrimSpace(record.ExecutionID) == "" || strings.TrimSpace(record.DatasetGeneration) == "" || strings.TrimSpace(record.SchemaDigest) == "" || strings.TrimSpace(record.AuthorizationScopeDigest) == "" || record.ExpiresAt.IsZero() {
 		return fmt.Errorf("artifact record identity and expiry are required")
 	}
+	if record.Format != published.ArtifactFormatCSV && record.Format != published.ArtifactFormatJSONL {
+		return fmt.Errorf("artifact record format is required")
+	}
 	return nil
 }
 
@@ -251,5 +255,5 @@ func safeID(id string) bool {
 }
 
 func sameIdentity(left, right explorer.ArtifactRecord) bool {
-	return left.ID == right.ID && left.Project == right.Project && left.ExplorerID == right.ExplorerID && left.RevisionID == right.RevisionID && left.OutputID == right.OutputID && left.ReceiptID == right.ReceiptID && left.ExecutionID == right.ExecutionID && left.DatasetGeneration == right.DatasetGeneration && left.SchemaDigest == right.SchemaDigest && left.AuthorizationScopeDigest == right.AuthorizationScopeDigest && left.IdempotencyKey == right.IdempotencyKey
+	return left.ID == right.ID && left.Project == right.Project && left.ExplorerID == right.ExplorerID && left.RevisionID == right.RevisionID && left.OutputID == right.OutputID && left.ReceiptID == right.ReceiptID && left.ExecutionID == right.ExecutionID && left.DatasetGeneration == right.DatasetGeneration && left.SchemaDigest == right.SchemaDigest && left.AuthorizationScopeDigest == right.AuthorizationScopeDigest && left.IdempotencyKey == right.IdempotencyKey && left.Format == right.Format
 }

@@ -92,6 +92,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 		SnapshotToken:            receipt.SnapshotToken,
 		IdempotencyKey:           strings.TrimSpace(request.IdempotencyKey),
 		State:                    explorer.ArtifactPreparing,
+		Format:                   format,
 		Filename:                 defaultArtifactFilename,
 		MediaType:                "application/zip",
 		CreatedAt:                s.now(),

@@ -226,6 +226,7 @@ export const artifactSchema = z.object({
   datasetGeneration: z.string().min(1),
   schemaDigest: z.string().min(1),
   state: z.literal('COMPLETE'),
+  format: z.enum(['CSV', 'JSONL']),
   filename: z.string().min(1),
   mediaType: z.literal('application/zip'),
   archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),

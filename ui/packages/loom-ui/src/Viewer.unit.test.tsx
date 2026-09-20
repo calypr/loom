@@ -3,7 +3,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from './api';
+import { createLoomClient, type Artifact } from './api';
 import { LoomExplorerViewer } from './Viewer';
 
 const state = {
@@ -16,7 +16,7 @@ const state = {
 };
 
 describe('Loom Explorer Viewer', () => {
-  it('prepares and downloads an exact server-side training artifact', async () => {
+  it('shows the exact representation and types before downloading the dataset', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>((input) => {
       if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(state), { status: 200 }));
       return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [['patient-1']], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
@@ -24,21 +24,53 @@ describe('Loom Explorer Viewer', () => {
     const client = createLoomClient({ fetch });
     const artifactId = `artifact_${'0'.repeat(64)}`;
     const prepareArtifact = vi.spyOn(client, 'prepareArtifact').mockResolvedValue({
-      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', filename: 'loom-dataset-artifact-v1.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
+      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', format: 'CSV', filename: 'loom-dataset-artifact-v2.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
     });
     const artifactDownloadURL = vi.spyOn(client, 'artifactDownloadURL');
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download dataset' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Download dataset' });
+    expect(prepareArtifact).toHaveBeenCalledWith(expect.objectContaining({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients' }));
+    expect(dialog).toHaveTextContent('1 row from the complete authorized population. Each row represents patient');
+    expect(dialog).toHaveTextContent('Typed scalar CSV in a ZIP archive');
+    expect(screen.getByRole('region', { name: 'Declared output types' })).toHaveTextContent('Patient ID');
+    const download = screen.getByRole('link', { name: 'Download ZIP' });
+    expect(artifactDownloadURL).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId });
+    expect(download.getAttribute('href')).toContain(`/artifacts/${artifactId}`);
+    expect(download).toHaveAttribute('download', 'loom-dataset-artifact-v2.zip');
+  });
+
+  it('ignores a prepared artifact after the user changes tables', async () => {
+    const secondOutput = {
+      ...state.runtime.outputs[0],
+      outputId: 'observations',
+      name: 'observations',
+      title: 'Observations',
+      rowLabel: 'observation',
+      selector: { ...state.runtime.outputs[0].selector, output: 'observations' },
+    };
+    const twoTableState = {
+      ...state,
+      runtime: { ...state.runtime, outputs: [...state.runtime.outputs, secondOutput] },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(twoTableState), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [['patient-1']], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
+    });
+    const client = createLoomClient({ fetch });
+    let resolveArtifact: (artifact: Artifact) => void = () => undefined;
+    const pendingArtifact = new Promise<Artifact>((resolve) => { resolveArtifact = resolve; });
+    vi.spyOn(client, 'prepareArtifact').mockReturnValue(pendingArtifact);
 
     render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Download training artifact' }));
-
-    await waitFor(() => expect(artifactDownloadURL).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId }));
-    expect(prepareArtifact).toHaveBeenCalledWith(expect.objectContaining({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients' }));
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(click.mock.instances[0]).toMatchObject({
-      href: expect.stringContaining(`/artifacts/${artifactId}`),
-      download: 'loom-dataset-artifact-v1.zip',
+    fireEvent.click(await screen.findByRole('button', { name: 'Download dataset' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Observations/ }));
+    resolveArtifact({
+      id: `artifact_${'0'.repeat(64)}`, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', format: 'CSV', filename: 'loom-dataset-artifact-v2.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
     });
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Download dataset' })).toBeNull());
   });
 
   it('renders server rows and opens the public row details hook', async () => {
