@@ -87,6 +87,8 @@
 - [ ] S03-02a. Lower expanded rows through the existing semantic UNNEST and stable item identity path.
 - [ ] S03-02b. Add a typed grouped-row semantic and physical operation that returns group identity plus exact member witnesses.
 - [ ] S03-02c. Prove independent repeated collections remain independent unless an explicit combination operation is authored.
-- [ ] S03-03a. Add server-generated row-definition choices and before/after preview with exact draft CAS apply/cancel.
+- [x] S03-03a-contract. Define the receipt-backed proposal, generic preview evidence, cancel-without-mutation, and exact draft CAS apply boundary.
+- [ ] S03-03a-core. Implement server-generated row-definition choices and receipt-validated CAS apply.
+- [ ] S03-03a-preview. Execute and compare before/after rows, memberships, counts, and affected columns.
 - [ ] S03-03b. Add generic Records, Groups, and Expand repeated values controls without FHIR resource-specific branches.
 - [ ] S03-04. Add two schema-shape fixtures and J03 live verification for memberships, cancel, apply, reload, export, and non-Cartesian expansion.
