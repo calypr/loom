@@ -1,9 +1,66 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, sourceMountMatches } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ05ArtifactPackage, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, sourceMountMatches } from './loom-dev.mjs';
+
+const j05Identity = {
+  project: 'loom_dev_j05',
+  datasetGeneration: 'fixture-j05',
+  receiptId: 'receipt-j05',
+  executionId: 'execution-j05',
+  outputId: 'patients',
+  revisionId: 'revision-j05',
+  schemaDigest: 'schema-j05',
+  outputContractDigest: 'contract-j05',
+};
+
+const j05ArtifactPackage = ({ format, columns, data, rowCount, rowIdentity = { key: '__loom_row_id', sourceResourceType: 'Patient', sourceIdColumn: columns[0].name } }) => {
+  const descriptor = {
+    version: 1,
+    outputKey: j05Identity.outputId,
+    receiptFormatVersion: 2,
+    compilerContractVersion: 'compiler-v2',
+    recipeSchemaVersion: 1,
+    translationVersion: 'translation-v1',
+    sourceGeneration: j05Identity.datasetGeneration,
+    publishedSchemaDigest: j05Identity.schemaDigest,
+    resolvedSchemaDigest: 'resolved-schema-j05',
+    outputContractDigest: j05Identity.outputContractDigest,
+    rowGrain: 'patient',
+    rowMultiplication: 'none',
+    rowIdentity,
+    columns,
+  };
+  const members = new Map([
+    [format === 'CSV' ? 'data.csv' : 'data.jsonl', Buffer.from(data)],
+    ['schema.json', Buffer.from(JSON.stringify({ format, columns, nullEncoding: '\\N', arrayEncoding: format === 'JSONL' ? 'native' : 'json' }))],
+    ['provenance.json', Buffer.from(JSON.stringify({ project: j05Identity.project, explorerId: 'explorer-j05', ...j05Identity }))],
+    ['quality.json', Buffer.from(JSON.stringify({ status: 'COMPLETE', contributors: [{ resourceType: 'Patient', sourcePath: columns[0].sourcePath ?? 'id' }] }))],
+    ['README.md', Buffer.from('J05 fixture artifact')],
+  ]);
+  const checksums = [...members].map(([name, bytes]) => ({
+    name,
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  }));
+  members.set('manifest.json', Buffer.from(JSON.stringify({
+    version: 2,
+    identity: j05Identity,
+    descriptor,
+    format,
+    selection: { recipe: 'patients', datasetGeneration: j05Identity.datasetGeneration },
+    interpretations: [],
+    rows: rowCount,
+    features: columns.length,
+    nullEncoding: '\\N',
+    arrayEncoding: format === 'JSONL' ? 'native' : 'json',
+    members: checksums,
+  })));
+  return members;
+};
 
 test('development evidence compares canonical project identities', () => {
   assert.equal(canonicalProjectID('loom_dev_verify_run-1234'), 'loom_dev_verify_run/1234');
@@ -530,4 +587,74 @@ test('dataframe verification uses the versioned frontend output contract', () =>
     filters: [{ column: 'status', op: 'IN', value: ['active'] }],
     first: 25,
   });
+});
+
+test('J05 CSV artifact inspection preserves typed values, nulls, empty strings, and literal null markers', () => {
+  const columns = [
+    { name: 'patient_id', outputKey: 'patientId', logicalType: 'string', shape: 'scalar', sourcePath: 'id' },
+    { name: 'age', outputKey: 'age', logicalType: 'integer', shape: 'scalar', nullable: false },
+    { name: 'note', outputKey: 'note', logicalType: 'string', shape: 'scalar', nullable: true },
+  ];
+  const artifact = inspectJ05ArtifactPackage(j05ArtifactPackage({
+    format: 'CSV',
+    columns,
+    rowCount: 3,
+    data: 'patient_id,age,note\npatient-a,0,\\N\npatient-b,42,"\\N"\npatient-c,7,""\n',
+  }));
+  assert.equal(artifact.dataName, 'data.csv');
+  assert.deepEqual(artifact.rows.map((row) => row.values), [
+    { patient_id: 'patient-a', age: 0, note: null },
+    { patient_id: 'patient-b', age: 42, note: '\\N' },
+    { patient_id: 'patient-c', age: 7, note: '' },
+  ]);
+  assertJ05ArtifactIdentity(artifact, j05Identity);
+});
+
+test('J05 JSONL artifact inspection selects data.jsonl and preserves structured row IDs and native arrays', () => {
+  const columns = [
+    { name: 'patient_id', outputKey: 'patientId', logicalType: 'string', shape: 'scalar', sourcePath: 'id' },
+    { name: 'family', outputKey: 'familyNames', logicalType: 'string', shape: 'array', repeated: true, sourcePath: 'name[].family' },
+  ];
+  const artifact = inspectJ05ArtifactPackage(j05ArtifactPackage({
+    format: 'JSONL',
+    columns,
+    rowCount: 2,
+    data: [
+      JSON.stringify({ rowId: { groupId: 'group-a', revisionId: 'revision-a' }, values: { patientId: 'patient-a', familyNames: ['Example', 'Example-Smith'] } }),
+      JSON.stringify({ rowId: { groupId: 'group-b', revisionId: 'revision-a' }, values: { patientId: 'patient-b', familyNames: ['Builder'] } }),
+    ].join('\n') + '\n',
+  }));
+  assert.equal(artifact.dataName, 'data.jsonl');
+  assert.equal(artifact.manifest.format, 'JSONL');
+  assert.equal(artifact.rows.length, 2);
+  assert.deepEqual(artifact.rows[0], {
+    rowId: { groupId: 'group-a', revisionId: 'revision-a' },
+    values: { patient_id: 'patient-a', family: ['Example', 'Example-Smith'] },
+  });
+  assert.equal(artifact.rows.some((row) => row.values.family === 'Example; Example-Smith'), false);
+});
+
+test('J05 prepared modal identity is rejected after publication generation or schema changes', () => {
+  const prepared = { project: j05Identity.project, datasetGeneration: j05Identity.datasetGeneration, outputId: j05Identity.outputId, revisionId: j05Identity.revisionId, schemaDigest: j05Identity.schemaDigest };
+  assert.equal(j05ArtifactIdentityIsCurrent(prepared, prepared), true);
+  assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, datasetGeneration: 'fixture-next' }), false);
+  assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, schemaDigest: 'schema-next' }), false);
+  assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, revisionId: 'revision-next' }), false);
+});
+
+test('J05 artifact mismatches fail deterministically on publication identity and literal row values', () => {
+  const artifact = inspectJ05ArtifactPackage(j05ArtifactPackage({
+    format: 'CSV',
+    columns: [{ name: 'patient_id', outputKey: 'patientId', logicalType: 'string', shape: 'scalar' }],
+    rowCount: 1,
+    data: 'patient_id\npatient-a\n',
+  }));
+  assert.throws(
+    () => assertJ05ArtifactIdentity(artifact, { ...j05Identity, schemaDigest: 'schema-stale' }),
+    (error) => error.message === 'J05 artifact schemaDigest differs from the current publication: expected "schema-stale", got "schema-j05"',
+  );
+  assert.throws(
+    () => assertJ05ArtifactRows(artifact, [{ values: { patient_id: 'patient-b' } }]),
+    (error) => error.message === 'J05 artifact literal rows differ from Preview/Viewer: expected [{"values":{"patient_id":"patient-b"}}], got [{"values":{"patient_id":"patient-a"}}]',
+  );
 });

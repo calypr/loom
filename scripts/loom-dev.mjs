@@ -1121,6 +1121,187 @@ export const parseCSV = (text) => {
   return rows;
 };
 
+const parseArtifactCSV = (text) => {
+  const rows = [];
+  let row = [];
+  let value = '';
+  let quoted = false;
+  let cellQuoted = false;
+  let atCellStart = true;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted && char === '"' && text[index + 1] === '"') {
+      value += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      if (!quoted && !atCellStart) throw new Error('artifact CSV has a quote inside an unquoted cell');
+      quoted = !quoted;
+      cellQuoted = true;
+      atCellStart = false;
+      continue;
+    }
+    if (!quoted && (char === ',' || char === '\n')) {
+      row.push({ value: value.replace(/\r$/, ''), quoted: cellQuoted });
+      value = '';
+      cellQuoted = false;
+      atCellStart = true;
+      if (char === '\n') {
+        if (row.some((cell) => cell.value !== '') || rows.length > 0 || row.length > 1) rows.push(row);
+        row = [];
+      }
+      continue;
+    }
+    value += char;
+    atCellStart = false;
+  }
+  if (quoted) throw new Error('artifact CSV has an unterminated quoted cell');
+  if (value || row.length || cellQuoted) {
+    row.push({ value: value.replace(/\r$/, ''), quoted: cellQuoted });
+    rows.push(row);
+  }
+  return rows;
+};
+
+const parseArtifactCSVValue = (cell, column, nullEncoding) => {
+  if (!cell.quoted && cell.value === nullEncoding) return null;
+  const value = cell.value;
+  const type = String(column.logicalType ?? '').toLowerCase();
+  if (type === 'boolean' || type === 'bool') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new Error(`artifact CSV column ${column.name} contains a non-boolean value ${JSON.stringify(value)}`);
+  }
+  if (['integer', 'int', 'int32', 'int64', 'uint32', 'uint64'].includes(type)) {
+    if (!/^-?(0|[1-9]\d*)$/.test(value)) throw new Error(`artifact CSV column ${column.name} contains a non-integer value ${JSON.stringify(value)}`);
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed)) throw new Error(`artifact CSV column ${column.name} exceeds JavaScript's exact integer range`);
+    return parsed;
+  }
+  if (['number', 'decimal', 'float', 'float32', 'float64'].includes(type)) {
+    if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) throw new Error(`artifact CSV column ${column.name} contains a non-number value ${JSON.stringify(value)}`);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw new Error(`artifact CSV column ${column.name} contains a non-finite number`);
+    return parsed;
+  }
+  return value;
+};
+
+const parseArtifactJSONMember = (members, name) => {
+  const bytes = members.get(name);
+  if (!bytes) throw new Error(`J05 artifact is missing ${name}`);
+  try { return JSON.parse(bytes.toString('utf8')); } catch (error) {
+    throw new Error(`J05 artifact ${name} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+export const inspectJ05ArtifactPackage = (members) => {
+  if (!(members instanceof Map)) throw new Error('J05 artifact members must be a Map from ZIP member names to bytes');
+  const manifest = parseArtifactJSONMember(members, 'manifest.json');
+  const schema = parseArtifactJSONMember(members, 'schema.json');
+  const provenance = parseArtifactJSONMember(members, 'provenance.json');
+  if (manifest.version !== 2) throw new Error(`J05 artifact manifest version must be 2, got ${manifest.version ?? 'missing'}`);
+  if (!['CSV', 'JSONL'].includes(manifest.format)) throw new Error(`J05 artifact format is unsupported: ${manifest.format ?? 'missing'}`);
+  const dataName = manifest.format === 'CSV' ? 'data.csv' : 'data.jsonl';
+  if (members.has(manifest.format === 'CSV' ? 'data.jsonl' : 'data.csv')) throw new Error(`J05 ${manifest.format} artifact contains the wrong data representation`);
+  const columns = schema.columns;
+  if (!Array.isArray(columns) || !columns.length || columns.some((column) => !column?.name || !column?.outputKey || !column?.logicalType)) {
+    throw new Error('J05 artifact schema columns must declare name, outputKey, and logicalType');
+  }
+  if (schema.format !== manifest.format) throw new Error('J05 artifact manifest and schema formats differ');
+  if (manifest.features !== columns.length) throw new Error(`J05 artifact feature count ${manifest.features} differs from schema column count ${columns.length}`);
+  if (JSON.stringify(manifest.descriptor?.columns?.map((column) => column.name)) !== JSON.stringify(columns.map((column) => column.name))) {
+    throw new Error('J05 artifact descriptor column order differs from schema.json');
+  }
+  const descriptorColumns = manifest.descriptor.columns;
+  const schemaContracts = columns.map((column) => ({ name: column.name, outputKey: column.outputKey, logicalType: column.logicalType, shape: column.shape, nullable: Boolean(column.nullable), repeated: Boolean(column.repeated) }));
+  const descriptorContracts = descriptorColumns.map((column) => ({ name: column.name, outputKey: column.outputKey, logicalType: column.logicalType, shape: column.shape, nullable: Boolean(column.nullable), repeated: Boolean(column.repeated) }));
+  if (JSON.stringify(schemaContracts) !== JSON.stringify(descriptorContracts)) throw new Error('J05 artifact schema types and shapes differ from its manifest descriptor');
+  const checksums = manifest.members;
+  if (!Array.isArray(checksums)) throw new Error('J05 artifact manifest has no member checksums');
+  const seen = new Set();
+  for (const item of checksums) {
+    if (!item?.name || item.name === 'manifest.json' || seen.has(item.name)) throw new Error('J05 artifact manifest has an invalid or duplicate member checksum');
+    seen.add(item.name);
+    const bytes = members.get(item.name);
+    if (!bytes || bytes.length !== item.bytes || createHash('sha256').update(bytes).digest('hex') !== item.sha256) {
+      throw new Error(`J05 artifact member checksum mismatch: ${item.name}`);
+    }
+  }
+  const archiveNames = [...members.keys()].filter((name) => name !== 'manifest.json').sort();
+  if (JSON.stringify([...seen].sort()) !== JSON.stringify(archiveNames)) throw new Error('J05 artifact manifest member list differs from ZIP contents');
+  if (!seen.has(dataName) || !seen.has('schema.json') || !seen.has('provenance.json') || !seen.has('quality.json')) {
+    throw new Error(`J05 artifact is missing a required ${manifest.format} data, schema, provenance, or quality member`);
+  }
+
+  let rows;
+  if (manifest.format === 'CSV') {
+    const parsed = parseArtifactCSV(members.get(dataName).toString('utf8'));
+    const header = parsed.shift()?.map((cell) => cell.value) ?? [];
+    if (JSON.stringify(header) !== JSON.stringify(columns.map((column) => column.name))) throw new Error('J05 artifact CSV header differs from the declared schema column order');
+    rows = parsed.map((cells, index) => {
+      if (cells.length !== columns.length) throw new Error(`J05 artifact CSV row ${index + 1} has ${cells.length} cells; expected ${columns.length}`);
+      return {
+        rowId: undefined,
+        values: Object.fromEntries(columns.map((column, columnIndex) => [column.name, parseArtifactCSVValue(cells[columnIndex], column, manifest.nullEncoding)])),
+      };
+    });
+  } else {
+    rows = members.get(dataName).toString('utf8').split(/\r?\n/).filter(Boolean).map((line, index) => {
+      let parsed;
+      try { parsed = JSON.parse(line); } catch (error) {
+        throw new Error(`J05 artifact JSONL row ${index + 1} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!Object.hasOwn(parsed ?? {}, 'rowId') || !parsed.values || typeof parsed.values !== 'object' || Array.isArray(parsed.values)) {
+        throw new Error(`J05 artifact JSONL row ${index + 1} must include rowId and a values object`);
+      }
+      return {
+        rowId: parsed.rowId,
+        values: Object.fromEntries(columns.filter((column) => Object.hasOwn(parsed.values, column.outputKey))
+          .map((column) => [column.name, parsed.values[column.outputKey]])),
+      };
+    });
+  }
+  if (rows.length !== manifest.rows) throw new Error(`J05 artifact row count ${rows.length} differs from manifest count ${manifest.rows}`);
+  const rowIdentityColumn = manifest.descriptor?.rowIdentity?.sourceIdColumn;
+  const rowIdentities = rows.map((row) => JSON.stringify(row.rowId ?? row.values[rowIdentityColumn]));
+  if (rowIdentities.some((identity) => identity === undefined || identity === 'null') || new Set(rowIdentities).size !== rowIdentities.length) {
+    throw new Error('J05 artifact rows are missing distinct stable row identities');
+  }
+  return { manifest, schema, provenance, rows, dataName };
+};
+
+export const j05ArtifactIdentityIsCurrent = (prepared, current) => {
+  const fields = ['project', 'datasetGeneration', 'outputId', 'revisionId', 'schemaDigest'];
+  return fields.every((field) => typeof current?.[field] === 'string' && current[field] !== '' && prepared?.[field] === current[field]);
+};
+
+export const assertJ05ArtifactIdentity = (artifact, expected) => {
+  for (const field of ['project', 'datasetGeneration', 'outputId', 'revisionId', 'schemaDigest']) {
+    if (artifact?.manifest?.identity?.[field] !== expected?.[field]) {
+      throw new Error(`J05 artifact ${field} differs from the current publication: expected ${JSON.stringify(expected?.[field])}, got ${JSON.stringify(artifact?.manifest?.identity?.[field])}`);
+    }
+  }
+  for (const [field, manifestField] of [['datasetGeneration', 'sourceGeneration'], ['outputId', 'outputKey'], ['schemaDigest', 'publishedSchemaDigest']]) {
+    if (artifact?.manifest?.descriptor?.[manifestField] !== expected?.[field]) {
+      throw new Error(`J05 artifact descriptor ${manifestField} differs from the current publication: expected ${JSON.stringify(expected?.[field])}, got ${JSON.stringify(artifact?.manifest?.descriptor?.[manifestField])}`);
+    }
+  }
+};
+
+export const assertJ05ArtifactRows = (artifact, expectedRows) => {
+  const compareRowID = expectedRows.some((row) => row.rowId !== undefined);
+  const key = (row) => row.rowId ?? Object.values(row.values ?? {})[0];
+  const sort = (rows) => [...rows].sort((left, right) => JSON.stringify(key(left)).localeCompare(JSON.stringify(key(right))));
+  const normalized = (row) => ({ ...(compareRowID ? { rowId: row.rowId } : {}), values: row.values });
+  const expected = sort(expectedRows).map(normalized);
+  const actual = sort(artifact.rows).map(normalized);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`J05 artifact literal rows differ from Preview/Viewer: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
+};
+
 const findDownloadedArchive = async (directory, timeout = 30000) => {
   const started = Date.now();
   while (Date.now() - started < timeout) {
@@ -1723,6 +1904,341 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     } catch {}
     await browser.close();
   }
+};
+
+const verifyJ05BrowserScenario = async (target, report, entryTarget = target) => {
+  const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const evidenceDir = join(target.artifacts, runID);
+  const downloadDir = join(evidenceDir, 'downloads');
+  mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDir;
+  report.target.ports = { api: target.apiPort, ui: target.uiPort };
+  recordEvidence(report, evidenceDir);
+  report.requests = [];
+  report.actions = [];
+
+  const browser = await launchBrowser(downloadDir);
+  const cdp = browser.cdp;
+  const previewResponses = [];
+  const pendingBodies = new Set();
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (!event.request.url.includes('/authoring/v2/') || !new URL(event.request.url).pathname.endsWith('/preview')) return;
+    previewResponses.push({ requestId: event.requestId, method: event.request.method, postData: event.request.postData });
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    const item = previewResponses.find((candidate) => candidate.requestId === event.requestId);
+    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  });
+  cdp.on('Network.loadingFinished', (event) => {
+    const item = previewResponses.find((candidate) => candidate.requestId === event.requestId);
+    if (!item || item.responseBody !== undefined) return;
+    const capture = (async () => {
+      try {
+        const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+        const raw = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
+        item.responseBody = JSON.parse(raw);
+      } catch (error) { item.responseBodyError = String(error); }
+    })().finally(() => pendingBodies.delete(capture));
+    pendingBodies.add(capture);
+  });
+
+  const action = async (name, operation) => {
+    const started = Date.now();
+    await operation();
+    report.actions.push({ name, elapsedMs: Date.now() - started });
+  };
+  const captureDOM = async (name) => {
+    const path = join(evidenceDir, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+  };
+  const readRows = (rows, names) => (Array.isArray(rows) ? rows : []).map((row) => {
+    if (Array.isArray(row)) return Object.fromEntries(names.map((name, index) => [name, row[index]]));
+    if (row && typeof row === 'object' && Array.isArray(row.values)) return Object.fromEntries(names.map((name, index) => [name, row.values[index]]));
+    return Object.fromEntries(names.map((name) => [name, Object.hasOwn(row ?? {}, name) ? row[name] : undefined]));
+  });
+  const asArtifactRows = (rows, names, rowIDs) => rows.map((values, index) => ({
+    ...(rowIDs?.[index] !== undefined ? { rowId: rowIDs[index] } : {}),
+    values: Object.fromEntries(names.map((name) => [name, values[name]])),
+  }));
+  const rowsByIdentity = (rows, identityColumn) => [...rows].sort((left, right) =>
+    String(left.values[identityColumn]).localeCompare(String(right.values[identityColumn])));
+
+  try {
+    const explorerId = report.target.bootstrapExplorerId;
+    if (!explorerId) throw new Error('J05 fresh fixture bootstrap Explorer identity is missing');
+    report.target.explorerId = explorerId;
+    const builderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+    await navigate(cdp, entryTarget.uiUrl);
+    await navigate(cdp, builderURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Create your first table')`, 60000);
+    await captureDOM('j05-empty-builder');
+
+    await action('review-blocker-focuses-owner', async () => {
+      await browserEval(cdp, `clickButton('Review dataset')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('#dataset-review-panel')) && document.body.innerText.includes('Create at least one output table before publishing.')`);
+      recordAssertion(report, 'j05-empty-review-shows-deterministic-table-blocker', true,
+        await evaluate(cdp, `document.querySelector('#dataset-review-panel')?.innerText.includes('Create at least one output table before publishing.') === true`));
+      await browserEval(cdp, `clickButton('Create your first table')`);
+      await waitForBrowser(cdp, `document.activeElement?.id === 'first-table-name'`);
+      recordAssertion(report, 'j05-blocker-action-focuses-owning-control', 'first-table-name',
+        await evaluate(cdp, `document.activeElement?.id ?? ''`));
+      await captureDOM('j05-blocker-focused-control');
+    });
+
+    await action('seed-and-reload-the-same-explorer', async () => {
+      const seeded = await seedBootstrapWorkspace(target, explorerId);
+      if (!seeded.seeded || !seeded.workspace?.documents?.length) throw new Error('J05 bootstrap helper did not create the expected Patient table on the reviewed Explorer');
+      await navigate(cdp, builderURL);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Patients') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Review dataset'))`, 60000);
+      const builder = await fetchBuilderState(target, explorerId);
+      const document = builder.workspace?.documents?.find((candidate) => candidate.output?.title === 'Patients');
+      if (!document?.output?.id) throw new Error('J05 seeded Patient table has no saved output identity');
+      report.target.outputId = document.output.id;
+      report.target.builderColumns = document.columns.map((column) => ({ column: column.column, label: column.label, sourcePath: column.source?.field?.path?.replace(/^root\./, '') }));
+      recordAssertion(report, 'j05-reloaded-builder-keeps-the-reviewed-explorer-and-three-columns', {
+        explorerId,
+        columns: 3,
+      }, { explorerId: report.target.explorerId, columns: document.columns.length });
+      const fieldColumn = (path) => document.columns.find((column) => String(column.source?.field?.path ?? '').replace(/^root\./, '') === path)?.column;
+      report.target.columnIds = { id: fieldColumn('id'), family: fieldColumn('name[].family'), gender: fieldColumn('gender') };
+      if (Object.values(report.target.columnIds).some((column) => !column)) throw new Error(`J05 seeded table omitted a required Patient field: ${JSON.stringify(report.target.columnIds)}`);
+      report.target.previewSourcePaths = report.target.builderColumns.map((column) => column.sourcePath);
+      await browserEval(cdp, `clickButton('Advanced graph')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Current query') && Boolean(document.querySelector('input[aria-label="Add gender as filter"]:not(:disabled)'))`, 30000);
+      await browserEval(cdp, `clickCandidate('gender', 'as filter')`);
+      await captureDOM('j05-builder-gender-filter-configured');
+    });
+
+    const builder = await fetchBuilderState(target, explorerId);
+    const document = builder.workspace.documents.find((candidate) => candidate.output?.id === report.target.outputId);
+    const fixturePatients = readFileSync(join(target.fixtureDir, 'Patient.ndjson'), 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    const selectedColumnIDs = document.columns.map((column) => column.column);
+    let previewBody;
+    let previewExpected;
+    let output;
+    await action('preview-and-review-saved-output', async () => {
+      const previousPreviewCount = previewResponses.length;
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+      const started = Date.now();
+      let previewRequest;
+      while (Date.now() - started < 30000) {
+        await Promise.allSettled([...pendingBodies]);
+        previewRequest = previewResponses.slice(previousPreviewCount).find((item) => item.responseBody !== undefined);
+        if (previewRequest) break;
+        await sleep(50);
+      }
+      if (!previewRequest || previewRequest.response?.status !== 200 || !Array.isArray(previewRequest.responseBody?.rows)) {
+        throw new Error(`J05 Builder Preview response was unavailable: ${JSON.stringify(previewResponses.slice(previousPreviewCount).map(({ response, responseBodyError }) => ({ response, responseBodyError })))}`);
+      }
+      previewBody = previewRequest.responseBody;
+      const previewColumns = previewBody.columns ?? [];
+      const previewRows = readRows(previewBody.rows, previewColumns.map((column) => column.column));
+      recordAssertion(report, 'j05-preview-uses-all-selected-output-columns', selectedColumnIDs,
+        previewColumns.filter((column) => selectedColumnIDs.includes(column.column)).map((column) => column.column));
+      const expectedFixtureRows = fixturePatients.map((patient) => {
+        const values = {
+          [report.target.columnIds.id]: patient.id,
+          [report.target.columnIds.family]: (patient.name ?? []).map((name) => name.family ?? null),
+          [report.target.columnIds.gender]: patient.gender ?? null,
+        };
+        return { values };
+      });
+      previewExpected = asArtifactRows(previewRows, selectedColumnIDs);
+      const fixtureExpected = expectedFixtureRows.map((row) => ({ ...row, values: Object.fromEntries(selectedColumnIDs.map((column) => [column, row.values[column]])) }));
+      assertJ05ArtifactRows({ rows: previewExpected }, fixtureExpected);
+      recordAssertion(report, 'j05-preview-preserves-fixture-literal-values-and-patient-identity', rowsByIdentity(fixtureExpected, report.target.columnIds.id), rowsByIdentity(previewExpected, report.target.columnIds.id));
+      report.target.preview = { columns: previewColumns.map((column) => ({ column: column.column, label: column.label })), rows: previewExpected };
+      await captureDOM('j05-preview');
+
+      await browserEval(cdp, `clickButton('Review dataset')`);
+      await waitForBrowser(cdp, `document.querySelector('#dataset-review-panel')?.innerText.includes('No blocking issues are currently reported for these saved tables.') === true`, 30000);
+      const reviewText = String(await evaluate(cdp, `document.querySelector('#dataset-review-panel')?.innerText ?? ''`));
+      recordAssertion(report, 'j05-saved-table-review-has-no-blockers', true,
+        reviewText.includes('No blocking issues are currently reported for these saved tables.')
+        && reviewText.includes('Patients')
+        && document.columns.every((column) => reviewText.includes(column.label)));
+      await captureDOM('j05-dataset-review');
+      await browserEval(cdp, `clickButton('Close review')`);
+    });
+
+    await action('publish-and-prove-current-revision', async () => {
+      await browserEval(cdp, `clickButton('Publish')`);
+      const started = Date.now();
+      let state;
+      let runtime;
+      while (Date.now() - started < 60000) {
+        try {
+          state = await fetchExplorerState(target, explorerId);
+          runtime = state.runtime ?? state;
+          if (runtime.outputs?.length && (state.active?.revisionId || state.publication?.revisionId || runtime.publication?.revisionId)) break;
+        } catch { /* publication becomes readable after the durable publish response */ }
+        await sleep(300);
+      }
+      output = runtime?.outputs?.find((candidate) => candidate.outputId === report.target.outputId);
+      if (!output) throw new Error(`J05 published Explorer runtime omitted output ${report.target.outputId}`);
+      const revisionId = state.active?.revisionId ?? state.publication?.revisionId ?? runtime.publication?.revisionId;
+      const schemaDigest = state.active?.schemaDigest ?? state.publication?.schemaDigest ?? runtime.publication?.schemaDigest;
+      if (typeof schemaDigest !== 'string' || !schemaDigest) throw new Error('J05 published Explorer state omitted the current schema digest');
+      report.target.publication = { revisionId, schemaDigest, outputId: output.outputId, outputs: runtime.outputs.map((candidate) => ({ outputId: candidate.outputId, columns: candidate.columns.map((column) => ({ column: column.column, label: column.label, logicalType: column.logicalType, repeated: column.repeated })) })) };
+      recordAssertion(report, 'j05-publish-keeps-the-reviewed-output-and-declared-column-order', {
+        outputId: report.target.outputId,
+        columns: selectedColumnIDs,
+      }, { outputId: output.outputId, columns: output.columns.map((column) => column.column) });
+      recordAssertion(report, 'j05-published-viewer-exposes-the-authored-gender-facet', true,
+        (output.filters ?? []).some((binding) => binding.column === report.target.columnIds.gender));
+      const publishedRows = await graphQLRows(target, output.selector, output.columns.map((column) => column.column));
+      if (!publishedRows?.materialization?.id) throw new Error('J05 published output did not produce a readable materialization');
+      recordAssertion(report, 'j05-viewer-query-uses-the-current-fixture-generation-and-columns', {
+        generation: target.fixtureGeneration,
+        columns: output.columns.map((column) => column.column),
+        totalCount: fixturePatientsCount(target.fixtureDir),
+      }, {
+        generation: publishedRows.materialization.datasetGeneration,
+        columns: publishedRows.columns,
+        totalCount: publishedRows.totalCount,
+      });
+      const queryRows = readRows(publishedRows.rows, output.columns.map((column) => column.column));
+      if (!Array.isArray(publishedRows.rowIds) || publishedRows.rowIds.length !== queryRows.length || publishedRows.rowIds.some((rowId) => rowId === undefined || rowId === null)) throw new Error('J05 unfiltered Viewer query omitted stable row identity values');
+      recordAssertion(report, 'j05-unfiltered-viewer-row-identities-are-stable-and-distinct', true,
+        new Set(publishedRows.rowIds.map((rowId) => JSON.stringify(rowId))).size === publishedRows.rowIds.length);
+      report.target.publishedRows = asArtifactRows(queryRows, output.columns.map((column) => column.column), publishedRows.rowIds);
+      const previewSelected = previewExpected.map((row) => ({ values: Object.fromEntries(output.columns.map((column) => [column.column, row.values[column.column]])) }));
+      assertJ05ArtifactRows({ rows: report.target.publishedRows }, previewSelected);
+      recordAssertion(report, 'j05-preview-and-unfiltered-viewer-retain-exact-literal-rows', rowsByIdentity(previewSelected, report.target.columnIds.id), rowsByIdentity(report.target.publishedRows, report.target.columnIds.id));
+      report.target.materializationId = publishedRows.materialization.id;
+    });
+
+    await action('reload-viewer-explain-and-filter', async () => {
+      await browserEval(cdp, `clickButton('Viewer')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001') && document.body.innerText.includes('dev-patient-002')`, 60000);
+      await cdp.send('Page.reload', { ignoreCache: false });
+      await waitForBrowser(cdp, `document.readyState === 'complete'`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001') && document.body.innerText.includes('dev-patient-002')`, 60000);
+      recordAssertion(report, 'j05-published-viewer-data-survives-reload', ['dev-patient-001', 'dev-patient-002'], await evaluate(cdp, `['dev-patient-001', 'dev-patient-002'].filter((id) => document.body.innerText.includes(id))`));
+      const tableBeforeFilter = await evaluate(cdp, `(() => { const table = document.querySelector('table[aria-label$=" results"]'); return { headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()), ids: [...(table?.querySelectorAll('tbody tr') || [])].map((row) => row.querySelector('td')?.textContent.trim()) }; })()`);
+      recordAssertion(report, 'j05-viewer-renders-all-published-patient-rows', report.target.publishedRows.map((row) => row.values[report.target.columnIds.id]).sort(), tableBeforeFilter.ids.sort());
+
+      const familyColumn = outputColumnForPath(builder, output, 'name[].family');
+      await browserEval(cdp, `clickButton(${JSON.stringify(`Explain ${familyColumn.label} for row 1`)})`);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes(${JSON.stringify(familyColumn.label)})))`, 30000);
+      const explanationText = String(await evaluate(cdp, `(() => [...document.querySelectorAll('[role="dialog"]')].map((dialog) => dialog.innerText).find((text) => text.includes(${JSON.stringify(familyColumn.label)}) ) ?? '')()`));
+      recordAssertion(report, 'j05-viewer-explains-a-rendered-cell-with-fixture-evidence', true,
+        explanationText.includes('Example') || explanationText.includes('dev-patient-001'));
+      report.target.cellExplanation = { column: familyColumn.label, containsFixtureEvidence: explanationText.includes('Example') || explanationText.includes('dev-patient-001') };
+      await captureDOM('j05-viewer-cell-explanation');
+      await browserEval(cdp, `clickButton('Close cell explanation')`);
+
+      await browserEval(cdp, `clickButton('Load values')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('female')`, 30000);
+      await browserEval(cdp, `clickFacetValue('female')`);
+      await waitForBrowser(cdp, `document.querySelector('table[aria-label$=" results"] tbody')?.querySelectorAll('tr').length === 1`, 30000);
+      const filteredIDs = await evaluate(cdp, `([...document.querySelectorAll('table[aria-label$=" results"] tbody tr')]).map((row) => row.querySelector('td')?.textContent.trim())`);
+      recordAssertion(report, 'j05-viewer-female-filter-selects-only-matching-patient', ['dev-patient-001'], filteredIDs);
+      recordAssertion(report, 'j05-viewer-stays-in-viewer-mode-after-filtering', 'viewer', await evaluate(cdp, `new URL(window.location.href).searchParams.get('mode')`));
+      await captureDOM('j05-viewer-filtered');
+    });
+
+    let modal;
+    await action('prepare-download-zip-and-inspect-package', async () => {
+      await browserEval(cdp, `clickButton('Download dataset')`);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.innerText.includes('Declared output types')))`, 60000);
+      modal = await evaluate(cdp, `(() => { const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Declared output types')); const representation = [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === 'Representation'); return { text: dialog?.innerText ?? '', representation: representation?.nextElementSibling?.textContent.trim() ?? '', types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' }; })()`);
+      recordAssertion(report, 'j05-download-modal-declares-complete-authorized-scope', true,
+        modal.text.includes('complete authorized population'));
+      recordAssertion(report, 'j05-download-modal-shows-current-generation-and-schema-digest', true,
+        modal.text.includes(target.fixtureGeneration) && modal.text.includes(report.target.publication.schemaDigest));
+      recordAssertion(report, 'j05-download-modal-shows-exact-declared-column-count-and-types', true,
+        modal.text.includes(`${selectedColumnIDs.length} declared output columns`)
+        && output.columns.every((column) => modal.types.includes(column.label)));
+      await captureDOM('j05-dataset-download-modal');
+      await browserEval(cdp, `clickButton('Download ZIP')`);
+      const archivePath = await findDownloadedArchive(downloadDir, 60000);
+      recordEvidence(report, archivePath);
+      report.target.artifact = { path: archivePath, bytes: statSync(archivePath).size };
+      const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
+      const expectedIdentity = {
+        project: canonicalProjectID(target.fixtureProject),
+        datasetGeneration: target.fixtureGeneration,
+        outputId: report.target.outputId,
+        revisionId: report.target.publication.revisionId,
+        schemaDigest: report.target.publication.schemaDigest,
+      };
+      assertJ05ArtifactIdentity(artifact, expectedIdentity);
+      recordAssertion(report, 'j05-artifact-identity-is-current-not-a-stale-modal-result', true,
+        j05ArtifactIdentityIsCurrent(artifact.manifest.identity, expectedIdentity));
+      recordAssertion(report, 'j05-artifact-manifest-is-bound-to-current-publication-identity', expectedIdentity, Object.fromEntries(Object.keys(expectedIdentity).map((field) => [field, artifact.manifest.identity[field]])));
+      const representation = artifact.manifest.format === 'CSV' ? 'Typed scalar CSV in a ZIP archive' : 'Typed JSON Lines in a ZIP archive';
+      recordAssertion(report, 'j05-artifact-representation-matches-modal', representation, modal.representation);
+      recordAssertion(report, 'j05-artifact-generation-schema-and-scope-match-preview', {
+        generation: target.fixtureGeneration,
+        schemaDigest: report.target.publication.schemaDigest,
+        scope: 'complete authorized population',
+        rows: report.target.publishedRows.length,
+      }, {
+        generation: artifact.manifest.identity.datasetGeneration,
+        schemaDigest: artifact.manifest.identity.schemaDigest,
+        scope: modal.text.includes('complete authorized population') ? 'complete authorized population' : 'filtered or unspecified',
+        rows: artifact.manifest.rows,
+      });
+      recordAssertion(report, 'j05-artifact-selection-metadata-is-bound-to-fixture-generation', target.fixtureGeneration,
+        artifact.manifest.selection?.datasetGeneration);
+      recordAssertion(report, 'j05-artifact-schema-matches-published-output-columns', output.columns.map((column) => ({ name: column.column, label: column.label })), artifact.schema.columns.map((column) => ({ name: column.name, label: output.columns.find((candidate) => candidate.column === column.name)?.label })));
+      recordAssertion(report, 'j05-artifact-declared-types-match-download-modal', true,
+        artifact.schema.columns.every((column) => {
+          const label = output.columns.find((candidate) => candidate.column === column.name)?.label ?? column.name;
+          return modal.types.includes(label) && modal.types.includes(`${column.logicalType}${column.repeated ? ' · repeated' : ''}`);
+        }));
+      const familySchema = artifact.schema.columns.find((column) => column.name === report.target.columnIds.family);
+      recordAssertion(report, 'j05-artifact-preserves-fixture-column-contributor-lineage', true,
+        Boolean(familySchema?.sourcePath?.includes('name[].family') && familySchema.sourceResourceType === 'Patient' && familySchema.candidateId && familySchema.occurrenceId));
+      const artifactRows = artifact.rows.map((row) => ({ rowId: row.rowId, values: row.values }));
+      const previewByArtifactSchema = readRows(previewBody.rows, (previewBody.columns ?? []).map((column) => column.column));
+      const previewArtifactRows = asArtifactRows(previewByArtifactSchema, artifact.schema.columns.map((column) => column.name));
+      assertJ05ArtifactRows(artifact, previewArtifactRows);
+      recordAssertion(report, 'j05-artifact-preserves-exact-preview-literal-values', rowsByIdentity(previewArtifactRows, report.target.columnIds.id).map((row) => row.values), rowsByIdentity(artifactRows, report.target.columnIds.id).map((row) => row.values));
+      const viewerArtifactRows = report.target.publishedRows.map((row) => ({
+        ...(artifact.manifest.format === 'JSONL' ? { rowId: row.rowId } : {}),
+        values: Object.fromEntries(artifact.schema.columns.map((column) => [column.name, row.values[column.name]])),
+      }));
+      assertJ05ArtifactRows(artifact, viewerArtifactRows);
+      recordAssertion(report, 'j05-artifact-preserves-exact-unfiltered-viewer-values-and-row-identities', rowsByIdentity(viewerArtifactRows, report.target.columnIds.id), rowsByIdentity(artifactRows, report.target.columnIds.id));
+      const sourceEvidence = artifact.provenance;
+      recordAssertion(report, 'j05-artifact-provenance-retains-fixture-project-and-publication-identities', true,
+        sourceEvidence.project === artifact.manifest.identity.project
+        && sourceEvidence.datasetGeneration === target.fixtureGeneration
+        && sourceEvidence.schemaDigest === report.target.publication.schemaDigest
+        && sourceEvidence.executionId === artifact.manifest.identity.executionId
+        && sourceEvidence.revisionId === artifact.manifest.identity.revisionId
+        && sourceEvidence.outputId === artifact.manifest.identity.outputId);
+      report.target.export = { format: artifact.manifest.format, dataMember: artifact.dataName, rows: artifact.manifest.rows, features: artifact.manifest.features, schemaDigest: artifact.manifest.identity.schemaDigest };
+      await captureDOM('j05-viewer-download-complete');
+    });
+
+    await cdp.send('Page.reload', { ignoreCache: false });
+    await waitForBrowser(cdp, `document.readyState === 'complete'`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    recordAssertion(report, 'j05-filtered-viewer-reloads-to-published-rows', true,
+      await evaluate(cdp, `document.body.innerText.includes('dev-patient-001') && document.body.innerText.includes('Published')`));
+    await captureDOM('j05-viewer-after-reload');
+  } finally {
+    try {
+      await Promise.allSettled([...pendingBodies]);
+      await captureDOM('j05-final');
+    } catch { /* preserve the primary failure */ }
+    await browser.close();
+  }
+};
+
+const fixturePatientsCount = (fixtureDir) => readFileSync(join(fixtureDir, 'Patient.ndjson'), 'utf8').split(/\r?\n/).filter(Boolean).length;
+
+const outputColumnForPath = (builder, output, path) => {
+  const document = builder.workspace?.documents?.find((candidate) => candidate.output?.id === output.outputId);
+  const authored = document?.columns?.find((column) => String(column.source?.field?.path ?? '').replace(/^root\./, '') === path);
+  const runtime = output.columns.find((column) => column.column === authored?.column);
+  if (!runtime) throw new Error(`J05 published output omitted its ${path} column`);
+  return runtime;
 };
 
 const verifyJ01BrowserScenario = async (target, report, entryTarget = target) => {
@@ -3385,6 +3901,7 @@ const main = async (argv) => {
     command === 'verify-current' ? 'current-builder-hotreload'
       : command === 'verify-j01' ? 'S01-J01-three-column-choice-preview-persistence-export'
         : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
+          : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
           : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
@@ -3453,6 +3970,27 @@ const main = async (argv) => {
       console.log(`DEV_J02_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
       return;
     }
+    if (command === 'verify-j05') {
+      await ensureDev(target, report);
+      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+      const verificationReport = createVerificationReport(verificationTarget, 'S05-UI05-builder-review-viewer-dataset-artifact');
+      activeReport = verificationReport;
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`J05 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      verificationReport.target.fixtureSeed = 'seeded';
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(verificationReport, 'j05-starts-with-fresh-isolated-fixture-and-empty-bootstrap-explorer', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+      await verifyJ05BrowserScenario(verificationTarget, verificationReport, target);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+      console.log(`DEV_J05_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+      return;
+    }
     if (command === 'verify-j01') {
       await ensureDev(target, report);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
@@ -3501,7 +4039,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j05, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);
