@@ -74,3 +74,20 @@ func TestApprovedPolicyRejectsUnknownAndIncompatibleReferences(t *testing.T) {
 		t.Fatal("incompatible target/rule unexpectedly resolved")
 	}
 }
+
+func TestApprovedUnitPoliciesMatchObservedSourceDimensions(t *testing.T) {
+	policies := ApprovedUnitPolicies()
+	if len(policies) != 4 {
+		t.Fatalf("approved unit policies = %d, want 4", len(policies))
+	}
+	policy, err := ResolveApprovedUnitPolicy("to-kilograms", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !policy.SupportsSources([]UnitIdentity{{System: "http://unitsofmeasure.org", Code: "kg"}, {System: "http://unitsofmeasure.org", Code: "g"}}) {
+		t.Fatal("kilogram policy did not cover observed mass units")
+	}
+	if policy.SupportsSources([]UnitIdentity{{System: "http://unitsofmeasure.org", Code: "cm"}}) {
+		t.Fatal("kilogram policy covered an incompatible length unit")
+	}
+}

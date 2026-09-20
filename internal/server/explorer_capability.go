@@ -338,9 +338,10 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 				KeySelector:        observation.Key.Selector,
 				System:             observation.Key.System, Code: observation.Key.Code, Display: observation.Key.Display,
 				ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
-				LogicalType:   observation.LogicalType,
-				ObservedUnits: append([]string(nil), observation.ObservedUnits...),
-				Completeness:  string(observation.Completeness), Status: observation.Status,
+				LogicalType:            observation.LogicalType,
+				ObservedUnits:          append([]string(nil), observation.ObservedUnits...),
+				ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
+				Completeness:           string(observation.Completeness), Status: observation.Status,
 				Population: observation.Population, Examples: append([]string(nil), observation.Examples...),
 				ExamplesTruncated: observation.ExamplesTruncated,
 				RuleHint:          observation.RuleHint, RuleVersion: observation.RuleVersion,
@@ -575,6 +576,9 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		wire.ConstructionChoice = &choice
 		result.Candidates = append(result.Candidates, wire)
 	}
+	for index := range result.Candidates {
+		result.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
+	}
 	for _, diagnostic := range snapshot.Diagnostics {
 		severity := diagnostic.Severity
 		if snapshot.Usable() && strings.EqualFold(severity, "ERROR") {
@@ -592,27 +596,28 @@ func authoringConceptCandidates(values []capability.ConceptCandidate) []authorin
 	out := make([]authoringv2.ConceptCandidate, len(values))
 	for index, value := range values {
 		out[index] = authoringv2.ConceptCandidate{
-			SourceResourceType: value.SourceResourceType,
-			SourcePath:         value.SourcePath,
-			SourceCanonical:    value.SourceCanonical,
-			SourceProfile:      value.SourceProfile,
-			OwningScope:        value.OwningScope,
-			ExtensionURLPath:   append([]string(nil), value.ExtensionURLPath...),
-			KeySelector:        value.KeySelector,
-			System:             value.System,
-			Code:               value.Code,
-			Display:            value.Display,
-			ValueSelector:      value.ValueSelector,
-			ChoiceArm:          value.ChoiceArm,
-			LogicalType:        value.LogicalType,
-			ObservedUnits:      append([]string(nil), value.ObservedUnits...),
-			Completeness:       value.Completeness,
-			Status:             value.Status,
-			Population:         value.Population,
-			Examples:           append([]string(nil), value.Examples...),
-			ExamplesTruncated:  value.ExamplesTruncated,
-			RuleHint:           value.RuleHint,
-			RuleVersion:        value.RuleVersion,
+			SourceResourceType:     value.SourceResourceType,
+			SourcePath:             value.SourcePath,
+			SourceCanonical:        value.SourceCanonical,
+			SourceProfile:          value.SourceProfile,
+			OwningScope:            value.OwningScope,
+			ExtensionURLPath:       append([]string(nil), value.ExtensionURLPath...),
+			KeySelector:            value.KeySelector,
+			System:                 value.System,
+			Code:                   value.Code,
+			Display:                value.Display,
+			ValueSelector:          value.ValueSelector,
+			ChoiceArm:              value.ChoiceArm,
+			LogicalType:            value.LogicalType,
+			ObservedUnits:          append([]string(nil), value.ObservedUnits...),
+			ObservedUnitsTruncated: value.ObservedUnitsTruncated,
+			Completeness:           value.Completeness,
+			Status:                 value.Status,
+			Population:             value.Population,
+			Examples:               append([]string(nil), value.Examples...),
+			ExamplesTruncated:      value.ExamplesTruncated,
+			RuleHint:               value.RuleHint,
+			RuleVersion:            value.RuleVersion,
 		}
 	}
 	return out

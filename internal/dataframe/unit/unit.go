@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -128,6 +129,56 @@ func ResolveApprovedUnitPolicy(policyID, version string) (ApprovedUnitPolicy, er
 	policy := approvedUnitPolicies[strings.TrimSpace(policyID)+"\x00"+strings.TrimSpace(version)]
 	policy.Rules = append([]UnitRuleReference(nil), policy.Rules...)
 	return policy, nil
+}
+
+func ApprovedUnitPolicies() []ApprovedUnitPolicy {
+	keys := make([]string, 0, len(approvedUnitPolicies))
+	for key := range approvedUnitPolicies {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	policies := make([]ApprovedUnitPolicy, 0, len(keys))
+	for _, key := range keys {
+		policy := approvedUnitPolicies[key]
+		policy.Rules = append([]UnitRuleReference(nil), policy.Rules...)
+		policies = append(policies, policy)
+	}
+	return policies
+}
+
+func UnitDimensionFor(identity UnitIdentity) (UnitDimension, bool) {
+	if !identity.Valid() {
+		return UnitDimension{}, false
+	}
+	dimension, ok := approvedUnitDimensions[identity.normalizedKey()]
+	return dimension, ok
+}
+
+func (policy ApprovedUnitPolicy) SupportsSources(sources []UnitIdentity) bool {
+	if len(sources) == 0 {
+		return false
+	}
+	dimension, rules, err := ResolveApprovedUnitRules(policy.Rules, policy.Target)
+	if err != nil {
+		return false
+	}
+	for _, source := range sources {
+		sourceDimension, known := UnitDimensionFor(source)
+		if !known || !sourceDimension.Equal(dimension) {
+			return false
+		}
+		covered := false
+		for _, rule := range rules {
+			if rule.Source.Equal(source) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
 }
 
 // ResolveApprovedUnitRules replaces rule references with immutable registry

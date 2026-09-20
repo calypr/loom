@@ -213,19 +213,18 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		case authoringv2.SourceAggregate:
 			if source := column.Source.Aggregate; source != nil {
 				operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Operation)))
-				if operation == capability.AggregateSum || operation == capability.AggregateMean {
-					path := strings.TrimPrefix(strings.TrimSpace(source.Path), "root.")
-					candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path)
-					if found {
-						input := capability.AggregateInput{
-							LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
-							HasField: true, RelatedResource: column.OccurrenceID != authoringv2.RootOccurrenceID,
-						}
-						choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
-						for _, choice := range choices {
-							if choice.Operation == operation && !choice.Supported {
-								return Result{}, fail("capability", "AGGREGATE_OPERATION_UNAVAILABLE", fmt.Sprintf("$.columns[%d].source.aggregate.operation", index), choice.Reason, map[string]any{"operation": operation, "reasonCode": choice.ReasonCode, "rowContext": choice.RowContext}, nil)
-							}
+				path := strings.TrimPrefix(strings.TrimSpace(source.Path), "root.")
+				candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path)
+				if found {
+					input := capability.AggregateInput{
+						LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+						HasField: path != "", RelatedResource: column.OccurrenceID != authoringv2.RootOccurrenceID,
+						TemporalConfigured: source.Temporal != nil, RequiredValuesConfigured: len(source.RequiredValues) > 0,
+					}
+					choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
+					for _, choice := range choices {
+						if choice.Operation == operation && !choice.Supported && (operation == capability.AggregateSum || operation == capability.AggregateMean) {
+							return Result{}, fail("capability", "AGGREGATE_OPERATION_UNAVAILABLE", fmt.Sprintf("$.columns[%d].source.aggregate.operation", index), choice.Reason, map[string]any{"operation": operation, "reasonCode": choice.ReasonCode, "rowContext": choice.RowContext}, nil)
 						}
 					}
 				}
@@ -253,15 +252,49 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 					}
 				}
 				if temporal := column.Source.Aggregate.Temporal; temporal != nil {
+					aggregatePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root.")
+					aggregateCandidate, aggregateFound := semanticFieldCandidate(snapshot, occurrence.graph.ID, aggregatePath)
+					if !aggregateFound {
+						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": aggregatePath}, nil)
+					}
+					transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, aggregateCandidate.ID)
 					timestampPath := strings.TrimPrefix(strings.TrimSpace(temporal.TimestampPath), "root.")
 					timestampCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, timestampPath)
 					if !found || !strings.EqualFold(timestampCandidate.LogicalType, "date_time") {
 						return Result{}, fail("intent", "INVALID_TEMPORAL_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.timestampPath", index), "temporal timestamp must be a date_time field on the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
 					}
+					if !transformations.Temporal.SupportsTimestamp(occurrence.graph.ResourceType, timestampPath) {
+						return Result{}, fail("capability", "UNADVERTISED_TEMPORAL_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.timestampPath", index), "temporal timestamp is not an advertised scalar date_time choice for the aggregate candidate", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
+					}
 					anchorPath := strings.TrimPrefix(strings.TrimSpace(temporal.AnchorPath), "root.")
 					anchorCandidate, found := semanticFieldCandidate(snapshot, root.graph.ID, anchorPath)
 					if !found || !strings.EqualFold(anchorCandidate.LogicalType, "date_time") {
 						return Result{}, fail("intent", "INVALID_TEMPORAL_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.anchorPath", index), "temporal anchor must be a date_time field on the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+					}
+					if !transformations.Temporal.SupportsAnchor(root.graph.ResourceType, anchorPath) {
+						return Result{}, fail("capability", "UNADVERTISED_TEMPORAL_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.anchorPath", index), "temporal anchor is not an advertised scalar date_time choice for the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+					}
+				}
+				if policy := column.Source.Aggregate.UnitNormalization; policy != nil {
+					aggregatePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root.")
+					aggregateCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, aggregatePath)
+					if !found {
+						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": aggregatePath}, nil)
+					}
+					transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, aggregateCandidate.ID)
+					advertised := false
+					for _, preset := range transformations.UnitNormalization.Presets {
+						if preset.PolicyID != policy.PolicyID || preset.Version != policy.Version {
+							continue
+						}
+						if !preset.Available {
+							return Result{}, fail("capability", "UNIT_NORMALIZATION_UNAVAILABLE", fmt.Sprintf("$.columns[%d].source.aggregate.unitNormalization", index), preset.Reason, map[string]any{"policyId": policy.PolicyID, "version": policy.Version, "reasonCode": preset.ReasonCode}, nil)
+						}
+						advertised = true
+						break
+					}
+					if !advertised {
+						return Result{}, fail("capability", "UNADVERTISED_UNIT_NORMALIZATION", fmt.Sprintf("$.columns[%d].source.aggregate.unitNormalization", index), "unit normalization policy is not advertised for the aggregate candidate", map[string]any{"policyId": policy.PolicyID, "version": policy.Version}, nil)
 					}
 				}
 			}
@@ -777,28 +810,7 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 }
 
 func quantityIdentityPaths(resourceType, valuePath string) (string, string, error) {
-	if !strings.HasSuffix(valuePath, ".value") {
-		return "", "", fmt.Errorf("unit normalization path %q must select a FHIR Quantity value", valuePath)
-	}
-	if strings.Contains(valuePath, "[]") {
-		return "", "", fmt.Errorf("unit normalization path %q is repeated; select one indexed Quantity first", valuePath)
-	}
-	base := strings.TrimSuffix(valuePath, ".value")
-	systemPath, codePath := base+".system", base+".code"
-	quantity, quantityOK := fhirschema.ResolveFieldSemantics(resourceType, base)
-	if !quantityOK || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
-		return "", "", fmt.Errorf("unit normalization path %q must be owned by a FHIR Quantity", valuePath)
-	}
-	valueMetadata, valueOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, valuePath)
-	systemMetadata, systemOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, systemPath)
-	codeMetadata, codeOK := fhirschema.ResolveTerminalScalarMetadata(resourceType, codePath)
-	if !valueOK || (valueMetadata.Primitive != fhirschema.PrimitiveInteger && valueMetadata.Primitive != fhirschema.PrimitiveDecimal) {
-		return "", "", fmt.Errorf("unit normalization path %q must resolve to an integer or decimal Quantity value", valuePath)
-	}
-	if !systemOK || systemMetadata.Primitive != fhirschema.PrimitiveString || !codeOK || codeMetadata.Primitive != fhirschema.PrimitiveString {
-		return "", "", fmt.Errorf("unit normalization Quantity path %q must expose string system and code siblings", base)
-	}
-	return systemPath, codePath, nil
+	return fhirschema.QuantityIdentityPaths(resourceType, valuePath)
 }
 
 func capabilityCandidate(snapshot capability.Snapshot, nodeID, candidateID string) (capability.Candidate, bool) {

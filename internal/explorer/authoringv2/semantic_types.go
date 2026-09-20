@@ -75,6 +75,43 @@ type UnitNormalizationPolicy struct {
 	Version  string `json:"version"`
 }
 
+type AggregateTransformationCapabilities struct {
+	Temporal          TemporalReductionCapabilities `json:"temporalReduction"`
+	UnitNormalization UnitNormalizationCapabilities `json:"unitNormalization"`
+}
+
+type TemporalReductionCapabilities struct {
+	Available       bool                  `json:"available"`
+	ReasonCode      string                `json:"reasonCode,omitempty"`
+	Reason          string                `json:"reason,omitempty"`
+	TimestampFields []TemporalFieldChoice `json:"timestampFields"`
+	AnchorFields    []TemporalFieldChoice `json:"anchorFields"`
+}
+
+type TemporalFieldChoice struct {
+	CandidateID  string `json:"candidateId"`
+	NodeID       string `json:"nodeId"`
+	ResourceType string `json:"resourceType"`
+	FieldPath    string `json:"fieldPath"`
+	Label        string `json:"label"`
+}
+
+type UnitNormalizationCapabilities struct {
+	Available  bool                                `json:"available"`
+	ReasonCode string                              `json:"reasonCode,omitempty"`
+	Reason     string                              `json:"reason,omitempty"`
+	Presets    []UnitNormalizationPresetCapability `json:"presets"`
+}
+
+type UnitNormalizationPresetCapability struct {
+	PolicyID   string            `json:"policyId"`
+	Version    string            `json:"version"`
+	Target     unit.UnitIdentity `json:"target"`
+	Available  bool              `json:"available"`
+	ReasonCode string            `json:"reasonCode,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+}
+
 func (p UnitNormalizationPolicy) Validate() error {
 	return unit.ValidateUnitPolicyReference(p.PolicyID, p.Version)
 }

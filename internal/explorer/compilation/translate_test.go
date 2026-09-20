@@ -904,6 +904,14 @@ func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) 
 
 func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
 	visible := true
+	snapshot := contributorSnapshot()
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "c_observation_value" {
+			snapshot.Candidates[index].ConceptCandidates = []capability.ConceptCandidate{{
+				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"cm"},
+			}}
+		}
+	}
 	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
 		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
@@ -915,10 +923,11 @@ func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
 					TimestampPath: "effectiveDateTime", AnchorPath: "root.meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0,
 					LowerInclusive: true, UpperInclusive: true, Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE",
 				},
+				UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
 			}}, Table: &authoringv2.TablePresentation{Visible: &visible},
 		}},
 	}
-	result, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,11 +935,35 @@ func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
 	if aggregate.Temporal == nil || aggregate.Temporal.Timestamp.Select != "observation.effectiveDateTime" || aggregate.Temporal.Anchor.Select != "root.meta.lastUpdated" || aggregate.Temporal.Direction != recipe.TemporalDescending || aggregate.Temporal.TiePolicy != recipe.TemporalTieRequireUnique {
 		t.Fatalf("temporal aggregate = %#v", aggregate)
 	}
+	if aggregate.UnitNormalization == nil || aggregate.UnitNormalization.Target.Code != "cm" || len(aggregate.UnitNormalization.Rules) == 0 {
+		t.Fatalf("unit-normalized aggregate = %#v", aggregate.UnitNormalization)
+	}
 	emission := result.EmittedColumns[0]
 	if emission.ProjectionMode != "FIRST_ORDERED" || emission.SourcePath != "valueQuantity.value" || emission.SourceResourceType != "Observation" {
 		t.Fatalf("temporal emission = %#v", emission)
 	}
 	if !reflect.DeepEqual(emission.LossReasons, []string{"AGGREGATE_REDUCTION", "TEMPORAL_SELECTION"}) {
 		t.Fatalf("temporal loss reasons = %#v", emission.LossReasons)
+	}
+}
+
+func TestCompileRejectsUnadvertisedUnitNormalization(t *testing.T) {
+	snapshot := contributorSnapshot()
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "c_observation_value" {
+			snapshot.Candidates[index].ConceptCandidates = []capability.ConceptCandidate{{
+				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"},
+			}}
+		}
+	}
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{{Column: "value", Label: "Value", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
+			Operation: "SUM", Path: "valueQuantity.value", UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
+		}}}},
+	}
+	if _, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot); err == nil || !strings.Contains(err.Error(), "UNIT_NORMALIZATION_UNAVAILABLE") {
+		t.Fatalf("incompatible unit policy compile error = %v", err)
 	}
 }

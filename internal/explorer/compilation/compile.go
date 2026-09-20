@@ -557,7 +557,8 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 				ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...), KeySelector: concept.KeySelector,
 				System: concept.System, Code: concept.Code, Display: concept.Display, ValueSelector: concept.ValueSelector,
 				ChoiceArm: concept.ChoiceArm, LogicalType: concept.LogicalType, ObservedUnits: append([]string(nil), concept.ObservedUnits...),
-				Completeness: concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
+				ObservedUnitsTruncated: concept.ObservedUnitsTruncated,
+				Completeness:           concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
 			}
 		}
 		wire := authoringv2.CatalogCandidate{
@@ -577,6 +578,9 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 		}
 		wire.ConstructionChoice = &choice
 		catalog.Candidates = append(catalog.Candidates, wire)
+	}
+	for index := range catalog.Candidates {
+		catalog.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(catalog, catalog.Candidates[index].ID)
 	}
 	return catalog
 }

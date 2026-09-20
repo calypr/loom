@@ -1297,25 +1297,38 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 			}
 		}
 		if source.Aggregate != nil && source.Aggregate.Temporal != nil {
-			timestamp, ok := findCandidate(source.Aggregate.Temporal.TimestampPath)
-			if !ok || !strings.EqualFold(timestamp.LogicalType, "date_time") {
-				return fmt.Errorf("temporal timestamp path %q is not a date_time field for occurrence %q", source.Aggregate.Temporal.TimestampPath, occurrenceID)
+			if !hasSelected {
+				return fmt.Errorf("temporal reduction requires an advertised aggregate candidate")
 			}
-			anchorPath := strings.TrimPrefix(strings.TrimSpace(source.Aggregate.Temporal.AnchorPath), "root.")
+			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, selected.ID)
+			if !transformations.Temporal.Available {
+				return fmt.Errorf("temporal reduction unavailable (%s): %s", transformations.Temporal.ReasonCode, transformations.Temporal.Reason)
+			}
+			timestampPath := canonicalTransformPath(source.Aggregate.Temporal.TimestampPath)
+			if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, timestampPath) {
+				return fmt.Errorf("temporal timestamp path %q is not advertised for occurrence %q", source.Aggregate.Temporal.TimestampPath, occurrenceID)
+			}
+			anchorPath := canonicalTransformPath(source.Aggregate.Temporal.AnchorPath)
 			root := findRoute(&document.Route, RootOccurrenceID)
-			foundAnchor := false
-			if root != nil {
-				for _, candidate := range catalog.Candidates {
-					node, found := catalogNode(catalog, candidate.NodeID)
-					if found && node.ResourceType == root.ResourceType && strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") == anchorPath && strings.EqualFold(candidate.LogicalType, "date_time") {
-						foundAnchor = true
-						break
-					}
+			if root == nil || !transformations.Temporal.SupportsAnchor(root.ResourceType, anchorPath) {
+				return fmt.Errorf("temporal anchor path %q is not advertised for the root resource", source.Aggregate.Temporal.AnchorPath)
+			}
+		}
+		if source.Aggregate != nil && source.Aggregate.UnitNormalization != nil {
+			if !hasSelected {
+				return fmt.Errorf("unit normalization requires an advertised aggregate candidate")
+			}
+			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, selected.ID)
+			for _, preset := range transformations.UnitNormalization.Presets {
+				if preset.PolicyID != source.Aggregate.UnitNormalization.PolicyID || preset.Version != source.Aggregate.UnitNormalization.Version {
+					continue
 				}
+				if !preset.Available {
+					return fmt.Errorf("unit normalization policy %s@%s unavailable (%s): %s", preset.PolicyID, preset.Version, preset.ReasonCode, preset.Reason)
+				}
+				return nil
 			}
-			if !foundAnchor {
-				return fmt.Errorf("temporal anchor path %q is not a root date_time field", source.Aggregate.Temporal.AnchorPath)
-			}
+			return fmt.Errorf("unit normalization policy %s@%s is not advertised for aggregate candidate %q", source.Aggregate.UnitNormalization.PolicyID, source.Aggregate.UnitNormalization.Version, selected.ID)
 		}
 		return nil
 	}

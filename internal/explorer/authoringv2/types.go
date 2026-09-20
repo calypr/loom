@@ -166,6 +166,7 @@ type CatalogCandidate struct {
 	FilterOperators       []string                                  `json:"-"`
 	ChartOperations       []string                                  `json:"-"`
 	AggregateOperations   []capability.AggregateOperationCapability `json:"aggregateOperations,omitempty"`
+	Transformations       AggregateTransformationCapabilities       `json:"transformations"`
 	Populated             bool                                      `json:"-"`
 	Count                 *int64                                    `json:"-"`
 	SuggestionsAvailable  bool                                      `json:"-"`
@@ -178,27 +179,28 @@ type CatalogCandidate struct {
 // ConceptCandidate is an observed structural terminology/value candidate.
 // It is evidence for authoring, not a claim of clinical equivalence.
 type ConceptCandidate struct {
-	SourceResourceType string   `json:"sourceResourceType"`
-	SourcePath         string   `json:"sourcePath,omitempty"`
-	SourceCanonical    string   `json:"sourceCanonical,omitempty"`
-	SourceProfile      string   `json:"sourceProfile,omitempty"`
-	OwningScope        string   `json:"owningScope,omitempty"`
-	ExtensionURLPath   []string `json:"extensionUrlPath,omitempty"`
-	KeySelector        string   `json:"keySelector,omitempty"`
-	System             string   `json:"system,omitempty"`
-	Code               string   `json:"code,omitempty"`
-	Display            string   `json:"display,omitempty"`
-	ValueSelector      string   `json:"valueSelector,omitempty"`
-	ChoiceArm          string   `json:"choiceArm,omitempty"`
-	LogicalType        string   `json:"logicalType,omitempty"`
-	ObservedUnits      []string `json:"observedUnits,omitempty"`
-	Completeness       string   `json:"completeness"`
-	Status             string   `json:"status"`
-	Population         int64    `json:"population"`
-	Examples           []string `json:"examples,omitempty"`
-	ExamplesTruncated  bool     `json:"examplesTruncated,omitempty"`
-	RuleHint           string   `json:"ruleHint,omitempty"`
-	RuleVersion        string   `json:"ruleVersion,omitempty"`
+	SourceResourceType     string   `json:"sourceResourceType"`
+	SourcePath             string   `json:"sourcePath,omitempty"`
+	SourceCanonical        string   `json:"sourceCanonical,omitempty"`
+	SourceProfile          string   `json:"sourceProfile,omitempty"`
+	OwningScope            string   `json:"owningScope,omitempty"`
+	ExtensionURLPath       []string `json:"extensionUrlPath,omitempty"`
+	KeySelector            string   `json:"keySelector,omitempty"`
+	System                 string   `json:"system,omitempty"`
+	Code                   string   `json:"code,omitempty"`
+	Display                string   `json:"display,omitempty"`
+	ValueSelector          string   `json:"valueSelector,omitempty"`
+	ChoiceArm              string   `json:"choiceArm,omitempty"`
+	LogicalType            string   `json:"logicalType,omitempty"`
+	ObservedUnits          []string `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool     `json:"observedUnitsTruncated,omitempty"`
+	Completeness           string   `json:"completeness"`
+	Status                 string   `json:"status"`
+	Population             int64    `json:"population"`
+	Examples               []string `json:"examples,omitempty"`
+	ExamplesTruncated      bool     `json:"examplesTruncated,omitempty"`
+	RuleHint               string   `json:"ruleHint,omitempty"`
+	RuleVersion            string   `json:"ruleVersion,omitempty"`
 }
 
 type RepeatedBoundary struct {
