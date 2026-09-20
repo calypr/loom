@@ -459,6 +459,91 @@ func TestPopulationRoutesApplyAndColumnSourceAreGenericAndReadOnly(t *testing.T)
 	}
 }
 
+func TestPopulationRouteResolutionPreservesPinnedEdgesAndRejectsAmbiguousLegacyRoutes(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	if len(snapshot.Edges) == 0 {
+		t.Fatal("fixture has no capability edges")
+	}
+	routeEdge := snapshot.Edges[0]
+	sourceNode, ok := snapshot.Node(routeEdge.FromNodeID)
+	if !ok {
+		t.Fatalf("fixture edge source %q is missing", routeEdge.FromNodeID)
+	}
+	targetNode, ok := snapshot.Node(routeEdge.ToNodeID)
+	if !ok {
+		t.Fatalf("fixture edge target %q is missing", routeEdge.ToNodeID)
+	}
+	selectionResourceType := targetNode.ResourceType
+	store.selection = completedTestSelection(snapshot, selectionResourceType)
+	workspaceForRoute := func(t *testing.T, route authoringv2.PopulationRouteStep) authoringv2.Workspace {
+		t.Helper()
+		workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workspace.Documents[0].Population = &authoringv2.Population{
+			SelectionRevisionID: "selection-1",
+			Route:               []authoringv2.PopulationRouteStep{route},
+		}
+		return workspace
+	}
+	resolve := func(workspace authoringv2.Workspace, current capability.Snapshot) error {
+		_, err := service.resolveWorkspacePopulations(context.Background(), "project-a", workspace, current, snapshot.Identity.AuthorizationScopeDigest)
+		return err
+	}
+	snapshotWithEdges := func(edges []capability.Edge) capability.Snapshot {
+		return capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated,
+			snapshot.Nodes, edges, snapshot.Candidates, snapshot.Diagnostics)
+	}
+	step := authoringv2.PopulationRouteStep{
+		ResourceType: targetNode.ResourceType, Relationship: routeEdge.Label, CatalogEdgeID: routeEdge.ID,
+	}
+
+	t.Run("stale pin does not fall back to a same-labeled replacement", func(t *testing.T) {
+		replacement := routeEdge
+		replacement.ID = "replacement-edge"
+		current := snapshotWithEdges([]capability.Edge{replacement})
+		want := `catalog edge "` + routeEdge.ID + `" is unavailable`
+		if err := resolve(workspaceForRoute(t, step), current); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("stale pinned population route error = %v", err)
+		}
+	})
+
+	t.Run("pinned id must still identify the same route step", func(t *testing.T) {
+		edges := append([]capability.Edge(nil), snapshot.Edges...)
+		edges[0].Label = "substituted-relationship"
+		current := snapshotWithEdges(edges)
+		want := `catalog edge "` + routeEdge.ID + `" no longer identifies this route step`
+		if err := resolve(workspaceForRoute(t, step), current); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("substituted pinned population route error = %v", err)
+		}
+	})
+
+	t.Run("unique legacy route remains resolvable", func(t *testing.T) {
+		legacyStep := step
+		legacyStep.CatalogEdgeID = ""
+		resolved, _, err := resolvePopulationRouteEdge(snapshot, routeEdge.FromNodeID, sourceNode.ResourceType, legacyStep)
+		if err != nil || resolved.ID != routeEdge.ID {
+			t.Fatalf("unique legacy route resolved edge=%#v err=%v", resolved, err)
+		}
+		if err := resolve(workspaceForRoute(t, legacyStep), snapshotWithEdges(snapshot.Edges)); err != nil {
+			t.Fatalf("unique legacy population route was rejected: %v", err)
+		}
+	})
+
+	t.Run("ambiguous legacy route fails explicitly", func(t *testing.T) {
+		parallel := routeEdge
+		parallel.ID = "replacement-edge"
+		edges := append(append([]capability.Edge(nil), snapshot.Edges...), parallel)
+		current := snapshotWithEdges(edges)
+		legacyStep := step
+		legacyStep.CatalogEdgeID = ""
+		if err := resolve(workspaceForRoute(t, legacyStep), current); err == nil || !strings.Contains(err.Error(), "semantic tuple resolves to multiple catalog edges") {
+			t.Fatalf("ambiguous legacy population route error = %v", err)
+		}
+	})
+}
+
 func TestPopulationRouteChoicePersistsExactParallelEdgeAndReloads(t *testing.T) {
 	store, service, snapshot, catalog, _ := inboundPatientObservationRouteFixture(t)
 	snapshot, _ = addParallelObservationRoute(service, snapshot, catalog)
