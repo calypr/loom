@@ -139,11 +139,11 @@ func recipeExpressionContexts(output semantic.OutputPlan) map[string]string {
 		}
 	}
 	walk(output.Root)
-	if unnest := recipeUnnest(output); unnest != nil && unnest.Source.Expression.Selector != nil {
-		selector := unnest.Source.Expression.Selector
+	if expansion := recipeRowExpansion(output); expansion != nil && expansion.Source.Expression.Selector != nil {
+		selector := expansion.Source.Expression.Selector
 		path := strings.TrimSuffix(strings.TrimPrefix(selector.Path, "."), "[]")
-		if semantics, ok := fhirschema.ResolveFieldSemantics(output.RootResourceType, path+"[]"); ok && semantics.Reference != "" {
-			contexts[unnest.As] = semantics.Reference
+		if semantics, ok := fhirschema.ResolveFieldSemantics(expansion.Owner.ResourceType, path+"[]"); ok && semantics.Reference != "" {
+			contexts[expansion.ItemBinding] = semantics.Reference
 		}
 	}
 	return contexts
@@ -242,24 +242,37 @@ func appendRecipeIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) err
 	return fmt.Errorf("canonical plan has no RETURN operation for identity")
 }
 
-func recipeUnnest(output semantic.OutputPlan) *semantic.SemanticUnnest {
-	if output.Unnest != nil {
-		copy := *output.Unnest
+func recipeRowExpansion(output semantic.OutputPlan) *semantic.SemanticRowExpansion {
+	if output.RowExpansion != nil {
+		copy := *output.RowExpansion
 		return &copy
 	}
 	return nil
 }
 
-func appendRecipeUnnest(plan *ir.PhysicalPlan, unnest semantic.SemanticUnnest, resourceType string) error {
-	if err := unnest.Validate(); err != nil {
-		return fmt.Errorf("unnest: %w", err)
+func appendRecipeRowExpansion(plan *ir.PhysicalPlan, expansion semantic.SemanticRowExpansion, resourceType string) error {
+	if err := expansion.Validate(); err != nil {
+		return fmt.Errorf("row expansion: %w", err)
 	}
-	expression, err := lowerRecipeExpressionScoped(unnest.Source.Expression, plan.BindVars, resourceType, map[string]string{"root": resourceType})
+	if expansion.Owner.Alias != "root" {
+		return fmt.Errorf("row expansion owner %q is not yet available to root-only lowering", expansion.Owner.Alias)
+	}
+	expression, err := lowerRecipeExpressionScoped(expansion.Source.Expression, plan.BindVars, resourceType, map[string]string{"root": resourceType})
 	if err != nil {
-		return fmt.Errorf("unnest source: %w", err)
+		return fmt.Errorf("row expansion source: %w", err)
 	}
-	joinMode := ir.PhysicalUnnestJoinMode(unnest.JoinMode)
-	operation := ir.PhysicalOperation{Kind: ir.PhysicalUnnestOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "expand"}, Unnest: &ir.PhysicalUnnest{InputVariable: "root", OutputVariable: unnest.As, Ordinality: unnest.Ordinality, Expression: expression, JoinMode: joinMode}}
+	var joinMode ir.PhysicalUnnestJoinMode
+	switch expansion.EmptyPolicy {
+	case semantic.ExpansionExclude:
+		joinMode = ir.PhysicalUnnestInner
+	case semantic.ExpansionPreserveParent:
+		joinMode = ir.PhysicalUnnestOuter
+	case semantic.ExpansionError:
+		return fmt.Errorf("ERROR empty policy requires the enriched physical expansion renderer")
+	default:
+		return fmt.Errorf("unsupported row expansion empty policy %q", expansion.EmptyPolicy)
+	}
+	operation := ir.PhysicalOperation{Kind: ir.PhysicalUnnestOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "expand"}, Unnest: &ir.PhysicalUnnest{InputVariable: "root", OutputVariable: expansion.ItemBinding, Ordinality: expansion.Ordinality, Expression: expression, JoinMode: joinMode}}
 	// Place the cardinality barrier immediately after root qualification and
 	// before any child set materialization.  This ensures child operations can
 	// never accidentally consume an item binding from a later scope.

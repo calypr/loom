@@ -11,6 +11,7 @@ import (
 // dataframe frontend. Runtime request provenance belongs in ExecutionContext,
 // while output-specific shaping belongs in OutputPlan.
 type SemanticNode struct {
+	OccurrenceID string
 	Alias        string
 	ResourceType string
 	EdgeLabel    string

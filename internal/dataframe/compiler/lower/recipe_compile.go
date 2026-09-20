@@ -168,8 +168,8 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := appendRecipeIdentity(&physical, output); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if unnest := recipeUnnest(output); unnest != nil {
-		if err := appendRecipeUnnest(&physical, *unnest, output.RootResourceType); err != nil {
+	if expansion := recipeRowExpansion(output); expansion != nil {
+		if err := appendRecipeRowExpansion(&physical, *expansion, output.RootResourceType); err != nil {
 			return CompiledRecipeOutput{}, err
 		}
 	}

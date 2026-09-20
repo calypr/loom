@@ -30,7 +30,11 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		}
 	}
 	scope := newRootScope(output.RootResourceType)
+	var rowExpansion *SemanticRowExpansion
 	if output.Expand != nil {
+		if ownerID := output.Expand.OwnerOccurrenceID; ownerID != "" && ownerID != output.RootOccurrenceID {
+			return OutputPlan{}, fmt.Errorf("expand owner occurrence %q does not identify the root occurrence %q", ownerID, output.RootOccurrenceID)
+		}
 		// The source is checked in the parent lexical scope first, then its
 		// selector path becomes the prefix for the expansion item alias.
 		from, err := scope.expression(output.Expand.From, "expand.from")
@@ -57,11 +61,15 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		if err != nil {
 			return OutputPlan{}, err
 		}
-		unnest := &SemanticUnnest{Source: from, As: output.Expand.As, JoinMode: UnnestInner}
-		if err := unnest.Validate(); err != nil {
+		rowExpansion = &SemanticRowExpansion{
+			Owner:  SemanticOccurrence{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType},
+			Source: from, ItemBinding: output.Expand.As, Ordinality: output.Expand.Ordinality,
+			EmptyPolicy: ExpansionEmptyPolicy(output.Expand.EmptyPolicy.Normalized()),
+		}
+		if err := rowExpansion.Validate(); err != nil {
 			return OutputPlan{}, fmt.Errorf("expand: %w", err)
 		}
-		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy, Unnest: unnest}
+		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy, RowExpansion: rowExpansion}
 		return finishRecipeOutput(plan, output, scope)
 	}
 	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
@@ -96,7 +104,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 	for _, projection := range output.CatalogProjections {
 		plan.CatalogProjections = append(plan.CatalogProjections, projection.Name)
 	}
-	plan.Root = SemanticNode{Alias: "root", ResourceType: output.RootResourceType, Fields: make([]SemanticField, 0, len(output.Fields))}
+	plan.Root = SemanticNode{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType, Fields: make([]SemanticField, 0, len(output.Fields))}
 	rootFilters, err := LowerRecipeFilters(output.RootResourceType, output.Filters)
 	if err != nil {
 		return OutputPlan{}, fmt.Errorf("root filters: %w", err)
@@ -125,14 +133,21 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 		plan.Root.Children = append(plan.Root.Children, child)
 	}
 	if output.Identity != nil {
-		x, err := scope.expression(output.Identity.Expr, "identity.expr")
-		if err != nil {
-			return OutputPlan{}, err
+		if output.Identity.Expansion != nil {
+			if plan.RowExpansion == nil {
+				return OutputPlan{}, fmt.Errorf("expansion identity requires an output row expansion")
+			}
+			plan.ExpansionIdentity = true
+		} else {
+			x, err := scope.expression(output.Identity.Expr, "identity.expr")
+			if err != nil {
+				return OutputPlan{}, err
+			}
+			if x.Type.Cardinality == expression.Many || x.Type.Kind == expression.KindObject || x.Type.Kind == expression.KindNull {
+				return OutputPlan{}, fmt.Errorf("identity expression must resolve to one scalar value")
+			}
+			plan.Identity = &x
 		}
-		if x.Type.Cardinality == expression.Many || x.Type.Kind == expression.KindObject || x.Type.Kind == expression.KindNull {
-			return OutputPlan{}, fmt.Errorf("identity expression must resolve to one scalar value")
-		}
-		plan.Identity = &x
 	}
 	dynamicMaps, err := buildRecipeDynamicMaps(output.DynamicColumns, scope, "dynamicColumns", "", output.RootResourceType)
 	if err != nil {
@@ -166,7 +181,7 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s.matchMode: %w", path, err)
 	}
-	node := SemanticNode{Alias: alias, ResourceType: input.ToResourceType, EdgeLabel: input.Name, MatchMode: matchMode}
+	node := SemanticNode{OccurrenceID: input.OccurrenceID, Alias: alias, ResourceType: input.ToResourceType, EdgeLabel: input.Name, MatchMode: matchMode}
 	dynamicMaps, err := buildRecipeDynamicMaps(input.DynamicColumns, scope, path+".dynamicColumns", alias, input.ToResourceType)
 	if err != nil {
 		return SemanticNode{}, err

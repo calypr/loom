@@ -34,40 +34,42 @@ func TestRecipePlanStoresRootProjectionOrderOnlyOnRootNode(t *testing.T) {
 	}
 }
 
-func TestSemanticUnnestRejectsNonRepeatedAndUnsafeBindings(t *testing.T) {
-	base := SemanticUnnest{
-		Source: SemanticExpression{Type: expression.Type{Kind: expression.KindString, Cardinality: expression.OptionalOne}},
-		As:     "item", JoinMode: UnnestInner,
+func TestSemanticRowExpansionRejectsInvalidSourceAndBindings(t *testing.T) {
+	base := SemanticRowExpansion{
+		Owner:       SemanticOccurrence{OccurrenceID: "root-1", Alias: "root", ResourceType: "Patient"},
+		Source:      SemanticExpression{Type: expression.Type{Kind: expression.KindString, Cardinality: expression.OptionalOne}},
+		ItemBinding: "item", EmptyPolicy: ExpansionExclude,
 	}
 	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "repeated") {
 		t.Fatalf("expected repeated-source validation error, got %v", err)
 	}
 	base.Source.Type.Cardinality = expression.Many
-	base.As = "item.value"
+	base.ItemBinding = "item.value"
 	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "safe logical name") {
 		t.Fatalf("expected safe-binding validation error, got %v", err)
 	}
 }
 
-func TestSemanticUnnestOuterModeAndOrdinalityAreExplicit(t *testing.T) {
-	unnest := SemanticUnnest{
-		Source: SemanticExpression{Type: expression.Type{Kind: expression.KindObject, Cardinality: expression.Many}},
-		As:     "item", Ordinality: "item_index", JoinMode: UnnestOuter,
+func TestSemanticRowExpansionPoliciesAndOrdinalityAreExplicit(t *testing.T) {
+	for _, policy := range []ExpansionEmptyPolicy{ExpansionError, ExpansionExclude, ExpansionPreserveParent} {
+		expansion := SemanticRowExpansion{
+			Owner:       SemanticOccurrence{OccurrenceID: "root-1", Alias: "root", ResourceType: "Patient"},
+			Source:      SemanticExpression{Type: expression.Type{Kind: expression.KindObject, Cardinality: expression.Many}},
+			ItemBinding: "item", Ordinality: "item_index", EmptyPolicy: policy,
+		}
+		if err := expansion.Validate(); err != nil {
+			t.Fatalf("policy %q: %v", policy, err)
+		}
+		if expansion.EmptyPolicy != policy || expansion.Ordinality != "item_index" {
+			t.Fatalf("row expansion policy/ordinality changed: %#v", expansion)
+		}
 	}
-	if err := unnest.Validate(); err != nil {
-		t.Fatal(err)
+	expansion := SemanticRowExpansion{
+		Owner:       SemanticOccurrence{OccurrenceID: "root-1", Alias: "root", ResourceType: "Patient"},
+		Source:      SemanticExpression{Type: expression.Type{Kind: expression.KindObject, Cardinality: expression.Many}},
+		ItemBinding: "item", Ordinality: "item", EmptyPolicy: ExpansionExclude,
 	}
-	if unnest.JoinMode != UnnestOuter || unnest.Ordinality != "item_index" {
-		t.Fatalf("unnest mode/ordinality changed: %#v", unnest)
-	}
-}
-
-func TestSemanticUnnestRejectsBindingCollision(t *testing.T) {
-	unnest := SemanticUnnest{
-		Source: SemanticExpression{Type: expression.Type{Kind: expression.KindObject, Cardinality: expression.Many}},
-		As:     "item", Ordinality: "item", JoinMode: UnnestInner,
-	}
-	if err := unnest.Validate(); err == nil || !strings.Contains(err.Error(), "differ") {
+	if err := expansion.Validate(); err == nil || !strings.Contains(err.Error(), "differ") {
 		t.Fatalf("expected ordinality collision error, got %v", err)
 	}
 }
@@ -103,5 +105,36 @@ func TestRecipeRejectsRepeatedIdentity(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "x", TranslationVersion: "1", Outputs: []recipe.Output{{Name: "x", RootResourceType: "Patient", RowGrain: "expanded", Expand: &recipe.Expansion{From: recipe.Expression{Select: "identifier[]"}, As: "item"}, Identity: &recipe.Identity{Name: "id", Expr: recipe.Expression{Select: "root.identifier[].value"}}}}}
 	if _, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), "scalar") {
 		t.Fatalf("expected scalar identity error, got %v", err)
+	}
+}
+
+func TestRootOccurrenceExpansionAndTypedIdentity(t *testing.T) {
+	bundle, err := recipe.Parse([]byte(`{"recipeSchemaVersion":1,"name":"root-expansion","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rootOccurrenceId":"patient-root","rowGrain":"expanded","expand":{"ownerOccurrenceId":"patient-root","from":{"select":"root.identifier[]"},"as":"item","ordinality":"position","emptyPolicy":"PRESERVE_PARENT"},"identity":{"name":"row","expansion":{}}}]} `))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := plan.Outputs[0]
+	if output.Root.OccurrenceID != "patient-root" || output.RowExpansion == nil {
+		t.Fatalf("root expansion was not bound to its occurrence: %#v", output)
+	}
+	if got := output.RowExpansion.Owner; got != (SemanticOccurrence{OccurrenceID: "patient-root", Alias: "root", ResourceType: "Patient"}) {
+		t.Fatalf("row expansion owner = %#v", got)
+	}
+	if output.RowExpansion.ItemBinding != "item" || output.RowExpansion.Ordinality != "position" || output.RowExpansion.EmptyPolicy != ExpansionPreserveParent {
+		t.Fatalf("row expansion details = %#v", output.RowExpansion)
+	}
+	if !output.ExpansionIdentity || output.Identity != nil {
+		t.Fatalf("expansion identity was not represented as a distinct alternative: %#v", output)
+	}
+}
+
+func TestRootExpansionRejectsStaleOwnerOccurrence(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "stale-owner", TranslationVersion: "1", Outputs: []recipe.Output{{Name: "x", RootResourceType: "Patient", RootOccurrenceID: "current-root", RowGrain: "expanded", Expand: &recipe.Expansion{OwnerOccurrenceID: "stale-root", From: recipe.Expression{Select: "identifier[]"}, As: "item"}, Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}}}}}
+	if _, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), "does not identify the root occurrence") {
+		t.Fatalf("expected stale owner occurrence rejection, got %v", err)
 	}
 }
