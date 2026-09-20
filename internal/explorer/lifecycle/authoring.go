@@ -23,6 +23,8 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		return nil, malformed("commands", err.Error(), err)
 	}
 	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
+	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
+	var rowDefinitionCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	populationRouteCount := 0
 	for _, command := range request.Commands {
@@ -106,6 +108,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.preparePopulationRouteChoices(ctx, project, authorized, populationRouteIdentities, workspace, commands)
 		}
+	} else if rowDefinitionProposalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			prepared, receipt, prepareErr := s.prepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			rowDefinitionCandidate = receipt
+			return prepared, prepareErr
+		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
@@ -114,7 +122,13 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		if _, validationErr := s.resolveWorkspaceInterpretations(ctx, project, workspace, snapshot); validationErr != nil {
 			return validationErr
 		}
-		return s.validateInterpretationCandidateCommands(ctx, project, explorerID, request, workspace, snapshot)
+		if err := s.validateInterpretationCandidateCommands(ctx, project, explorerID, request, workspace, snapshot); err != nil {
+			return err
+		}
+		if rowDefinitionProposalCommand {
+			return s.checkRowDefinitionProposalResult(workspace, rowDefinitionCandidate)
+		}
+		return nil
 	})
 	switch {
 	case errors.Is(err, explorer.ErrDraftConflict):
@@ -238,7 +252,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -278,6 +292,9 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 			return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
 		}
 	}
+	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
+	}
 	if authorized.Scope.Mode != "" {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 			return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
@@ -297,6 +314,21 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 		return unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "persisted compilation receipt failed integrity validation", err)
 	}
 	return nil
+}
+
+func sameRowDefinitionProposalBinding(left, right *explorer.RowDefinitionProposalBinding) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func cloneRowDefinitionProposalBinding(binding *explorer.RowDefinitionProposalBinding) *explorer.RowDefinitionProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*explorer.CompilationReceipt, error) {

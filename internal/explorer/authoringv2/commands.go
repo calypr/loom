@@ -299,8 +299,13 @@ func (r ApplyCommandsRequest) Validate() error {
 	if constructionChoiceCommandCount > 0 && (constructionChoiceCommandCount != len(r.Commands) || constructionChoiceCommandCount > 100) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE commands must form the entire request and contain at most 100 choices")
 	}
-	if rowDefinitionProposalCommandCount > 0 && (rowDefinitionProposalCommandCount != 1 || len(r.Commands) != 1) {
-		return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request")
+	if rowDefinitionProposalCommandCount > 0 {
+		if rowDefinitionProposalCommandCount != 1 || len(r.Commands) != 1 {
+			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request")
+		}
+		if r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest) {
+			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires an exact expected draft version and digest")
+		}
 	}
 	return nil
 }

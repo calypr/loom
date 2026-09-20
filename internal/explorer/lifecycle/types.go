@@ -53,6 +53,7 @@ type CompileReceiptRequest struct {
 	Authorized                 AuthorizedCapability
 	ResolvedInputs             explorercompilation.ResolvedInputs
 	SelectionMembersCollection string
+	RowDefinitionProposal      *explorer.RowDefinitionProposalBinding
 }
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
@@ -126,6 +127,8 @@ type Config struct {
 	// after Capability.ForExecution has established project and scope.
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
+	RowChoiceResolver           RowChoiceResolver
+	ExplicitGroupResolver       ExplicitGroupRevisionResolver
 
 	CompileReceipt               ReceiptCompiler
 	PreviewReceipt               ReceiptPreviewer
@@ -182,11 +185,12 @@ type BuilderRequest struct {
 }
 
 type compileRequest struct {
-	Project       string
-	ExplorerID    string
-	Workspace     authoringv2.Workspace
-	SnapshotToken string
-	RequestID     string
+	Project               string
+	ExplorerID            string
+	Workspace             authoringv2.Workspace
+	SnapshotToken         string
+	RequestID             string
+	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
 }
 
 type ReconcileRequest struct {

@@ -71,6 +71,67 @@ func TestCompilationReceiptIdentityIncludesDurableColumnProvenance(t *testing.T)
 	}
 }
 
+func TestCompilationReceiptIdentityIncludesRowDefinitionProposalBinding(t *testing.T) {
+	base := testReceipt()
+	base.IntentDigest = "sha256:candidate"
+	base.RowDefinitionProposal = &RowDefinitionProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
+		SnapshotToken: base.SnapshotToken,
+	}
+	base.CompilationKey, _ = CompilationKey(base)
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []struct {
+		name   string
+		change func(*RowDefinitionProposalBinding)
+	}{
+		{name: "draft version", change: func(binding *RowDefinitionProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *RowDefinitionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *RowDefinitionProposalBinding) { binding.OutputID = "other" }},
+		{name: "base document", change: func(binding *RowDefinitionProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
+		{name: "candidate workspace", change: func(binding *RowDefinitionProposalBinding) {
+			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
+		}},
+		{name: "snapshot", change: func(binding *RowDefinitionProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			binding := *base.RowDefinitionProposal
+			test.change(&binding)
+			changed.RowDefinitionProposal = &binding
+			key, keyErr := CompilationKey(changed)
+			if keyErr != nil {
+				t.Fatal(keyErr)
+			}
+			changed.CompilationKey = key
+			id, idErr := ReceiptID(changed)
+			if idErr != nil {
+				t.Fatal(idErr)
+			}
+			if id == first {
+				t.Fatal("row-definition proposal binding did not change receipt identity")
+			}
+		})
+	}
+}
+
+func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing.T) {
+	receipt := testReceipt()
+	receipt.IntentDigest = "sha256:candidate"
+	receipt.RowDefinitionProposal = &RowDefinitionProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
+		SnapshotToken: receipt.SnapshotToken,
+	}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted proposal binding for a different candidate workspace")
+	}
+}
+
 func TestCompilationReceiptRejectsV2V7Contract(t *testing.T) {
 	receipt := testReceipt()
 	receipt.ReceiptFormatVersion = 2

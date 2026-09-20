@@ -10,7 +10,7 @@ import (
 func TestApplyRowDefinitionProposalValidatesClosedCommand(t *testing.T) {
 	base := ApplyCommandsRequest{
 		CommandID: "command-1", SemanticsVersion: CurrentSemanticsVersion,
-		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3,
+		SnapshotToken: "snapshot-1", ExpectedDraftVersion: 3, ExpectedDraftDigest: "sha256:draft",
 		Commands: []Command{{Type: CommandApplyRowDefinitionProposal, OutputID: "patients", ProposalID: "receipt-1"}},
 	}
 	if err := base.Validate(); err != nil {
